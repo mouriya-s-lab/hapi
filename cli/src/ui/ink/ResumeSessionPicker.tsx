@@ -106,7 +106,7 @@ export const ResumeSessionPicker: React.FC<ResumeSessionPickerProps> = ({
     const { stdout } = useStdout()
     const terminalWidth = stdout.columns || 80
     const terminalHeight = stdout.rows || 24
-    const visibleCount = Math.min(18, Math.max(5, terminalHeight - 8))
+    const visibleCount = Math.max(5, terminalHeight - 8)
     const [state, setState] = useState<PickerState>({
         query: '',
         selectedIndex: 0,
