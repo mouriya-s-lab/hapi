@@ -46,10 +46,3 @@ jobs:
                       --title "Release ${GITHUB_REF#refs/tags/}" \
                       --generate-notes \
                       cli/release-artifacts/*
-            - name: Update Homebrew formula
-              continue-on-error: true
-              env:
-                  GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-              run: |
-                  VERSION="${GITHUB_REF#refs/tags/v}"
-                  cd cli && bun run update-homebrew-formula --version "$VERSION" --push
