@@ -291,6 +291,38 @@ describe('session model', () => {
         })
     })
 
+    it('does not advance updatedAt on agent_state updates, but message activity does (fork #5/#2)', () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+
+        const session = cache.getOrCreateSession(
+            'session-agent-state-no-touch',
+            { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
+            null,
+            'default'
+        )
+        const before = store.sessions.getSession(session.id)!.updatedAt
+        const versionBefore = store.sessions.getSession(session.id)!.agentStateVersion
+
+        // agent_state churn (thinking / internal request changes) must NOT advance updatedAt
+        const result = store.sessions.updateSessionAgentState(
+            session.id,
+            { requests: { r1: { tool: 'Bash' } } },
+            versionBefore,
+            'default'
+        )
+        expect(result.result).toBe('success')
+        const after = store.sessions.getSession(session.id)!
+        expect(after.agentStateVersion).toBe(versionBefore + 1) // the update really happened
+        expect(after.updatedAt).toBe(before) // ...but updatedAt did not move
+
+        // a real message/reply still advances updatedAt ("time since last reply")
+        const activityAt = before + 60_000
+        cache.recordSessionActivity(session.id, activityAt)
+        expect(store.sessions.getSession(session.id)!.updatedAt).toBe(activityAt)
+    })
+
     it('rejects active session config updates when CLI ignores requested keys', async () => {
         const store = new Store(':memory:')
         const engine = new SyncEngine(
