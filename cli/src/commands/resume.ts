@@ -9,6 +9,7 @@ import type {
     CursorPermissionMode,
     GeminiPermissionMode,
     KimiPermissionMode,
+    OmpPermissionMode,
     OpencodePermissionMode
 } from '@hapi/protocol/types'
 import { ApiClient } from '@/api/api'
@@ -139,6 +140,20 @@ async function dispatchLocalResume(target: LocalResumeTarget): Promise<void> {
             resumeSessionId: base.resumeSessionId,
             startedBy: base.startedBy,
             permissionMode: base.permissionMode as KimiPermissionMode | undefined,
+            startingMode: 'local',
+            model: target.model ?? undefined
+        })
+        return
+    }
+
+    if (target.flavor === 'omp') {
+        const { runOmp } = await import('@/omp/runOmp')
+        await runOmp({
+            existingSessionId: base.existingSessionId,
+            workingDirectory: base.workingDirectory,
+            resumeSessionId: base.resumeSessionId,
+            startedBy: base.startedBy,
+            permissionMode: base.permissionMode as OmpPermissionMode | undefined,
             startingMode: 'local',
             model: target.model ?? undefined
         })
