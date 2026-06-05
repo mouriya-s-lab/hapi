@@ -105,6 +105,11 @@ export function getModelOptionsForFlavor(
     if (flavor === 'kimi') {
         return withCurrentModelOption([{ value: null, label: 'Default' }], currentModel)
     }
+    // omp resolves its own model from ~/.omp config across 40+ providers — no
+    // predefined hapi list, so show just the auto/default option.
+    if (flavor === 'omp') {
+        return withCurrentModelOption([{ value: null, label: 'Default' }], currentModel)
+    }
     return getClaudeModelOptions(currentModel)
 }
 
@@ -144,6 +149,9 @@ export function getNextModelForFlavor(
         return normalizeCurrentModel(currentModel)
     }
     if (flavor === 'kimi') {
+        return normalizeCurrentModel(currentModel)
+    }
+    if (flavor === 'omp') {
         return normalizeCurrentModel(currentModel)
     }
     return getNextClaudeComposerModel(currentModel)
