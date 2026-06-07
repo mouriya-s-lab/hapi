@@ -14,8 +14,8 @@
 
 import { test, expect, Page } from '@playwright/test'
 
-async function gotoPreview(page: Page, file: string): Promise<void> {
-    await page.goto(`/e2e-fixtures/tool-file-preview-fixture.html?file=${encodeURIComponent(file)}`)
+async function gotoPreview(page: Page, file: string, tool: 'read' | 'write' = 'read'): Promise<void> {
+    await page.goto(`/e2e-fixtures/tool-file-preview-fixture.html?tool=${tool}&file=${encodeURIComponent(file)}`)
     await expect(page.getByTestId('tool-file-preview-host')).toBeVisible()
 }
 
@@ -62,6 +62,29 @@ test.describe('tool file preview — word wrap', () => {
 
     test('non-markdown files do not show the preview/raw toggle', async ({ page }) => {
         await gotoPreview(page, 'notes.txt')
+
+        await expect(page.getByTestId('file-raw-pre')).toBeVisible()
+        await expect(page.getByTestId('md-preview-toggle')).toHaveCount(0)
+        await expect(page.getByTestId('word-wrap-toggle')).toBeVisible()
+    })
+})
+
+// The Write tool also produces a file-preview popup in chat (it outputs a file);
+// its DRAFT/input view must offer the same toggles as Read.
+test.describe('tool file preview — Write surface', () => {
+    test('md write shows markdown preview + preview/raw toggle', async ({ page }) => {
+        await gotoPreview(page, 'README.md', 'write')
+
+        await expect(page.getByTestId('md-preview')).toBeVisible()
+        await expect(page.getByTestId('md-raw-toggle')).toBeVisible()
+
+        await page.getByTestId('md-raw-toggle').click()
+        await expect(page.getByTestId('file-raw-pre')).toBeVisible()
+        await expect(page.getByTestId('word-wrap-toggle')).toBeVisible()
+    })
+
+    test('txt write shows only the word-wrap toggle', async ({ page }) => {
+        await gotoPreview(page, 'notes.txt', 'write')
 
         await expect(page.getByTestId('file-raw-pre')).toBeVisible()
         await expect(page.getByTestId('md-preview-toggle')).toHaveCount(0)

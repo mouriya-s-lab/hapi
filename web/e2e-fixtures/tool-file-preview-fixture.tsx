@@ -25,6 +25,7 @@ import { AppContextProvider } from '../src/lib/app-context'
 import type { ApiClient } from '../src/api/client'
 import type { ToolCallBlock } from '../src/chat/types'
 import { getToolResultViewComponent } from '../src/components/ToolCard/views/_results'
+import { getToolFullViewComponent } from '../src/components/ToolCard/views/_all'
 
 const MARKDOWN_SAMPLE = `# Markdown preview heading
 
@@ -56,7 +57,37 @@ function getTargetFile(): string {
     return url.searchParams.get('file') ?? 'README.md'
 }
 
-function buildBlock(targetFile: string): ToolCallBlock {
+// `?tool=read` (default) exercises the Read result view; `?tool=write` exercises
+// the Write input/DRAFT view. Both render at surface="dialog" and must offer the
+// same FileContentToggleView, since both Read and Write produce a file-preview
+// popup in chat ("对话中输出的文件").
+function getTool(): 'read' | 'write' {
+    const url = new URL(window.location.href)
+    return url.searchParams.get('tool') === 'write' ? 'write' : 'read'
+}
+
+function buildBlock(targetFile: string, tool: 'read' | 'write'): ToolCallBlock {
+    const content = contentForPath(targetFile)
+    if (tool === 'write') {
+        return {
+            id: 'tool-write',
+            localId: null,
+            createdAt: 0,
+            kind: 'tool-call',
+            children: [],
+            tool: {
+                id: 'tool-write',
+                name: 'Write',
+                state: 'completed',
+                input: { file_path: targetFile, content },
+                result: { ok: true },
+                createdAt: 0,
+                startedAt: null,
+                completedAt: 0,
+                description: null,
+            },
+        }
+    }
     return {
         id: 'tool-read',
         localId: null,
@@ -68,7 +99,7 @@ function buildBlock(targetFile: string): ToolCallBlock {
             name: 'Read',
             state: 'completed',
             input: { file_path: targetFile },
-            result: { file: { filePath: targetFile, content: contentForPath(targetFile) } },
+            result: { file: { filePath: targetFile, content } },
             createdAt: 0,
             startedAt: null,
             completedAt: 0,
@@ -85,15 +116,21 @@ const queryClient = new QueryClient({
 
 function App() {
     const targetFile = React.useMemo(() => getTargetFile(), [])
-    const block = React.useMemo(() => buildBlock(targetFile), [targetFile])
+    const tool = React.useMemo(() => getTool(), [])
+    const block = React.useMemo(() => buildBlock(targetFile, tool), [targetFile, tool])
     const ResultView = getToolResultViewComponent('Read')
+    const WriteView = getToolFullViewComponent('Write')
 
     return (
         <QueryClientProvider client={queryClient}>
             <I18nProvider>
                 <AppContextProvider value={{ api, token: 'e2e', baseUrl: 'http://localhost' }}>
                     <div data-testid="tool-file-preview-host" style={{ padding: 16 }}>
-                        <ResultView block={block} metadata={null} surface="dialog" />
+                        {tool === 'write' && WriteView ? (
+                            <WriteView block={block} metadata={null} surface="dialog" />
+                        ) : (
+                            <ResultView block={block} metadata={null} surface="dialog" />
+                        )}
                     </div>
                 </AppContextProvider>
             </I18nProvider>
