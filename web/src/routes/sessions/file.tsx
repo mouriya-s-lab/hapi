@@ -13,6 +13,17 @@ import { langAlias, useShikiHighlighter } from '@/lib/shiki'
 import { useTranslation } from '@/lib/use-translation'
 import { decodeBase64 } from '@/lib/utils'
 import { ImagePreview } from '@/components/ImagePreview'
+import { FileMarkdownView } from '@/components/FileMarkdownView'
+import { useFileWordWrap, useFileMarkdownPreview } from '@/hooks/useFileViewPrefs'
+
+const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown', 'mdown', 'mkd', 'mkdn', 'mdwn'])
+
+function isMarkdownPath(path: string): boolean {
+    const parts = path.split('.')
+    if (parts.length <= 1) return false
+    const ext = parts[parts.length - 1]?.toLowerCase()
+    return ext ? MARKDOWN_EXTENSIONS.has(ext) : false
+}
 
 const MAX_COPYABLE_FILE_BYTES = 1_000_000
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
@@ -207,6 +218,17 @@ export default function FilePage() {
         && contentSizeBytes <= MAX_COPYABLE_FILE_BYTES
 
     const [displayMode, setDisplayMode] = useState<'diff' | 'file'>('diff')
+    const [wordWrap, setWordWrap] = useFileWordWrap()
+    const [markdownPreview, setMarkdownPreview] = useFileMarkdownPreview()
+
+    const isMarkdownFile = useMemo(() => isMarkdownPath(filePath), [filePath])
+    const showFileTextContent = displayMode === 'file'
+        && fileContentResult?.success === true
+        && !imagePreviewUrl
+        && !binaryFile
+        && decodedContent.length > 0
+    const renderMarkdownPreview = showFileTextContent && isMarkdownFile && markdownPreview
+    const showWordWrapToggle = showFileTextContent && !renderMarkdownPreview
 
     useEffect(() => {
         if (imageMimeType) {
@@ -284,6 +306,48 @@ export default function FilePage() {
                 </div>
             ) : null}
 
+            {showFileTextContent && (isMarkdownFile || showWordWrapToggle) ? (
+                <div className="bg-[var(--app-bg)]">
+                    <div className="mx-auto w-full max-w-content px-3 py-2 flex items-center gap-2 border-b border-[var(--app-divider)]">
+                        <div className="flex-1" />
+                        {isMarkdownFile ? (
+                            <div className="flex items-center gap-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setMarkdownPreview(true)}
+                                    aria-pressed={markdownPreview}
+                                    data-testid="md-preview-toggle"
+                                    className={`rounded px-3 py-1 text-xs font-semibold ${markdownPreview ? 'bg-[var(--app-button)] text-[var(--app-button-text)] opacity-80' : 'bg-[var(--app-subtle-bg)] text-[var(--app-hint)]'}`}
+                                >
+                                    {t('file.page.tab.preview')}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setMarkdownPreview(false)}
+                                    aria-pressed={!markdownPreview}
+                                    data-testid="md-raw-toggle"
+                                    className={`rounded px-3 py-1 text-xs font-semibold ${!markdownPreview ? 'bg-[var(--app-button)] text-[var(--app-button-text)] opacity-80' : 'bg-[var(--app-subtle-bg)] text-[var(--app-hint)]'}`}
+                                >
+                                    {t('file.page.tab.raw')}
+                                </button>
+                            </div>
+                        ) : null}
+                        {showWordWrapToggle ? (
+                            <button
+                                type="button"
+                                onClick={() => setWordWrap(!wordWrap)}
+                                aria-pressed={wordWrap}
+                                data-testid="word-wrap-toggle"
+                                title={t('file.page.wordWrap')}
+                                className={`rounded px-3 py-1 text-xs font-semibold ${wordWrap ? 'bg-[var(--app-button)] text-[var(--app-button-text)] opacity-80' : 'bg-[var(--app-subtle-bg)] text-[var(--app-hint)]'}`}
+                            >
+                                {t('file.page.wordWrap')}
+                            </button>
+                        ) : null}
+                    </div>
+                </div>
+            ) : null}
+
             <div className="app-scroll-y flex-1 min-h-0">
                 <div className="mx-auto w-full max-w-content p-4">
                     {diffErrorMessage ? (
@@ -325,9 +389,22 @@ export default function FilePage() {
                                             {contentCopied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
                                         </button>
                                     ) : null}
-                                    <pre className="shiki overflow-auto rounded-md bg-[var(--app-code-bg)] p-3 pr-8 text-xs font-mono">
-                                        <code>{highlighted ?? decodedContent}</code>
-                                    </pre>
+                                    {renderMarkdownPreview ? (
+                                        <div
+                                            data-testid="md-preview"
+                                            className="rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] p-4 pr-8"
+                                        >
+                                            <FileMarkdownView content={decodedContent} />
+                                        </div>
+                                    ) : (
+                                        <pre
+                                            data-testid="file-raw-pre"
+                                            data-word-wrap={wordWrap ? 'on' : 'off'}
+                                            className={`shiki rounded-md bg-[var(--app-code-bg)] p-3 pr-8 text-xs font-mono ${wordWrap ? 'overflow-x-hidden whitespace-pre-wrap break-words' : 'overflow-auto'}`}
+                                        >
+                                            <code>{highlighted ?? decodedContent}</code>
+                                        </pre>
+                                    )}
                                 </div>
                             ) : (
                                 <div className="text-sm text-[var(--app-hint)]">{t('file.page.empty')}</div>
