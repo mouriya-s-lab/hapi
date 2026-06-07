@@ -9,21 +9,13 @@ import { useAppGoBack } from '@/hooks/useAppGoBack'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { formatDiffError, formatReadFileError } from '@/lib/files-i18n'
 import { queryKeys } from '@/lib/query-keys'
-import { langAlias, useShikiHighlighter } from '@/lib/shiki'
+import { useShikiHighlighter } from '@/lib/shiki'
 import { useTranslation } from '@/lib/use-translation'
 import { decodeBase64 } from '@/lib/utils'
 import { ImagePreview } from '@/components/ImagePreview'
 import { FileMarkdownView } from '@/components/FileMarkdownView'
 import { useFileWordWrap, useFileMarkdownPreview } from '@/hooks/useFileViewPrefs'
-
-const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown', 'mdown', 'mkd', 'mkdn', 'mdwn'])
-
-function isMarkdownPath(path: string): boolean {
-    const parts = path.split('.')
-    if (parts.length <= 1) return false
-    const ext = parts[parts.length - 1]?.toLowerCase()
-    return ext ? MARKDOWN_EXTENSIONS.has(ext) : false
-}
+import { isMarkdownPath, resolveLanguage } from '@/lib/file-preview'
 
 const MAX_COPYABLE_FILE_BYTES = 1_000_000
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
@@ -114,14 +106,6 @@ function FileContentSkeleton(props: { label: string }) {
             </div>
         </div>
     )
-}
-
-function resolveLanguage(path: string): string | undefined {
-    const parts = path.split('.')
-    if (parts.length <= 1) return undefined
-    const ext = parts[parts.length - 1]?.toLowerCase()
-    if (!ext) return undefined
-    return langAlias[ext] ?? ext
 }
 
 function resolveImageMimeType(path: string): string | null {
