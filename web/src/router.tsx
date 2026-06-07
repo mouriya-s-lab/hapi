@@ -24,6 +24,8 @@ import { useAppContext } from '@/lib/app-context'
 import { useAppGoBack } from '@/hooks/useAppGoBack'
 import { isTelegramApp } from '@/hooks/useTelegram'
 import { useSidebarResize } from '@/hooks/useSidebarResize'
+import { useHideArchivedSessions } from '@/hooks/useHideArchivedSessions'
+import { filterVisibleSessions } from '@/lib/sessionListFilters'
 import { useMessages } from '@/hooks/queries/useMessages'
 import { useMachines } from '@/hooks/queries/useMachines'
 import { useSession } from '@/hooks/queries/useSession'
@@ -159,6 +161,14 @@ function SessionsPage() {
     const { t } = useTranslation()
     const { addToast } = useToast()
     const { sessions, isLoading, error, refetch } = useSessions(api)
+    const { hideArchivedSessions } = useHideArchivedSessions()
+    // Hide user-archived sessions from the list when the preference is on.
+    // `sessions` (unfiltered) is still used for selected-session resolution so an
+    // archived-but-currently-open session keeps resolving.
+    const visibleSessions = useMemo(
+        () => filterVisibleSessions(sessions, hideArchivedSessions),
+        [sessions, hideArchivedSessions]
+    )
     const { machines } = useMachines(api, true)
     const [isSyncingCodexSession, setIsSyncingCodexSession] = useState(false)
     const [codexSessions, setCodexSessions] = useState<CodexLocalSessionSummary[]>([])
@@ -174,9 +184,9 @@ function SessionsPage() {
         void refetch()
     }, [refetch])
 
-    const projectCount = useMemo(() => new Set(sessions.map(s =>
+    const projectCount = useMemo(() => new Set(visibleSessions.map(s =>
         s.metadata?.worktree?.basePath ?? s.metadata?.path ?? 'Other'
-    )).size, [sessions])
+    )).size, [visibleSessions])
     const machineLabelsById = useMemo(() => {
         const labels: Record<string, string> = {}
         for (const machine of machines) {
@@ -462,7 +472,7 @@ function SessionsPage() {
                 <div className="bg-[var(--app-bg)] pt-[env(safe-area-inset-top)]">
                     <div className="mx-auto w-full max-w-content flex items-center justify-between px-3 py-2">
                         <div className="text-xs text-[var(--app-hint)]">
-                            {t('sessions.count', { n: sessions.length, m: projectCount })}
+                            {t('sessions.count', { n: visibleSessions.length, m: projectCount })}
                         </div>
                         <div className="flex items-center gap-2">
                             <button
@@ -511,7 +521,7 @@ function SessionsPage() {
                         </div>
                     ) : null}
                     <SessionList
-                        sessions={sessions}
+                        sessions={visibleSessions}
                         selectedSessionId={selectedSessionId}
                         onSelect={(sessionId) => navigate({
                             to: '/sessions/$sessionId',

@@ -18,6 +18,8 @@ export type SessionSummaryMetadata = {
     flavor?: string | null
     worktree?: WorktreeMetadata
     agentSessionId?: string
+    /** Present when the session was explicitly archived via the session menu. */
+    archivedAt?: number
 }
 
 export type SessionSummary = {
@@ -68,7 +70,8 @@ export function toSessionSummary(session: Session): SessionSummary {
             ?? session.metadata.opencodeSessionId
             ?? session.metadata.cursorSessionId
             ?? session.metadata.kimiSessionId
-            ?? undefined
+            ?? undefined,
+        archivedAt: session.metadata.archivedAt
     } : null
 
     const todoProgress = session.todos?.length ? {

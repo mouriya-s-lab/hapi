@@ -54,6 +54,11 @@ export const MetadataSchema = z.object({
     lifecycleStateSince: z.number().optional(),
     archivedBy: z.string().optional(),
     archiveReason: z.string().optional(),
+    // Set ONLY when the user explicitly archives a session via the session
+    // menu (syncEngine.archiveSession). Distinct from archivedBy/archiveReason,
+    // which the CLI sets on local startup failure. Used to hide user-archived
+    // sessions from the list without conflating them with naturally-ended ones.
+    archivedAt: z.number().optional(),
     preferredPermissionMode: PermissionModeSchema.optional(),
     flavor: z.string().nullish(),
     capabilities: SessionCapabilitiesSchema.optional(),
