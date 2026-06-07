@@ -4,8 +4,20 @@ import type { WebAppEnv } from '../middleware/auth'
 import {
     ELEVENLABS_API_BASE,
     VOICE_AGENT_NAME,
-    buildVoiceAgentConfig
+    buildVoiceAgentConfig,
+    listConfiguredVoiceBackends,
+    resolveHubVoiceBackend
 } from '@hapi/protocol/voice'
+import type { VoiceBackendType } from '@hapi/protocol/voice'
+
+function buildVoiceWsUrl(base: string, pathname: string): string {
+    const url = new URL(base)
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+    url.pathname = pathname
+    url.search = ''
+    url.hash = ''
+    return url.toString()
+}
 
 const tokenRequestSchema = z.object({
     customAgentId: z.string().optional(),
@@ -25,9 +37,72 @@ const telemetryEventSchema = z.object({
 // Cache for auto-created agent IDs (keyed by API key hash)
 const agentIdCache = new Map<string, string>()
 
+// Per-process set of agent IDs that already had their platform_settings.overrides
+// reconciled with the canonical buildVoiceAgentConfig() shape. Reset on process restart.
+const overridesEnsuredAgents = new Set<string>()
+
 interface ElevenLabsAgent {
     agent_id: string
     name: string
+}
+
+/**
+ * Ensure an existing ElevenLabs ConvAI agent has the platform_settings.overrides
+ * declared by buildVoiceAgentConfig(). Without these overrides, the client-side
+ * SDK crashes with `Cannot read properties of undefined (reading 'error_type')`
+ * when a session sends agent.prompt / tts.* override fields the server rejects.
+ *
+ * Idempotent and best-effort: PATCH failures are logged and swallowed so token
+ * issuance is never blocked by reconciliation. Cached per agent_id per process.
+ *
+ * See: https://elevenlabs.io/docs/agents-platform/customization/personalization/overrides
+ */
+async function ensureAgentOverrides(apiKey: string, agentId: string): Promise<void> {
+    if (overridesEnsuredAgents.has(agentId)) return
+    overridesEnsuredAgents.add(agentId)
+
+    const canonical = buildVoiceAgentConfig().platform_settings
+    if (!canonical) return
+
+    try {
+        const response = await fetch(
+            `${ELEVENLABS_API_BASE}/convai/agents/${encodeURIComponent(agentId)}`,
+            {
+                method: 'PATCH',
+                headers: {
+                    'xi-api-key': apiKey,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ platform_settings: canonical })
+            }
+        )
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({})) as {
+                detail?: { message?: string } | string
+            }
+            const errorMessage = typeof errorData.detail === 'string'
+                ? errorData.detail
+                : (errorData.detail as { message?: string })?.message
+                || `API error: ${response.status}`
+            console.warn('[Voice] Failed to ensure agent overrides (non-fatal)', {
+                agentId,
+                status: response.status,
+                errorMessage
+            })
+            overridesEnsuredAgents.delete(agentId)
+            return
+        }
+
+        console.log('[Voice] Reconciled platform_settings.overrides on agent', { agentId })
+    } catch (error) {
+        console.warn('[Voice] Error reconciling agent overrides (non-fatal)', {
+            agentId,
+            error: error instanceof Error ? error.message : String(error)
+        })
+        overridesEnsuredAgents.delete(agentId)
+    }
 }
 
 function parseVoiceAgentMap(): Record<string, string> {
@@ -146,12 +221,18 @@ async function getOrCreateAgentIdForVoice(apiKey: string, voiceId?: string): Pro
 
     if (agentId) {
         console.log('[Voice] Found existing agent:', agentId)
+        // Existing agents may predate the platform_settings.overrides we declare
+        // in buildVoiceAgentConfig() — reconcile so client overrides are accepted.
+        await ensureAgentOverrides(apiKey, agentId)
     } else {
         // Create new agent
         console.log('[Voice] No existing agent found, creating new one...')
         agentId = await createNamedHapiAgent(apiKey, agentName, voiceId)
         if (agentId) {
             console.log('[Voice] Created new agent:', agentId)
+            // Newly-created agents already carry the canonical overrides, but
+            // mark as ensured so we don't re-PATCH on every token request.
+            overridesEnsuredAgents.add(agentId)
         }
     }
 
@@ -165,6 +246,62 @@ async function getOrCreateAgentIdForVoice(apiKey: string, voiceId?: string): Pro
 
 export function createVoiceRoutes(): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
+
+    // Hub default backend + all backends with credentials configured
+    app.get('/voice/backend', (c) => {
+        const backends = listConfiguredVoiceBackends(process.env)
+        const backend = resolveHubVoiceBackend(process.env)
+        return c.json({ backend, backends })
+    })
+
+    // Get Gemini API key for Gemini Live voice sessions
+    // Gemini Live API does not support ephemeral tokens, so we proxy the key.
+    // The key is short-lived in the browser session and never persisted client-side.
+    app.post('/voice/gemini-token', async (c) => {
+        const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
+        if (!apiKey) {
+            return c.json({
+                allowed: false,
+                error: 'Gemini API key not configured (set GEMINI_API_KEY or GOOGLE_API_KEY)'
+            }, 400)
+        }
+
+        // Use server-side WS proxy to avoid region restrictions.
+        // The proxy at /api/voice/gemini-ws handles the API key server-side.
+        // Derive wsUrl from the request origin so remote browsers connect back to the hub,
+        // not to localhost. HAPI_PUBLIC_URL overrides when set (e.g. behind a reverse proxy).
+        const requestOrigin = new URL(c.req.url).origin
+        const publicUrl = process.env.HAPI_PUBLIC_URL || requestOrigin
+        const wsProxyUrl = buildVoiceWsUrl(publicUrl, '/api/voice/gemini-ws')
+
+        return c.json({
+            allowed: true,
+            apiKey: 'proxied', // Dummy — key is handled server-side
+            wsUrl: wsProxyUrl, // Always proxy — env WS URLs are upstream-only (server-side)
+            baseUrl: process.env.GEMINI_API_BASE || undefined
+        })
+    })
+
+    // Check Qwen (DashScope) availability for Qwen Realtime voice sessions
+    // The actual API key is never sent to the browser — it stays server-side in the WS proxy.
+    app.post('/voice/qwen-token', async (c) => {
+        const apiKey = process.env.DASHSCOPE_API_KEY || process.env.QWEN_API_KEY
+        if (!apiKey) {
+            return c.json({
+                allowed: false,
+                error: 'DashScope API key not configured (set DASHSCOPE_API_KEY or QWEN_API_KEY)'
+            }, 400)
+        }
+
+        const requestOrigin = new URL(c.req.url).origin
+        const publicUrl = process.env.HAPI_PUBLIC_URL || requestOrigin
+        const wsProxyUrl = buildVoiceWsUrl(publicUrl, '/api/voice/qwen-ws')
+
+        return c.json({
+            allowed: true,
+            wsUrl: wsProxyUrl // Always proxy — env WS URLs are upstream-only (server-side)
+        })
+    })
 
     // Get ElevenLabs ConvAI conversation token
     app.post('/voice/token', async (c) => {
@@ -215,6 +352,11 @@ export function createVoiceRoutes(): Hono<WebAppEnv> {
                 error: 'Failed to create ElevenLabs agent automatically'
             }, 500)
         }
+
+        // Operator-supplied agent ids (env ELEVENLABS_AGENT_ID, ELEVENLABS_VOICE_AGENT_MAP,
+        // customAgentId) won't have been routed through ensureAgentOverrides above —
+        // reconcile here so the client overrides payload is always accepted.
+        await ensureAgentOverrides(apiKey, agentId)
 
         try {
             console.log('[Voice][Token] Requesting ElevenLabs conversation token', {

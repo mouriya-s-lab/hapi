@@ -15,6 +15,7 @@ import {
     VOICE_AGENT_NAME,
     buildVoiceAgentConfig
 } from '@hapi/protocol/voice'
+import type { VoiceBackendType } from '@hapi/protocol/voice'
 
 export interface VoiceTokenResponse {
     allowed: boolean
@@ -56,6 +57,8 @@ export interface VoiceInfo {
     name: string
     previewUrl: string
     category: string
+    /** Static-catalog hint (Gemini/Qwen); ElevenLabs uses API name only. */
+    description?: string
 }
 
 export async function fetchVoices(api: ApiClient): Promise<VoiceInfo[]> {
@@ -175,5 +178,78 @@ export async function createOrUpdateHapiAgent(apiKey: string): Promise<CreateAge
         return { success: true, agentId, created }
     } catch (e) {
         return { success: false, error: e instanceof Error ? e.message : 'Network error' }
+    }
+}
+
+// --- Pluggable voice backend API ---
+
+export interface QwenTokenResponse {
+    allowed: boolean
+    wsUrl?: string
+    error?: string
+}
+
+/**
+ * Fetch a DashScope API key from the hub for Qwen Realtime voice sessions.
+ */
+export async function fetchQwenToken(api: ApiClient): Promise<QwenTokenResponse> {
+    try {
+        return await api.fetchQwenToken()
+    } catch (error) {
+        return {
+            allowed: false,
+            error: error instanceof Error ? error.message : 'Network error'
+        }
+    }
+}
+
+export interface VoiceBackendResponse {
+    /** Hub default (VOICE_BACKEND env, validated against configured backends). */
+    backend: VoiceBackendType
+    /** Backends with API keys configured on the hub. */
+    backends: VoiceBackendType[]
+}
+
+export interface GeminiTokenResponse {
+    allowed: boolean
+    apiKey?: string
+    wsUrl?: string
+    baseUrl?: string
+    error?: string
+}
+
+/**
+ * Discover which voice backend the hub is configured to use.
+ * Throws on network/server error or unrecognised backend value — callers must handle failures explicitly.
+ */
+function isVoiceBackendType(value: string): value is VoiceBackendType {
+    return value === 'elevenlabs' || value === 'gemini-live' || value === 'qwen-realtime'
+}
+
+export async function fetchVoiceBackend(api: ApiClient): Promise<VoiceBackendResponse> {
+    const result = await api.fetchVoiceBackend()
+    const { backend } = result
+    if (!isVoiceBackendType(backend)) {
+        throw new Error(`Unrecognised voice backend: ${backend}`)
+    }
+    const rawBackends = Array.isArray(result.backends) ? result.backends : [backend]
+    const backends = rawBackends.filter(isVoiceBackendType)
+    if (backends.length === 0) {
+        backends.push(backend)
+    }
+    return { backend, backends }
+}
+
+/**
+ * Fetch a Gemini API key from the hub for Gemini Live voice sessions.
+ */
+export async function fetchGeminiToken(api: ApiClient): Promise<GeminiTokenResponse> {
+    try {
+        return await api.fetchGeminiToken()
+    } catch (error) {
+        return {
+            allowed: false,
+            error: error instanceof Error ? error.message : 'Network error'
+        }
     }
 }

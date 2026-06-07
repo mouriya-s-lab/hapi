@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { getPermissionModesForFlavor } from '@hapi/protocol/modes'
 import {
     findCodexCustomPromptExpansion,
     findUnsupportedCodexBuiltinSlashCommand,
@@ -18,6 +19,17 @@ describe('getBuiltinSlashCommands', () => {
             'effort',
             'permission',
         ]))
+    })
+
+    it('exposes Cursor pass-through builtins', () => {
+        expect(getBuiltinSlashCommands('cursor').map((command) => command.name)).toEqual(
+            ['compress']
+        )
+    })
+
+    it('includes debug only in Cursor permission modes', () => {
+        expect(getPermissionModesForFlavor('cursor')).toContain('debug')
+        expect(getPermissionModesForFlavor('claude')).not.toContain('debug')
     })
 })
 
