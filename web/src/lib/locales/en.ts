@@ -132,6 +132,7 @@ export default {
 
   // Session actions
   'session.action.rename': 'Rename',
+  'session.action.sessionId': 'Session ID',
   'session.action.export': 'Export conversation',
   'session.action.archive': 'Archive',
   'session.action.delete': 'Delete',
@@ -147,6 +148,9 @@ export default {
   'dialog.rename.save': 'Save',
   'dialog.rename.saving': 'Saving…',
   'dialog.rename.error': 'Failed to rename. Please try again.',
+  'dialog.sessionId.title': 'Session ID',
+  'dialog.sessionId.description': 'The resume-able session id for this conversation. Select the text to copy it manually, or use the Copy button.',
+  'dialog.sessionId.empty': 'This conversation has no resume-able session id yet.',
   'dialog.archive.title': 'Archive Session',
   'dialog.archive.description': 'Are you sure you want to archive "{name}"? This will disconnect active session.',
   'dialog.archive.confirm': 'Archive',
@@ -179,6 +183,7 @@ export default {
   'button.close': 'Close',
   'button.dismiss': 'Dismiss',
   'button.copy': 'Copy',
+  'button.copied': 'Copied',
   'button.paste': 'Paste',
 
   // New session form

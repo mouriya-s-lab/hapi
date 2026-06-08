@@ -132,6 +132,7 @@ export default {
 
   // Session actions
   'session.action.rename': '重命名',
+  'session.action.sessionId': 'Session ID',
   'session.action.export': '导出对话',
   'session.action.archive': '归档',
   'session.action.delete': '删除',
@@ -147,6 +148,9 @@ export default {
   'dialog.rename.save': '保存',
   'dialog.rename.saving': '保存中…',
   'dialog.rename.error': '重命名失败，请重试。',
+  'dialog.sessionId.title': 'Session ID',
+  'dialog.sessionId.description': '本会话可用于 resume 的 session id。可手动选中文本复制，或点「复制」按钮。',
+  'dialog.sessionId.empty': '本会话暂无可 resume 的 session id。',
 
   'dialog.archive.title': '归档会话',
   'dialog.archive.description': '确定要归档 "{name}" 吗？这将断开活动会话。',
@@ -181,6 +185,7 @@ export default {
   'button.close': '关闭',
   'button.dismiss': '忽略',
   'button.copy': '复制',
+  'button.copied': '已复制',
   'button.paste': '粘贴',
 
   // New session form
