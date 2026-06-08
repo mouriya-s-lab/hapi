@@ -2,6 +2,7 @@ import type { SyntaxHighlighterProps } from '@assistant-ui/react-markdown'
 import { useEffect, useId, useState, type ComponentPropsWithoutRef } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
+import { CloseIcon } from '@/components/icons'
 import { MermaidZoomViewer } from './MermaidZoomViewer'
 
 let initializedTheme: 'light' | 'dark' | null = null
@@ -179,9 +180,9 @@ export function MermaidDiagram(props: SyntaxHighlighterProps) {
                             data-mermaid-zoom-close
                             aria-label="Close"
                             onClick={() => setZoomed(false)}
-                            className="absolute right-4 top-[max(1rem,env(safe-area-inset-top))] z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-lg leading-none text-black shadow-md hover:bg-white"
+                            className="absolute right-4 top-[max(1rem,env(safe-area-inset-top))] z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-black shadow-md hover:bg-white"
                         >
-                            ×
+                            <CloseIcon className="h-5 w-5" />
                         </button>
                         <div
                             // Stop propagation so interactions inside the viewer
