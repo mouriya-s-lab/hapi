@@ -56,9 +56,7 @@ export async function ompLoop(opts: OmpLoopOptions): Promise<void> {
         runLocal: (instance) => ompLocalLauncher(instance, {
             model: getCurrentModel()
         }),
-        runRemote: (instance) => ompRemoteLauncher(instance, {
-            model: getCurrentModel()
-        }),
+        runRemote: (instance) => ompRemoteLauncher(instance),
         onSessionReady: opts.onSessionReady
     });
 }

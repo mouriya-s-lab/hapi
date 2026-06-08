@@ -4,7 +4,11 @@ import type { PermissionMode } from './types';
 import { BaseLocalLauncher } from '@/modules/common/launcher/BaseLocalLauncher';
 
 function mapApprovalMode(mode: PermissionMode | undefined): { yolo: boolean } {
-    if (mode === 'yolo' || mode === 'safe-yolo') {
+    // omp's real CLI exposes `--approval-mode {always-ask|write|yolo}`
+    // (packages/coding-agent/src/cli/args.ts). HAPI only drives the yolo bit:
+    // `yolo` maps to `--approval-mode yolo`; `default`/`plan` leave omp at its
+    // own default (interactive approvals). `safe-yolo` no longer exists.
+    if (mode === 'yolo') {
         return { yolo: true };
     }
     return { yolo: false };
