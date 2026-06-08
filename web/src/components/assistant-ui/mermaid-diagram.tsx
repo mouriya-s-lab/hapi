@@ -2,6 +2,7 @@ import type { SyntaxHighlighterProps } from '@assistant-ui/react-markdown'
 import { useEffect, useId, useState, type ComponentPropsWithoutRef } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
+import { MermaidZoomViewer } from './MermaidZoomViewer'
 
 let initializedTheme: 'light' | 'dark' | null = null
 let mermaidPromise: Promise<typeof import('mermaid').default> | null = null
@@ -183,16 +184,16 @@ export function MermaidDiagram(props: SyntaxHighlighterProps) {
                             ×
                         </button>
                         <div
-                            // Stop propagation so clicks inside the diagram (e.g. to
-                            // pan via scroll) don't dismiss the overlay. A definite
-                            // width is required because the mermaid <svg> carries
-                            // width="100%": inside a shrink-to-fit flex child that
-                            // would collapse to zero, so we pin the box and let the
-                            // svg fill it.
+                            // Stop propagation so interactions inside the viewer
+                            // (pan / pinch / zoom buttons) don't dismiss the overlay.
+                            // The box is pinned to a definite size: the viewer fills it
+                            // and provides its own pan/zoom, so the mermaid <svg>
+                            // (width="100%") has a stable frame to render and scale in.
                             onClick={(event) => event.stopPropagation()}
-                            className="max-h-full w-[min(92vw,1000px)] cursor-zoom-out overflow-auto rounded-xl bg-[var(--app-code-bg)] p-4 [&_svg]:h-auto [&_svg]:w-full [&_svg]:max-w-none"
-                            dangerouslySetInnerHTML={{ __html: svg }}
-                        />
+                            className="relative h-[min(85vh,820px)] w-[min(92vw,1000px)] overflow-hidden rounded-xl bg-[var(--app-code-bg)]"
+                        >
+                            <MermaidZoomViewer svg={svg} />
+                        </div>
                     </div>,
                     document.body
                 )
