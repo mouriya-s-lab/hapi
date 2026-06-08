@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
     Navigate,
@@ -12,6 +12,7 @@ import {
     useParams,
 } from '@tanstack/react-router'
 import { getScrollRestorationKey } from '@/lib/scrollRestorationKey'
+import { useAnchoredSessionScroll } from '@/hooks/useAnchoredSessionScroll'
 import { App } from '@/App'
 import { SessionChat } from '@/components/SessionChat'
 import { SessionList } from '@/components/SessionList'
@@ -155,6 +156,8 @@ function getMachineTitle(machine: Machine): string {
 function SessionsPage() {
     const { api } = useAppContext()
     const navigate = useNavigate()
+    const sidebarScrollRef = useRef<HTMLDivElement>(null)
+    const captureSessionAnchor = useAnchoredSessionScroll(sidebarScrollRef)
     const queryClient = useQueryClient()
     const pathname = useLocation({ select: location => location.pathname })
     const matchRoute = useMatchRoute()
@@ -514,7 +517,7 @@ function SessionsPage() {
                     </div>
                 </div>
 
-                <div className="app-scroll-y flex-1 min-h-0 desktop-scrollbar-left">
+                <div ref={sidebarScrollRef} className="app-scroll-y flex-1 min-h-0 desktop-scrollbar-left">
                     {error ? (
                         <div className="mx-auto w-full max-w-content px-3 py-2">
                             <div className="text-sm text-red-600">{error}</div>
@@ -523,10 +526,15 @@ function SessionsPage() {
                     <SessionList
                         sessions={visibleSessions}
                         selectedSessionId={selectedSessionId}
-                        onSelect={(sessionId) => navigate({
-                            to: '/sessions/$sessionId',
-                            params: { sessionId },
-                        })}
+                        onSelect={(sessionId) => {
+                            // Pin the clicked row's screen position so the list doesn't
+                            // lurch when opening the session re-sorts it to the top.
+                            captureSessionAnchor(sessionId)
+                            navigate({
+                                to: '/sessions/$sessionId',
+                                params: { sessionId },
+                            })
+                        }}
                         onNewSession={() => navigate({ to: '/sessions/new' })}
                         onNewSessionInDirectory={handleNewSessionInDirectory}
                         onBrowse={() => navigate({ to: '/browse' })}
