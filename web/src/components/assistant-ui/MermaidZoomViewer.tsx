@@ -1,5 +1,6 @@
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch'
 import { cn } from '@/lib/utils'
+import { ZoomInIcon, ZoomOutIcon, ExpandIcon } from '@/components/icons'
 
 type MermaidZoomViewerProps = {
     /** Rendered Mermaid SVG markup (already validated by the caller). */
@@ -8,7 +9,7 @@ type MermaidZoomViewerProps = {
 }
 
 const controlButtonClass =
-    'flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-lg leading-none text-black shadow-md hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2'
+    'flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-black shadow-md hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2'
 
 /**
  * Interactive viewer for a rendered Mermaid SVG: pinch-zoom on touch, wheel /
@@ -41,7 +42,7 @@ export function MermaidZoomViewer({ svg, className }: MermaidZoomViewerProps) {
                                 onClick={() => zoomIn()}
                                 className={controlButtonClass}
                             >
-                                +
+                                <ZoomInIcon className="h-5 w-5" />
                             </button>
                             <button
                                 type="button"
@@ -50,16 +51,16 @@ export function MermaidZoomViewer({ svg, className }: MermaidZoomViewerProps) {
                                 onClick={() => zoomOut()}
                                 className={controlButtonClass}
                             >
-                                −
+                                <ZoomOutIcon className="h-5 w-5" />
                             </button>
                             <button
                                 type="button"
                                 aria-label="Reset zoom"
                                 title="Reset zoom"
                                 onClick={() => resetTransform()}
-                                className={cn(controlButtonClass, 'text-base')}
+                                className={controlButtonClass}
                             >
-                                ⤢
+                                <ExpandIcon className="h-5 w-5" />
                             </button>
                         </div>
                         <TransformComponent
