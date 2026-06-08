@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
     Navigate,
@@ -12,6 +12,7 @@ import {
     useParams,
 } from '@tanstack/react-router'
 import { getScrollRestorationKey } from '@/lib/scrollRestorationKey'
+import { usePreserveSidebarScroll } from '@/hooks/usePreserveSidebarScroll'
 import { App } from '@/App'
 import { SessionChat } from '@/components/SessionChat'
 import { SessionList } from '@/components/SessionList'
@@ -157,6 +158,10 @@ function SessionsPage() {
     const navigate = useNavigate()
     const queryClient = useQueryClient()
     const pathname = useLocation({ select: location => location.pathname })
+    const sidebarScrollRef = useRef<HTMLDivElement>(null)
+    // Keep the persistent sidebar from jumping when Router's per-route scroll
+    // restoration fires on navigation (issue #31).
+    usePreserveSidebarScroll(sidebarScrollRef, pathname)
     const matchRoute = useMatchRoute()
     const { t } = useTranslation()
     const { addToast } = useToast()
@@ -514,7 +519,7 @@ function SessionsPage() {
                     </div>
                 </div>
 
-                <div className="app-scroll-y flex-1 min-h-0 desktop-scrollbar-left">
+                <div ref={sidebarScrollRef} className="app-scroll-y flex-1 min-h-0 desktop-scrollbar-left">
                     {error ? (
                         <div className="mx-auto w-full max-w-content px-3 py-2">
                             <div className="text-sm text-red-600">{error}</div>
