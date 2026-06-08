@@ -32,7 +32,7 @@ export type OpencodePermissionMode = typeof OPENCODE_PERMISSION_MODES[number]
 export const CURSOR_PERMISSION_MODES = ['default', 'plan', 'ask', 'debug', 'yolo'] as const
 export type CursorPermissionMode = typeof CURSOR_PERMISSION_MODES[number]
 
-export const OMP_PERMISSION_MODES = ['default', 'read-only', 'safe-yolo', 'yolo'] as const
+export const OMP_PERMISSION_MODES = ['default', 'plan', 'yolo'] as const
 export type OmpPermissionMode = typeof OMP_PERMISSION_MODES[number]
 
 export const PERMISSION_MODES = [

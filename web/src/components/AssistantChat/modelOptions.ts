@@ -126,10 +126,11 @@ export function getModelOptionsForFlavor(
     if (flavor === 'kimi') {
         return withCurrentModelOption([{ value: null, label: 'Default' }], currentModel)
     }
-    // omp resolves its own model from ~/.omp config across 40+ providers — no
-    // predefined hapi list, so show just the auto/default option.
+    // omp discovers models dynamically via the listOpencodeModels RPC (reused for
+    // omp). Until those options arrive, render an empty list rather than the
+    // Claude fallback — the latter would surface unrelated Claude models.
     if (flavor === 'omp') {
-        return withCurrentModelOption([{ value: null, label: 'Default' }], currentModel)
+        return []
     }
     return getClaudeModelOptions(currentModel)
 }

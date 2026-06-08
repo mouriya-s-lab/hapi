@@ -7,13 +7,13 @@ import { RemoteLauncherBase, type RemoteLauncherDisplayContext, type RemoteLaunc
 import { OmpDisplay } from '@/ui/ink/OmpDisplay';
 import type { OmpSession } from './session';
 import type { PermissionMode } from './types';
+import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 import { createOmpBackend } from './utils/ompBackend';
 import { OmpPermissionHandler } from './utils/permissionHandler';
-import { resolveOmpRuntimeConfig } from './utils/config';
+import { PLAN_MODE_INSTRUCTION } from './utils/systemPrompt';
 
 class OmpRemoteLauncher extends RemoteLauncherBase {
     private readonly session: OmpSession;
-    private readonly model?: string;
     private backend: ReturnType<typeof createOmpBackend> | null = null;
     private permissionHandler: OmpPermissionHandler | null = null;
     private happyServer: { stop: () => void } | null = null;
@@ -21,13 +21,13 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
     private displayModel: string | null = null;
     private displayPermissionMode: PermissionMode | null = null;
     private currentBackendModel: string | null = null;
+    private defaultBackendModel: string | null = null;
     private setModelSupported: boolean | undefined = undefined;
     private lastDisplayedToolCall = new Map<string, string>();
 
-    constructor(session: OmpSession, opts: { model?: string }) {
+    constructor(session: OmpSession) {
         super(process.env.DEBUG ? session.logPath : undefined);
         this.session = session;
-        this.model = opts.model;
     }
 
     public async launch(): Promise<RemoteLauncherExitReason> {
@@ -48,15 +48,8 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         const { server: happyServer, mcpServers } = await buildHapiMcpBridge(session.client);
         this.happyServer = happyServer;
 
-        const runtimeConfig = resolveOmpRuntimeConfig({ model: this.model });
-        const modelLabel = runtimeConfig.model ?? 'default';
-        this.displayModel = modelLabel;
-        messageBuffer.addMessage(`[MODEL:${modelLabel}]`, 'system');
-
         const backend = createOmpBackend({
-            model: runtimeConfig.model,
-            cwd: session.path,
-            permissionMode: session.getPermissionMode() as string | undefined
+            cwd: session.path
         });
         this.backend = backend;
 
@@ -97,12 +90,37 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         }
         session.onSessionFound(acpSessionId);
 
+        // Seed currentBackendModel from the ACP session metadata. omp resolves
+        // its own default model and reports it (plus the full list) over ACP, so
+        // the launcher discovers the active model rather than baking --model.
+        const initialMetadata = backend.getSessionModelsMetadata?.(acpSessionId);
+        this.currentBackendModel = initialMetadata?.currentModelId ?? null;
+        this.defaultBackendModel = this.currentBackendModel;
+
+        const initialModelLabel = this.currentBackendModel ?? 'default';
+        this.displayModel = initialModelLabel;
+        messageBuffer.addMessage(`[MODEL:${initialModelLabel}]`, 'system');
+
+        // Expose the cached models metadata via per-session RPC so the hub can
+        // forward it to the web UI's model selector without round-tripping ACP.
+        // omp reuses the OpenCode RPC — it is a generic per-session ACP model list.
+        session.client.rpcHandlerManager.registerHandler(RPC_METHODS.ListOpencodeModels, async () => {
+            const metadata = backend.getSessionModelsMetadata?.(acpSessionId);
+            if (!metadata) {
+                return { success: false, error: 'omp model metadata is not available' };
+            }
+            return {
+                success: true,
+                availableModels: metadata.availableModels,
+                currentModelId: metadata.currentModelId
+            };
+        });
+
         this.permissionHandler = new OmpPermissionHandler(
             session.client,
             backend,
             () => session.getPermissionMode() as PermissionMode | undefined
         );
-        this.currentBackendModel = runtimeConfig.model ?? null;
         this.applyDisplayMode(session.getPermissionMode() as PermissionMode, this.currentBackendModel ?? undefined);
 
         this.setupAbortHandlers(session.client.rpcHandlerManager, {
@@ -123,21 +141,39 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
                 break;
             }
 
-            if (batch.mode.model && batch.mode.model !== this.currentBackendModel) {
+            // Inline model change via ACP RPC (session/set_model). If the running
+            // omp build does not implement it, we learn that from the first
+            // method-not-found response and stop attempting it for the session.
+            //
+            // `batch.mode.model` semantics: a string is a specific model id;
+            // `null` means "reset to whatever model omp launched with" (emitted by
+            // `/model default`); `undefined` means "no change".
+            const requestedModel = batch.mode.model === null
+                ? this.defaultBackendModel
+                : batch.mode.model;
+            // The very first batch seeds currentBackendModel — omp launched with
+            // that model and there is nothing to switch yet.
+            if (requestedModel && this.currentBackendModel === null) {
+                this.currentBackendModel = requestedModel;
+            } else if (requestedModel && requestedModel !== this.currentBackendModel) {
                 if (!backend.setModel || this.setModelSupported === false) {
                     batch.mode.model = this.currentBackendModel ?? undefined;
                 } else {
-                    logger.debug(`[omp-remote] Switching model inline: ${this.currentBackendModel} -> ${batch.mode.model}`);
+                    logger.debug(`[omp-remote] Switching model inline: ${this.currentBackendModel} -> ${requestedModel}`);
                     try {
-                        await backend.setModel(acpSessionId, batch.mode.model);
-                        this.currentBackendModel = batch.mode.model;
+                        await backend.setModel(acpSessionId, requestedModel);
+                        this.currentBackendModel = requestedModel;
                         this.setModelSupported = true;
+                        // Reflect the resolved model back into the batch so
+                        // downstream display logic sees the concrete id rather
+                        // than a `null` placeholder.
+                        batch.mode.model = requestedModel;
                     } catch (error) {
                         const message = error instanceof Error ? error.message : String(error);
                         const methodNotFound = /method not found/i.test(message);
                         if (methodNotFound && this.setModelSupported === undefined) {
                             this.setModelSupported = false;
-                            logger.warn('[omp-remote] omp build does not support set_session_model; inline switching disabled for this session');
+                            logger.warn('[omp-remote] omp build does not support session/set_model; inline switching disabled for this session');
                             session.sendSessionEvent({
                                 type: 'message',
                                 message: 'This omp build does not support inline model switching. Restart the session to apply a different model.'
@@ -146,7 +182,7 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
                             logger.warn('[omp-remote] Inline model switch failed', error);
                             session.sendSessionEvent({
                                 type: 'message',
-                                message: `Failed to switch model to ${batch.mode.model}. Continuing with ${this.currentBackendModel ?? 'default'}.`
+                                message: `Failed to switch model to ${requestedModel}. Continuing with ${this.currentBackendModel ?? '(default)'}.`
                             });
                         }
                         batch.mode.model = this.currentBackendModel ?? undefined;
@@ -154,12 +190,17 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
                 }
             }
 
-            this.applyDisplayMode(batch.mode.permissionMode, batch.mode.model);
+            this.applyDisplayMode(batch.mode.permissionMode, batch.mode.model ?? undefined);
             messageBuffer.addMessage(batch.message, 'user');
+
+            let messageText = batch.message;
+            if (batch.mode.permissionMode === 'plan') {
+                messageText = `${PLAN_MODE_INSTRUCTION}\n\n${messageText}`;
+            }
 
             const promptContent: PromptContent[] = [{
                 type: 'text',
-                text: batch.message
+                text: messageText
             }];
 
             session.onThinkingChange(true);
@@ -295,9 +336,8 @@ function toAcpMcpServers(config: Record<string, { command: string; args: string[
 }
 
 export async function ompRemoteLauncher(
-    session: OmpSession,
-    opts: { model?: string }
+    session: OmpSession
 ): Promise<'switch' | 'exit'> {
-    const launcher = new OmpRemoteLauncher(session, opts);
+    const launcher = new OmpRemoteLauncher(session);
     return launcher.launch();
 }
