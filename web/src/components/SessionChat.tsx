@@ -409,10 +409,10 @@ function SessionChatInner(props: SessionChatProps) {
     const opencodeModelsState = useOpencodeModels({
         api: props.api,
         sessionId: props.session.id,
-        enabled: agentFlavor === 'opencode' && props.session.active
+        enabled: (agentFlavor === 'opencode' || agentFlavor === 'omp') && props.session.active
     })
     const opencodeModelOptions = useMemo(() => {
-        if (agentFlavor !== 'opencode') {
+        if (agentFlavor !== 'opencode' && agentFlavor !== 'omp') {
             return undefined
         }
 
@@ -1078,7 +1078,7 @@ function SessionChatInner(props: SessionChatProps) {
                                             ? undefined
                                             : cursorPicker.modelOptions
                                     )
-                                    : agentFlavor === 'opencode'
+                                    : (agentFlavor === 'opencode' || agentFlavor === 'omp')
                                         ? opencodeModelOptions
                                         : undefined
                         }

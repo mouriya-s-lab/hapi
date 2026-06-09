@@ -2,6 +2,7 @@ import type { ToolViewComponent, ToolViewProps } from '@/components/ToolCard/vie
 import type { ReactNode } from 'react'
 import { isObject, safeStringify } from '@hapi/protocol'
 import { CodeBlock } from '@/components/CodeBlock'
+import { FileContentToggleView } from '@/components/FileContentToggleView'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import { ChecklistList, extractTodoChecklist } from '@/components/ToolCard/checklist'
 import { basename, resolveDisplayPath } from '@/utils/path'
@@ -396,6 +397,12 @@ function extractReadPathFromInput(input: unknown): string | null {
 }
 
 function renderReadTextResult(text: string, path: string | null, surface: ToolViewProps['surface']) {
+    // In the detail dialog (the "click a file → popup preview" surface) show the
+    // full file with the fork's markdown-preview + word-wrap toggles, matching
+    // the file-viewer route. Inline cards keep the compact CodeBlock preview.
+    if (surface === 'dialog') {
+        return <FileContentToggleView content={text} path={path} />
+    }
     const language = inferCodeLanguage(path, text)
     if (language) {
         return <CodeBlock code={text} language={language} title="File content" {...resultCodeBlockProps(surface, surface === 'inline')} />

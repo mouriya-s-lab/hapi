@@ -426,6 +426,36 @@ export class SyncEngine {
     async archiveSession(sessionId: string): Promise<void> {
         await this.rpcGateway.killSession(sessionId)
         this.handleSessionEnd({ sid: sessionId, time: Date.now() })
+        // Persist an explicit archive marker so the web can hide user-archived
+        // sessions. This runs ONLY here, on the explicit archive path — NOT in
+        // the shared handleSessionEnd/expireInactive — so naturally-ended or
+        // timed-out sessions are never mistaken for user-archived ones.
+        this.markSessionArchived(sessionId)
+    }
+
+    private markSessionArchived(sessionId: string): void {
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            const latest = this.sessionCache.getSession(sessionId)
+                ?? this.sessionCache.refreshSession(sessionId)
+            if (!latest) return
+            if (latest.metadata?.archivedAt != null) return
+
+            const nextMetadata = { ...(latest.metadata ?? {}), archivedAt: Date.now() }
+            const result = this.store.sessions.updateSessionMetadata(
+                sessionId,
+                nextMetadata,
+                latest.metadataVersion,
+                latest.namespace,
+                { touchUpdatedAt: false }
+            )
+            if (result.result === 'success') {
+                this.sessionCache.refreshSession(sessionId)
+                return
+            }
+            if (result.result !== 'version-mismatch') {
+                return
+            }
+        }
     }
 
     async switchSession(sessionId: string, to: 'remote' | 'local'): Promise<void> {
@@ -536,6 +566,7 @@ export class SyncEngine {
         if (flavor === 'opencode') return metadata.opencodeSessionId ?? null
         if (flavor === 'cursor') return metadata.cursorSessionId ?? null
         if (flavor === 'kimi') return metadata.kimiSessionId ?? null
+        if (flavor === 'omp') return metadata.ompSessionId ?? null
 
         return metadata.claudeSessionId ?? this.recoverClaudeSessionIdFromMessages(session.id, namespace)
     }

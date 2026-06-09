@@ -917,7 +917,9 @@ export function buildCliArgs(
           ? 'kimi'
           : agent === 'opencode'
             ? 'opencode'
-            : 'claude';
+            : agent === 'omp'
+              ? 'omp'
+              : 'claude';
   const args = [agentCommand];
   if (options.resumeSessionId) {
     if (agent === 'codex') {

@@ -82,6 +82,22 @@ describe('getModelOptionsForFlavor', () => {
         expect(options).toEqual([])
     })
 
+    it('returns an empty list for omp flavor before models are discovered (no claude fallback)', () => {
+        const options = getModelOptionsForFlavor('omp', null)
+        expect(options).toEqual([])
+    })
+
+    it('returns only the supplied custom options for omp flavor (no claude fallback)', () => {
+        const options = getModelOptionsForFlavor('omp', null, [
+            { value: 'ollama/exaone:4.5-33b-q8', label: 'Ollama EXAONE' },
+            { value: 'mlx/qwen3:0.6b', label: 'MLX Qwen3' }
+        ])
+        expect(options).toEqual([
+            { value: 'ollama/exaone:4.5-33b-q8', label: 'Ollama EXAONE' },
+            { value: 'mlx/qwen3:0.6b', label: 'MLX Qwen3' }
+        ])
+    })
+
     it('returns only default/current for cursor before models are discovered (no claude fallback)', () => {
         const options = getModelOptionsForFlavor('cursor', 'composer-2.5')
         expect(options).toEqual([

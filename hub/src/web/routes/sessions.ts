@@ -670,10 +670,10 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
 
         const flavor = sessionResult.session.metadata?.flavor ?? 'claude'
-        if (flavor !== 'opencode') {
+        if (flavor !== 'opencode' && flavor !== 'omp') {
             return c.json({
                 success: false,
-                error: 'OpenCode models are only available for OpenCode sessions'
+                error: 'OpenCode models are only available for OpenCode or omp sessions'
             }, 400)
         }
 

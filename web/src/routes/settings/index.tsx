@@ -19,6 +19,7 @@ import { getTerminalFontSizeOptions, useTerminalFontSize, type TerminalFontSize 
 import { getComposerEnterBehaviorOptions, useComposerEnterBehavior, type ComposerEnterBehavior } from '@/hooks/useComposerEnterBehavior'
 import { getTerminalToolDisplayModeOptions, useTerminalToolDisplayMode, type TerminalToolDisplayMode } from '@/hooks/useTerminalToolDisplayMode'
 import { getSessionListStatusModeOptions, useSessionListStatusMode, type SessionListStatusMode } from '@/hooks/useSessionListStatusMode'
+import { useHideArchivedSessions } from '@/hooks/useHideArchivedSessions'
 import {
     MAX_SESSION_PREVIEW_LIMIT,
     MIN_SESSION_PREVIEW_LIMIT,
@@ -338,6 +339,7 @@ export default function SettingsPage() {
     const { composerEnterBehavior, setComposerEnterBehavior } = useComposerEnterBehavior()
     const { terminalToolDisplayMode, setTerminalToolDisplayMode } = useTerminalToolDisplayMode()
     const { sessionListStatusMode, setSessionListStatusMode } = useSessionListStatusMode()
+    const { hideArchivedSessions, setHideArchivedSessions } = useHideArchivedSessions()
     const {
         toolGroupBackground,
         userMessageBackground,
@@ -889,6 +891,26 @@ export default function SettingsPage() {
                                 {t('settings.display.sessionListStatus.detailedDescription')}
                             </div>
                         ) : null}
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={hideArchivedSessions}
+                            data-testid="hide-archived-toggle"
+                            onClick={() => setHideArchivedSessions(!hideArchivedSessions)}
+                            className="flex w-full items-center justify-between px-3 py-3 text-left transition-colors hover:bg-[var(--app-subtle-bg)]"
+                        >
+                            <span className="text-[var(--app-fg)]">{t('settings.display.hideArchived')}</span>
+                            <span
+                                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${hideArchivedSessions ? 'bg-[var(--app-link)]' : 'bg-[var(--app-subtle-bg)]'}`}
+                            >
+                                <span
+                                    className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${hideArchivedSessions ? 'translate-x-5' : 'translate-x-0.5'}`}
+                                />
+                            </span>
+                        </button>
+                        <div className="px-3 pb-3 text-xs text-[var(--app-hint)]">
+                            {t('settings.display.hideArchived.description')}
+                        </div>
                     </div>
 
                     {/* Chat section */}

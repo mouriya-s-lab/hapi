@@ -1,6 +1,9 @@
 import type { SyntaxHighlighterProps } from '@assistant-ui/react-markdown'
 import { useEffect, useId, useState, type ComponentPropsWithoutRef } from 'react'
+import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
+import { CloseIcon } from '@/components/icons'
+import { MermaidZoomViewer } from './MermaidZoomViewer'
 
 let initializedTheme: 'light' | 'dark' | null = null
 let mermaidPromise: Promise<typeof import('mermaid').default> | null = null
@@ -80,7 +83,18 @@ export function MermaidDiagram(props: SyntaxHighlighterProps) {
     const [theme, setTheme] = useState<'light' | 'dark'>(() => resolveTheme())
     const [renderError, setRenderError] = useState(false)
     const [svg, setSvg] = useState<string | null>(null)
+    const [zoomed, setZoomed] = useState(false)
     const id = useId().replace(/:/g, '-')
+
+    // Close the zoom overlay on Escape. Only attach the listener while open.
+    useEffect(() => {
+        if (!zoomed) return undefined
+        const onKey = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') setZoomed(false)
+        }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+    }, [zoomed])
 
     useEffect(() => {
         if (typeof document === 'undefined') return undefined
@@ -135,15 +149,56 @@ export function MermaidDiagram(props: SyntaxHighlighterProps) {
     }
 
     return (
-        <div
-            data-mermaid-diagram
-            data-rendered="true"
-            className="aui-mermaid-diagram overflow-x-auto rounded-b-xl bg-[var(--app-code-bg)] px-4 py-3"
-        >
-            <div
-                className="min-w-fit [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full"
-                dangerouslySetInnerHTML={{ __html: svg }}
-            />
-        </div>
+        <>
+            <button
+                type="button"
+                data-mermaid-diagram
+                data-rendered="true"
+                data-mermaid-zoom-trigger
+                onClick={() => setZoomed(true)}
+                title="Click to enlarge"
+                aria-label="Enlarge diagram"
+                className="aui-mermaid-diagram block w-full cursor-zoom-in overflow-x-auto rounded-b-xl bg-[var(--app-code-bg)] px-4 py-3 text-left"
+            >
+                <div
+                    className="min-w-fit [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full"
+                    dangerouslySetInnerHTML={{ __html: svg }}
+                />
+            </button>
+            {zoomed && typeof document !== 'undefined'
+                ? createPortal(
+                    <div
+                        data-mermaid-zoom-overlay
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Enlarged diagram"
+                        onClick={() => setZoomed(false)}
+                        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+                    >
+                        <button
+                            type="button"
+                            data-mermaid-zoom-close
+                            aria-label="Close"
+                            onClick={() => setZoomed(false)}
+                            className="absolute right-4 top-[max(1rem,env(safe-area-inset-top))] z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-black shadow-md hover:bg-white"
+                        >
+                            <CloseIcon className="h-5 w-5" />
+                        </button>
+                        <div
+                            // Stop propagation so interactions inside the viewer
+                            // (pan / pinch / zoom buttons) don't dismiss the overlay.
+                            // The box is pinned to a definite size: the viewer fills it
+                            // and provides its own pan/zoom, so the mermaid <svg>
+                            // (width="100%") has a stable frame to render and scale in.
+                            onClick={(event) => event.stopPropagation()}
+                            className="relative h-[min(85vh,820px)] w-[min(92vw,1000px)] overflow-hidden rounded-xl bg-[var(--app-code-bg)]"
+                        >
+                            <MermaidZoomViewer svg={svg} />
+                        </div>
+                    </div>,
+                    document.body
+                )
+                : null}
+        </>
     )
 }
