@@ -15,7 +15,8 @@ vi.mock('@/api/auth', () => ({
 }))
 
 vi.mock('../modules/common/opencodeModels', () => ({
-    listOpencodeModelsForCwd: listOpencodeModelsForCwdMock
+    listOpencodeModelsForCwd: listOpencodeModelsForCwdMock,
+    resolveAcpModelDiscoveryAgent: (agent: unknown) => agent === 'omp' ? 'omp' : 'opencode'
 }))
 
 import { ApiMachineClient } from './apiMachine'
@@ -37,13 +38,18 @@ function makeMachine(id: string): Machine {
     }
 }
 
-async function callListOpencodeModels(client: ApiMachineClient, machineId: string, cwd: string): Promise<unknown> {
+async function callListOpencodeModels(
+    client: ApiMachineClient,
+    machineId: string,
+    cwd: string,
+    agent?: 'opencode' | 'omp'
+): Promise<unknown> {
     // Reach into the private rpc handler manager to dispatch a request.
     // Mirrors how the on-socket 'rpc-request' listener invokes handleRequest.
     const manager = (client as unknown as { rpcHandlerManager: { handleRequest: (req: { method: string; params: string }) => Promise<string> } }).rpcHandlerManager
     const raw = await manager.handleRequest({
         method: `${machineId}:listOpencodeModelsForCwd`,
-        params: JSON.stringify({ cwd })
+        params: JSON.stringify(agent ? { cwd, agent } : { cwd })
     })
     return JSON.parse(raw) as unknown
 }
@@ -111,7 +117,7 @@ describe('ApiMachineClient listOpencodeModelsForCwd handler', () => {
             })
             expect(listOpencodeModelsForCwdMock).toHaveBeenCalledTimes(1)
             // The handler should pass the resolved (realpath'd) cwd to the lower layer.
-            expect(listOpencodeModelsForCwdMock).toHaveBeenCalledWith(expect.stringContaining('inner-project'))
+            expect(listOpencodeModelsForCwdMock).toHaveBeenCalledWith(expect.stringContaining('inner-project'), { agent: 'opencode' })
         } finally {
             client.shutdown()
         }
@@ -135,9 +141,32 @@ describe('ApiMachineClient listOpencodeModelsForCwd handler', () => {
                 availableModels: [{ modelId: 'x/y' }],
                 currentModelId: 'x/y'
             })
-            expect(listOpencodeModelsForCwdMock).toHaveBeenCalledWith(secondWorkspaceRoot)
+            expect(listOpencodeModelsForCwdMock).toHaveBeenCalledWith(expect.stringContaining('hapi-machine-ws-2-'), { agent: 'opencode' })
         } finally {
             rmSync(secondWorkspaceRoot, { recursive: true, force: true })
+            client.shutdown()
+        }
+    })
+
+    it('forwards omp agent to listOpencodeModelsForCwd', async () => {
+        const machine = makeMachine('machine-5')
+        const client = new ApiMachineClient('cli-token', machine, [workspaceRoot])
+
+        listOpencodeModelsForCwdMock.mockResolvedValueOnce({
+            success: true,
+            availableModels: [{ modelId: 'omp/model' }],
+            currentModelId: 'omp/model'
+        })
+
+        try {
+            const result = await callListOpencodeModels(client, machine.id, workspaceRoot, 'omp')
+            expect(result).toEqual({
+                success: true,
+                availableModels: [{ modelId: 'omp/model' }],
+                currentModelId: 'omp/model'
+            })
+            expect(listOpencodeModelsForCwdMock).toHaveBeenCalledWith(expect.stringContaining('hapi-machine-ws-'), { agent: 'omp' })
+        } finally {
             client.shutdown()
         }
     })

@@ -1116,7 +1116,7 @@ export class SyncEngine {
         return await this.rpcGateway.listOpencodeModelsForSession(sessionId)
     }
 
-    async listOpencodeModelsForCwd(machineId: string, cwd: string): Promise<RpcListOpencodeModelsResponse> {
-        return await this.rpcGateway.listOpencodeModelsForCwd(machineId, cwd)
+    async listOpencodeModelsForCwd(machineId: string, cwd: string, agent: 'opencode' | 'omp' = 'opencode'): Promise<RpcListOpencodeModelsResponse> {
+        return await this.rpcGateway.listOpencodeModelsForCwd(machineId, cwd, agent)
     }
 }

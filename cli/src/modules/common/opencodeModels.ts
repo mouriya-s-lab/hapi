@@ -4,8 +4,11 @@ import { AcpStdioTransport } from '@/agent/backends/acp/AcpStdioTransport';
 import packageJson from '../../../package.json';
 import { getErrorMessage } from './rpcResponses';
 
+export type AcpModelDiscoveryAgent = 'opencode' | 'omp';
+
 export interface ListOpencodeModelsForCwdRequest {
     cwd?: string;
+    agent?: AcpModelDiscoveryAgent;
 }
 
 export type ListOpencodeModelsForCwdResponse = OpencodeModelsResponse;
@@ -20,6 +23,14 @@ const PROBE_TIMEOUT_MS = 30_000;
 const cache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<ListOpencodeModelsForCwdResponse>>();
 
+export function resolveAcpModelDiscoveryAgent(agent: unknown): AcpModelDiscoveryAgent {
+    return agent === 'omp' ? 'omp' : 'opencode';
+}
+
+function modelDiscoveryLabel(agent: AcpModelDiscoveryAgent): string {
+    return agent === 'omp' ? 'omp' : 'OpenCode';
+}
+
 function normalizeAvailableModels(rawModels: unknown): OpencodeModelSummary[] {
     if (!Array.isArray(rawModels)) return [];
     const out: OpencodeModelSummary[] = [];
@@ -31,6 +42,26 @@ function normalizeAvailableModels(rawModels: unknown): OpencodeModelSummary[] {
         out.push(name ? { modelId, name } : { modelId });
     }
     return out;
+}
+
+function selectModelList(
+    directList: unknown,
+    nestedList: unknown,
+    configOptions: unknown[] | undefined
+): unknown[] | null {
+    if (Array.isArray(directList)) return directList;
+    if (Array.isArray(nestedList)) return nestedList;
+    return configOptions ?? null;
+}
+
+function selectCurrentModelId(
+    directCurrent: unknown,
+    nestedCurrent: unknown,
+    configCurrent: string | null | undefined
+): string | null {
+    if (typeof directCurrent === 'string') return directCurrent;
+    if (typeof nestedCurrent === 'string') return nestedCurrent;
+    return configCurrent ?? null;
 }
 
 function extractModelConfigOption(response: Record<string, unknown>): {
@@ -66,16 +97,16 @@ function extractModelsFromResponse(response: unknown): {
     const nestedCurrent = nested?.currentModelId;
 
     const configModelOption = extractModelConfigOption(response);
-    const rawModels = Array.isArray(directList)
-        ? directList
-        : Array.isArray(nestedList)
-            ? nestedList
-            : configModelOption?.options ?? null;
-    const rawCurrent = typeof directCurrent === 'string'
-        ? directCurrent
-        : typeof nestedCurrent === 'string'
-            ? nestedCurrent
-            : configModelOption?.currentValue ?? null;
+    const rawModels = selectModelList(
+        directList,
+        nestedList,
+        configModelOption?.options
+    );
+    const rawCurrent = selectCurrentModelId(
+        directCurrent,
+        nestedCurrent,
+        configModelOption?.currentValue
+    );
 
     return {
         availableModels: normalizeAvailableModels(rawModels),
@@ -83,9 +114,12 @@ function extractModelsFromResponse(response: unknown): {
     };
 }
 
-async function runOpencodeProbe(cwd: string): Promise<ListOpencodeModelsForCwdResponse> {
+async function runOpencodeProbe(
+    cwd: string,
+    agent: AcpModelDiscoveryAgent
+): Promise<ListOpencodeModelsForCwdResponse> {
     const transport = new AcpStdioTransport({
-        command: 'opencode',
+        command: agent,
         args: ['acp']
     });
 
@@ -97,13 +131,13 @@ async function runOpencodeProbe(cwd: string): Promise<ListOpencodeModelsForCwdRe
                 terminal: false
             },
             clientInfo: {
-                name: 'hapi-opencode-models',
+                name: `hapi-${agent}-models`,
                 version: packageJson.version
             }
         }, { timeoutMs: PROBE_TIMEOUT_MS });
 
         if (!isObject(initResponse) || typeof initResponse.protocolVersion !== 'number') {
-            return { success: false, error: 'Invalid initialize response from opencode acp' };
+            return { success: false, error: `Invalid initialize response from ${agent} acp` };
         }
 
         const newResponse = await transport.sendRequest('session/new', {
@@ -124,38 +158,43 @@ async function runOpencodeProbe(cwd: string): Promise<ListOpencodeModelsForCwdRe
 }
 
 /**
- * Discover available OpenCode models for a given working directory by spawning
- * a short-lived `opencode acp` subprocess, sending `initialize` + `session/new`,
- * and capturing the `availableModels` / `currentModelId` snapshot from the
- * response. The subprocess is torn down immediately afterwards.
+ * Discover available ACP models for a given working directory by spawning a
+ * short-lived `opencode acp` or `omp acp` subprocess, sending `initialize` +
+ * `session/new`, and capturing the `availableModels` / `currentModelId`
+ * snapshot from the response. The subprocess is torn down immediately
+ * afterwards.
  *
- * Results are cached per cwd for 60 seconds; concurrent requests for the same
- * cwd are coalesced via a single-flight promise so we never spawn more than
- * one probe at a time per cwd.
+ * Results are cached per agent+cwd for 60 seconds; concurrent requests for the
+ * same agent+cwd are coalesced via a single-flight promise so we never spawn
+ * more than one probe at a time per target.
  */
 export async function listOpencodeModelsForCwd(
-    cwd: string
+    cwd: string,
+    options: { agent?: AcpModelDiscoveryAgent } = {}
 ): Promise<ListOpencodeModelsForCwdResponse> {
     const trimmed = cwd?.trim();
     if (!trimmed) {
         return { success: false, error: 'cwd is required' };
     }
 
-    const cached = cache.get(trimmed);
+    const agent = resolveAcpModelDiscoveryAgent(options.agent);
+    const cacheKey = `${agent}:${trimmed}`;
+
+    const cached = cache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
         return cached.response;
     }
 
-    const existing = inflight.get(trimmed);
+    const existing = inflight.get(cacheKey);
     if (existing) {
         return existing;
     }
 
     const promise = (async () => {
         try {
-            const response = await runOpencodeProbe(trimmed);
+            const response = await runOpencodeProbe(trimmed, agent);
             if (response.success) {
-                cache.set(trimmed, {
+                cache.set(cacheKey, {
                     expiresAt: Date.now() + CACHE_TTL_MS,
                     response
                 });
@@ -164,14 +203,14 @@ export async function listOpencodeModelsForCwd(
         } catch (error) {
             return {
                 success: false,
-                error: getErrorMessage(error, 'Failed to discover OpenCode models')
+                error: getErrorMessage(error, `Failed to discover ${modelDiscoveryLabel(agent)} models`)
             } satisfies ListOpencodeModelsForCwdResponse;
         } finally {
-            inflight.delete(trimmed);
+            inflight.delete(cacheKey);
         }
     })();
 
-    inflight.set(trimmed, promise);
+    inflight.set(cacheKey, promise);
     return promise;
 }
 

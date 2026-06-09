@@ -152,8 +152,9 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({ success: false, error: 'cwd query parameter is required' }, 400)
         }
 
+        const agent = c.req.query('agent') === 'omp' ? 'omp' : 'opencode'
         try {
-            const result = await engine.listOpencodeModelsForCwd(machineId, cwd)
+            const result = await engine.listOpencodeModelsForCwd(machineId, cwd, agent)
             return c.json(result)
         } catch (error) {
             return c.json({

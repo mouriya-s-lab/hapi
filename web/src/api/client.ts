@@ -576,9 +576,9 @@ export class ApiClient {
         )
     }
 
-    async getMachineOpencodeModelsForCwd(machineId: string, cwd: string): Promise<OpencodeModelsResponse> {
+    async getMachineOpencodeModelsForCwd(machineId: string, cwd: string, agent: 'opencode' | 'omp' = 'opencode'): Promise<OpencodeModelsResponse> {
         return await this.request<OpencodeModelsResponse>(
-            `/api/machines/${encodeURIComponent(machineId)}/opencode-models?cwd=${encodeURIComponent(cwd)}`
+            `/api/machines/${encodeURIComponent(machineId)}/opencode-models?cwd=${encodeURIComponent(cwd)}&agent=${encodeURIComponent(agent)}`
         )
     }
 

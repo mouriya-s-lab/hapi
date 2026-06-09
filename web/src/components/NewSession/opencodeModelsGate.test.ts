@@ -13,6 +13,12 @@ describe('shouldEnableOpencodeModelDiscovery', () => {
         expect(shouldEnableOpencodeModelDiscovery(baseArgs)).toBe(true)
     })
 
+    it('enables discovery for omp because it exposes the same ACP model metadata', () => {
+        expect(
+            shouldEnableOpencodeModelDiscovery({ ...baseArgs, agent: 'omp' })
+        ).toBe(true)
+    })
+
     it('disables discovery when cwd existence has not been confirmed yet', () => {
         // pathExistence[cwd] is undefined while the existence probe is in flight
         expect(
@@ -21,13 +27,13 @@ describe('shouldEnableOpencodeModelDiscovery', () => {
     })
 
     it('disables discovery when cwd does not exist on the machine', () => {
-        // typing partial paths must not spawn an opencode acp probe for non-existent dirs
+        // typing partial paths must not spawn an ACP probe for non-existent dirs
         expect(
             shouldEnableOpencodeModelDiscovery({ ...baseArgs, cwdExists: false })
         ).toBe(false)
     })
 
-    it('disables discovery when agent is not opencode', () => {
+    it('disables discovery when agent does not expose ACP model metadata', () => {
         expect(
             shouldEnableOpencodeModelDiscovery({ ...baseArgs, agent: 'claude' })
         ).toBe(false)

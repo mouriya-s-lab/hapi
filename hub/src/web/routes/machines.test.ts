@@ -81,14 +81,18 @@ describe('machines routes', () => {
         })
     })
 
-    it('forwards cwd to listOpencodeModelsForCwd and returns availableModels', async () => {
+    it('forwards cwd and default opencode agent to listOpencodeModelsForCwd', async () => {
         const machine = createMachine()
-        const calls: Array<{ machineId: string; cwd: string }> = []
+        const calls: Array<{ machineId: string; cwd: string; agent: 'opencode' | 'omp' | undefined }> = []
         const engine = {
             getMachine: () => machine,
             getMachineByNamespace: () => machine,
-            listOpencodeModelsForCwd: async (machineId: string, cwd: string) => {
-                calls.push({ machineId, cwd })
+            listOpencodeModelsForCwd: async (
+                machineId: string,
+                cwd: string,
+                agent?: 'opencode' | 'omp'
+            ) => {
+                calls.push({ machineId, cwd, agent })
                 return {
                     success: true,
                     availableModels: [
@@ -111,13 +115,57 @@ describe('machines routes', () => {
         )
 
         expect(response.status).toBe(200)
-        expect(calls).toEqual([{ machineId: 'machine-1', cwd: '/home/user/proj' }])
+        expect(calls).toEqual([{ machineId: 'machine-1', cwd: '/home/user/proj', agent: 'opencode' }])
         expect(await response.json()).toEqual({
             success: true,
             availableModels: [
                 { modelId: 'ollama/exaone:4.5-33b-q8', name: 'Ollama/EXAONE 4.5 33B Q8' }
             ],
             currentModelId: 'ollama/exaone:4.5-33b-q8'
+        })
+    })
+
+    it('forwards explicit omp agent to listOpencodeModelsForCwd', async () => {
+        const machine = createMachine()
+        const calls: Array<{ machineId: string; cwd: string; agent: 'opencode' | 'omp' | undefined }> = []
+        const engine = {
+            getMachine: () => machine,
+            getMachineByNamespace: () => machine,
+            listOpencodeModelsForCwd: async (
+                machineId: string,
+                cwd: string,
+                agent?: 'opencode' | 'omp'
+            ) => {
+                calls.push({ machineId, cwd, agent })
+                return {
+                    success: true,
+                    availableModels: [
+                        { modelId: 'mlx/qwen3:32b', name: 'MLX/Qwen 3.6 32B Q8' }
+                    ],
+                    currentModelId: 'mlx/qwen3:32b'
+                }
+            }
+        } as Partial<SyncEngine>
+
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'default')
+            await next()
+        })
+        app.route('/api', createMachinesRoutes(() => engine as SyncEngine))
+
+        const response = await app.request(
+            '/api/machines/machine-1/opencode-models?cwd=' + encodeURIComponent('/home/user/proj') + '&agent=omp'
+        )
+
+        expect(response.status).toBe(200)
+        expect(calls).toEqual([{ machineId: 'machine-1', cwd: '/home/user/proj', agent: 'omp' }])
+        expect(await response.json()).toEqual({
+            success: true,
+            availableModels: [
+                { modelId: 'mlx/qwen3:32b', name: 'MLX/Qwen 3.6 32B Q8' }
+            ],
+            currentModelId: 'mlx/qwen3:32b'
         })
     })
 

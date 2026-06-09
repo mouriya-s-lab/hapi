@@ -19,6 +19,7 @@ import { RpcHandlerManager } from './rpc/RpcHandlerManager'
 import { registerCommonHandlers } from '../modules/common/registerCommonHandlers'
 import {
     listOpencodeModelsForCwd,
+    resolveAcpModelDiscoveryAgent,
     type ListOpencodeModelsForCwdRequest,
     type ListOpencodeModelsForCwdResponse
 } from '../modules/common/opencodeModels'
@@ -197,13 +198,14 @@ export class ApiMachineClient {
                 if (!rawCwd) {
                     return { success: false, error: 'cwd is required' }
                 }
+                const agent = resolveAcpModelDiscoveryAgent(params?.agent)
 
                 const resolvedCwd = await this.resolveForWorkspaceCheck(rawCwd)
                 if (!this.isWithinWorkspaceRoots(resolvedCwd)) {
                     return { success: false, error: 'Path is outside workspace roots' }
                 }
 
-                return await listOpencodeModelsForCwd(resolvedCwd)
+                return await listOpencodeModelsForCwd(resolvedCwd, { agent })
             }
         )
     }

@@ -74,6 +74,61 @@ describe('listOpencodeModelsForCwd', () => {
         expect(closeMock).toHaveBeenCalled()
     })
 
+    it('can probe omp acp when requested', async () => {
+        sendRequestMock
+            .mockResolvedValueOnce({ protocolVersion: 1 })
+            .mockResolvedValueOnce({
+                sessionId: 'omp-session-1',
+                configOptions: [
+                    {
+                        category: 'model',
+                        currentValue: 'mlx/qwen3:32b',
+                        options: [
+                            { value: 'mlx/qwen3:32b', name: 'MLX/Qwen 3.6 32B Q8' }
+                        ]
+                    }
+                ]
+            })
+
+        const result = await listOpencodeModelsForCwd('/home/user/project', { agent: 'omp' })
+
+        expect(transportConstructor).toHaveBeenCalledWith(
+            expect.objectContaining({ command: 'omp', args: ['acp'] })
+        )
+        expect(result.success).toBe(true)
+        expect(result.currentModelId).toBe('mlx/qwen3:32b')
+        expect(result.availableModels).toEqual([
+            { modelId: 'mlx/qwen3:32b', name: 'MLX/Qwen 3.6 32B Q8' }
+        ])
+    })
+
+    it('caches opencode and omp probes separately for the same cwd', async () => {
+        sendRequestMock
+            .mockResolvedValueOnce({ protocolVersion: 1 })
+            .mockResolvedValueOnce({
+                models: { availableModels: [{ modelId: 'opencode/default' }], currentModelId: 'opencode/default' }
+            })
+            .mockResolvedValueOnce({ protocolVersion: 1 })
+            .mockResolvedValueOnce({
+                models: { availableModels: [{ modelId: 'omp/default' }], currentModelId: 'omp/default' }
+            })
+
+        await listOpencodeModelsForCwd('/shared/cwd')
+        const result = await listOpencodeModelsForCwd('/shared/cwd', { agent: 'omp' })
+
+        expect(transportConstructor).toHaveBeenCalledTimes(2)
+        expect(transportConstructor).toHaveBeenNthCalledWith(
+            1,
+            expect.objectContaining({ command: 'opencode', args: ['acp'] })
+        )
+        expect(transportConstructor).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({ command: 'omp', args: ['acp'] })
+        )
+        expect(result.success).toBe(true)
+        expect(result.currentModelId).toBe('omp/default')
+    })
+
     it('reads availableModels from configOptions when session/new omits the models block', async () => {
         sendRequestMock
             .mockResolvedValueOnce({ protocolVersion: 1 })

@@ -37,7 +37,10 @@ import { MachineSelector } from './MachineSelector'
 import { ModelSelector } from './ModelSelector'
 import { OpencodeModelSelector } from './OpencodeModelSelector'
 import { ClaudeEffortSelector } from './ClaudeEffortSelector'
-import { shouldEnableOpencodeModelDiscovery } from './opencodeModelsGate'
+import {
+    isOpencodeModelDiscoveryAgent,
+    shouldEnableOpencodeModelDiscovery
+} from './opencodeModelsGate'
 import { ReasoningEffortSelector } from './ReasoningEffortSelector'
 import {
     loadPreferredAgent,
@@ -333,9 +336,10 @@ export function NewSession(props: {
         api: props.api,
         machineId,
         cwd: deferredDirectory,
+        agent,
         // Gate on positive existence: typing partial paths must not spawn an
-        // expensive `opencode acp` probe for a non-existent cwd while the
-        // existence check is in flight.
+        // expensive ACP model probe for a non-existent cwd while the existence
+        // check is in flight.
         enabled: shouldEnableOpencodeModelDiscovery({
             agent,
             machineId,
@@ -344,9 +348,9 @@ export function NewSession(props: {
         })
     })
     useEffect(() => {
-        // Auto-pick the OpenCode default model when discovery finishes, so the
-        // form has a sensible value if the user hits Enter without scrolling.
-        if (agent !== 'opencode') return
+        // Auto-pick the ACP-reported default model when discovery finishes, so
+        // the form has a sensible value if the user hits Enter without scrolling.
+        if (!isOpencodeModelDiscoveryAgent(agent)) return
         if (opencodeSelectedModel !== null) return
         const fallback = opencodeModelsState.currentModelId
             ?? opencodeModelsState.availableModels[0]?.modelId
@@ -556,7 +560,7 @@ export function NewSession(props: {
                 return
             }
 
-            const resolvedModel = agent === 'opencode'
+            const resolvedModel = isOpencodeModelDiscoveryAgent(agent)
                 ? (opencodeSelectedModel ?? undefined)
                 : (model !== 'auto' ? model : undefined)
             const resolvedEffort = agent === 'claude' && effort !== 'auto' ? effort : undefined
@@ -637,7 +641,7 @@ export function NewSession(props: {
                 isDisabled={isFormDisabled}
                 onAgentChange={setAgent}
             />
-            {agent === 'opencode' ? (
+            {isOpencodeModelDiscoveryAgent(agent) ? (
                 <OpencodeModelSelector
                     cwd={deferredDirectory}
                     machineId={machineId}
