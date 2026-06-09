@@ -93,8 +93,9 @@ export function useLongPress(options: UseLongPressOptions): UseLongPressHandlers
     }, [handleEnd, isGhostMouseEvent])
 
     const onMouseLeave = useCallback<React.MouseEventHandler>(() => {
+        if (isGhostMouseEvent()) return
         handleEnd(false)
-    }, [handleEnd])
+    }, [handleEnd, isGhostMouseEvent])
 
     const onTouchStart = useCallback<React.TouchEventHandler>((e) => {
         lastTouchAtRef.current = Date.now()
@@ -104,9 +105,9 @@ export function useLongPress(options: UseLongPressOptions): UseLongPressHandlers
 
     const onTouchEnd = useCallback<React.TouchEventHandler>((e) => {
         lastTouchAtRef.current = Date.now()
-        if (isLongPressRef.current) {
-            e.preventDefault()
-        }
+        // Prevent the browser's compatibility mouse/click sequence from firing
+        // on the row that ends up under the finger after navigation/reordering.
+        e.preventDefault()
         handleEnd(!isLongPressRef.current)
     }, [handleEnd])
 

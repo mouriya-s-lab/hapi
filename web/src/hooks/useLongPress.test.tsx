@@ -15,11 +15,14 @@ function Probe(props: { onClick: () => void; onLongPress?: () => void }) {
 }
 
 describe('useLongPress', () => {
+    let now = 10_000
+
     beforeEach(() => {
         vi.useFakeTimers()
         // Start well past the ghost-mouse window so a plain mouse tap (no prior
         // touch, lastTouchAt = 0) is not mistaken for a touch-synthesized event.
-        vi.setSystemTime(10_000)
+        now = 10_000
+        vi.spyOn(Date, 'now').mockImplementation(() => now)
     })
 
     afterEach(() => {
@@ -50,16 +53,18 @@ describe('useLongPress', () => {
         const row = getByTestId('row')
 
         fireEvent.touchStart(row, { touches: [{ clientX: 10, clientY: 10 }] })
-        fireEvent.touchEnd(row, { changedTouches: [{ clientX: 10, clientY: 10 }] })
+        const touchEndPrevented = !fireEvent.touchEnd(row, { changedTouches: [{ clientX: 10, clientY: 10 }] })
 
         // Browser-synthesized compatibility mouse events for the same tap,
         // ~300ms later.
         act(() => {
+            now += 300
             vi.advanceTimersByTime(300)
         })
         fireEvent.mouseDown(row, { button: 0, clientX: 10, clientY: 10 })
         fireEvent.mouseUp(row, { button: 0, clientX: 10, clientY: 10 })
 
+        expect(touchEndPrevented).toBe(true)
         expect(onClick).toHaveBeenCalledTimes(1)
     })
 
@@ -71,6 +76,7 @@ describe('useLongPress', () => {
 
         fireEvent.touchStart(row, { touches: [{ clientX: 10, clientY: 10 }] })
         act(() => {
+            now += 500
             vi.advanceTimersByTime(500)
         })
         fireEvent.touchEnd(row, { changedTouches: [{ clientX: 10, clientY: 10 }] })
@@ -91,6 +97,7 @@ describe('useLongPress', () => {
 
         // Much later, a real mouse interaction must still work (hybrid devices).
         act(() => {
+            now += 1_000
             vi.advanceTimersByTime(1_000)
         })
         fireEvent.mouseDown(row, { button: 0, clientX: 10, clientY: 10 })
