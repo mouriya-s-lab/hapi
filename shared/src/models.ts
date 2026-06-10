@@ -1,8 +1,10 @@
 export const CLAUDE_MODEL_LABELS = {
+    fable: 'Fable',
     sonnet: 'Sonnet',
     'sonnet[1m]': 'Sonnet 1M',
     opus: 'Opus',
-    'opus[1m]': 'Opus 1M'
+    'opus[1m]': 'Opus 1M',
+    haiku: 'Haiku'
 } as const
 
 export type ClaudeModelPreset = keyof typeof CLAUDE_MODEL_LABELS
