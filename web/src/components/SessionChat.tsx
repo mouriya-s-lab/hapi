@@ -10,7 +10,7 @@ import type {
     Session,
     SlashCommand
 } from '@/types/api'
-import type { ChatBlock, NormalizedMessage } from '@/chat/types'
+import type { ChatBlock, ModelRefusalFallbackEvent, NormalizedMessage } from '@/chat/types'
 import type { Suggestion } from '@/hooks/useActiveSuggestions'
 import { normalizeDecryptedMessage } from '@/chat/normalize'
 import { reduceChatBlocks } from '@/chat/reducer'
@@ -26,6 +26,7 @@ import { HappyThread } from '@/components/AssistantChat/HappyThread'
 import { QueuedMessagesBar } from '@/components/AssistantChat/QueuedMessagesBar'
 import { ScratchlistDrawer } from '@/components/AssistantChat/ScratchlistPanel'
 import { useScratchlist } from '@/lib/use-scratchlist'
+import { useToast } from '@/lib/toast-context'
 import { useHappyRuntime } from '@/lib/assistant-runtime'
 import { createAttachmentAdapter } from '@/lib/attachmentAdapter'
 import { useTranslation } from '@/lib/use-translation'
@@ -227,6 +228,12 @@ function getOutlineTitle(session: Session): string {
     return session.id.slice(0, 8)
 }
 
+const MODEL_REFUSAL_FALLBACK_TOAST_DURATION_MS = 5000
+
+function isModelRefusalFallbackEvent(value: unknown): value is ModelRefusalFallbackEvent {
+    return Boolean(value) && typeof value === 'object' && (value as { type?: unknown }).type === 'model-refusal-fallback'
+}
+
 function hasAbortableAgentRun(blocks: readonly ChatBlock[]): boolean {
     for (const block of blocks) {
         if (block.kind === 'tool-call') {
@@ -301,10 +308,12 @@ function SessionChatInner(props: SessionChatProps) {
     const { haptic } = usePlatform()
     const { t } = useTranslation()
     const navigate = useNavigate()
+    const { addToast } = useToast()
     const sessionInactive = !props.session.active
     const inactiveCanResume = inactiveSessionCanResume(props.session, props.messages.length)
     const terminalSupported = isRemoteTerminalSupported(props.session.metadata)
     const normalizedCacheRef = useRef<Map<string, { source: DecryptedMessage; normalized: NormalizedMessage | null }>>(new Map())
+    const modelRefusalFallbackToastIdsRef = useRef<Set<string>>(new Set())
     const blocksByIdRef = useRef<Map<string, ChatBlock>>(new Map())
     const visibleGroupsRef = useRef<ToolGroupBlock[]>([])
     const [forceScrollToken, setForceScrollToken] = useState(0)
@@ -657,6 +666,7 @@ function SessionChatInner(props: SessionChatProps) {
 
     useEffect(() => {
         normalizedCacheRef.current.clear()
+        modelRefusalFallbackToastIdsRef.current.clear()
         blocksByIdRef.current.clear()
         visibleGroupsRef.current = []
         setOutlineOpen(false)
@@ -704,6 +714,29 @@ function SessionChatInner(props: SessionChatProps) {
         }
         return normalized
     }, [visibleMessages])
+
+    useEffect(() => {
+        const displayedIds = modelRefusalFallbackToastIdsRef.current
+        for (const message of normalizedMessages) {
+            if (message.role !== 'event') continue
+            if (!isModelRefusalFallbackEvent(message.content)) continue
+            if (displayedIds.has(message.id)) continue
+
+            displayedIds.add(message.id)
+            const event = message.content
+            addToast({
+                title: t('toast.modelRefusalFallback.title'),
+                body: t('toast.modelRefusalFallback.body', {
+                    originalModel: event.originalModel,
+                    message: event.message
+                }),
+                sessionId: props.session.id,
+                url: `/sessions/${props.session.id}`,
+                variant: 'warning',
+                durationMs: MODEL_REFUSAL_FALLBACK_TOAST_DURATION_MS
+            })
+        }
+    }, [addToast, normalizedMessages, props.session.id, t])
 
     const goalStateSourceMessages = useMemo(
         () => buildGoalStateMessages(props.messages, props.pendingMessages ?? []),

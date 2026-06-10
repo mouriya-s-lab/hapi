@@ -10,7 +10,8 @@ const VISIBLE_CLAUDE_SYSTEM_SUBTYPES = new Set([
     'api_error',
     'turn_duration',
     'microcompact_boundary',
-    'compact_boundary'
+    'compact_boundary',
+    'model_refusal_fallback'
 ])
 
 export function isRoleWrappedRecord(value: unknown): value is RoleWrappedRecord {

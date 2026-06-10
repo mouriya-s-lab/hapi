@@ -475,6 +475,8 @@ export default {
   'toast.permission.title': 'Permission Request',
   'toast.task.completed': 'Task completed',
   'toast.task.failed': 'Task failed',
+  'toast.modelRefusalFallback.title': 'Model automatically switched',
+  'toast.modelRefusalFallback.body': 'Original model: {originalModel}. {message}',
 
   // Install prompt
   'install.title': 'Install HAPI',

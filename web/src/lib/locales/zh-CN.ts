@@ -478,6 +478,8 @@ export default {
   'toast.permission.title': '权限请求',
   'toast.task.completed': '任务完成',
   'toast.task.failed': '任务失败',
+  'toast.modelRefusalFallback.title': '模型已自动切换',
+  'toast.modelRefusalFallback.body': '原模型：{originalModel}。{message}',
 
   // Install prompt
   'install.title': '安装 HAPI',
