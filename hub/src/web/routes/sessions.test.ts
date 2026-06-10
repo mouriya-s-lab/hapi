@@ -373,6 +373,52 @@ describe('sessions routes', () => {
         ])
     })
 
+    it('applies model changes for inactive Claude sessions before resume', async () => {
+        const session = createSession({
+            active: false,
+            metadata: {
+                path: '/tmp/project',
+                host: 'localhost',
+                flavor: 'claude'
+            }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/model', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ model: 'fable' })
+        })
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ ok: true })
+        expect(applySessionConfigCalls).toEqual([
+            ['session-1', { model: 'fable' }]
+        ])
+    })
+
+    it('keeps inactive non-Claude model changes rejected', async () => {
+        const session = createSession({
+            active: false,
+            metadata: {
+                path: '/tmp/project',
+                host: 'localhost',
+                flavor: 'codex'
+            }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/model', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ model: 'gpt-5.5' })
+        })
+
+        expect(response.status).toBe(409)
+        expect(await response.json()).toEqual({ error: 'Session is inactive' })
+        expect(applySessionConfigCalls).toEqual([])
+    })
+
     it('applies resume model setting for Claude sessions', async () => {
         const session = createSession({
             active: false,
@@ -568,6 +614,52 @@ describe('sessions routes', () => {
         expect(applySessionConfigCalls).toEqual([
             ['session-1', { effort: 'max' }]
         ])
+    })
+
+    it('applies effort changes for inactive Claude sessions before resume', async () => {
+        const session = createSession({
+            active: false,
+            metadata: {
+                path: '/tmp/project',
+                host: 'localhost',
+                flavor: 'claude'
+            }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/effort', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ effort: 'max' })
+        })
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ ok: true })
+        expect(applySessionConfigCalls).toEqual([
+            ['session-1', { effort: 'max' }]
+        ])
+    })
+
+    it('keeps inactive non-Claude effort changes rejected', async () => {
+        const session = createSession({
+            active: false,
+            metadata: {
+                path: '/tmp/project',
+                host: 'localhost',
+                flavor: 'codex'
+            }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/effort', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ effort: 'high' })
+        })
+
+        expect(response.status).toBe(409)
+        expect(await response.json()).toEqual({ error: 'Session is inactive' })
+        expect(applySessionConfigCalls).toEqual([])
     })
 
     it('returns Codex models for active Codex sessions', async () => {
