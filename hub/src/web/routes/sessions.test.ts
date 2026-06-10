@@ -31,6 +31,7 @@ function createSession(overrides?: Partial<Session>): Session {
         model: 'gpt-5.4',
         modelReasoningEffort: null,
         effort: null,
+        resumeWithSessionModel: false,
         permissionMode: 'default',
         collaborationMode: 'default'
     }
@@ -370,6 +371,46 @@ describe('sessions routes', () => {
         expect(applySessionConfigCalls).toEqual([
             ['session-1', { model: 'gpt-5.5' }]
         ])
+    })
+
+    it('applies resume model setting for Claude sessions', async () => {
+        const session = createSession({
+            active: false,
+            metadata: {
+                path: '/tmp/project',
+                host: 'localhost',
+                flavor: 'claude'
+            }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/resume-model', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ resumeWithSessionModel: true })
+        })
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ ok: true })
+        expect(applySessionConfigCalls).toEqual([
+            ['session-1', { resumeWithSessionModel: true }]
+        ])
+    })
+
+    it('rejects resume model setting for non-Claude sessions', async () => {
+        const { app, applySessionConfigCalls } = createApp(createSession())
+
+        const response = await app.request('/api/sessions/session-1/resume-model', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ resumeWithSessionModel: true })
+        })
+
+        expect(response.status).toBe(400)
+        expect(await response.json()).toEqual({
+            error: 'Resume model selection is only supported for Claude sessions'
+        })
+        expect(applySessionConfigCalls).toEqual([])
     })
 
     it('rejects model changes for local Codex sessions', async () => {

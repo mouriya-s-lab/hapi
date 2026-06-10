@@ -551,6 +551,7 @@ function SessionChatInner(props: SessionChatProps) {
         setPermissionMode,
         setCollaborationMode,
         setModel,
+        setResumeWithSessionModel,
         setModelReasoningEffort,
         setEffort
     } = useSessionActions(
@@ -793,6 +794,17 @@ function SessionChatInner(props: SessionChatProps) {
             console.error('Failed to set model:', e)
         }
     }, [setModel, props.onRefresh, haptic])
+
+    const handleResumeWithSessionModelChange = useCallback(async (enabled: boolean) => {
+        try {
+            await setResumeWithSessionModel(enabled)
+            haptic.notification('success')
+            props.onRefresh()
+        } catch (e) {
+            haptic.notification('error')
+            console.error('Failed to set resume model setting:', e)
+        }
+    }, [setResumeWithSessionModel, props.onRefresh, haptic])
 
     const handleCursorBaseModelChange = useCallback(async (baseKey: string | null) => {
         if (!cursorPicker) {
@@ -1066,6 +1078,7 @@ function SessionChatInner(props: SessionChatProps) {
                         model={props.session.model}
                         modelReasoningEffort={agentFlavor === 'codex' || agentFlavor === 'opencode' ? props.session.modelReasoningEffort : undefined}
                         effort={props.session.effort}
+                        resumeWithSessionModel={props.session.resumeWithSessionModel}
                         agentFlavor={agentFlavor}
                         availableModelOptions={
                             agentFlavor === 'codex'
@@ -1130,6 +1143,7 @@ function SessionChatInner(props: SessionChatProps) {
                                         : undefined)
                                     : handleModelChange
                         }
+                        onResumeWithSessionModelChange={agentFlavor === 'claude' ? handleResumeWithSessionModelChange : undefined}
                         onModelEffortChange={
                             agentFlavor === 'cursor'
                                 && props.session.active

@@ -9,6 +9,7 @@ import {
     SessionModelReasoningEffortRequestSchema,
     SessionModelRequestSchema,
     SessionPermissionModeRequestSchema,
+    SessionResumeModelRequestSchema,
     supportsModelChange,
     toSessionSummary,
     UploadFileRequestSchema
@@ -428,6 +429,39 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({ ok: true })
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to apply model'
+            return c.json({ error: message }, 409)
+        }
+    })
+
+    app.post('/sessions/:id/resume-model', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) {
+            return engine
+        }
+
+        const sessionResult = requireSessionFromParam(c, engine)
+        if (sessionResult instanceof Response) {
+            return sessionResult
+        }
+
+        const body = await c.req.json().catch(() => null)
+        const parsed = SessionResumeModelRequestSchema.safeParse(body)
+        if (!parsed.success) {
+            return c.json({ error: 'Invalid body' }, 400)
+        }
+
+        const flavor = sessionResult.session.metadata?.flavor ?? 'claude'
+        if (flavor !== 'claude') {
+            return c.json({ error: 'Resume model selection is only supported for Claude sessions' }, 400)
+        }
+
+        try {
+            await engine.applySessionConfig(sessionResult.sessionId, {
+                resumeWithSessionModel: parsed.data.resumeWithSessionModel
+            })
+            return c.json({ ok: true })
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to apply resume model setting'
             return c.json({ error: message }, 409)
         }
     })

@@ -628,6 +628,8 @@ export default {
   'misc.collaborationMode': 'Collaboration Mode',
   'misc.permissionMode': 'Permission Mode',
   'misc.model': 'Model',
+  'misc.resumeWithSessionModel': 'Use session model on resume',
+  'misc.resumeWithSessionModelHint': 'Pass this session’s Claude model and effort when resuming.',
   'misc.reasoningEffort': 'Reasoning Effort',
   'misc.effort': 'Effort',
   'misc.variant': 'Variant',

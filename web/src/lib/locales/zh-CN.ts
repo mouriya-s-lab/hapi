@@ -631,6 +631,8 @@ export default {
   'misc.collaborationMode': '协作模式',
   'misc.permissionMode': '权限模式',
   'misc.model': '模型',
+  'misc.resumeWithSessionModel': 'Resume 时使用本会话模型',
+  'misc.resumeWithSessionModelHint': '下次 resume 传入本会话的模型和思考强度。',
   'misc.reasoningEffort': '推理强度',
   'misc.effort': '思考强度',
   'misc.variant': '变体',

@@ -213,6 +213,7 @@ export const SessionSchema = z.object({
     model: z.string().nullable().optional().default(null),
     modelReasoningEffort: z.string().nullable().optional().default(null),
     effort: z.string().nullable().optional().default(null),
+    resumeWithSessionModel: z.boolean().optional().default(false),
     permissionMode: PermissionModeSchema.optional(),
     collaborationMode: CodexCollaborationModeSchema.optional()
 })
@@ -227,6 +228,7 @@ export const SessionPatchSchema = z.object({
     model: z.string().nullable().optional(),
     modelReasoningEffort: z.string().nullable().optional(),
     effort: z.string().nullable().optional(),
+    resumeWithSessionModel: z.boolean().optional(),
     permissionMode: PermissionModeSchema.optional(),
     collaborationMode: CodexCollaborationModeSchema.optional(),
     backgroundTaskCount: z.number().optional()

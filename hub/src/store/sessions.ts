@@ -143,6 +143,7 @@ type DbSessionRow = {
     model: string | null
     model_reasoning_effort: string | null
     effort: string | null
+    resume_with_session_model: number
     todos: string | null
     todos_updated_at: number | null
     team_state: string | null
@@ -167,6 +168,7 @@ function toStoredSession(row: DbSessionRow): StoredSession {
         model: row.model,
         modelReasoningEffort: row.model_reasoning_effort,
         effort: row.effort,
+        resumeWithSessionModel: row.resume_with_session_model === 1,
         todos: safeJsonParse(row.todos),
         todosUpdatedAt: row.todos_updated_at,
         teamState: safeJsonParse(row.team_state),
@@ -209,6 +211,7 @@ export function getOrCreateSession(
             model,
             model_reasoning_effort,
             effort,
+            resume_with_session_model,
             todos, todos_updated_at,
             active, active_at, seq
         ) VALUES (
@@ -218,6 +221,7 @@ export function getOrCreateSession(
             @model,
             @model_reasoning_effort,
             @effort,
+            0,
             NULL, NULL,
             0, NULL, 0
         )
@@ -473,6 +477,40 @@ export function setSessionEffort(
             id,
             namespace,
             effort,
+            updated_at: now,
+            touch_updated_at: touchUpdatedAt ? 1 : 0
+        })
+
+        return result.changes === 1
+    } catch {
+        return false
+    }
+}
+
+export function setSessionResumeWithSessionModel(
+    db: Database,
+    id: string,
+    resumeWithSessionModel: boolean,
+    namespace: string,
+    options?: { touchUpdatedAt?: boolean }
+): boolean {
+    const now = Date.now()
+    const touchUpdatedAt = options?.touchUpdatedAt === true
+    const storedValue = resumeWithSessionModel ? 1 : 0
+
+    try {
+        const result = db.prepare(`
+            UPDATE sessions
+            SET resume_with_session_model = @resume_with_session_model,
+                updated_at = CASE WHEN @touch_updated_at = 1 THEN @updated_at ELSE updated_at END,
+                seq = seq + 1
+            WHERE id = @id
+              AND namespace = @namespace
+              AND resume_with_session_model IS NOT @resume_with_session_model
+        `).run({
+            id,
+            namespace,
+            resume_with_session_model: storedValue,
             updated_at: now,
             touch_updated_at: touchUpdatedAt ? 1 : 0
         })
