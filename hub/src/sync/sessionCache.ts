@@ -148,6 +148,7 @@ export class SessionCache {
             model: stored.model,
             modelReasoningEffort: stored.modelReasoningEffort,
             effort: stored.effort,
+            resumeWithSessionModel: stored.resumeWithSessionModel,
             permissionMode: existing?.permissionMode ?? metadata?.preferredPermissionMode,
             collaborationMode: existing?.collaborationMode
         }
@@ -407,6 +408,7 @@ export class SessionCache {
             model?: string | null
             modelReasoningEffort?: string | null
             effort?: string | null
+            resumeWithSessionModel?: boolean
             collaborationMode?: CodexCollaborationMode
         }
     ): void {
@@ -456,6 +458,20 @@ export class SessionCache {
             }
             session.effort = config.effort
             this.markRuntimeConfigUpdated(sessionId, 'effort', appliedAt)
+        }
+        if (config.resumeWithSessionModel !== undefined) {
+            if (config.resumeWithSessionModel !== session.resumeWithSessionModel) {
+                const updated = this.store.sessions.setSessionResumeWithSessionModel(
+                    sessionId,
+                    config.resumeWithSessionModel,
+                    session.namespace,
+                    { touchUpdatedAt: false }
+                )
+                if (!updated) {
+                    throw new Error('Failed to update session resume model setting')
+                }
+            }
+            session.resumeWithSessionModel = config.resumeWithSessionModel
         }
         if (config.collaborationMode !== undefined) {
             session.collaborationMode = config.collaborationMode
@@ -748,6 +764,15 @@ export class SessionCache {
             })
             if (!updated) {
                 throw new Error('Failed to preserve session effort during merge')
+            }
+        }
+
+        if (!newStored.resumeWithSessionModel && oldStored.resumeWithSessionModel) {
+            const updated = this.store.sessions.setSessionResumeWithSessionModel(newSessionId, true, namespace, {
+                touchUpdatedAt: false
+            })
+            if (!updated) {
+                throw new Error('Failed to preserve session resume model setting during merge')
             }
         }
 

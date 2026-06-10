@@ -477,19 +477,29 @@ export class SyncEngine {
             model?: string | null
             modelReasoningEffort?: string | null
             effort?: string | null
+            resumeWithSessionModel?: boolean
             collaborationMode?: CodexCollaborationMode
         }
     ): Promise<void> {
         const session = this.sessionCache.getSession(sessionId)
+
+        const { resumeWithSessionModel, ...runtimeConfig } = config
+        if (resumeWithSessionModel !== undefined) {
+            this.sessionCache.applySessionConfig(sessionId, { resumeWithSessionModel })
+        }
+        if (Object.keys(runtimeConfig).length === 0) {
+            return
+        }
+
         if (!session?.active) {
             // For inactive sessions, update the in-memory cache directly without
             // an RPC call — the CLI is not running yet. The updated value will be
             // passed to the spawned process when the session is resumed.
-            this.sessionCache.applySessionConfig(sessionId, config)
+            this.sessionCache.applySessionConfig(sessionId, runtimeConfig)
             return
         }
 
-        const result = await this.rpcGateway.requestSessionConfig(sessionId, config)
+        const result = await this.rpcGateway.requestSessionConfig(sessionId, runtimeConfig)
         if (!result || typeof result !== 'object') {
             throw new Error('Invalid response from session config RPC')
         }
@@ -511,7 +521,7 @@ export class SyncEngine {
             throw new Error('Missing applied session config')
         }
 
-        const requestedKeys = Object.keys(config) as Array<keyof typeof config>
+        const requestedKeys = Object.keys(runtimeConfig) as Array<keyof typeof runtimeConfig>
         for (const key of requestedKeys) {
             if (!(key in applied)) {
                 throw new Error(`Session did not apply ${key}`)
@@ -596,11 +606,14 @@ export class SyncEngine {
             }
         }
 
+        const flavor = this.resolveFlavor(session)
+        const includeStoredModelParameters = flavor !== 'claude' || session.resumeWithSessionModel
+
         return {
             type: 'success',
             target: {
                 sessionId: access.sessionId,
-                flavor: this.resolveFlavor(session),
+                flavor,
                 directory: metadata.path,
                 machineId: metadata.machineId,
                 host: metadata.host,
@@ -608,8 +621,8 @@ export class SyncEngine {
                 thinking: session.thinking,
                 controlledByUser: session.agentState?.controlledByUser === true,
                 agentSessionId,
-                model: session.model ?? null,
-                effort: session.effort ?? null,
+                model: includeStoredModelParameters ? session.model ?? null : null,
+                effort: includeStoredModelParameters ? session.effort ?? null : null,
                 modelReasoningEffort: session.modelReasoningEffort ?? null,
                 permissionMode: session.permissionMode,
                 collaborationMode: session.collaborationMode
@@ -733,6 +746,7 @@ export class SyncEngine {
             return { type: 'error', message: 'No machine online', code: 'no_machine_online' }
         }
 
+        const includeStoredModelParameters = flavor !== 'claude' || session.resumeWithSessionModel
         const preferredPermissionMode = opts?.permissionMode
             ?? session.permissionMode
             ?? session.metadata?.preferredPermissionMode
@@ -740,13 +754,13 @@ export class SyncEngine {
             targetMachine.id,
             directory,
             flavor,
-            session.model ?? undefined,
+            includeStoredModelParameters ? session.model ?? undefined : undefined,
             session.modelReasoningEffort ?? undefined,
             undefined,
             undefined,
             undefined,
             resumeToken,
-            session.effort ?? undefined,
+            includeStoredModelParameters ? session.effort ?? undefined : undefined,
             preferredPermissionMode
         )
 
