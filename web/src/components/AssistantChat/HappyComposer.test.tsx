@@ -111,4 +111,36 @@ describe('HappyComposer resume model setting', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
         expect(screen.queryByRole('checkbox', { name: /Use session model on resume/i })).toBeNull()
     })
+
+    it('keeps inactive Claude resume model controls selectable when inactive sends can resume', () => {
+        const onModelChange = vi.fn()
+        const onEffortChange = vi.fn()
+        const onResumeWithSessionModelChange = vi.fn()
+
+        renderInProviders(
+            <HappyComposer
+                agentFlavor="claude"
+                active={false}
+                allowSendWhenInactive
+                model="sonnet"
+                effort={null}
+                resumeWithSessionModel={false}
+                onModelChange={onModelChange}
+                onEffortChange={onEffortChange}
+                onResumeWithSessionModelChange={onResumeWithSessionModelChange}
+            />
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Fable' }))
+        expect(onModelChange).toHaveBeenCalledWith('fable')
+
+        fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Max' }))
+        expect(onEffortChange).toHaveBeenCalledWith('max')
+
+        fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+        fireEvent.click(screen.getByRole('checkbox', { name: /Use session model on resume/i }))
+        expect(onResumeWithSessionModelChange).toHaveBeenCalledWith(true)
+    })
 })
