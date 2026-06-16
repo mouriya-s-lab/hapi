@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useParams, useSearch } from '@tanstack/react-router'
 import type { GitCommandResponse } from '@/types/api'
@@ -53,6 +53,59 @@ function BackIcon(props: { className?: string }) {
             <polyline points="15 18 9 12 15 6" />
         </svg>
     )
+}
+
+function DownloadIcon(props: { className?: string }) {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={props.className}
+        >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" x2="12" y1="15" y2="3" />
+        </svg>
+    )
+}
+
+function base64ToUint8Array(value: string): Uint8Array {
+    const binary = atob(value)
+    return Uint8Array.from(binary, (char) => char.charCodeAt(0))
+}
+
+function downloadBlob(filename: string, bytes: Uint8Array, mimeType: string): void {
+    const arrayBuffer = new ArrayBuffer(bytes.byteLength)
+    new Uint8Array(arrayBuffer).set(bytes)
+    const blob = new Blob([arrayBuffer], { type: mimeType })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = filename || 'download'
+    anchor.rel = 'noopener'
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
+function resolveDownloadMimeType(fileName: string, imageMimeType: string | null, binaryFile: boolean): string {
+    if (imageMimeType) return imageMimeType
+    if (binaryFile) return 'application/octet-stream'
+    const ext = fileName.split('.').pop()?.toLowerCase()
+    if (ext === 'json') return 'application/json;charset=utf-8'
+    if (ext === 'csv') return 'text/csv;charset=utf-8'
+    if (ext === 'html') return 'text/html;charset=utf-8'
+    if (ext === 'md') return 'text/markdown;charset=utf-8'
+    if (ext === 'xml') return 'application/xml;charset=utf-8'
+    return 'text/plain;charset=utf-8'
 }
 
 function DiffDisplay(props: { diffContent: string }) {
@@ -205,6 +258,12 @@ export default function FilePage() {
         && !binaryFile
         && decodedContent.length > 0
         && contentSizeBytes <= MAX_COPYABLE_FILE_BYTES
+    const canDownloadFile = fileContentResult?.success === true && Boolean(fileContentResult.content)
+    const handleDownload = useCallback(() => {
+        if (!fileContentResult?.success || !fileContentResult.content) return
+        const mimeType = resolveDownloadMimeType(fileName, imageMimeType, binaryFile)
+        downloadBlob(fileName, base64ToUint8Array(fileContentResult.content), mimeType)
+    }, [binaryFile, fileContentResult, fileName, imageMimeType])
 
     const [displayMode, setDisplayMode] = useState<'diff' | 'file'>('diff')
 
@@ -252,6 +311,15 @@ export default function FilePage() {
                 <div className="mx-auto w-full max-w-content px-3 py-2 flex items-center gap-2 border-b border-[var(--app-divider)]">
                     <FileIcon fileName={fileName} size={20} />
                     <span className="min-w-0 flex-1 truncate text-xs text-[var(--app-hint)]">{filePath || t('file.page.unknownPath')}</span>
+                    <button
+                        type="button"
+                        onClick={handleDownload}
+                        disabled={!canDownloadFile}
+                        className="shrink-0 rounded p-1 text-[var(--app-hint)] transition-colors hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)] disabled:cursor-not-allowed disabled:opacity-40"
+                        title={t('file.page.download')}
+                    >
+                        <DownloadIcon className="h-3.5 w-3.5" />
+                    </button>
                     <button
                         type="button"
                         onClick={() => copyPath(filePath)}

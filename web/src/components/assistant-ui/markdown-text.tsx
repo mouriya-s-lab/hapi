@@ -184,6 +184,8 @@ function hasScheme(href: string): boolean {
 export function denyOnlyTransform(url: string): string {
     if (!url) return url
     const trimmed = url.trimStart()
+    // 放行 data:image/* (base64 图片)，仅图片安全；data:text/html 等仍被 deny
+    if (/^data:image\//i.test(trimmed)) return url
     const colonIdx = trimmed.indexOf(':')
     const slashIdx = trimmed.search(/[/?#]/)
     if (colonIdx < 0 || (slashIdx >= 0 && slashIdx < colonIdx)) {

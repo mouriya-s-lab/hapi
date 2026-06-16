@@ -1,5 +1,7 @@
 import { logger } from '@/ui/logger'
 import { readFile, stat, writeFile } from 'fs/promises'
+import { tmpdir } from 'os'
+import { tmpdir } from 'os'
 import { createHash } from 'crypto'
 import { resolve } from 'path'
 import type { FileReadResponse, GeneratedImageResponse } from '@hapi/protocol/apiTypes'
@@ -33,18 +35,41 @@ interface WriteFileResponse {
     error?: string
 }
 
+function isWithinPath(targetPath: string, rootPath: string): boolean {
+    const normalizedTarget = process.platform === 'win32' ? targetPath.toLowerCase() : targetPath
+    const normalizedRoot = process.platform === 'win32' ? rootPath.toLowerCase() : rootPath
+    const rootPrefix = normalizedRoot.endsWith('/') || normalizedRoot.endsWith('\\')
+        ? normalizedRoot
+        : `${normalizedRoot}${process.platform === 'win32' ? '\\' : '/'}`
+    return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(rootPrefix)
+}
+
+function resolveReadablePath(targetPath: string, workingDirectory: string): { valid: true; path: string } | { valid: false; error: string } {
+    const workspaceValidation = validatePath(targetPath, workingDirectory)
+    if (workspaceValidation.valid) {
+        return { valid: true, path: resolve(workingDirectory, targetPath) }
+    }
+
+    const resolvedTarget = resolve(workingDirectory, targetPath)
+    const resolvedTmp = resolve(tmpdir())
+    if (isWithinPath(resolvedTarget, resolvedTmp)) {
+        return { valid: true, path: resolvedTarget }
+    }
+
+    return { valid: false, error: workspaceValidation.error ?? 'Invalid file path' }
+}
+
 export function registerFileHandlers(rpcHandlerManager: RpcHandlerManager, workingDirectory: string): void {
     rpcHandlerManager.registerHandler<ReadFileRequest, ReadFileResponse>(RPC_METHODS.ReadFile, async (data) => {
         logger.debug('Read file request:', data.path)
 
-        const validation = validatePath(data.path, workingDirectory)
-        if (!validation.valid) {
-            return rpcError(validation.error ?? 'Invalid file path')
+        const resolved = resolveReadablePath(data.path, workingDirectory)
+        if (!resolved.valid) {
+            return rpcError(resolved.error)
         }
 
         try {
-            const resolvedPath = resolve(workingDirectory, data.path)
-            const buffer = await readFile(resolvedPath)
+            const buffer = await readFile(resolved.path)
             const content = buffer.toString('base64')
             return { success: true, content }
         } catch (error) {

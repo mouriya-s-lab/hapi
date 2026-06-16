@@ -299,6 +299,7 @@ export default {
   'file.page.unknownPath': '未知路径',
   'file.page.copyPath': '复制路径',
   'file.page.copyContent': '复制文件内容',
+  'file.page.download': '下载文件',
   'file.page.tab.diff': 'Diff',
   'file.page.tab.file': '文件',
   'file.page.missingPath': '未提供文件路径。',

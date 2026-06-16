@@ -271,5 +271,29 @@ export function createCliRoutes(getSyncEngine: () => SyncEngine | null): Hono<Cl
         return c.json({ machine: resolved.machine })
     })
 
+    app.patch('/machines/:id', async (c) => {
+        const engine = getSyncEngine()
+        if (!engine) {
+            return c.json({ error: 'Not ready' }, 503)
+        }
+        const machineId = c.req.param('id')
+        const namespace = c.get('namespace')
+        const resolved = resolveMachineForNamespace(engine, machineId, namespace)
+        if (!resolved.ok) {
+            return c.json({ error: resolved.error }, resolved.status)
+        }
+        const body = await c.req.json().catch(() => null)
+        const parsed = z.object({ friendlyName: z.string().trim().min(1).max(255) }).safeParse(body)
+        if (!parsed.success) {
+            return c.json({ error: 'Invalid body: friendlyName required' }, 400)
+        }
+        try {
+            await engine.renameMachine(machineId, parsed.data.friendlyName, namespace)
+            return c.json({ ok: true })
+        } catch (e) {
+            return c.json({ error: e instanceof Error ? e.message : 'Failed' }, 500)
+        }
+    })
+
     return app
 }

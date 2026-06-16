@@ -295,6 +295,7 @@ export default {
   'file.page.unknownPath': 'Unknown path',
   'file.page.copyPath': 'Copy path',
   'file.page.copyContent': 'Copy file content',
+  'file.page.download': 'Download file',
   'file.page.tab.diff': 'Diff',
   'file.page.tab.file': 'File',
   'file.page.missingPath': 'No file path provided.',

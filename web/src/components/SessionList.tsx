@@ -796,11 +796,25 @@ export function SessionList(props: {
         })
     }, [])
 
-    const resolveMachineLabel = (machineId: string | null): string => {
-        if (machineId && machineLabelsById[machineId]) {
-            return machineLabelsById[machineId]
+    // machineId → host 映射(从 sessions 的 metadata.host 构建，不依赖 machineCache)
+    const hostByMachineId = useMemo(() => {
+        const m = new Map<string, string>()
+        for (const s of props.sessions) {
+            const mid = s.metadata?.machineId
+            const host = s.metadata?.host
+            if (mid && host && !m.has(mid)) m.set(mid, host)
         }
+        return m
+    }, [props.sessions])
+
+    const resolveMachineLabel = (machineId: string | null): string => {
         if (machineId) {
+            if (machineLabelsById[machineId]) {
+                return machineLabelsById[machineId]
+            }
+            if (hostByMachineId.has(machineId)) {
+                return hostByMachineId.get(machineId)!
+            }
             return machineId.slice(0, 8)
         }
         return t('machine.unknown')

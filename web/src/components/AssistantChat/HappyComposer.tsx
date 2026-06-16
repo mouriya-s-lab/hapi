@@ -406,7 +406,9 @@ export function HappyComposer(props: {
         const key = e.key
 
         // Avoid intercepting IME composition keystrokes (Enter, arrows, etc.)
-        if (e.nativeEvent.isComposing) {
+        // isComposing covers most browsers; keyCode 229 covers IME-handled keydowns
+        // (e.g. Safari/某些输入法回车确认候选时 isComposing 可能为 false 但 keyCode=229)
+        if (e.nativeEvent.isComposing || e.keyCode === 229) {
             return
         }
 

@@ -36,10 +36,22 @@ describe('remarkFilePathLinks', () => {
 
         expect(links.map(linkedPath)).toEqual(['screenshot.png', 'README.md'])
     })
+    it('links absolute Unix and home paths for output files', () => {
+        const nodes = transform('Saved /tmp/render_test.png and ~/Downloads/report.pdf')
+        const links = nodes.filter((node) => node.type === 'link')
 
+        expect(links.map(linkedPath)).toEqual(['/tmp/render_test.png', '~/Downloads/report.pdf'])
+    })
 
-    it('does not link paths that are outside the session workspace', () => {
-        const nodes = transform('Skip /Users/dev/project/a.png, ~/a.png, ../a.png and C:\\tmp\\a.png')
+    it('links Windows absolute paths', () => {
+        const nodes = transform('Saved C:\\Users\\Administrator\\Desktop\\report.docx')
+        const link = nodes.find((node) => node.type === 'link')
+
+        expect(linkedPath(link!)).toBe('C:\\Users\\Administrator\\Desktop\\report.docx')
+    })
+
+    it('does not link parent traversal paths', () => {
+        const nodes = transform('Skip ../a.png and folder/../a.png')
 
         expect(nodes.some((node) => node.type === 'link')).toBe(false)
     })

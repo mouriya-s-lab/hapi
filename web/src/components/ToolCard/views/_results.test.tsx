@@ -406,6 +406,38 @@ describe('read file result formatting', () => {
         expect(screen.getAllByText('Raw JSON').length).toBeGreaterThan(0)
     })
 
+    it('renders a base64 PNG read result as an image preview', () => {
+        // PNG 魔数 "iVBORw0KGgo" + 行号前缀，模拟 Read 一个被 base64 的图片文件
+        const base64 = 'iVBORw0KGgo' + 'A'.repeat(120)
+        const { container } = renderToolResult('Read', `1\t${base64}`, { file_path: '/tmp/h.b64' })
+        const img = container.querySelector('img')
+
+        expect(img).not.toBeNull()
+        expect(img?.getAttribute('src')).toBe(`data:image/png;base64,${base64}`)
+        // 不应把图片内容渲染进 "File content" 代码块（RawJsonDevOnly 的 JSON pre 不算）
+        expect(container).not.toHaveTextContent('File content')
+    })
+
+    it('renders a data:image read result as an image preview', () => {
+        const dataUrl = 'data:image/jpeg;base64,/9j/' + 'A'.repeat(80)
+        const { container } = renderToolResult('Read', {
+            file: { filePath: '/tmp/pic.jpg', content: dataUrl }
+        })
+        const img = container.querySelector('img')
+
+        expect(img).not.toBeNull()
+        expect(img?.getAttribute('src')).toBe(dataUrl)
+    })
+
+    it('does not misrender ordinary base64-looking text as an image', () => {
+        // 合法 base64 字符但无图片魔数、路径非图片 → 仍按文本渲染
+        const { container } = renderToolResult('Read', {
+            file: { filePath: '/tmp/token.txt', content: 'YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo' }
+        })
+
+        expect(container.querySelector('img')).toBeNull()
+    })
+
     it('renders parsed Codex read command output as a quote', () => {
         const { container } = renderToolResult(
             'CodexBash',
