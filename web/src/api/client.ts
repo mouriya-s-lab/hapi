@@ -31,8 +31,11 @@ import type {
     DeleteUploadResponse,
     FileReadResponse,
     GitCommandResponse,
+    ImportableSessionSummary,
+    ImportSessionsResult,
     ListCcSwitchProvidersResponse,
     ListDirectoryResponse,
+    ListImportableSessionsResponse,
     MachineListDirectoryResponse,
     MachinePathsExistsResponse,
     OpencodeModelsResponse,
@@ -623,6 +626,22 @@ export class ApiClient {
         const params = providerId ? `?providerId=${encodeURIComponent(providerId)}` : ''
         return await this.request<QueryCcSwitchUsageResponse>(
             `/api/machines/${encodeURIComponent(machineId)}/cc-switch/usage${params}`
+        )
+    }
+
+    async getMachineImportableSessions(machineId: string): Promise<ListImportableSessionsResponse> {
+        return await this.request<ListImportableSessionsResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/importable`
+        )
+    }
+
+    async importMachineSessions(
+        machineId: string,
+        sessions: ImportableSessionSummary[]
+    ): Promise<ImportSessionsResult> {
+        return await this.request<ImportSessionsResult>(
+            `/api/machines/${encodeURIComponent(machineId)}/import`,
+            { method: 'POST', body: JSON.stringify({ sessions }) }
         )
     }
 

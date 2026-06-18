@@ -12,11 +12,14 @@ import type {
     GeneratedImageResponse,
     ListCcSwitchProvidersResponse,
     ListDirectoryResponse,
+    ListImportableSessionsResponse,
     OpencodeModelsResponse,
     OpencodeModelSummary,
     OpencodeReasoningEffortResponse,
     PathExistsResponse,
     QueryCcSwitchUsageResponse,
+    ReadImportableSessionRequest,
+    ReadImportableSessionResponse,
     SlashCommandsResponse,
     SwitchCcSwitchProviderResponse,
     UploadFileResponse
@@ -26,6 +29,8 @@ import type { RpcRegistry } from '../socket/rpcRegistry'
 
 const DEFAULT_RPC_TIMEOUT_MS = 30_000
 const MODEL_LIST_RPC_TIMEOUT_MS = 120_000
+// 历史会话扫描/读取可能涉及大量本地文件,放宽超时上限。
+const IMPORT_SCAN_RPC_TIMEOUT_MS = 180_000
 
 export type RpcCommandResponse = CommandResponse
 export type RpcReadFileResponse = FileReadResponse
@@ -265,6 +270,18 @@ export class RpcGateway {
 
     async queryCcSwitchUsageForMachine(machineId: string, providerId?: string): Promise<QueryCcSwitchUsageResponse> {
         return await this.machineRpc(machineId, RPC_METHODS.QueryCcSwitchUsage, { providerId }, MODEL_LIST_RPC_TIMEOUT_MS) as QueryCcSwitchUsageResponse
+    }
+
+    async listImportableSessionsForMachine(machineId: string): Promise<ListImportableSessionsResponse> {
+        // 扫描可能涉及大量本地会话文件,给较宽松的超时。
+        return await this.machineRpc(machineId, RPC_METHODS.ListImportableSessions, {}, IMPORT_SCAN_RPC_TIMEOUT_MS) as ListImportableSessionsResponse
+    }
+
+    async readImportableSessionForMachine(
+        machineId: string,
+        request: ReadImportableSessionRequest
+    ): Promise<ReadImportableSessionResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ReadImportableSession, request, IMPORT_SCAN_RPC_TIMEOUT_MS) as ReadImportableSessionResponse
     }
 
     async listOpencodeModelsForSession(sessionId: string): Promise<RpcListOpencodeModelsResponse> {

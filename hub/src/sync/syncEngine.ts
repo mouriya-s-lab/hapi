@@ -8,7 +8,7 @@
  */
 
 import { isKnownFlavor, type LocalResumeTarget, type ResumableSession } from '@hapi/protocol'
-import type { CursorMigrateOutcome, CursorMigrateToAcpRequest, SlashCommandsResponse, ListCcSwitchProvidersResponse, SwitchCcSwitchProviderResponse, QueryCcSwitchUsageResponse } from '@hapi/protocol/apiTypes'
+import type { CursorMigrateOutcome, CursorMigrateToAcpRequest, SlashCommandsResponse, ListCcSwitchProvidersResponse, SwitchCcSwitchProviderResponse, QueryCcSwitchUsageResponse, ListImportableSessionsResponse, ReadImportableSessionRequest, ReadImportableSessionResponse } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor, CodexCollaborationMode, DecryptedMessage, PermissionMode, Session, SyncEvent } from '@hapi/protocol/types'
 import { unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
 import type { Server } from 'socket.io'
@@ -1538,6 +1538,17 @@ export class SyncEngine {
 
     async queryCcSwitchUsageForMachine(machineId: string, providerId?: string): Promise<QueryCcSwitchUsageResponse> {
         return await this.rpcGateway.queryCcSwitchUsageForMachine(machineId, providerId)
+    }
+
+    async listImportableSessionsForMachine(machineId: string): Promise<ListImportableSessionsResponse> {
+        return await this.rpcGateway.listImportableSessionsForMachine(machineId)
+    }
+
+    async readImportableSessionForMachine(
+        machineId: string,
+        request: ReadImportableSessionRequest
+    ): Promise<ReadImportableSessionResponse> {
+        return await this.rpcGateway.readImportableSessionForMachine(machineId, request)
     }
 
     async listOpencodeModelsForSession(sessionId: string): Promise<RpcListOpencodeModelsResponse> {

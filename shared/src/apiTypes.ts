@@ -438,3 +438,83 @@ export type SlashCommandsResponse = {
     commands?: SlashCommand[]
     error?: string
 }
+
+// ----- 历史会话导入(功能1) -----
+// 这些类型经 RPC 在机器间传输:CLI 在本地扫描/解析 claude code / codex 原生会话,
+// hub(可能在 ECS,读不到本地盘)只负责把 CLI 回传的结果写入 DB。
+
+/** 可导入的本地会话摘要(扫描结果,不含完整消息)。 */
+export type ImportableSessionSummary = {
+    /** agent 原生会话 id(claude/codex 的 sessionId)。 */
+    id: string
+    flavor: 'claude' | 'codex'
+    title: string
+    /** 最近一条用户消息预览(已截断)。 */
+    lastUserMessage?: string | null
+    /** 会话工作目录。 */
+    cwd?: string | null
+    /** 会话文件绝对路径(在 CLI 本机上)。 */
+    file: string
+    /** 文件最后修改时间(epoch ms)。 */
+    modifiedAt: number
+    /** 该会话可导入的可见消息条数(预估)。 */
+    messageCount: number
+    cliVersion?: string | null
+}
+
+export type ListImportableSessionsResponse = {
+    success: boolean
+    sessions?: ImportableSessionSummary[]
+    error?: string
+}
+
+/** 已转换为 hapi 消息信封的单条消息(与 live CLI 发往 hub 的 content 格式一致)。 */
+export type ImportedMessageContent = {
+    role: 'user' | 'agent'
+    content: unknown
+    meta?: unknown
+}
+
+export type ReadImportableSessionRequest = {
+    flavor: 'claude' | 'codex'
+    /** 会话文件绝对路径(来自 summary.file);优先用它定位,避免重复全盘扫描。 */
+    file: string
+    /** agent 原生会话 id,用于构造导入会话的 metadata 与去重。 */
+    id: string
+}
+
+export type ReadImportableSessionResponse = {
+    success: boolean
+    /** 转换后的 hapi 消息序列(按时间顺序)。 */
+    messages?: ImportedMessageContent[]
+    /** 构造 hapi 会话 metadata 的辅助字段。 */
+    meta?: {
+        title?: string | null
+        cwd?: string | null
+        cliVersion?: string | null
+        modifiedAt?: number
+    }
+    error?: string
+}
+
+/** 单条会话的导入结果。 */
+export type ImportSessionResultItem = {
+    sourceId: string
+    flavor: 'claude' | 'codex'
+    success: boolean
+    sessionId?: string
+    /** created=新建会话;skipped-existing=此前已导入过,跳过。 */
+    action?: 'created' | 'skipped-existing'
+    messageCount?: number
+    error?: string
+}
+
+/** 批量导入的汇总结果。 */
+export type ImportSessionsResult = {
+    success: boolean
+    importedCount: number
+    skippedCount: number
+    failedCount: number
+    results: ImportSessionResultItem[]
+    error?: string
+}

@@ -21,6 +21,7 @@ import { createMachinesRoutes } from './routes/machines'
 import { createGitRoutes } from './routes/git'
 import { createCliRoutes } from './routes/cli'
 import { createCodexDesktopRoutes } from './routes/codexDesktop'
+import { createImportSessionsRoutes } from './routes/importSessions'
 import { createPushRoutes } from './routes/push'
 import { createVoiceRoutes } from './routes/voice'
 import type { SSEManager } from '../sse/sseManager'
@@ -242,6 +243,11 @@ function createWebApp(options: {
     app.route('/api', createGitRoutes(options.getSyncEngine))
     // 中文注释：这里提供两类 Codex 辅助能力：扫描本地 transcript 以导入到 Hapi，以及按需重启 Codex Desktop 客户端。
     app.route('/api', createCodexDesktopRoutes({
+        store: options.store,
+        getSyncEngine: options.getSyncEngine
+    }))
+    // 历史会话导入(功能1):扫描/读取本地 claude code / codex 会话,经 RPC 让本地机器执行。
+    app.route('/api', createImportSessionsRoutes({
         store: options.store,
         getSyncEngine: options.getSyncEngine
     }))

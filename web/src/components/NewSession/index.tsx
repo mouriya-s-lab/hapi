@@ -34,6 +34,7 @@ import { ActionButtons } from './ActionButtons'
 import { AgentSelector } from './AgentSelector'
 import { DirectorySection } from './DirectorySection'
 import { MachineSelector } from './MachineSelector'
+import { ImportSessionsDialog } from '@/components/ImportSessionsDialog'
 import { ModelSelector } from './ModelSelector'
 import { OpencodeModelSelector } from './OpencodeModelSelector'
 import { ClaudeEffortSelector } from './ClaudeEffortSelector'
@@ -67,6 +68,7 @@ export function NewSession(props: {
     const { getRecentPaths, addRecentPath, getLastUsedMachineId, setLastUsedMachineId } = useRecentPaths()
 
     const [machineId, setMachineId] = useState<string | null>(props.initialMachineId ?? null)
+    const [showImportDialog, setShowImportDialog] = useState(false)
     const [directory, setDirectory] = useState(props.initialDirectory ?? '')
     const [suppressSuggestions, setSuppressSuggestions] = useState(false)
     const [isDirectoryFocused, setIsDirectoryFocused] = useState(false)
@@ -603,6 +605,16 @@ export function NewSession(props: {
                 isDisabled={isFormDisabled}
                 onChange={handleMachineChange}
             />
+            {machineId ? (
+                <button
+                    type="button"
+                    onClick={() => setShowImportDialog(true)}
+                    disabled={isFormDisabled}
+                    className="px-3 py-2 text-left text-xs text-[var(--app-link)] transition-colors hover:bg-[var(--app-secondary-bg)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                    {t('import.entry')}
+                </button>
+            ) : null}
             {runnerSpawnError ? (
                 <div className="px-3 py-2 text-xs text-red-600">
                     Runner last spawn error: {runnerSpawnError}
@@ -742,6 +754,18 @@ export function NewSession(props: {
                 onCancel={props.onCancel}
                 onCreate={handleCreate}
             />
+            {showImportDialog && machineId ? (
+                <ImportSessionsDialog
+                    api={props.api}
+                    machineId={machineId}
+                    onClose={() => setShowImportDialog(false)}
+                    onImported={() => {
+                        // 导入成功后刷新会话列表(useSessions 的查询会自动失效),并关闭对话框。
+                        setShowImportDialog(false)
+                        props.onCancel()
+                    }}
+                />
+            ) : null}
         </div>
     )
 }
