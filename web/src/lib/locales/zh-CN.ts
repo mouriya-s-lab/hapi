@@ -631,6 +631,7 @@ export default {
   'misc.permissionMode': '权限模式',
   'misc.model': '模型',
   'misc.reasoningEffort': '推理强度',
+  'reasoning.collapseHint': '点击折叠',
   'misc.effort': '思考强度',
   'misc.variant': '变体',
   'misc.loading': '加载中…',

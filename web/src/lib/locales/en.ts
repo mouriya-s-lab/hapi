@@ -627,6 +627,7 @@ export default {
   'misc.permissionMode': 'Permission Mode',
   'misc.model': 'Model',
   'misc.reasoningEffort': 'Reasoning Effort',
+  'reasoning.collapseHint': 'click to collapse',
   'misc.effort': 'Effort',
   'misc.variant': 'Variant',
   'misc.loading': 'Loading…',
