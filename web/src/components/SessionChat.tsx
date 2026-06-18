@@ -53,6 +53,8 @@ import {
 import { buildCursorEffortPickerOptions, resolveCursorVariantOptions } from '@/lib/cursorModelOptions'
 import { useOpencodeModels } from '@/hooks/queries/useOpencodeModels'
 import { useOpencodeReasoningEffortOptions } from '@/hooks/queries/useOpencodeReasoningEffortOptions'
+import { useCcSwitchProviders } from '@/hooks/queries/useCcSwitchProviders'
+import { useCcSwitchProvider } from '@/hooks/mutations/useCcSwitchProvider'
 import { useVoiceOptional } from '@/lib/voice-context'
 import { VoiceBackendSession, registerSessionStore, registerVoiceHooksStore, voiceHooks } from '@/realtime'
 import { isRemoteTerminalSupported } from '@/utils/terminalSupport'
@@ -566,6 +568,29 @@ function SessionChatInner(props: SessionChatProps) {
         agentFlavor,
         codexCollaborationModeSupported
     )
+
+    // cc-switch 供应商(仅 claude flavor):从会话所在机器读取可用供应商,
+    // 切换后重启会话使新供应商(ANTHROPIC_BASE_URL/TOKEN)生效。
+    const ccSwitchProvidersState = useCcSwitchProviders({
+        api: props.api,
+        machineId: sessionMachineId,
+        enabled: agentFlavor === 'claude' && Boolean(sessionMachineId)
+    })
+    const { switchProvider: switchCcSwitchProvider } = useCcSwitchProvider({
+        api: props.api,
+        machineId: sessionMachineId,
+        sessionId: props.session.id
+    })
+    const handleCcSwitchProviderChange = useCallback((providerId: string) => {
+        void (async () => {
+            try {
+                await switchCcSwitchProvider(providerId)
+                props.onRefresh()
+            } catch {
+                // 切换失败由 mutation 内部吞掉具体错误;此处不阻断 UI。
+            }
+        })()
+    }, [switchCcSwitchProvider, props.onRefresh])
 
     // Voice assistant integration
     const voice = useVoiceOptional()
@@ -1111,6 +1136,28 @@ function SessionChatInner(props: SessionChatProps) {
                                 : undefined
                         }
                         onPermissionModeChange={handlePermissionModeChange}
+                        ccSwitchProviders={
+                            agentFlavor === 'claude' && ccSwitchProvidersState.available
+                                ? ccSwitchProvidersState.providers.map((provider) => ({
+                                    id: provider.id,
+                                    name: provider.name,
+                                    isCurrent: provider.isCurrent
+                                }))
+                                : undefined
+                        }
+                        currentCcSwitchProviderId={
+                            agentFlavor === 'claude' && ccSwitchProvidersState.available
+                                ? ccSwitchProvidersState.currentProviderId
+                                : undefined
+                        }
+                        onCcSwitchProviderChange={
+                            agentFlavor === 'claude'
+                                && ccSwitchProvidersState.available
+                                && props.session.active
+                                && !controlledByUser
+                                ? handleCcSwitchProviderChange
+                                : undefined
+                        }
                         selectedModelBase={
                             agentFlavor === 'cursor' && cursorPicker?.mode === 'dual'
                                 ? cursorSelectedBaseValue

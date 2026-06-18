@@ -8,7 +8,9 @@ import { SessionExportDialog } from '@/components/SessionExportDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { formatReopenError } from '@/lib/reopenError'
-import { getSessionModelLabel } from '@/lib/sessionModelLabel'
+import { getSessionModelLabel, formatCcSwitchSourceLabel } from '@/lib/sessionModelLabel'
+import { useCcSwitchProviders } from '@/hooks/queries/useCcSwitchProviders'
+import { useCcSwitchUsage } from '@/hooks/queries/useCcSwitchUsage'
 import { useTranslation } from '@/lib/use-translation'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 
@@ -102,6 +104,31 @@ export function SessionHeader(props: {
     const worktreeBranch = session.metadata?.worktree?.branch
     const modelLabel = getSessionModelLabel(session)
 
+    // cc-switch 源 + 用量(仅 claude flavor):顶部用"源名 · 剩余用量"替代模型标签。
+    const flavor = session.metadata?.flavor ?? null
+    const sessionMachineId = session.metadata?.machineId ?? null
+    const ccSwitchEnabled = flavor === 'claude' && Boolean(sessionMachineId)
+    const ccSwitchProvidersState = useCcSwitchProviders({
+        api,
+        machineId: sessionMachineId,
+        enabled: ccSwitchEnabled
+    })
+    const ccSwitchUsageState = useCcSwitchUsage({
+        api,
+        machineId: sessionMachineId,
+        // 不指定 providerId,查当前选中供应商;仅当 cc-switch 可用且有当前源时才查。
+        enabled: ccSwitchEnabled && ccSwitchProvidersState.available && Boolean(ccSwitchProvidersState.currentProviderId)
+    })
+    const ccSwitchSourceLabel = ccSwitchProvidersState.available
+        ? formatCcSwitchSourceLabel(
+            ccSwitchUsageState.providerName
+                ?? ccSwitchProvidersState.providers.find((p) => p.isCurrent)?.name
+                ?? null,
+            ccSwitchUsageState.usage,
+            t('session.item.remaining')
+        )
+        : null
+
     const [menuOpen, setMenuOpen] = useState(false)
     const [menuAnchorPoint, setMenuAnchorPoint] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
     const menuId = useId()
@@ -183,7 +210,9 @@ export function SessionHeader(props: {
                                 <AgentFlavorIcon flavor={session.metadata?.flavor} className="h-3.5 w-3.5 shrink-0" />
                                 {session.metadata?.flavor?.trim() || 'unknown'}
                             </span>
-                            {modelLabel ? (
+                            {ccSwitchSourceLabel ? (
+                                <span>{ccSwitchSourceLabel}</span>
+                            ) : modelLabel ? (
                                 <span>
                                     {t(modelLabel.key)}: {modelLabel.value}
                                 </span>

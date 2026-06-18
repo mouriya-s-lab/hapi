@@ -97,6 +97,11 @@ export function HappyComposer(props: {
     onCollaborationModeChange?: (mode: CodexCollaborationMode) => void
     onPermissionModeChange?: (mode: PermissionMode) => void
     onModelChange?: (model: string | null) => void
+    // cc-switch 供应商(仅 claude flavor):选项来自本地机器的 cc-switch 配置。
+    // 切换供应商 = 改 ANTHROPIC_BASE_URL/TOKEN,与 model 热切是不同维度,故独立成一组。
+    ccSwitchProviders?: Array<{ id: string; name: string; isCurrent: boolean }>
+    currentCcSwitchProviderId?: string | null
+    onCcSwitchProviderChange?: (providerId: string) => void
     /** Cursor: effort/variant wire id (separate from base model change). */
     onModelEffortChange?: (wireId: string | null) => void
     onModelReasoningEffortChange?: (modelReasoningEffort: string | null) => void
@@ -155,6 +160,9 @@ export function HappyComposer(props: {
         onCollaborationModeChange,
         onPermissionModeChange,
         onModelChange,
+        ccSwitchProviders,
+        currentCcSwitchProviderId,
+        onCcSwitchProviderChange,
         onModelEffortChange,
         onModelReasoningEffortChange,
         onEffortChange,
@@ -595,6 +603,17 @@ export function HappyComposer(props: {
         haptic('light')
     }, [onModelChange, controlsDisabled, haptic])
 
+    const handleCcSwitchProviderChange = useCallback((providerId: string) => {
+        if (!onCcSwitchProviderChange || controlsDisabled) return
+        if (providerId === currentCcSwitchProviderId) {
+            setShowSettings(false)
+            return
+        }
+        onCcSwitchProviderChange(providerId)
+        setShowSettings(false)
+        haptic('light')
+    }, [onCcSwitchProviderChange, currentCcSwitchProviderId, controlsDisabled, haptic])
+
     const handleModelEffortChange = useCallback((nextWireId: string | null) => {
         const handler = onModelEffortChange ?? onModelChange
         if (!handler || controlsDisabled) return
@@ -619,6 +638,11 @@ export function HappyComposer(props: {
 
     const showCollaborationSettings = Boolean(onCollaborationModeChange && collaborationModeOptions.length > 0)
     const showPermissionSettings = Boolean(onPermissionModeChange && permissionModeOptions.length > 0)
+    const showCcSwitchSettings = Boolean(
+        onCcSwitchProviderChange
+        && ccSwitchProviders
+        && ccSwitchProviders.length > 0
+    )
     const showModelSettings = Boolean(onModelChange && supportsModelChange(agentFlavor) && modelOptions.length > 0)
     const showModelEffortSettings = Boolean(
         (onModelEffortChange ?? onModelChange)
@@ -630,6 +654,7 @@ export function HappyComposer(props: {
     const showSettingsButton = Boolean(
         showCollaborationSettings
         || showPermissionSettings
+        || showCcSwitchSettings
         || showModelSettings
         || showModelEffortSettings
         || showModelReasoningEffortSettings
@@ -735,7 +760,51 @@ export function HappyComposer(props: {
                             </div>
                         ) : null}
 
-                        {(showCollaborationSettings || showPermissionSettings) && (showModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings) ? (
+                        {(showCollaborationSettings || showPermissionSettings) && (showCcSwitchSettings || showModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings) ? (
+                            <div className="mx-3 h-px bg-[var(--app-divider)]" />
+                        ) : null}
+
+                        {showCcSwitchSettings ? (
+                            <div className="py-2">
+                                <div className="px-3 pb-1 text-xs font-semibold text-[var(--app-hint)]">
+                                    {t('misc.provider')}
+                                </div>
+                                {ccSwitchProviders!.map((provider) => {
+                                    const isSelected = currentCcSwitchProviderId === provider.id
+                                    return (
+                                        <button
+                                            key={provider.id}
+                                            type="button"
+                                            disabled={controlsDisabled}
+                                            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                                                controlsDisabled
+                                                    ? 'cursor-not-allowed opacity-50'
+                                                    : 'cursor-pointer hover:bg-[var(--app-secondary-bg)]'
+                                            }`}
+                                            onClick={() => handleCcSwitchProviderChange(provider.id)}
+                                            onMouseDown={(e) => e.preventDefault()}
+                                        >
+                                            <div
+                                                className={`flex h-4 w-4 items-center justify-center rounded-full border-2 ${
+                                                    isSelected
+                                                        ? 'border-[var(--app-link)]'
+                                                        : 'border-[var(--app-hint)]'
+                                                }`}
+                                            >
+                                                {isSelected && (
+                                                    <div className="h-2 w-2 rounded-full bg-[var(--app-link)]" />
+                                                )}
+                                            </div>
+                                            <span className={isSelected ? 'text-[var(--app-link)]' : ''}>
+                                                {provider.name}
+                                            </span>
+                                        </button>
+                                    )
+                                })}
+                            </div>
+                        ) : null}
+
+                        {showCcSwitchSettings && (showModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings) ? (
                             <div className="mx-3 h-px bg-[var(--app-divider)]" />
                         ) : null}
 
