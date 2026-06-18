@@ -20,9 +20,11 @@ import { cn, encodeBase64 } from '@/lib/utils'
 import { SyntaxHighlighter } from '@/components/assistant-ui/shiki-highlighter'
 import { MermaidDiagram } from '@/components/assistant-ui/mermaid-diagram'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
-import { CopyIcon, CheckIcon } from '@/components/icons'
+import { CopyIcon, CheckIcon, DownloadIcon } from '@/components/icons'
 import { useOptionalHappyChatContext } from '@/components/AssistantChat/context'
 import { decodeFilePathHref, remarkFilePathLinks } from '@/lib/remark-file-path-links'
+import { base64ToUint8Array, downloadBlob, resolveDownloadMimeType, fileNameFromPath } from '@/lib/file-download'
+import { useTranslation } from '@/lib/use-translation'
 import { UriConfirmDialog } from '@/components/UriConfirmDialog'
 
 import type { MarkdownTextPrimitiveProps } from '@assistant-ui/react-markdown'
@@ -420,9 +422,13 @@ function Code(props: ComponentPropsWithoutRef<'code'>) {
 
 function FilePathAnchor(props: ComponentPropsWithoutRef<'a'> & { filePath: string; sessionId: string }) {
     const navigate = useNavigate()
+    const chat = useOptionalHappyChatContext()
+    const { t } = useTranslation()
+    const [downloadState, setDownloadState] = useState<'idle' | 'loading' | 'error'>('idle')
     const rel = props.target === '_blank' ? (props.rel ?? 'noreferrer') : props.rel
     const search = new URLSearchParams({ path: encodeBase64(props.filePath) }).toString()
     const href = `/sessions/${encodeURIComponent(props.sessionId)}/file?${search}`
+    const { filePath, sessionId, children, className, ...anchorProps } = props
 
     const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
         props.onClick?.(event)
@@ -432,19 +438,62 @@ function FilePathAnchor(props: ComponentPropsWithoutRef<'a'> & { filePath: strin
         event.preventDefault()
         void navigate({
             to: '/sessions/$sessionId/file',
-            params: { sessionId: props.sessionId },
-            search: { path: encodeBase64(props.filePath) }
+            params: { sessionId },
+            search: { path: encodeBase64(filePath) }
         })
     }
 
+    // 点击下载图标:经 RPC 按真实路径拉取文件(base64)还原为 Blob 触发浏览器下载。
+    // 仅在 chat context 可用(能拿到 api)时显示;无真实路径的内容根本不会渲染成此链接。
+    const handleDownload = useCallback(async (event: MouseEvent<HTMLButtonElement>) => {
+        event.preventDefault()
+        event.stopPropagation()
+        if (!chat || downloadState === 'loading') return
+        setDownloadState('loading')
+        try {
+            const result = await chat.api.readSessionFile(sessionId, filePath)
+            if (!result.success || !result.content) {
+                setDownloadState('error')
+                return
+            }
+            const fileName = fileNameFromPath(filePath)
+            const mimeType = resolveDownloadMimeType(fileName, null, true)
+            downloadBlob(fileName, base64ToUint8Array(result.content), mimeType)
+            setDownloadState('idle')
+        } catch {
+            setDownloadState('error')
+        }
+    }, [chat, sessionId, filePath, downloadState])
+
     return (
-        <a
-            {...props}
-            href={href}
-            rel={rel}
-            onClick={handleClick}
-            className={cn('aui-md-a font-medium text-[var(--app-link)] underline decoration-[color:var(--app-link-muted)] underline-offset-3', props.className)}
-        />
+        <span className="inline-flex items-baseline gap-1">
+            <a
+                {...anchorProps}
+                href={href}
+                rel={rel}
+                onClick={handleClick}
+                className={cn('aui-md-a font-medium text-[var(--app-link)] underline decoration-[color:var(--app-link-muted)] underline-offset-3', className)}
+            >
+                {children}
+            </a>
+            {chat && (
+                <button
+                    type="button"
+                    onClick={handleDownload}
+                    disabled={downloadState === 'loading'}
+                    title={downloadState === 'error' ? t('file.download.failed') : t('file.page.download')}
+                    aria-label={t('file.page.download')}
+                    className={cn(
+                        'inline-flex shrink-0 translate-y-0.5 items-center text-[var(--app-link-muted)]',
+                        'hover:text-[var(--app-link)] transition-colors cursor-pointer',
+                        downloadState === 'loading' ? 'opacity-50 animate-pulse' : '',
+                        downloadState === 'error' ? 'text-[var(--app-badge-error-text)]' : ''
+                    )}
+                >
+                    <DownloadIcon className="h-3 w-3" />
+                </button>
+            )}
+        </span>
     )
 }
 

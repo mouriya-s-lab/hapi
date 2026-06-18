@@ -300,6 +300,7 @@ export default {
   'file.page.copyPath': '复制路径',
   'file.page.copyContent': '复制文件内容',
   'file.page.download': '下载文件',
+  'file.download.failed': '下载失败（文件不可用）',
   'file.page.tab.diff': 'Diff',
   'file.page.tab.file': '文件',
   'file.page.missingPath': '未提供文件路径。',

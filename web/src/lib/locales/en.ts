@@ -296,6 +296,7 @@ export default {
   'file.page.copyPath': 'Copy path',
   'file.page.copyContent': 'Copy file content',
   'file.page.download': 'Download file',
+  'file.download.failed': 'Download failed (file unavailable)',
   'file.page.tab.diff': 'Diff',
   'file.page.tab.file': 'File',
   'file.page.missingPath': 'No file path provided.',

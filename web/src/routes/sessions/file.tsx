@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useParams, useSearch } from '@tanstack/react-router'
 import type { GitCommandResponse } from '@/types/api'
 import { FileIcon } from '@/components/FileIcon'
-import { CopyIcon, CheckIcon } from '@/components/icons'
+import { CopyIcon, CheckIcon, DownloadIcon } from '@/components/icons'
 import { useAppContext } from '@/lib/app-context'
 import { useAppGoBack } from '@/hooks/useAppGoBack'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
@@ -12,6 +12,7 @@ import { queryKeys } from '@/lib/query-keys'
 import { langAlias, useShikiHighlighter } from '@/lib/shiki'
 import { useTranslation } from '@/lib/use-translation'
 import { decodeBase64 } from '@/lib/utils'
+import { base64ToUint8Array, downloadBlob, resolveDownloadMimeType } from '@/lib/file-download'
 import { ImagePreview } from '@/components/ImagePreview'
 
 const MAX_COPYABLE_FILE_BYTES = 1_000_000
@@ -53,59 +54,6 @@ function BackIcon(props: { className?: string }) {
             <polyline points="15 18 9 12 15 6" />
         </svg>
     )
-}
-
-function DownloadIcon(props: { className?: string }) {
-    return (
-        <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={props.className}
-        >
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="7 10 12 15 17 10" />
-            <line x1="12" x2="12" y1="15" y2="3" />
-        </svg>
-    )
-}
-
-function base64ToUint8Array(value: string): Uint8Array {
-    const binary = atob(value)
-    return Uint8Array.from(binary, (char) => char.charCodeAt(0))
-}
-
-function downloadBlob(filename: string, bytes: Uint8Array, mimeType: string): void {
-    const arrayBuffer = new ArrayBuffer(bytes.byteLength)
-    new Uint8Array(arrayBuffer).set(bytes)
-    const blob = new Blob([arrayBuffer], { type: mimeType })
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = filename || 'download'
-    anchor.rel = 'noopener'
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
-    window.setTimeout(() => URL.revokeObjectURL(url), 0)
-}
-
-function resolveDownloadMimeType(fileName: string, imageMimeType: string | null, binaryFile: boolean): string {
-    if (imageMimeType) return imageMimeType
-    if (binaryFile) return 'application/octet-stream'
-    const ext = fileName.split('.').pop()?.toLowerCase()
-    if (ext === 'json') return 'application/json;charset=utf-8'
-    if (ext === 'csv') return 'text/csv;charset=utf-8'
-    if (ext === 'html') return 'text/html;charset=utf-8'
-    if (ext === 'md') return 'text/markdown;charset=utf-8'
-    if (ext === 'xml') return 'application/xml;charset=utf-8'
-    return 'text/plain;charset=utf-8'
 }
 
 function DiffDisplay(props: { diffContent: string }) {
