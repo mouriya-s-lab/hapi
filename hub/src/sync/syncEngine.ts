@@ -8,7 +8,7 @@
  */
 
 import { isKnownFlavor, type LocalResumeTarget, type ResumableSession } from '@hapi/protocol'
-import type { CursorMigrateOutcome, CursorMigrateToAcpRequest, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
+import type { CursorMigrateOutcome, CursorMigrateToAcpRequest, SlashCommandsResponse, ListCcSwitchProvidersResponse, SwitchCcSwitchProviderResponse, QueryCcSwitchUsageResponse } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor, CodexCollaborationMode, DecryptedMessage, PermissionMode, Session, SyncEvent } from '@hapi/protocol/types'
 import { unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
 import type { Server } from 'socket.io'
@@ -228,6 +228,28 @@ export class SyncEngine {
 
     getMachineByNamespace(machineId: string, namespace: string): Machine | undefined {
         return this.machineCache.getMachineByNamespace(machineId, namespace)
+    }
+
+    /** 重命名机器:把 displayName 合并进机器 metadata 并刷新缓存。 */
+    async renameMachine(machineId: string, displayName: string, namespace: string): Promise<void> {
+        const stored = this.store.machines.getMachineByNamespace(machineId, namespace)
+        if (!stored) {
+            throw new Error('Machine not found')
+        }
+        const currentMetadata = (stored.metadata && typeof stored.metadata === 'object')
+            ? stored.metadata as Record<string, unknown>
+            : {}
+        const nextMetadata = { ...currentMetadata, displayName }
+        const result = this.store.machines.updateMachineMetadata(
+            machineId,
+            nextMetadata,
+            stored.metadataVersion,
+            namespace
+        )
+        if (result.result === 'error') {
+            throw new Error('Failed to rename machine')
+        }
+        this.machineCache.refreshMachine(machineId)
     }
 
     getOnlineMachines(): Machine[] {
@@ -1504,6 +1526,18 @@ export class SyncEngine {
 
     async listCursorModelsForMachine(machineId: string): Promise<RpcListCursorModelsResponse> {
         return await this.rpcGateway.listCursorModelsForMachine(machineId)
+    }
+
+    async listCcSwitchProvidersForMachine(machineId: string): Promise<ListCcSwitchProvidersResponse> {
+        return await this.rpcGateway.listCcSwitchProvidersForMachine(machineId)
+    }
+
+    async switchCcSwitchProviderForMachine(machineId: string, providerId: string): Promise<SwitchCcSwitchProviderResponse> {
+        return await this.rpcGateway.switchCcSwitchProviderForMachine(machineId, providerId)
+    }
+
+    async queryCcSwitchUsageForMachine(machineId: string, providerId?: string): Promise<QueryCcSwitchUsageResponse> {
+        return await this.rpcGateway.queryCcSwitchUsageForMachine(machineId, providerId)
     }
 
     async listOpencodeModelsForSession(sessionId: string): Promise<RpcListOpencodeModelsResponse> {

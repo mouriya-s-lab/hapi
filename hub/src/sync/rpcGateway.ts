@@ -10,12 +10,15 @@ import type {
     DirectoryEntry,
     FileReadResponse,
     GeneratedImageResponse,
+    ListCcSwitchProvidersResponse,
     ListDirectoryResponse,
     OpencodeModelsResponse,
     OpencodeModelSummary,
     OpencodeReasoningEffortResponse,
     PathExistsResponse,
+    QueryCcSwitchUsageResponse,
     SlashCommandsResponse,
+    SwitchCcSwitchProviderResponse,
     UploadFileResponse
 } from '@hapi/protocol/apiTypes'
 import type { Server } from 'socket.io'
@@ -250,6 +253,18 @@ export class RpcGateway {
 
     async listCursorModelsForMachine(machineId: string): Promise<RpcListCursorModelsResponse> {
         return await this.machineRpc(machineId, RPC_METHODS.ListCursorModels, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListCursorModelsResponse
+    }
+
+    async listCcSwitchProvidersForMachine(machineId: string): Promise<ListCcSwitchProvidersResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ListCcSwitchProviders, {}, MODEL_LIST_RPC_TIMEOUT_MS) as ListCcSwitchProvidersResponse
+    }
+
+    async switchCcSwitchProviderForMachine(machineId: string, providerId: string): Promise<SwitchCcSwitchProviderResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.SwitchCcSwitchProvider, { providerId }, MODEL_LIST_RPC_TIMEOUT_MS) as SwitchCcSwitchProviderResponse
+    }
+
+    async queryCcSwitchUsageForMachine(machineId: string, providerId?: string): Promise<QueryCcSwitchUsageResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.QueryCcSwitchUsage, { providerId }, MODEL_LIST_RPC_TIMEOUT_MS) as QueryCcSwitchUsageResponse
     }
 
     async listOpencodeModelsForSession(sessionId: string): Promise<RpcListOpencodeModelsResponse> {

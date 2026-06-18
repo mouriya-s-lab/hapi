@@ -186,5 +186,87 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
     })
 
+    app.get('/machines/:id/cc-switch/providers', async (c) => {
+        const engine = getSyncEngine()
+        if (!engine) {
+            return c.json({ success: false, error: 'Not connected' }, 503)
+        }
+
+        const machineId = c.req.param('id')
+        const machine = requireMachine(c, engine, machineId)
+        if (machine instanceof Response) {
+            return machine
+        }
+
+        try {
+            const result = await engine.listCcSwitchProvidersForMachine(machineId)
+            return c.json(result)
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to list cc-switch providers'
+            }, 500)
+        }
+    })
+
+    app.post('/machines/:id/cc-switch/switch', async (c) => {
+        const engine = getSyncEngine()
+        if (!engine) {
+            return c.json({ success: false, error: 'Not connected' }, 503)
+        }
+
+        const machineId = c.req.param('id')
+        const machine = requireMachine(c, engine, machineId)
+        if (machine instanceof Response) {
+            return machine
+        }
+
+        let providerId = ''
+        try {
+            const body = await c.req.json()
+            providerId = typeof body?.providerId === 'string' ? body.providerId : ''
+        } catch {
+            return c.json({ success: false, error: 'Invalid request body' }, 400)
+        }
+        if (!providerId) {
+            return c.json({ success: false, error: 'providerId is required' }, 400)
+        }
+
+        try {
+            const result = await engine.switchCcSwitchProviderForMachine(machineId, providerId)
+            return c.json(result)
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to switch cc-switch provider'
+            }, 500)
+        }
+    })
+
+    app.get('/machines/:id/cc-switch/usage', async (c) => {
+        const engine = getSyncEngine()
+        if (!engine) {
+            return c.json({ success: false, error: 'Not connected' }, 503)
+        }
+
+        const machineId = c.req.param('id')
+        const machine = requireMachine(c, engine, machineId)
+        if (machine instanceof Response) {
+            return machine
+        }
+
+        const providerId = (c.req.query('providerId') ?? '').trim() || undefined
+
+        try {
+            const result = await engine.queryCcSwitchUsageForMachine(machineId, providerId)
+            return c.json(result)
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to query cc-switch usage'
+            }, 500)
+        }
+    })
+
     return app
 }

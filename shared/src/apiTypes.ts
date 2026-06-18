@@ -374,6 +374,57 @@ export type CursorModelsResponse = OpencodeModelsResponse
 
 export type ListCursorModelsResponse = CursorModelsResponse
 
+// ── cc-switch 供应商集成 ──────────────────────────────────────────────
+// cc-switch (~/.cc-switch/cc-switch.db) 管理 Claude Code 的供应商(gaccode/glm/deepseek 等),
+// 切换供应商 = 改 ANTHROPIC_BASE_URL/AUTH_TOKEN(写入 ~/.claude/settings.json),是进程级动作。
+// 注意:这些类型经 RPC 在机器间传输,绝不包含 token / settings_config 等敏感字段。
+
+export type CcSwitchProviderSummary = {
+    id: string
+    name: string
+    category?: string | null
+    websiteUrl?: string | null
+    isCurrent: boolean
+    /** 该供应商是否配置了可用的用量查询脚本。 */
+    hasUsageScript: boolean
+}
+
+export type ListCcSwitchProvidersResponse = {
+    success: boolean
+    providers?: CcSwitchProviderSummary[]
+    /** cc-switch 是否可用(找到 db)。false 时 web 端回退到内置模型选项。 */
+    available?: boolean
+    error?: string
+}
+
+export type SwitchCcSwitchProviderRequest = {
+    providerId: string
+}
+
+export type SwitchCcSwitchProviderResponse = {
+    success: boolean
+    /** 切换后当前供应商名,供 UI 即时反馈。 */
+    currentProviderName?: string
+    error?: string
+}
+
+/** 用量查询结果,对应 cc-switch usage_script extractor 的输出(已剥离敏感信息)。 */
+export type CcSwitchUsageResult = {
+    planName?: string | null
+    total?: number | null
+    remaining?: number | null
+    unit?: string | null
+    isValid: boolean
+    invalidMessage?: string | null
+}
+
+export type QueryCcSwitchUsageResponse = {
+    success: boolean
+    providerName?: string
+    usage?: CcSwitchUsageResult
+    error?: string
+}
+
 export type SlashCommand = {
     name: string
     description?: string

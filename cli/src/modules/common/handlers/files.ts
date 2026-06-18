@@ -1,7 +1,6 @@
 import { logger } from '@/ui/logger'
 import { readFile, stat, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
-import { tmpdir } from 'os'
 import { createHash } from 'crypto'
 import { resolve } from 'path'
 import type { FileReadResponse, GeneratedImageResponse } from '@hapi/protocol/apiTypes'
