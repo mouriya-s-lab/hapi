@@ -720,6 +720,7 @@ export default {
   'misc.resumeWithSessionModel': 'Resume 时使用本会话模型',
   'misc.resumeWithSessionModelHint': '下次 resume 传入本会话的模型和思考强度。',
   'misc.reasoningEffort': '推理强度',
+  'reasoning.collapseHint': '点击折叠',
   'misc.effort': '思考强度',
   'misc.fastMode': '快速模式',
   'misc.fastModeStandard': '标准',

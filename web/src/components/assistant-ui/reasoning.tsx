@@ -2,6 +2,7 @@ import { useState, useEffect, type FC, type PropsWithChildren } from 'react'
 import { useMessage } from '@assistant-ui/react'
 import { MarkdownTextPrimitive } from '@assistant-ui/react-markdown'
 import { cn } from '@/lib/utils'
+import { useTranslation } from '@/lib/use-translation'
 import {
     MARKDOWN_CLASSNAME,
     MARKDOWN_COMPONENTS_BY_LANGUAGE,
@@ -58,6 +59,7 @@ export const Reasoning: FC = () => {
 
 export const ReasoningGroup: FC<PropsWithChildren> = ({ children }) => {
     const [isOpen, setIsOpen] = useState(false)
+    const { t } = useTranslation()
 
     const message = useMessage()
     const isStreaming = message.status?.type === 'running'
@@ -71,14 +73,19 @@ export const ReasoningGroup: FC<PropsWithChildren> = ({ children }) => {
     }, [isStreaming])
 
     return (
-        <div className="aui-reasoning-group my-3 overflow-hidden rounded-2xl bg-[var(--app-reasoning-bg)]">
+        // 不再用 overflow-hidden 裁剪整组：overflow:hidden 祖先会成为 sticky 的滚动上下文，
+        // 会让下面的折叠手柄无法粘住。圆角改由 header / 内容各自负责。
+        <div className="aui-reasoning-group my-3 rounded-2xl bg-[var(--app-reasoning-bg)]">
             <button
                 type="button"
                 onClick={() => setIsOpen(!isOpen)}
                 className={cn(
-                    'flex w-full items-center gap-1.5 px-3.5 py-2.5 text-left text-xs font-medium',
-                    'text-[var(--app-hint)] hover:text-[var(--app-fg)]',
-                    'transition-colors cursor-pointer select-none'
+                    // sticky top-0 让手柄在推理块展开后粘在视口顶部，
+                    // 滚到推理块任意位置都能一键折叠，无需滚回顶端。
+                    'sticky top-0 z-10 flex w-full items-center gap-1.5 px-3.5 py-2.5 text-left text-xs font-medium',
+                    'bg-[var(--app-reasoning-bg)] text-[var(--app-hint)] hover:text-[var(--app-fg)]',
+                    'transition-colors cursor-pointer select-none',
+                    isOpen ? 'rounded-t-2xl' : 'rounded-2xl'
                 )}
             >
                 <ChevronIcon open={isOpen} />
@@ -88,11 +95,16 @@ export const ReasoningGroup: FC<PropsWithChildren> = ({ children }) => {
                         <ShimmerDot />
                     </span>
                 )}
+                {isOpen && (
+                    <span className="ml-auto text-[10px] uppercase tracking-wide text-[var(--app-hint)] opacity-60">
+                        {t('reasoning.collapseHint')}
+                    </span>
+                )}
             </button>
 
             <div
                 className={cn(
-                    'overflow-hidden transition-all duration-200 ease-in-out',
+                    'overflow-hidden rounded-b-2xl transition-all duration-200 ease-in-out',
                     isOpen ? 'max-h-[5000px] opacity-100' : 'max-h-0 opacity-0'
                 )}
             >
