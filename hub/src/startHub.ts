@@ -6,6 +6,8 @@ import type { NotificationChannel } from './notifications/notificationTypes'
 import { HappyBot } from './telegram/bot'
 import { startWebServer } from './web/server'
 import { getOrCreateJwtSecret } from './config/jwtSecret'
+import { bootstrapMultiUser } from './auth/bootstrap'
+import { initAuthContext } from './auth/authContext'
 import { createSocketServer } from './socket/server'
 import { SSEManager } from './sse/sseManager'
 import { getOrCreateVapidKeys } from './config/vapidKeys'
@@ -165,6 +167,19 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
     }
 
     const store = new Store(config.dbPath)
+
+    // Multi-user bootstrap: ensure the legacy shared token maps to an admin
+    // account and pre-existing machines/sessions are owned, then wire up the
+    // process-wide auth resolver. Runs after the schema migration baked into
+    // the Store constructor.
+    const bootstrap = bootstrapMultiUser(store, config.cliApiToken)
+    initAuthContext(store, bootstrap.legacyAdminAccountId)
+    if (bootstrap.createdAdmin) {
+        console.log('[Hub] Multi-user: created bootstrap admin account "admin" (set a password via the web admin panel to enable password login)')
+    } else {
+        console.log('[Hub] Multi-user: bootstrap admin account ready')
+    }
+
     const jwtSecret = await getOrCreateJwtSecret()
     const vapidKeys = await getOrCreateVapidKeys(config.dataDir)
     const vapidSubject = process.env.VAPID_SUBJECT ?? 'mailto:admin@hapi.run'

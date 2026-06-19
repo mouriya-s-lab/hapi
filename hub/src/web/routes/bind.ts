@@ -2,8 +2,7 @@ import { Hono } from 'hono'
 import { SignJWT } from 'jose'
 import { z } from 'zod'
 import { getConfiguration } from '../../configuration'
-import { constantTimeEquals } from '../../utils/crypto'
-import { parseAccessToken } from '../../utils/accessToken'
+import { resolveAuth } from '../../auth/authContext'
 import { validateTelegramInitData } from '../telegramInitData'
 import { getOrCreateOwnerId } from '../../config/ownerId'
 import type { WebAppEnv } from '../middleware/auth'
@@ -25,11 +24,11 @@ export function createBindRoutes(jwtSecret: Uint8Array, store: Store): Hono<WebA
         }
 
         const configuration = getConfiguration()
-        const parsedToken = parseAccessToken(parsed.data.accessToken)
-        if (!parsedToken || !constantTimeEquals(parsedToken.baseToken, configuration.cliApiToken)) {
+        const resolved = resolveAuth(parsed.data.accessToken)
+        if (!resolved) {
             return c.json({ error: 'Invalid access token' }, 401)
         }
-        const namespace = parsedToken.namespace
+        const namespace = resolved.namespace
 
         if (!configuration.telegramEnabled || !configuration.telegramBotToken) {
             return c.json({ error: 'Telegram authentication is disabled. Configure TELEGRAM_BOT_TOKEN.' }, 503)
@@ -49,10 +48,10 @@ export function createBindRoutes(jwtSecret: Uint8Array, store: Store): Hono<WebA
 
         const userId = await getOrCreateOwnerId()
 
-        const token = await new SignJWT({ uid: userId, ns: namespace })
+        const token = await new SignJWT({ uid: userId, aid: resolved.accountId, role: resolved.role, ns: namespace })
             .setProtectedHeader({ alg: 'HS256' })
             .setIssuedAt()
-            .setExpirationTime('4h')
+            .setExpirationTime('1h')
             .sign(jwtSecret)
 
         return c.json({
@@ -61,7 +60,8 @@ export function createBindRoutes(jwtSecret: Uint8Array, store: Store): Hono<WebA
                 id: userId,
                 username: result.user.username,
                 firstName: result.user.first_name,
-                lastName: result.user.last_name
+                lastName: result.user.last_name,
+                role: resolved.role
             }
         })
     })

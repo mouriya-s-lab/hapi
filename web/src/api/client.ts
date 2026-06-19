@@ -1,6 +1,9 @@
 import type {
     AttachmentMetadata,
     AuthResponse,
+    AccountSummary,
+    ApiTokenSummary,
+    ResourceGrantSummary,
     CodexLocalSessionsResponse,
     CodexDuplicateSessionsResponse,
     CodexMergeDuplicateSessionsResponse,
@@ -156,7 +159,7 @@ export class ApiClient {
         return await res.json() as T
     }
 
-    async authenticate(auth: { initData: string } | { accessToken: string }): Promise<AuthResponse> {
+    async authenticate(auth: { initData: string } | { accessToken: string } | { username: string; password: string }): Promise<AuthResponse> {
         const res = await fetch(this.buildUrl('/api/auth'), {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
@@ -188,6 +191,71 @@ export class ApiClient {
         }
 
         return await res.json() as AuthResponse
+    }
+
+    async refreshAuth(): Promise<AuthResponse> {
+        return await this.request<AuthResponse>('/api/auth/refresh', { method: 'POST' })
+    }
+
+    async getMe(): Promise<{ user: AccountSummary | { id: number; role: 'admin' | 'user'; username?: string; defaultNamespace?: string } }> {
+        return await this.request('/api/me')
+    }
+
+    async listAccounts(): Promise<{ accounts: AccountSummary[] }> {
+        return await this.request('/api/admin/accounts')
+    }
+
+    async createAccount(payload: { username: string; password?: string; role?: 'admin' | 'user'; defaultNamespace?: string }): Promise<{ account: AccountSummary }> {
+        return await this.request('/api/admin/accounts', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        })
+    }
+
+    async updateAccount(id: number, payload: { role?: 'admin' | 'user'; password?: string; disabled?: boolean; defaultNamespace?: string }): Promise<{ account: AccountSummary }> {
+        return await this.request(`/api/admin/accounts/${encodeURIComponent(String(id))}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload)
+        })
+    }
+
+    async deleteAccount(id: number): Promise<{ ok: boolean }> {
+        return await this.request(`/api/admin/accounts/${encodeURIComponent(String(id))}`, { method: 'DELETE' })
+    }
+
+    async listApiTokens(): Promise<{ tokens: ApiTokenSummary[] }> {
+        return await this.request('/api/tokens')
+    }
+
+    async createApiToken(payload: { name?: string; namespace?: string }): Promise<{ token: ApiTokenSummary }> {
+        return await this.request('/api/tokens', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        })
+    }
+
+    async revokeApiToken(id: number): Promise<{ ok: boolean }> {
+        return await this.request(`/api/tokens/${encodeURIComponent(String(id))}`, { method: 'DELETE' })
+    }
+
+    async listResourceGrants(resourceType: 'machine' | 'session', resourceId: string): Promise<{ grants: ResourceGrantSummary[] }> {
+        return await this.request(`/api/grants?resourceType=${encodeURIComponent(resourceType)}&resourceId=${encodeURIComponent(resourceId)}`)
+    }
+
+    async createResourceGrant(payload: { resourceType: 'machine' | 'session'; resourceId: string; granteeUsername: string; role: 'viewer' | 'operator' }): Promise<{ grant: ResourceGrantSummary }> {
+        return await this.request('/api/grants', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        })
+    }
+
+    async deleteResourceGrant(payload: { resourceType: 'machine' | 'session'; resourceId: string; granteeAccountId: number }): Promise<{ ok: boolean }> {
+        const query = new URLSearchParams({
+            resourceType: payload.resourceType,
+            resourceId: payload.resourceId,
+            granteeAccountId: String(payload.granteeAccountId)
+        })
+        return await this.request(`/api/grants?${query.toString()}`, { method: 'DELETE' })
     }
 
     async getSessions(): Promise<SessionsResponse> {

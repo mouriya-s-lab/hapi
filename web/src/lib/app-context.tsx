@@ -1,10 +1,12 @@
 import { createContext, useContext, type ReactNode } from 'react'
 import type { ApiClient } from '@/api/client'
+import type { AuthResponse } from '@/types/api'
 
 type AppContextValue = {
     api: ApiClient
     token: string
     baseUrl: string
+    user: AuthResponse['user']
 }
 
 const AppContext = createContext<AppContextValue | null>(null)

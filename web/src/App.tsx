@@ -46,8 +46,19 @@ export function App() {
 function AppInner() {
     const { t } = useTranslation()
     const { serverUrl, baseUrl, setServerUrl, clearServerUrl } = useServerUrl()
-    const { authSource, isLoading: isAuthSourceLoading, setAccessToken } = useAuthSource(baseUrl)
-    const { token, api, isLoading: isAuthLoading, error: authError, needsBinding, bind } = useAuth(authSource, baseUrl)
+    const { authSource: storedAuthSource, isLoading: isAuthSourceLoading, setAccessToken } = useAuthSource(baseUrl)
+    const [passwordToken, setPasswordToken] = useState<string | null>(null)
+    const authSource = passwordToken ? { type: 'password' as const, token: passwordToken } : storedAuthSource
+    const { token, user, api, isLoading: isAuthLoading, error: authError, needsBinding, bind } = useAuth(authSource, baseUrl)
+    const handleAccessTokenLogin = useCallback((nextToken: string) => {
+        setPasswordToken(null)
+        setAccessToken(nextToken)
+    }, [setAccessToken])
+
+    const handlePasswordLogin = useCallback((jwt: string) => {
+        setPasswordToken(jwt)
+    }, [])
+
     const goBack = useAppGoBack()
     const pathname = useLocation({ select: (location) => location.pathname })
     const matchRoute = useMatchRoute()
@@ -138,6 +149,7 @@ function AppInner() {
         baseUrlRef.current = baseUrl
         isFirstConnectRef.current = true
         syncTokenRef.current = 0
+        setPasswordToken(null)
         queryClient.clear()
     }, [baseUrl, queryClient])
 
@@ -349,7 +361,8 @@ function AppInner() {
     if (!authSource) {
         return (
             <LoginPrompt
-                onLogin={setAccessToken}
+                onLogin={handleAccessTokenLogin}
+                onPasswordLogin={handlePasswordLogin}
                 baseUrl={baseUrl}
                 serverUrl={serverUrl}
                 setServerUrl={setServerUrl}
@@ -386,10 +399,11 @@ function AppInner() {
     // Auth error
     if (authError || !token || !api) {
         // If using access token and auth failed, show login again
-        if (authSource.type === 'accessToken') {
+        if (authSource.type === 'accessToken' || authSource.type === 'password') {
             return (
                 <LoginPrompt
-                    onLogin={setAccessToken}
+                    onLogin={handleAccessTokenLogin}
+                    onPasswordLogin={handlePasswordLogin}
                     baseUrl={baseUrl}
                     serverUrl={serverUrl}
                     setServerUrl={setServerUrl}
@@ -415,7 +429,7 @@ function AppInner() {
     }
 
     return (
-        <AppContextProvider value={{ api, token, baseUrl }}>
+        <AppContextProvider value={{ api, token, baseUrl, user: user ?? { id: 0 } }}>
             <VoiceProvider>
                 <SyncingBanner isSyncing={isSyncing} />
                 <ReconnectingBanner

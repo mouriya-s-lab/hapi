@@ -19,6 +19,7 @@ export type StoredSession = {
     active: boolean
     activeAt: number | null
     seq: number
+    ownerAccountId: number | null
 }
 
 export type StoredMachine = {
@@ -33,6 +34,7 @@ export type StoredMachine = {
     active: boolean
     activeAt: number | null
     seq: number
+    ownerAccountId: number | null
 }
 
 export type StoredMessage = {
@@ -51,6 +53,42 @@ export type StoredUser = {
     platform: string
     platformUserId: string
     namespace: string
+    createdAt: number
+}
+
+export type AccountRole = 'admin' | 'user'
+
+export type StoredAccount = {
+    id: number
+    username: string
+    passwordHash: string | null
+    authProvider: string
+    role: AccountRole
+    defaultNamespace: string
+    createdAt: number
+    disabledAt: number | null
+}
+
+export type StoredApiToken = {
+    id: number
+    accountId: number
+    name: string | null
+    tokenHash: string
+    namespace: string
+    createdAt: number
+    lastUsedAt: number | null
+    revokedAt: number | null
+}
+
+export type ResourceType = 'machine' | 'session'
+export type GrantRole = 'viewer' | 'operator'
+
+export type StoredResourceGrant = {
+    id: number
+    resourceType: ResourceType
+    resourceId: string
+    granteeAccountId: number
+    role: GrantRole
     createdAt: number
 }
 
