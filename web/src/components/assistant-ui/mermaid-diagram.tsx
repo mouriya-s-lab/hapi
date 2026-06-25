@@ -71,7 +71,7 @@ function MermaidFallback(props: ComponentPropsWithoutRef<'pre'> & { code: string
     return (
         <pre
             className={cn(
-                'aui-mermaid-fallback m-0 overflow-x-auto rounded-b-xl bg-[var(--app-code-bg)] p-4 text-sm text-[var(--app-fg)]',
+                'aui-mermaid-fallback mt-2 overflow-x-auto rounded-xl bg-[var(--app-code-bg)] p-4 text-sm text-[var(--app-fg)]',
                 props.className
             )}
         >
@@ -159,7 +159,7 @@ export function MermaidDiagram(props: SyntaxHighlighterProps) {
                 onClick={() => setZoomed(true)}
                 title="Click to enlarge"
                 aria-label="Enlarge diagram"
-                className="aui-mermaid-diagram block w-full cursor-zoom-in overflow-x-auto rounded-b-xl bg-[var(--app-code-bg)] px-4 py-3 text-left"
+                className="aui-mermaid-diagram mt-2 block w-full cursor-zoom-in overflow-x-auto rounded-xl bg-[var(--app-code-bg)] px-4 py-3 text-left"
             >
                 <div
                     className="min-w-fit [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full"
