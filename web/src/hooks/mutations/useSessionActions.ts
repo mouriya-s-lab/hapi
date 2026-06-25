@@ -20,6 +20,7 @@ export function useSessionActions(
     setPermissionMode: (mode: PermissionMode) => Promise<void>
     setCollaborationMode: (mode: CodexCollaborationMode) => Promise<void>
     setModel: (model: { provider: string; modelId: string } | string | null) => Promise<void>
+    setResumeWithSessionModel: (enabled: boolean) => Promise<void>
     setModelReasoningEffort: (modelReasoningEffort: string | null) => Promise<void>
     setEffort: (effort: string | null) => Promise<void>
     setServiceTier: (serviceTier: string | null) => Promise<void>
@@ -125,6 +126,19 @@ export function useSessionActions(
         },
     })
 
+    const resumeWithSessionModelMutation = useMutation({
+        mutationFn: async (enabled: boolean) => {
+            if (!api || !sessionId) {
+                throw new Error('Session unavailable')
+            }
+            if (agentFlavor !== 'claude') {
+                throw new Error('Resume model selection is only supported for Claude sessions')
+            }
+            await api.setResumeWithSessionModel(sessionId, enabled)
+        },
+        onSuccess: () => void invalidateSession(),
+    })
+
     const modelReasoningEffortMutation = useMutation({
         mutationFn: async (modelReasoningEffort: string | null) => {
             if (!api || !sessionId) {
@@ -200,6 +214,7 @@ export function useSessionActions(
         setPermissionMode: permissionMutation.mutateAsync,
         setCollaborationMode: collaborationMutation.mutateAsync,
         setModel: modelMutation.mutateAsync,
+        setResumeWithSessionModel: resumeWithSessionModelMutation.mutateAsync,
         setModelReasoningEffort: modelReasoningEffortMutation.mutateAsync,
         setEffort: effortMutation.mutateAsync,
         setServiceTier: serviceTierMutation.mutateAsync,
@@ -212,6 +227,7 @@ export function useSessionActions(
             || permissionMutation.isPending
             || collaborationMutation.isPending
             || modelMutation.isPending
+            || resumeWithSessionModelMutation.isPending
             || modelReasoningEffortMutation.isPending
             || effortMutation.isPending
             || serviceTierMutation.isPending

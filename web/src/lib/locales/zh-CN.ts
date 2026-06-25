@@ -107,6 +107,7 @@ export default {
   'session.item.permission': '需要权限',
   'session.item.needsInput': '需要输入',
   'session.item.background': '后台任务运行中',
+  'session.item.ready': '已就绪 — 等待你回复',
   'session.item.newActivity': '有新活动',
   'session.item.scheduledMessage': '有待发送的定时消息',
   'session.item.scheduledMessages': '{count} 条定时消息待发送',
@@ -153,6 +154,7 @@ export default {
 
   // Session actions
   'session.action.rename': '重命名',
+  'session.action.sessionId': 'Session ID',
   'session.action.export': '导出对话',
   'session.action.archive': '归档',
   'session.action.reopen': '重新打开',
@@ -169,6 +171,9 @@ export default {
   'dialog.rename.save': '保存',
   'dialog.rename.saving': '保存中…',
   'dialog.rename.error': '重命名失败，请重试。',
+  'dialog.sessionId.title': 'Session ID',
+  'dialog.sessionId.description': '本会话可用于 resume 的 session id。可手动选中文本复制，或点「复制」按钮。',
+  'dialog.sessionId.empty': '本会话暂无可 resume 的 session id。',
 
   'dialog.archive.title': '归档会话',
   'dialog.archive.description': '确定要归档 "{name}" 吗？这将断开活动会话。',
@@ -207,6 +212,7 @@ export default {
   'button.close': '关闭',
   'button.dismiss': '忽略',
   'button.copy': '复制',
+  'button.copied': '已复制',
   'button.paste': '粘贴',
 
   // New session form
@@ -319,6 +325,9 @@ export default {
   'file.page.download': '下载文件',
   'file.page.tab.diff': 'Diff',
   'file.page.tab.file': '文件',
+  'file.page.tab.preview': '预览',
+  'file.page.tab.raw': '原文',
+  'file.page.wordWrap': '换行',
   'file.page.missingPath': '未提供文件路径。',
   'file.page.binary': '该文件看起来是二进制文件，无法显示。',
   'file.page.imagePreviewAlt': '{name} 图片预览',
@@ -502,6 +511,8 @@ export default {
   'toast.permission.title': '权限请求',
   'toast.task.completed': '任务完成',
   'toast.task.failed': '任务失败',
+  'toast.modelRefusalFallback.title': '模型已自动切换',
+  'toast.modelRefusalFallback.body': '原模型：{originalModel}。{message}',
 
   // Install prompt
   'install.title': '安装 HAPI',
@@ -545,6 +556,8 @@ export default {
   'settings.display.sessionListStatus.standard': '标准',
   'settings.display.sessionListStatus.detailed': '详细',
   'settings.display.sessionListStatus.detailedDescription': '显示会话停止的原因：权限、输入、后台任务、新活动或定时消息（时钟图标）。',
+  'settings.display.hideArchived': '隐藏归档会话',
+  'settings.display.hideArchived.description': '隐藏你从会话菜单归档的会话。关闭此项后它们会重新显示。',
   'settings.chat.title': '聊天',
   'settings.chat.enterBehavior': '回车键行为',
   'settings.chat.enterBehavior.send': '发送消息',
@@ -667,6 +680,8 @@ export default {
   'misc.collaborationMode': '协作模式',
   'misc.permissionMode': '权限模式',
   'misc.model': '模型',
+  'misc.resumeWithSessionModel': 'Resume 时使用本会话模型',
+  'misc.resumeWithSessionModelHint': '下次 resume 传入本会话的模型和思考强度。',
   'misc.reasoningEffort': '推理强度',
   'misc.effort': '思考强度',
   'misc.fastMode': '快速模式',

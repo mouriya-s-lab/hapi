@@ -88,6 +88,19 @@ describe('buildCliArgs', () => {
         expect(args).not.toContain('--service-tier')
     })
 
+    it('maps the omp flavor to the `omp` command with --model and permission mode', () => {
+        const args = buildCliArgs('omp', {
+            directory: '/tmp',
+            model: 'anthropic/claude-sonnet-4-5',
+            permissionMode: 'safe-yolo',
+        })
+        expect(args[0]).toBe('omp')
+        expect(args).toContain('--model')
+        expect(args).toContain('anthropic/claude-sonnet-4-5')
+        expect(args).toContain('--permission-mode')
+        expect(args).toContain('safe-yolo')
+    })
+
     it('validates all known permission modes', () => {
         for (const mode of ['default', 'acceptEdits', 'auto', 'bypassPermissions', 'plan', 'ask', 'read-only', 'safe-yolo', 'yolo']) {
             const args = buildCliArgs('claude', {

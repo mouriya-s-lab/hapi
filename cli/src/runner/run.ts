@@ -1085,6 +1085,8 @@ export function buildCliArgs(
             ? 'opencode'
             : agent === 'pi'
               ? 'pi'
+            : agent === 'omp'
+              ? 'omp'
               : 'claude';
   const args = [agentCommand];
   if (options.resumeSessionId) {

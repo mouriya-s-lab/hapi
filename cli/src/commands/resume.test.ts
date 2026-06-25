@@ -142,6 +142,36 @@ describe('resumeCommand', () => {
         })
     })
 
+    it('resumes an inactive Claude target with Claude defaults when target omits model parameters', async () => {
+        getLocalResumeTargetMock.mockResolvedValue({
+            sessionId: 'hapi-session-2-default-model',
+            flavor: 'claude',
+            directory: '/tmp/project',
+            machineId: 'machine-1',
+            active: false,
+            thinking: false,
+            controlledByUser: false,
+            agentSessionId: '11111111-1111-4111-8111-111111111111',
+            model: null,
+            effort: null,
+            permissionMode: 'default'
+        })
+
+        await resumeCommand.run(createContext(['hapi-session-2-default-model']))
+
+        expect(handoffSessionToLocalMock).not.toHaveBeenCalled()
+        expect(runClaudeMock).toHaveBeenCalledWith({
+            existingSessionId: 'hapi-session-2-default-model',
+            workingDirectory: '/tmp/project',
+            resumeSessionId: '11111111-1111-4111-8111-111111111111',
+            startedBy: 'terminal',
+            startingMode: 'local',
+            permissionMode: 'default',
+            model: undefined,
+            effort: undefined
+        })
+    })
+
     it('fails before launching when the target belongs to another machine', async () => {
         const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
         const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {

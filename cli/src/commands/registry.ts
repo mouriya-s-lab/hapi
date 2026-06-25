@@ -8,6 +8,7 @@ import { resumeCommand } from './resume'
 import { doctorCommand } from './doctor'
 import { geminiCommand } from './gemini'
 import { kimiCommand } from './kimi'
+import { ompCommand } from './omp'
 import { opencodeCommand } from './opencode'
 import { piCommand } from './pi'
 import { hookForwarderCommand } from './hookForwarder'
@@ -23,6 +24,7 @@ const COMMANDS: CommandDefinition[] = [
     cursorCommand,
     geminiCommand,
     kimiCommand,
+    ompCommand,
     opencodeCommand,
     piCommand,
     mcpCommand,
