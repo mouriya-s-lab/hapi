@@ -126,6 +126,14 @@ export function getModelOptionsForFlavor(
     if (flavor === 'kimi') {
         return withCurrentModelOption([{ value: null, label: 'Default' }], currentModel)
     }
+    // Pi model list is provided dynamically via piModels prop in SessionChat,
+    // not through this function. Show just the auto/default option here to
+    // prevent falling through to the Claude preset cycler (which would
+    // surface unrelated Claude models and let set-session-config push
+    // `sonnet`/`opus` ids into a Pi session).
+    if (flavor === 'pi') {
+        return withCurrentModelOption([{ value: null, label: 'Default' }], currentModel)
+    }
     // omp discovers models dynamically via the listOpencodeModels RPC (reused for
     // omp). Until those options arrive, render an empty list rather than the
     // Claude fallback — the latter would surface unrelated Claude models.
@@ -171,6 +179,11 @@ export function getNextModelForFlavor(
         return normalizeCurrentModel(currentModel)
     }
     if (flavor === 'kimi') {
+        return normalizeCurrentModel(currentModel)
+    }
+    // Pi model list is provided dynamically via piModels prop — pressing
+    // Ctrl/Cmd+M must not fall through to the Claude preset cycler.
+    if (flavor === 'pi') {
         return normalizeCurrentModel(currentModel)
     }
     if (flavor === 'omp') {

@@ -146,6 +146,23 @@ async function dispatchLocalResume(target: LocalResumeTarget): Promise<void> {
         return
     }
 
+    if (target.flavor === 'pi') {
+        const { runPi } = await import('@/pi/runPi')
+        await runPi({
+            existingSessionId: base.existingSessionId,
+            workingDirectory: base.workingDirectory,
+            resumeSessionId: base.resumeSessionId,
+            startedBy: base.startedBy,
+            // Pi runs as `pi --mode rpc` with piped stdio and no local TUI input
+            // path, so 'local' would advertise local-control that cannot be used
+            // and hide/reject remote-only controls until a web switch.
+            startingMode: 'remote',
+            model: target.model ?? undefined,
+            effort: target.effort ?? undefined,
+        })
+        return
+    }
+
     if (target.flavor === 'omp') {
         const { runOmp } = await import('@/omp/runOmp')
         await runOmp({

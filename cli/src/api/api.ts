@@ -98,6 +98,7 @@ export class ApiClient {
             model: raw.model,
             modelReasoningEffort: raw.modelReasoningEffort,
             effort: raw.effort,
+            serviceTier: raw.serviceTier,
             resumeWithSessionModel: raw.resumeWithSessionModel,
             permissionMode: raw.permissionMode,
             collaborationMode: raw.collaborationMode
@@ -148,6 +149,7 @@ export class ApiClient {
             model: raw.model,
             modelReasoningEffort: raw.modelReasoningEffort,
             effort: raw.effort,
+            serviceTier: raw.serviceTier,
             resumeWithSessionModel: raw.resumeWithSessionModel,
             permissionMode: raw.permissionMode,
             collaborationMode: raw.collaborationMode

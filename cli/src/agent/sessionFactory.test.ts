@@ -74,6 +74,7 @@ function createSession(): Session {
         model: null,
         modelReasoningEffort: null,
         effort: null,
+        serviceTier: null,
         resumeWithSessionModel: false,
         permissionMode: undefined,
         collaborationMode: undefined

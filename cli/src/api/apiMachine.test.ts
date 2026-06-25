@@ -135,6 +135,8 @@ describe('ApiMachineClient listOpencodeModelsForCwd handler', () => {
                 availableModels: [{ modelId: 'x/y' }],
                 currentModelId: 'x/y'
             })
+            // The handler realpaths the cwd (security: prevents symlink escape),
+            // so on macOS /var/folders/... resolves to /private/var/folders/...
             expect(listOpencodeModelsForCwdMock).toHaveBeenCalledWith(realpathSync(secondWorkspaceRoot))
         } finally {
             rmSync(secondWorkspaceRoot, { recursive: true, force: true })
