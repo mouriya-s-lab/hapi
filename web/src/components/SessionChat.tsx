@@ -31,6 +31,7 @@ import { useHappyRuntime } from '@/lib/assistant-runtime'
 import { createAttachmentAdapter } from '@/lib/attachmentAdapter'
 import { useTranslation } from '@/lib/use-translation'
 import { SessionHeader } from '@/components/SessionHeader'
+import { CursorMigrationBanner } from '@/components/CursorMigrationBanner'
 import { TeamPanel } from '@/components/TeamPanel'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
@@ -52,6 +53,7 @@ import {
 } from '@/lib/sessionChatCursorModel'
 import { buildCursorEffortPickerOptions, resolveCursorVariantOptions } from '@/lib/cursorModelOptions'
 import { useOpencodeModels } from '@/hooks/queries/useOpencodeModels'
+import { useOpencodeReasoningEffortOptions } from '@/hooks/queries/useOpencodeReasoningEffortOptions'
 import { useVoiceOptional } from '@/lib/voice-context'
 import { VoiceBackendSession, registerSessionStore, registerVoiceHooksStore, voiceHooks } from '@/realtime'
 import { isRemoteTerminalSupported } from '@/utils/terminalSupport'
@@ -419,6 +421,11 @@ function SessionChatInner(props: SessionChatProps) {
         api: props.api,
         sessionId: props.session.id,
         enabled: (agentFlavor === 'opencode' || agentFlavor === 'omp') && props.session.active
+    })
+    const opencodeReasoningEffortState = useOpencodeReasoningEffortOptions({
+        api: props.api,
+        sessionId: props.session.id,
+        enabled: agentFlavor === 'opencode' && props.session.active
     })
     const opencodeModelOptions = useMemo(() => {
         if (agentFlavor !== 'opencode' && agentFlavor !== 'omp') {
@@ -1021,6 +1028,8 @@ function SessionChatInner(props: SessionChatProps) {
                 }}
             />
 
+            <CursorMigrationBanner metadata={props.session.metadata} />
+
             {props.session.teamState && (
                 <TeamPanel teamState={props.session.teamState} />
             )}
@@ -1128,6 +1137,11 @@ function SessionChatInner(props: SessionChatProps) {
                                         ? opencodeModelOptions
                                         : undefined
                         }
+                        availableModelReasoningEffortOptions={
+                            agentFlavor === 'opencode' && opencodeReasoningEffortState.options.length > 0
+                                ? opencodeReasoningEffortState.options
+                                : undefined
+                        }
                         active={props.session.active}
                         allowSendWhenInactive
                         thinking={props.session.thinking}
@@ -1187,7 +1201,10 @@ function SessionChatInner(props: SessionChatProps) {
                                 : undefined
                         }
                         onModelReasoningEffortChange={
-                            (agentFlavor === 'codex' || agentFlavor === 'opencode') && props.session.active && !controlledByUser
+                            (agentFlavor === 'codex' || agentFlavor === 'opencode')
+                                && props.session.active
+                                && !controlledByUser
+                                && (agentFlavor !== 'opencode' || opencodeReasoningEffortState.options.length > 0)
                                 ? handleModelReasoningEffortChange
                                 : undefined
                         }

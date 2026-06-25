@@ -27,6 +27,7 @@ describe('getModelOptionsForFlavor', () => {
         expect(options).toEqual([
             { value: null, label: 'Default' },
             { value: 'fable', label: 'Fable' },
+            { value: 'fable[1m]', label: 'Fable 1M' },
             { value: 'sonnet', label: 'Sonnet' },
             { value: 'sonnet[1m]', label: 'Sonnet 1M' },
             { value: 'opus', label: 'Opus' },
@@ -43,6 +44,7 @@ describe('getModelOptionsForFlavor', () => {
             { value: null, label: 'Default' },
             { value: 'claude-opus-4-1-20250805', label: 'Claude Opus 4.1' },
             { value: 'fable', label: 'Fable' },
+            { value: 'fable[1m]', label: 'Fable 1M' },
             { value: 'sonnet', label: 'Sonnet' },
             { value: 'sonnet[1m]', label: 'Sonnet 1M' },
             { value: 'opus', label: 'Opus' },
