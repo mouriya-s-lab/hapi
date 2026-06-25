@@ -41,6 +41,7 @@ export const MetadataSchema = z.object({
     cursorSessionProtocol: z.enum(['acp', 'stream-json']).optional(),
     cursorMigrationState: z.enum(['in_progress']).optional(),
     kimiSessionId: z.string().optional(),
+    ompSessionId: z.string().optional(),
     tools: z.array(z.string()).optional(),
     slashCommands: z.array(z.string()).optional(),
     homeDir: z.string().optional(),
@@ -54,6 +55,11 @@ export const MetadataSchema = z.object({
     lifecycleStateSince: z.number().optional(),
     archivedBy: z.string().optional(),
     archiveReason: z.string().optional(),
+    // Set ONLY when the user explicitly archives a session via the session
+    // menu (syncEngine.archiveSession). Distinct from archivedBy/archiveReason,
+    // which the CLI sets on local startup failure. Used to hide user-archived
+    // sessions from the list without conflating them with naturally-ended ones.
+    archivedAt: z.number().optional(),
     preferredPermissionMode: PermissionModeSchema.optional(),
     flavor: z.string().nullish(),
     capabilities: SessionCapabilitiesSchema.optional(),
@@ -208,6 +214,7 @@ export const SessionSchema = z.object({
     model: z.string().nullable().optional().default(null),
     modelReasoningEffort: z.string().nullable().optional().default(null),
     effort: z.string().nullable().optional().default(null),
+    resumeWithSessionModel: z.boolean().optional().default(false),
     permissionMode: PermissionModeSchema.optional(),
     collaborationMode: CodexCollaborationModeSchema.optional()
 })
@@ -222,6 +229,7 @@ export const SessionPatchSchema = z.object({
     model: z.string().nullable().optional(),
     modelReasoningEffort: z.string().nullable().optional(),
     effort: z.string().nullable().optional(),
+    resumeWithSessionModel: z.boolean().optional(),
     permissionMode: PermissionModeSchema.optional(),
     collaborationMode: CodexCollaborationModeSchema.optional(),
     backgroundTaskCount: z.number().optional()

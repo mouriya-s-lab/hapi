@@ -71,6 +71,37 @@ describe('normalizeDecryptedMessage', () => {
         })
     })
 
+    it('normalizes Claude model refusal fallback system events for warning toasts', () => {
+        const message = makeMessage({
+            role: 'agent',
+            content: {
+                type: 'output',
+                data: {
+                    type: 'system',
+                    subtype: 'model_refusal_fallback',
+                    uuid: 'sys-refusal-fallback',
+                    direction: 'retry',
+                    trigger: 'refusal',
+                    originalModel: 'claude-fable-5[1m]',
+                    content: 'Fable safety flagged this message. Switched to Opus 4.8 (1M context).'
+                }
+            }
+        })
+
+        expect(normalizeDecryptedMessage(message)).toMatchObject({
+            id: 'msg-1',
+            role: 'event',
+            isSidechain: false,
+            content: {
+                type: 'model-refusal-fallback',
+                originalModel: 'claude-fable-5[1m]',
+                message: 'Fable safety flagged this message. Switched to Opus 4.8 (1M context).',
+                direction: 'retry',
+                trigger: 'refusal'
+            }
+        })
+    })
+
     it('keeps the stringify fallback for unknown non-system agent payloads', () => {
         const message = makeMessage({
             role: 'agent',

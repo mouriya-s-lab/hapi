@@ -10,6 +10,7 @@ import {
     SessionModelReasoningEffortRequestSchema,
     SessionModelRequestSchema,
     SessionPermissionModeRequestSchema,
+    SessionResumeModelRequestSchema,
     supportsModelChange,
     toSessionSummary,
     UploadFileRequestSchema
@@ -448,9 +449,14 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = requireSessionFromParam(c, engine)
         if (sessionResult instanceof Response) {
             return sessionResult
+        }
+
+        const flavor = sessionResult.session.metadata?.flavor ?? 'claude'
+        if (!sessionResult.session.active && flavor !== 'claude') {
+            return c.json({ error: 'Session is inactive' }, 409)
         }
 
         const body = await c.req.json().catch(() => null)
@@ -459,7 +465,6 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({ error: 'Invalid body' }, 400)
         }
 
-        const flavor = sessionResult.session.metadata?.flavor ?? 'claude'
         if (!supportsModelChange(flavor)) {
             return c.json({ error: 'Model selection is not supported for this session' }, 400)
         }
@@ -477,6 +482,39 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({ ok: true })
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to apply model'
+            return c.json({ error: message }, 409)
+        }
+    })
+
+    app.post('/sessions/:id/resume-model', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) {
+            return engine
+        }
+
+        const sessionResult = requireSessionFromParam(c, engine)
+        if (sessionResult instanceof Response) {
+            return sessionResult
+        }
+
+        const body = await c.req.json().catch(() => null)
+        const parsed = SessionResumeModelRequestSchema.safeParse(body)
+        if (!parsed.success) {
+            return c.json({ error: 'Invalid body' }, 400)
+        }
+
+        const flavor = sessionResult.session.metadata?.flavor ?? 'claude'
+        if (flavor !== 'claude') {
+            return c.json({ error: 'Resume model selection is only supported for Claude sessions' }, 400)
+        }
+
+        try {
+            await engine.applySessionConfig(sessionResult.sessionId, {
+                resumeWithSessionModel: parsed.data.resumeWithSessionModel
+            })
+            return c.json({ ok: true })
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to apply resume model setting'
             return c.json({ error: message }, 409)
         }
     })
@@ -523,9 +561,14 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = requireSessionFromParam(c, engine)
         if (sessionResult instanceof Response) {
             return sessionResult
+        }
+
+        const flavor = sessionResult.session.metadata?.flavor ?? 'claude'
+        if (!sessionResult.session.active && flavor !== 'claude') {
+            return c.json({ error: 'Session is inactive' }, 409)
         }
 
         const body = await c.req.json().catch(() => null)
@@ -534,7 +577,6 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({ error: 'Invalid body' }, 400)
         }
 
-        const flavor = sessionResult.session.metadata?.flavor ?? 'claude'
         if (flavor !== 'claude') {
             return c.json({ error: 'Effort selection is only supported for Claude sessions' }, 400)
         }
@@ -719,10 +761,10 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
 
         const flavor = sessionResult.session.metadata?.flavor ?? 'claude'
-        if (flavor !== 'opencode') {
+        if (flavor !== 'opencode' && flavor !== 'omp') {
             return c.json({
                 success: false,
-                error: 'OpenCode models are only available for OpenCode sessions'
+                error: 'OpenCode models are only available for OpenCode or omp sessions'
             }, 400)
         }
 

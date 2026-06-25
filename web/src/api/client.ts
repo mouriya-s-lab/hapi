@@ -504,6 +504,13 @@ export class ApiClient {
         })
     }
 
+    async setResumeWithSessionModel(sessionId: string, resumeWithSessionModel: boolean): Promise<void> {
+        await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/resume-model`, {
+            method: 'POST',
+            body: JSON.stringify({ resumeWithSessionModel })
+        })
+    }
+
     async setModelReasoningEffort(sessionId: string, modelReasoningEffort: string | null): Promise<void> {
         await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/model-reasoning-effort`, {
             method: 'POST',

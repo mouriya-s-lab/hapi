@@ -107,6 +107,7 @@ export default {
   'session.item.permission': 'Permission required',
   'session.item.needsInput': 'Needs input',
   'session.item.background': 'Background tasks running',
+  'session.item.ready': 'Ready — waiting for your reply',
   'session.item.newActivity': 'New activity',
   'session.item.scheduledMessage': 'Scheduled message pending',
   'session.item.scheduledMessages': '{count} scheduled messages pending',
@@ -137,6 +138,7 @@ export default {
 
   // Session actions
   'session.action.rename': 'Rename',
+  'session.action.sessionId': 'Session ID',
   'session.action.export': 'Export conversation',
   'session.action.archive': 'Archive',
   'session.action.reopen': 'Reopen',
@@ -153,6 +155,9 @@ export default {
   'dialog.rename.save': 'Save',
   'dialog.rename.saving': 'Saving…',
   'dialog.rename.error': 'Failed to rename. Please try again.',
+  'dialog.sessionId.title': 'Session ID',
+  'dialog.sessionId.description': 'The resume-able session id for this conversation. Select the text to copy it manually, or use the Copy button.',
+  'dialog.sessionId.empty': 'This conversation has no resume-able session id yet.',
   'dialog.archive.title': 'Archive Session',
   'dialog.archive.description': 'Are you sure you want to archive "{name}"? This will disconnect active session.',
   'dialog.archive.confirm': 'Archive',
@@ -187,6 +192,7 @@ export default {
   'button.close': 'Close',
   'button.dismiss': 'Dismiss',
   'button.copy': 'Copy',
+  'button.copied': 'Copied',
   'button.paste': 'Paste',
 
   // New session form
@@ -295,6 +301,9 @@ export default {
   'file.page.copyContent': 'Copy file content',
   'file.page.tab.diff': 'Diff',
   'file.page.tab.file': 'File',
+  'file.page.tab.preview': 'Preview',
+  'file.page.tab.raw': 'Raw',
+  'file.page.wordWrap': 'Wrap',
   'file.page.missingPath': 'No file path provided.',
   'file.page.binary': 'This looks like a binary file. It cannot be displayed.',
   'file.page.imagePreviewAlt': 'Image preview for {name}',
@@ -472,6 +481,8 @@ export default {
   'toast.permission.title': 'Permission Request',
   'toast.task.completed': 'Task completed',
   'toast.task.failed': 'Task failed',
+  'toast.modelRefusalFallback.title': 'Model automatically switched',
+  'toast.modelRefusalFallback.body': 'Original model: {originalModel}. {message}',
 
   // Install prompt
   'install.title': 'Install HAPI',
@@ -501,6 +512,8 @@ export default {
   'settings.display.sessionListStatus.standard': 'Standard',
   'settings.display.sessionListStatus.detailed': 'Detailed',
   'settings.display.sessionListStatus.detailedDescription': 'Shows why a session stopped: permission, input, background work, new activity, or a scheduled message (clock icon).',
+  'settings.display.hideArchived': 'Hide archived sessions',
+  'settings.display.hideArchived.description': 'Hide sessions you archived from the session menu. They stay accessible by turning this off.',
   'settings.chat.title': 'Chat',
   'settings.chat.enterBehavior': 'Enter Key',
   'settings.chat.enterBehavior.send': 'Send message',
@@ -623,6 +636,8 @@ export default {
   'misc.collaborationMode': 'Collaboration Mode',
   'misc.permissionMode': 'Permission Mode',
   'misc.model': 'Model',
+  'misc.resumeWithSessionModel': 'Use session model on resume',
+  'misc.resumeWithSessionModelHint': 'Pass this session’s Claude model and effort when resuming.',
   'misc.reasoningEffort': 'Reasoning Effort',
   'misc.effort': 'Effort',
   'misc.variant': 'Variant',

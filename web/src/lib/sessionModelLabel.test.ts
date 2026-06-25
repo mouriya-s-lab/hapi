@@ -14,6 +14,10 @@ describe('getSessionModelLabel', () => {
             key: 'session.item.model',
             value: 'Opus'
         })
+        expect(getSessionModelLabel({ model: 'fable' })).toEqual({
+            key: 'session.item.model',
+            value: 'Fable'
+        })
     })
 
     it('returns null when no model is available', () => {

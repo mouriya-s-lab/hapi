@@ -76,6 +76,7 @@ export function HappyComposer(props: {
     model?: string | null
     modelReasoningEffort?: string | null
     effort?: string | null
+    resumeWithSessionModel?: boolean
     active?: boolean
     allowSendWhenInactive?: boolean
     thinking?: boolean
@@ -97,6 +98,7 @@ export function HappyComposer(props: {
     onCollaborationModeChange?: (mode: CodexCollaborationMode) => void
     onPermissionModeChange?: (mode: PermissionMode) => void
     onModelChange?: (model: string | null) => void
+    onResumeWithSessionModelChange?: (enabled: boolean) => void
     /** Cursor: effort/variant wire id (separate from base model change). */
     onModelEffortChange?: (wireId: string | null) => void
     onModelReasoningEffortChange?: (modelReasoningEffort: string | null) => void
@@ -137,6 +139,7 @@ export function HappyComposer(props: {
         model: rawModel,
         modelReasoningEffort: rawModelReasoningEffort,
         effort: rawEffort,
+        resumeWithSessionModel = false,
         active = true,
         allowSendWhenInactive = false,
         thinking = false,
@@ -155,6 +158,7 @@ export function HappyComposer(props: {
         onCollaborationModeChange,
         onPermissionModeChange,
         onModelChange,
+        onResumeWithSessionModelChange,
         onModelEffortChange,
         onModelReasoningEffortChange,
         onEffortChange,
@@ -593,6 +597,13 @@ export function HappyComposer(props: {
         haptic('light')
     }, [onModelChange, controlsDisabled, haptic])
 
+    const handleResumeWithSessionModelChange = useCallback(() => {
+        if (!onResumeWithSessionModelChange || controlsDisabled) return
+        onResumeWithSessionModelChange(!resumeWithSessionModel)
+        setShowSettings(false)
+        haptic('light')
+    }, [onResumeWithSessionModelChange, controlsDisabled, haptic, resumeWithSessionModel])
+
     const handleModelEffortChange = useCallback((nextWireId: string | null) => {
         const handler = onModelEffortChange ?? onModelChange
         if (!handler || controlsDisabled) return
@@ -618,6 +629,7 @@ export function HappyComposer(props: {
     const showCollaborationSettings = Boolean(onCollaborationModeChange && collaborationModeOptions.length > 0)
     const showPermissionSettings = Boolean(onPermissionModeChange && permissionModeOptions.length > 0)
     const showModelSettings = Boolean(onModelChange && supportsModelChange(agentFlavor) && modelOptions.length > 0)
+    const showResumeModelSettings = Boolean(agentFlavor === 'claude' && onResumeWithSessionModelChange)
     const showModelEffortSettings = Boolean(
         (onModelEffortChange ?? onModelChange)
         && modelEffortOptions
@@ -629,6 +641,7 @@ export function HappyComposer(props: {
         showCollaborationSettings
         || showPermissionSettings
         || showModelSettings
+        || showResumeModelSettings
         || showModelEffortSettings
         || showModelReasoningEffortSettings
         || showEffortSettings
@@ -651,7 +664,7 @@ export function HappyComposer(props: {
     }, [api])
 
     const overlays = useMemo(() => {
-        if (showSettings && (showCollaborationSettings || showPermissionSettings || showModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings)) {
+        if (showSettings && (showCollaborationSettings || showPermissionSettings || showModelSettings || showResumeModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings)) {
             return (
                 <div className="absolute bottom-[100%] mb-2 w-full">
                     <FloatingOverlay maxHeight={320}>
@@ -692,7 +705,7 @@ export function HappyComposer(props: {
                             </div>
                         ) : null}
 
-                        {showCollaborationSettings && (showPermissionSettings || showModelSettings || showModelReasoningEffortSettings || showEffortSettings) ? (
+                        {showCollaborationSettings && (showPermissionSettings || showModelSettings || showResumeModelSettings || showModelReasoningEffortSettings || showEffortSettings) ? (
                             <div className="mx-3 h-px bg-[var(--app-divider)]" />
                         ) : null}
 
@@ -733,7 +746,7 @@ export function HappyComposer(props: {
                             </div>
                         ) : null}
 
-                        {(showCollaborationSettings || showPermissionSettings) && (showModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings) ? (
+                        {(showCollaborationSettings || showPermissionSettings) && (showModelSettings || showResumeModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings) ? (
                             <div className="mx-3 h-px bg-[var(--app-divider)]" />
                         ) : null}
 
@@ -779,7 +792,43 @@ export function HappyComposer(props: {
                             </div>
                         ) : null}
 
-                        {showModelSettings && showModelEffortSettings ? (
+                        {showResumeModelSettings ? (
+                            <div className="py-2">
+                                <button
+                                    type="button"
+                                    role="checkbox"
+                                    aria-checked={resumeWithSessionModel}
+                                    disabled={controlsDisabled}
+                                    className={`flex w-full items-start gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                                        controlsDisabled
+                                            ? 'cursor-not-allowed opacity-50'
+                                            : 'cursor-pointer hover:bg-[var(--app-secondary-bg)]'
+                                    }`}
+                                    onClick={handleResumeWithSessionModelChange}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                >
+                                    <div
+                                        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 ${
+                                            resumeWithSessionModel
+                                                ? 'border-[var(--app-link)] bg-[var(--app-link)] text-white'
+                                                : 'border-[var(--app-hint)]'
+                                        }`}
+                                    >
+                                        {resumeWithSessionModel ? (
+                                            <span className="text-[10px] leading-none">✓</span>
+                                        ) : null}
+                                    </div>
+                                    <span className={resumeWithSessionModel ? 'text-[var(--app-link)]' : ''}>
+                                        <span className="block">{t('misc.resumeWithSessionModel')}</span>
+                                        <span className="block text-xs text-[var(--app-hint)]">
+                                            {t('misc.resumeWithSessionModelHint')}
+                                        </span>
+                                    </span>
+                                </button>
+                            </div>
+                        ) : null}
+
+                        {(showModelSettings || showResumeModelSettings) && showModelEffortSettings ? (
                             <div className="mx-3 h-px bg-[var(--app-divider)]" />
                         ) : null}
 
@@ -926,6 +975,7 @@ export function HappyComposer(props: {
         showCollaborationSettings,
         showPermissionSettings,
         showModelSettings,
+        showResumeModelSettings,
         showModelEffortSettings,
         modelEffortOptions,
         selectedModelBase,
@@ -941,6 +991,7 @@ export function HappyComposer(props: {
         collaborationMode,
         permissionMode,
         model,
+        resumeWithSessionModel,
         modelReasoningEffort,
         effort,
         collaborationModeOptions,
@@ -948,6 +999,7 @@ export function HappyComposer(props: {
         handleCollaborationChange,
         handlePermissionChange,
         handleModelChange,
+        handleResumeWithSessionModelChange,
         handleModelReasoningEffortChange,
         handleEffortChange,
         handleSuggestionSelect,

@@ -126,6 +126,12 @@ export function getModelOptionsForFlavor(
     if (flavor === 'kimi') {
         return withCurrentModelOption([{ value: null, label: 'Default' }], currentModel)
     }
+    // omp discovers models dynamically via the listOpencodeModels RPC (reused for
+    // omp). Until those options arrive, render an empty list rather than the
+    // Claude fallback — the latter would surface unrelated Claude models.
+    if (flavor === 'omp') {
+        return []
+    }
     return getClaudeModelOptions(currentModel)
 }
 
@@ -165,6 +171,9 @@ export function getNextModelForFlavor(
         return normalizeCurrentModel(currentModel)
     }
     if (flavor === 'kimi') {
+        return normalizeCurrentModel(currentModel)
+    }
+    if (flavor === 'omp') {
         return normalizeCurrentModel(currentModel)
     }
     return getNextClaudeComposerModel(currentModel)

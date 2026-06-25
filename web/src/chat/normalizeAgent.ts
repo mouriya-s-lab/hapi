@@ -518,6 +518,26 @@ export function normalizeAgentRecord(
                 meta
             }
         }
+        if (data.type === 'system' && data.subtype === 'model_refusal_fallback') {
+            const originalModel = asString(data.originalModel)
+            const message = asString(data.content)
+            if (!originalModel || !message) return null
+            return {
+                id: messageId,
+                localId,
+                createdAt,
+                role: 'event',
+                content: {
+                    type: 'model-refusal-fallback',
+                    originalModel,
+                    message,
+                    direction: asString(data.direction) ?? undefined,
+                    trigger: asString(data.trigger) ?? undefined
+                },
+                isSidechain: false,
+                meta
+            }
+        }
         return null
     }
 
