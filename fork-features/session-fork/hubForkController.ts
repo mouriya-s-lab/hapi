@@ -1,5 +1,4 @@
 import { listForkCapableFlavors } from './providerRegistry'
-import type { ForkSpawnResult } from './rpcPayloads'
 
 export class HttpError extends Error {
     constructor(public status: number, message: string) {
@@ -9,9 +8,9 @@ export class HttpError extends Error {
 }
 
 /**
- * Subset of a hub session row that forkController needs. Defined here so the
- * controller stays decoupled from hub/src/store internal types. The hub-side
- * adapter (hubSyncEngineAdapter.ts) maps StoredSession into this shape.
+ * Subset of a hub session row that forkController needs. Mapped from a real
+ * StoredSession by hubSyncEngineAdapter; kept here so forkController stays
+ * decoupled from hub/src/store types.
  */
 export interface ForkSourceSession {
     id: string
@@ -23,28 +22,43 @@ export interface ForkSourceSession {
     collaborationMode?: string
 }
 
+export interface ForkSpawnResultLike {
+    providerSessionId: string
+    metadataPatch: Record<string, any>
+}
+
 /**
- * Everything forkController needs from the hub runtime. Pure data + functions;
- * no hub-internal classes leak in. Lets the controller be unit-tested with
- * plain stubs.
+ * Pure-data view of hub runtime that forkController calls into. Lets us
+ * unit-test all branches with plain stubs (no hub imports leak into the
+ * controller's module graph).
  */
 export interface ForkDeps {
     getSession(id: string): ForkSourceSession | null
-    hasActiveTurn(id: string): boolean
-    generateSessionId(): string
-    machineRpc(machineId: string, method: string, payload: unknown): Promise<ForkSpawnResult>
-    insertSession(row: {
-        id: string
+    /**
+     * Trigger the provider-native fork on the source's runner machine.
+     * Returns the new provider session id + any metadata fields the provider
+     * wants written onto the new hapi session row.
+     */
+    forkProvider(
+        machineId: string,
+        request: { flavor: string; payload: unknown }
+    ): Promise<ForkSpawnResultLike>
+    /**
+     * Reuse hub's existing spawnSession path with resumeSessionId set to the
+     * forked provider session id. Hub creates the hapi session row + spawns
+     * the launcher; returns the freshly-allocated hapi session id.
+     */
+    spawnSession(args: {
         machineId: string
-        metadata: Record<string, any>
         cwd: string
+        flavor: string
         model?: string
         permissionMode?: string
         collaborationMode?: string
-    }): void
+        resumeSessionId: string
+    }): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }>
     copyMessages(srcSessionId: string, dstSessionId: string): { copied: number }
-    killLauncher(machineId: string, providerSessionId: string): Promise<void>
-    tx<T>(fn: () => T | Promise<T>): Promise<T>
+    updateMetadata(sessionId: string, metadataPatch: Record<string, any>): void
 }
 
 export async function forkSession(args: {
@@ -67,23 +81,17 @@ export async function forkSession(args: {
         )
     }
 
-    if (deps.hasActiveTurn(srcSessionId)) {
-        throw new HttpError(409, 'source session has an active turn; wait for it to complete')
-    }
-
-    const newSessionId = deps.generateSessionId()
-
-    let rpcResult: ForkSpawnResult
+    // Step 1 — provider-native fork on the source machine.
+    let forkResult: ForkSpawnResultLike
     try {
-        rpcResult = await deps.machineRpc(src.machineId, 'fork-spawn-session', {
+        forkResult = await deps.forkProvider(src.machineId, {
             flavor,
             payload: {
                 sourceMetadata: src.metadata,
                 sourceCwd: src.cwd,
                 sourceModel: src.model,
                 sourcePermissionMode: src.permissionMode,
-                sourceCollaborationMode: src.collaborationMode,
-                newHapiSessionId: newSessionId
+                sourceCollaborationMode: src.collaborationMode
             }
         })
     } catch (err) {
@@ -91,35 +99,47 @@ export async function forkSession(args: {
         throw new HttpError(502, `provider fork failed: ${message}`)
     }
 
-    try {
-        await deps.tx(async () => {
-            const newMetadata: Record<string, any> = {
-                ...src.metadata,
-                ...rpcResult.metadataPatch,
-                forkedFrom: srcSessionId,
-                forkedAt: Date.now()
-            }
-            const sourceTitle =
-                typeof src.metadata?.title === 'string' ? src.metadata.title : 'Untitled'
-            newMetadata.title = `${sourceTitle} (fork)`
+    // Step 2 — reuse the standard spawn flow with the forked provider session
+    // id. Hub allocates the hapi session row + brings up the runner; we use
+    // the returned sessionId as the canonical hapi id for the fork.
+    const spawnResult = await deps.spawnSession({
+        machineId: src.machineId,
+        cwd: src.cwd,
+        flavor,
+        model: src.model,
+        permissionMode: src.permissionMode,
+        collaborationMode: src.collaborationMode,
+        resumeSessionId: forkResult.providerSessionId
+    })
+    if (spawnResult.type !== 'success') {
+        throw new HttpError(500, `fork spawn failed: ${spawnResult.message}`)
+    }
+    const newSessionId = spawnResult.sessionId
 
-            deps.insertSession({
-                id: newSessionId,
-                machineId: src.machineId,
-                metadata: newMetadata,
-                cwd: src.cwd,
-                model: src.model,
-                permissionMode: src.permissionMode,
-                collaborationMode: src.collaborationMode
-            })
-            deps.copyMessages(srcSessionId, newSessionId)
+    // Step 3 — clone visible message history. Independent of provider fork
+    // (Claude's --fork-session already branches the on-disk JSONL; this is for
+    // hub's transcript view so the new hapi session shows the same history).
+    try {
+        deps.copyMessages(srcSessionId, newSessionId)
+    } catch (err) {
+        // Don't fail the whole operation: provider fork + new session exist;
+        // missing transcript clone is a degraded state but not a leak.
+    }
+
+    // Step 4 — write fork lineage + title. Provider's metadataPatch (e.g. the
+    // new claudeSessionId / codexSessionId) is merged in case the spawn flow
+    // hasn't populated it yet from the cli session-add event.
+    const sourceTitle =
+        typeof src.metadata?.title === 'string' ? src.metadata.title : 'Untitled'
+    try {
+        deps.updateMetadata(newSessionId, {
+            ...forkResult.metadataPatch,
+            forkedFrom: srcSessionId,
+            forkedAt: Date.now(),
+            title: `${sourceTitle} (fork)`
         })
     } catch (err) {
-        // DB write failed after provider already forked → orphan provider thread.
-        // Best-effort kill so we don't leak runner state.
-        deps.killLauncher(src.machineId, rpcResult.providerSessionId).catch(() => undefined)
-        const message = err instanceof Error ? err.message : 'unknown db error'
-        throw new HttpError(500, `fork db write failed: ${message}`)
+        // Same rationale: lineage metadata is nice-to-have, doesn't gate success.
     }
 
     return { newSessionId }

@@ -2,14 +2,17 @@ import { describe, it, expect, beforeEach } from 'bun:test'
 import { forkSession, HttpError, type ForkDeps, type ForkSourceSession } from './hubForkController'
 import { __resetRegistryForTests, registerForkProvider } from './providerRegistry'
 
-function makeDeps(overrides: Partial<{
-    source: Partial<ForkSourceSession> | null
-    activeTurn: boolean
-    rpcShouldThrow: Error | null
-    txShouldThrow: Error | null
-    captured: any[]
-}> = {}): ForkDeps {
-    const captured = overrides.captured ?? []
+interface MakeDepsOpts {
+    source?: Partial<ForkSourceSession> | null
+    forkShouldThrow?: Error
+    spawnResult?: { type: 'success'; sessionId: string } | { type: 'error'; message: string }
+    copyShouldThrow?: Error
+    updateShouldThrow?: Error
+    captured?: any[]
+}
+
+function makeDeps(opts: MakeDepsOpts = {}): ForkDeps {
+    const captured = opts.captured ?? []
     const baseSource: ForkSourceSession = {
         id: 'src',
         machineId: 'mac-1',
@@ -18,39 +21,32 @@ function makeDeps(overrides: Partial<{
         model: 'claude-opus-4-8',
         permissionMode: 'default',
         collaborationMode: 'default',
-        ...overrides.source
+        ...opts.source
     }
     return {
         getSession() {
-            return overrides.source === null ? null : baseSource
+            return opts.source === null ? null : baseSource
         },
-        hasActiveTurn() {
-            return overrides.activeTurn ?? false
-        },
-        generateSessionId() {
-            return 'new-hapi'
-        },
-        async machineRpc(machineId, method, payload) {
-            captured.push(['rpc', machineId, method, payload])
-            if (overrides.rpcShouldThrow) throw overrides.rpcShouldThrow
+        async forkProvider(machineId, request) {
+            captured.push(['forkProvider', machineId, request])
+            if (opts.forkShouldThrow) throw opts.forkShouldThrow
             return {
-                providerSessionId: 'new-claude-id',
-                metadataPatch: { claudeSessionId: 'new-claude-id' }
+                providerSessionId: 'new-prov-id',
+                metadataPatch: { claudeSessionId: 'new-prov-id' }
             }
         },
-        insertSession(row) {
-            captured.push(['insert', row])
+        async spawnSession(args) {
+            captured.push(['spawnSession', args])
+            return opts.spawnResult ?? { type: 'success', sessionId: 'new-hapi-id' }
         },
-        copyMessages(src, dst) {
-            captured.push(['copy', src, dst])
-            if (overrides.txShouldThrow) throw overrides.txShouldThrow
+        copyMessages(srcId, dstId) {
+            captured.push(['copy', srcId, dstId])
+            if (opts.copyShouldThrow) throw opts.copyShouldThrow
             return { copied: 3 }
         },
-        async killLauncher(machineId, providerSessionId) {
-            captured.push(['kill', machineId, providerSessionId])
-        },
-        async tx(fn) {
-            return fn() as any
+        updateMetadata(sessionId, patch) {
+            captured.push(['updateMetadata', sessionId, patch])
+            if (opts.updateShouldThrow) throw opts.updateShouldThrow
         }
     }
 }
@@ -65,22 +61,32 @@ beforeEach(() => {
 })
 
 describe('forkSession', () => {
-    it('happy path: validates, rpcs, inserts session, clones messages', async () => {
+    it('happy path: provider fork → spawnSession → copyMessages → updateMetadata', async () => {
         const captured: any[] = []
         const deps = makeDeps({ captured })
         const res = await forkSession({ srcSessionId: 'src', deps })
 
-        expect(res.newSessionId).toBe('new-hapi')
+        expect(res.newSessionId).toBe('new-hapi-id')
 
-        const insert = captured.find(c => c[0] === 'insert')!
-        expect(insert[1].id).toBe('new-hapi')
-        expect(insert[1].metadata.forkedFrom).toBe('src')
-        expect(typeof insert[1].metadata.forkedAt).toBe('number')
-        expect(insert[1].metadata.claudeSessionId).toBe('new-claude-id')
-        expect(insert[1].metadata.title).toBe('Hello (fork)')
+        const forkCall = captured.find(c => c[0] === 'forkProvider')!
+        expect(forkCall[1]).toBe('mac-1')
+        expect(forkCall[2].flavor).toBe('claude')
+        expect(forkCall[2].payload.sourceMetadata.claudeSessionId).toBe('csrc')
 
-        const copy = captured.find(c => c[0] === 'copy')!
-        expect(copy).toEqual(['copy', 'src', 'new-hapi'])
+        const spawnCall = captured.find(c => c[0] === 'spawnSession')!
+        expect(spawnCall[1].resumeSessionId).toBe('new-prov-id')
+        expect(spawnCall[1].flavor).toBe('claude')
+        expect(spawnCall[1].machineId).toBe('mac-1')
+
+        const copyCall = captured.find(c => c[0] === 'copy')!
+        expect(copyCall).toEqual(['copy', 'src', 'new-hapi-id'])
+
+        const updateCall = captured.find(c => c[0] === 'updateMetadata')!
+        expect(updateCall[1]).toBe('new-hapi-id')
+        expect(updateCall[2].forkedFrom).toBe('src')
+        expect(typeof updateCall[2].forkedAt).toBe('number')
+        expect(updateCall[2].claudeSessionId).toBe('new-prov-id')
+        expect(updateCall[2].title).toBe('Hello (fork)')
     })
 
     it('returns 404 when source missing', async () => {
@@ -97,37 +103,40 @@ describe('forkSession', () => {
         })
     })
 
-    it('returns 400 when flavor missing entirely', async () => {
+    it('returns 400 when flavor missing', async () => {
         const deps = makeDeps({ source: { metadata: {} as any } })
         await expect(forkSession({ srcSessionId: 'src', deps })).rejects.toMatchObject({
             status: 400
         })
     })
 
-    it('returns 409 when source has active turn', async () => {
-        const deps = makeDeps({ activeTurn: true })
+    it('returns 502 when provider fork RPC throws', async () => {
+        const deps = makeDeps({ forkShouldThrow: new Error('app-server dead') })
         await expect(forkSession({ srcSessionId: 'src', deps })).rejects.toMatchObject({
-            status: 409
+            status: 502
         })
     })
 
-    it('returns 502 when provider rpc fails', async () => {
-        const deps = makeDeps({ rpcShouldThrow: new Error('app-server dead') })
-        await expect(forkSession({ srcSessionId: 'src', deps })).rejects.toMatchObject({
-            status: 502,
-            message: expect.stringMatching(/app-server dead/)
-        } as any)
-    })
-
-    it('returns 500 + best-effort killLauncher when DB clone fails', async () => {
-        const captured: any[] = []
-        const deps = makeDeps({ captured, txShouldThrow: new Error('disk full') })
+    it('returns 500 when spawnSession returns error', async () => {
+        const deps = makeDeps({ spawnResult: { type: 'error', message: 'no machine' } })
         await expect(forkSession({ srcSessionId: 'src', deps })).rejects.toMatchObject({
             status: 500
         })
-        const kill = captured.find(c => c[0] === 'kill')
-        expect(kill).toBeTruthy()
-        expect(kill[2]).toBe('new-claude-id')
+    })
+
+    it('still succeeds when copyMessages throws (degraded — empty transcript)', async () => {
+        const captured: any[] = []
+        const deps = makeDeps({ captured, copyShouldThrow: new Error('db locked') })
+        const res = await forkSession({ srcSessionId: 'src', deps })
+        expect(res.newSessionId).toBe('new-hapi-id')
+        // updateMetadata still runs
+        expect(captured.find(c => c[0] === 'updateMetadata')).toBeTruthy()
+    })
+
+    it('still succeeds when updateMetadata throws', async () => {
+        const deps = makeDeps({ updateShouldThrow: new Error('write fail') })
+        const res = await forkSession({ srcSessionId: 'src', deps })
+        expect(res.newSessionId).toBe('new-hapi-id')
     })
 
     it('uses "Untitled" suffix when source title missing', async () => {
@@ -137,18 +146,17 @@ describe('forkSession', () => {
             source: { metadata: { flavor: 'claude', claudeSessionId: 'c' } as any }
         })
         await forkSession({ srcSessionId: 'src', deps })
-        const insert = captured.find(c => c[0] === 'insert')!
-        expect(insert[1].metadata.title).toBe('Untitled (fork)')
+        const updateCall = captured.find(c => c[0] === 'updateMetadata')!
+        expect(updateCall[2].title).toBe('Untitled (fork)')
     })
 
     it('rejects with HttpError instances', async () => {
         const deps = makeDeps({ source: null })
         try {
             await forkSession({ srcSessionId: 'src', deps })
+            throw new Error('expected throw')
         } catch (err) {
             expect(err).toBeInstanceOf(HttpError)
-            return
         }
-        throw new Error('expected to throw')
     })
 })

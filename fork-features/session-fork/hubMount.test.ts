@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { mountForkRoutes, type ForkSyncEngineLike } from './hubMount'
 import { __resetRegistryForTests, registerForkProvider } from './providerRegistry'
 
-function makeDeps(opts: { activeTurn?: boolean; sourceMissing?: boolean } = {}): ForkSyncEngineLike {
+function makeDeps(opts: { sourceMissing?: boolean; spawnError?: string } = {}): ForkSyncEngineLike {
     return {
         getSession: () =>
             opts.sourceMissing
@@ -14,17 +14,16 @@ function makeDeps(opts: { activeTurn?: boolean; sourceMissing?: boolean } = {}):
                       metadata: { flavor: 'claude', claudeSessionId: 'c', title: 'T' },
                       cwd: '/w'
                   },
-        hasActiveTurn: () => !!opts.activeTurn,
-        generateSessionId: () => 'new-id',
-        async machineRpc() {
+        async forkProvider() {
             return { providerSessionId: 'cnew', metadataPatch: { claudeSessionId: 'cnew' } }
         },
-        insertSession: () => {},
+        async spawnSession() {
+            return opts.spawnError
+                ? { type: 'error', message: opts.spawnError }
+                : { type: 'success', sessionId: 'new-hapi-id' }
+        },
         copyMessages: () => ({ copied: 0 }),
-        killLauncher: async () => {},
-        async tx(fn) {
-            return fn() as any
-        }
+        updateMetadata: () => {}
     }
 }
 
@@ -43,7 +42,7 @@ describe('mountForkRoutes', () => {
         mountForkRoutes(app, () => makeDeps())
         const res = await app.request('/api/flavors/capabilities')
         expect(res.status).toBe(200)
-        const body = await res.json() as { fork: string[] }
+        const body = (await res.json()) as { fork: string[] }
         expect(body.fork).toContain('claude')
     })
 
@@ -52,15 +51,8 @@ describe('mountForkRoutes', () => {
         mountForkRoutes(app, () => makeDeps())
         const res = await app.request('/api/sessions/src/fork', { method: 'POST' })
         expect(res.status).toBe(200)
-        const body = await res.json() as { newSessionId: string }
-        expect(body.newSessionId).toBe('new-id')
-    })
-
-    it('returns 409 when source session has active turn', async () => {
-        const app = new Hono()
-        mountForkRoutes(app, () => makeDeps({ activeTurn: true }))
-        const res = await app.request('/api/sessions/src/fork', { method: 'POST' })
-        expect(res.status).toBe(409)
+        const body = (await res.json()) as { newSessionId: string }
+        expect(body.newSessionId).toBe('new-hapi-id')
     })
 
     it('returns 404 when source session missing', async () => {
@@ -68,6 +60,13 @@ describe('mountForkRoutes', () => {
         mountForkRoutes(app, () => makeDeps({ sourceMissing: true }))
         const res = await app.request('/api/sessions/src/fork', { method: 'POST' })
         expect(res.status).toBe(404)
+    })
+
+    it('returns 500 when spawnSession errors', async () => {
+        const app = new Hono()
+        mountForkRoutes(app, () => makeDeps({ spawnError: 'machine offline' }))
+        const res = await app.request('/api/sessions/src/fork', { method: 'POST' })
+        expect(res.status).toBe(500)
     })
 
     it('returns 503 when sync engine not ready', async () => {
