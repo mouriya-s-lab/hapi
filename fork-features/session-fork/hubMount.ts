@@ -7,21 +7,22 @@ export type ForkSyncEngineLike = ForkDeps
 type StatusCode = 200 | 400 | 404 | 409 | 500 | 502 | 503
 
 /**
- * Mount fork-related HTTP routes onto an existing Hono app. The caller
- * passes a getDeps() function (in hub/src/web/server.ts) that translates
- * the live SyncEngine into the ForkDeps contract via hubSyncEngineAdapter.
- * Returns null when the engine isn't ready yet so we can 503.
+ * Mount fork-related HTTP routes onto an existing Hono app. `getDeps` receives
+ * the per-request namespace (from Hono context) and builds a ForkDeps
+ * instance backed by the live SyncEngine + Store; returning null when the
+ * engine isn't ready makes the route 503 instead of 500-ing.
  */
 export function mountForkRoutes(
-    app: Hono,
-    getDeps: () => ForkSyncEngineLike | null
+    app: Hono<any>,
+    getDeps: (namespace: string) => ForkSyncEngineLike | null
 ): void {
     app.get('/api/flavors/capabilities', (c) => {
         return c.json({ fork: listForkCapableFlavors() })
     })
 
     app.post('/api/sessions/:id/fork', async (c) => {
-        const deps = getDeps()
+        const namespace = (c.get('namespace' as never) as string | undefined) ?? 'default'
+        const deps = getDeps(namespace)
         if (!deps) {
             return c.json({ error: 'sync engine unavailable' }, 503 as StatusCode)
         }
