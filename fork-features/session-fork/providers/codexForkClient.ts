@@ -18,6 +18,9 @@ export function createCodexForkClient(appServerClient: CodexAppServerClient): Co
         },
         async resumeThread({ threadId }) {
             await appServerClient.resumeThread({ threadId })
+        },
+        async close() {
+            await appServerClient.disconnect().catch(() => undefined)
         }
     }
 }

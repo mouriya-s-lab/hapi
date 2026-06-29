@@ -78,4 +78,33 @@ describe('codexForkProvider (factory)', () => {
             } as any)
         ).rejects.toThrow(/codexSessionId/)
     })
+
+    it('calls client.close() in finally after success', async () => {
+        let closed = false
+        const client = makeClient()
+        ;(client as any).close = async () => { closed = true }
+        const provider = createCodexForkProvider(() => client)
+        await provider.spawnFork({
+            sourceMetadata: { path: '/w', host: 'h', codexSessionId: 's' },
+            sourceCwd: '/w',
+            newHapiSessionId: 'n'
+        } as any)
+        expect(closed).toBe(true)
+    })
+
+    it('calls client.close() even when forkThread throws', async () => {
+        let closed = false
+        const client: CodexForkClient = {
+            async forkThread() { throw new Error('fork-boom') },
+            async resumeThread() { return undefined },
+            close: async () => { closed = true }
+        }
+        const provider = createCodexForkProvider(() => client)
+        await expect(provider.spawnFork({
+            sourceMetadata: { path: '/w', host: 'h', codexSessionId: 's' },
+            sourceCwd: '/w',
+            newHapiSessionId: 'n'
+        } as any)).rejects.toThrow(/fork-boom/)
+        expect(closed).toBe(true)
+    })
 })
