@@ -37,13 +37,16 @@ beforeEach(() => {
 })
 
 describe('mountForkRoutes', () => {
-    it('GET /api/flavors/capabilities returns registered flavors', async () => {
+    it('GET /api/flavors/capabilities returns FORK_CAPABLE_FLAVORS', async () => {
+        // Hub serves the static capability list (not the cli-side registry,
+        // which is per-process and empty in hub). The register.ts invariant
+        // test pins that cli's registry equals this list.
         const app = new Hono()
         mountForkRoutes(app, () => makeDeps())
         const res = await app.request('/api/flavors/capabilities')
         expect(res.status).toBe(200)
         const body = (await res.json()) as { fork: string[] }
-        expect(body.fork).toContain('claude')
+        expect(body.fork.sort()).toEqual(['claude', 'codex'])
     })
 
     it('POST /api/sessions/:id/fork returns 200 + newSessionId on success', async () => {

@@ -20,12 +20,11 @@ describe('handleForkSpawnSession', () => {
             flavor: 'claude',
             payload: {
                 sourceMetadata: { path: '/w', host: 'h', claudeSessionId: 'src' },
-                sourceCwd: '/work',
-                newHapiSessionId: 'hapi-new'
+                sourceCwd: '/work'
             }
         })
-        expect(observed.newHapiSessionId).toBe('hapi-new')
         expect(observed.sourceMetadata.claudeSessionId).toBe('src')
+        expect(observed.sourceCwd).toBe('/work')
         expect(result.providerSessionId).toBe('new-id')
         expect(result.metadataPatch.claudeSessionId).toBe('new-id')
     })

@@ -5,7 +5,6 @@ export interface SpawnClaudeForkArgs {
     sourceSessionId: string
     cwd: string
     model?: string
-    newHapiSessionId: string
 }
 
 export interface SpawnClaudeForkResult {
@@ -41,8 +40,7 @@ export const claudeForkProvider: ForkProvider = {
         const { newClaudeSessionId } = await spawnClaudeForkImpl({
             sourceSessionId,
             cwd: payload.sourceCwd,
-            model: payload.sourceModel,
-            newHapiSessionId: payload.newHapiSessionId
+            model: payload.sourceModel
         })
         return {
             providerSessionId: newClaudeSessionId,

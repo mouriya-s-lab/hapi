@@ -1,17 +1,21 @@
 import { describe, it, expect } from 'bun:test'
 import { __resetRegistryForTests, listForkCapableFlavors, getForkProvider } from './providerRegistry'
+import { FORK_CAPABLE_FLAVORS } from './forkCapabilities'
 
 describe('register.ts', () => {
-    it('registers both claude and codex providers + each exposes spawnFork', async () => {
-        // Reset first so the registration we observe is exclusively from register.ts
-        // and not bled-in state from a sibling test.
+    it('registers exactly the flavors declared in FORK_CAPABLE_FLAVORS', async () => {
+        // Pins the invariant that hub-side capability declaration
+        // (FORK_CAPABLE_FLAVORS, served via /api/flavors/capabilities) stays in
+        // sync with cli-side RPC dispatch (registry populated by register.ts).
+        // Drift here = UI shows Fork for a flavor whose cli handler is missing,
+        // or hides Fork for one whose handler exists.
         __resetRegistryForTests()
-        // Bust module cache so the side-effect import re-runs after the reset.
         delete require.cache[require.resolve('./register')]
         await import('./register')
 
-        expect(listForkCapableFlavors().sort()).toEqual(['claude', 'codex'])
-        expect(typeof getForkProvider('claude')?.spawnFork).toBe('function')
-        expect(typeof getForkProvider('codex')?.spawnFork).toBe('function')
+        expect(listForkCapableFlavors().sort()).toEqual([...FORK_CAPABLE_FLAVORS].sort())
+        for (const flavor of FORK_CAPABLE_FLAVORS) {
+            expect(typeof getForkProvider(flavor)?.spawnFork).toBe('function')
+        }
     })
 })

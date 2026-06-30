@@ -5,12 +5,10 @@ describe('rpcPayloads', () => {
     it('parses ForkSpawnPayload with required fields', () => {
         const payload = ForkSpawnPayloadSchema.parse({
             sourceMetadata: { path: '/work', host: 'localhost', claudeSessionId: 'abc' },
-            sourceCwd: '/tmp/work',
-            newHapiSessionId: 'new-id'
+            sourceCwd: '/tmp/work'
         })
         expect(payload.sourceCwd).toBe('/tmp/work')
         expect(payload.sourceMetadata.claudeSessionId).toBe('abc')
-        expect(payload.newHapiSessionId).toBe('new-id')
     })
 
     it('parses ForkSpawnPayload with optional source-state fields', () => {
@@ -19,8 +17,7 @@ describe('rpcPayloads', () => {
             sourceCwd: '/w',
             sourceModel: 'claude-opus-4-8',
             sourcePermissionMode: 'default',
-            sourceCollaborationMode: 'plan',
-            newHapiSessionId: 'n'
+            sourceCollaborationMode: 'plan'
         })
         expect(payload.sourceModel).toBe('claude-opus-4-8')
         expect(payload.sourcePermissionMode).toBe('default')
@@ -38,6 +35,6 @@ describe('rpcPayloads', () => {
 
     it('rejects ForkSpawnPayload without required fields', () => {
         expect(() => ForkSpawnPayloadSchema.parse({})).toThrow()
-        expect(() => ForkSpawnPayloadSchema.parse({ sourceMetadata: { path: '/p', host: 'h' } })).toThrow()
+        expect(() => ForkSpawnPayloadSchema.parse({ sourceCwd: '/w' })).toThrow()
     })
 })

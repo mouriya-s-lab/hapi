@@ -51,22 +51,46 @@ export async function spawnClaudeFork(
             stdio: ['pipe', 'pipe', 'pipe']
         })
 
+        // Send a minimal prompt then EOF. Empirically claude --fork-session
+        // only materializes the new session's on-disk JSONL after it processes
+        // at least one user turn — without a prompt it just runs SessionStart
+        // hooks and exits with no fork file written. That breaks the hapi
+        // launcher's `claude --resume <new-id>` step (file not found → process
+        // exits code 1). A single-char prompt is the smallest valid stream-json
+        // user message and produces a forked JSONL on disk in well under a
+        // second on local claude.
+        try {
+            const minimalPrompt = JSON.stringify({
+                type: 'user',
+                message: { role: 'user', content: [{ type: 'text', text: '.' }] }
+            }) + '\n'
+            child.stdin?.write(minimalPrompt)
+            child.stdin?.end()
+        } catch {
+            // best-effort
+        }
+
         let buffer = ''
+        let capturedSessionId: string | null = null
         let settled = false
-        const finish = (fn: () => void) => {
+        const settle = (fn: () => void) => {
             if (settled) return
             settled = true
             clearTimeout(timer)
-            try {
-                child.kill('SIGTERM')
-            } catch {
-                // best-effort
-            }
             fn()
         }
 
         const timer = setTimeout(() => {
-            finish(() => reject(new Error(`claude fork: timeout waiting for init message after ${timeoutMs}ms`)))
+            // Hard cap. Kill the child to bound resource use, then reject
+            // with whatever we knew at the time.
+            try { child.kill('SIGTERM') } catch { /* best-effort */ }
+            settle(() => {
+                if (capturedSessionId) {
+                    resolve({ newClaudeSessionId: capturedSessionId })
+                } else {
+                    reject(new Error(`claude fork: timeout waiting for forked session_id after ${timeoutMs}ms`))
+                }
+            })
         }, timeoutMs)
 
         child.stdout?.on('data', (chunk: Buffer) => {
@@ -83,27 +107,34 @@ export async function spawnClaudeFork(
                 } catch {
                     continue
                 }
+                // claude --fork-session emits the new session_id on every
+                // stream-json line. Capture the first non-source one — but
+                // wait for natural exit before resolving so the on-disk
+                // forked JSONL is fully flushed before hapi's launcher tries
+                // to `claude --resume <new-id>`.
                 if (
-                    parsed?.type === 'system' &&
-                    parsed?.subtype === 'init' &&
+                    !capturedSessionId &&
                     typeof parsed?.session_id === 'string' &&
-                    parsed.session_id.length > 0
+                    parsed.session_id.length > 0 &&
+                    parsed.session_id !== args.sourceSessionId
                 ) {
-                    finish(() => resolve({ newClaudeSessionId: parsed.session_id }))
-                    return
+                    capturedSessionId = parsed.session_id
                 }
             }
         })
 
         child.on('error', (err) => {
-            finish(() => reject(err))
+            settle(() => reject(err))
         })
 
-        child.on('exit', (code, signal) => {
-            if (settled) return
-            settled = true
-            clearTimeout(timer)
-            reject(new Error(`claude fork: process exited (code=${code}, signal=${signal}) without init message`))
+        child.on('exit', () => {
+            settle(() => {
+                if (capturedSessionId) {
+                    resolve({ newClaudeSessionId: capturedSessionId })
+                } else {
+                    reject(new Error('claude fork: process exited without emitting a new session_id'))
+                }
+            })
         })
     })
 }

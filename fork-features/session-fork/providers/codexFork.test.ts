@@ -30,7 +30,6 @@ describe('codexForkProvider (factory)', () => {
         const result = await provider.spawnFork({
             sourceMetadata: { path: '/w', host: 'h', codexSessionId: 'src-thread' },
             sourceCwd: '/tmp/work',
-            newHapiSessionId: 'new-hapi'
         } as any)
         expect(calls).toEqual(['fork:src-thread', 'resume:forked-thread'])
         expect(result.providerSessionId).toBe('forked-thread')
@@ -49,7 +48,6 @@ describe('codexForkProvider (factory)', () => {
         await provider.spawnFork({
             sourceMetadata: { path: '/w', host: 'h', codexSessionId: 'src-cs' },
             sourceCwd: '/w',
-            newHapiSessionId: 'n'
         } as any)
         expect(calls[0]).toBe('fork:src-cs')
     })
@@ -63,7 +61,6 @@ describe('codexForkProvider (factory)', () => {
         await provider.spawnFork({
             sourceMetadata: { path: '/w', host: 'h', codexSessionId: 's' },
             sourceCwd: '/w',
-            newHapiSessionId: 'n'
         } as any)
         expect(factoryCalled).toBe(1)
     })
@@ -74,7 +71,6 @@ describe('codexForkProvider (factory)', () => {
             provider.spawnFork({
                 sourceMetadata: { path: '/w', host: 'h' },
                 sourceCwd: '/tmp/x',
-                newHapiSessionId: 'n'
             } as any)
         ).rejects.toThrow(/codexSessionId/)
     })
@@ -87,7 +83,6 @@ describe('codexForkProvider (factory)', () => {
         await provider.spawnFork({
             sourceMetadata: { path: '/w', host: 'h', codexSessionId: 's' },
             sourceCwd: '/w',
-            newHapiSessionId: 'n'
         } as any)
         expect(closed).toBe(true)
     })
@@ -103,7 +98,6 @@ describe('codexForkProvider (factory)', () => {
         await expect(provider.spawnFork({
             sourceMetadata: { path: '/w', host: 'h', codexSessionId: 's' },
             sourceCwd: '/w',
-            newHapiSessionId: 'n'
         } as any)).rejects.toThrow(/fork-boom/)
         expect(closed).toBe(true)
     })

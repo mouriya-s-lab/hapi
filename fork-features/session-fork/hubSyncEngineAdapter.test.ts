@@ -58,6 +58,26 @@ describe('buildForkDeps', () => {
         expect(deps.getSession('missing')).toBeNull()
     })
 
+    it('getSession falls back to metadata.machineId when row.machineId is empty', () => {
+        // Mirrors prod: hub's sessions.machine_id column is often null on rows
+        // created via paths that only stash machineId inside metadata. The
+        // fork RPC routes by machineId, so empty machineId breaks dispatch
+        // ("RPC handler not registered: :fork-spawn-session"). Test pins the
+        // metadata fallback that prevents that.
+        const store = {
+            sessions: {
+                getSession: () => ({
+                    id: 'src',
+                    machineId: null,
+                    metadata: { flavor: 'claude', path: '/work', machineId: 'mac-via-meta' },
+                    metadataVersion: 0
+                })
+            }
+        }
+        const deps = buildForkDeps({ store: store as any, syncEngine: {} as any, namespace: 'default' })
+        expect(deps.getSession('src')?.machineId).toBe('mac-via-meta')
+    })
+
     it('forkProvider unwraps RPC response into ForkSpawnResultLike', async () => {
         const { store } = fakeStore()
         const syncEngine = {

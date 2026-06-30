@@ -16,7 +16,7 @@ function makeDeps(opts: MakeDepsOpts = {}): ForkDeps {
     const baseSource: ForkSourceSession = {
         id: 'src',
         machineId: 'mac-1',
-        metadata: { flavor: 'claude', claudeSessionId: 'csrc', title: 'Hello' },
+        metadata: { flavor: 'claude', claudeSessionId: 'csrc', name: 'Hello' },
         cwd: '/work',
         model: 'claude-opus-4-8',
         permissionMode: 'default',
@@ -86,7 +86,7 @@ describe('forkSession', () => {
         expect(updateCall[2].forkedFrom).toBe('src')
         expect(typeof updateCall[2].forkedAt).toBe('number')
         expect(updateCall[2].claudeSessionId).toBe('new-prov-id')
-        expect(updateCall[2].title).toBe('Hello (fork)')
+        expect(updateCall[2].name).toBe('Hello (fork)')
     })
 
     it('returns 404 when source missing', async () => {
@@ -139,7 +139,7 @@ describe('forkSession', () => {
         expect(res.newSessionId).toBe('new-hapi-id')
     })
 
-    it('uses "Untitled" suffix when source title missing', async () => {
+    it('uses "Untitled" suffix when source name missing', async () => {
         const captured: any[] = []
         const deps = makeDeps({
             captured,
@@ -147,7 +147,7 @@ describe('forkSession', () => {
         })
         await forkSession({ srcSessionId: 'src', deps })
         const updateCall = captured.find(c => c[0] === 'updateMetadata')!
-        expect(updateCall[2].title).toBe('Untitled (fork)')
+        expect(updateCall[2].name).toBe('Untitled (fork)')
     })
 
     it('rejects with HttpError instances', async () => {

@@ -25,9 +25,17 @@ export function buildForkDeps(args: {
                 typeof metadata?.path === 'string' && metadata.path.length > 0
                     ? metadata.path
                     : (typeof row.cwd === 'string' ? row.cwd : '')
+            // hub's `sessions.machine_id` column is often null on rows created
+            // through paths that only stash machineId inside metadata
+            // (ROUTING_FIELDS preservation). Metadata is the authoritative
+            // source — fall back to it before declaring the row machine-less.
+            const machineId =
+                (typeof row.machineId === 'string' && row.machineId.length > 0)
+                    ? row.machineId
+                    : (typeof metadata?.machineId === 'string' ? metadata.machineId : '')
             return {
                 id: row.id,
-                machineId: row.machineId ?? '',
+                machineId,
                 metadata,
                 cwd,
                 model: row.model ?? undefined,

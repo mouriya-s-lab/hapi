@@ -41,3 +41,4 @@ are pure UI integration). Everything load-bearing is in
 | Date | Operation | Result |
 |---|---|---|
 | 2026-06-28 | Initial implementation (T1–T17 of `docs/superpowers/plans/2026-06-28-session-fork.md`) | All 52 fork-features unit tests + 12 web unit tests pass. Repo typecheck (cli + hub + web) clean. E2E verification (T19/T20) and sync-upstream dry-run (T21) pending. |
+| 2026-06-30 | T19 — Claude end-to-end on dev hub + dev cli runner | Pass. 7 bugs found and fixed during e2e (capability-list/registry split, machineId fallback, dead newHapiSessionId field, claude session_id parser, fork JSONL materialization via minimal prompt, i18n keys, metadata.name vs title). 53 fork-features tests + repo typecheck still green. Evidence: `docs/superpowers/evidence/2026-06-28-session-fork-claude/`. |

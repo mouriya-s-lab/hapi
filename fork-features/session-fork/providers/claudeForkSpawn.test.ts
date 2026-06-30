@@ -6,7 +6,6 @@ describe('buildClaudeForkCliArgs', () => {
         const args = buildClaudeForkCliArgs({
             sourceSessionId: 'src-uuid',
             cwd: '/tmp/work',
-            newHapiSessionId: 'new-hapi'
         })
         const resumeIdx = args.indexOf('--resume')
         expect(resumeIdx).toBeGreaterThanOrEqual(0)
@@ -23,7 +22,6 @@ describe('buildClaudeForkCliArgs', () => {
         const args = buildClaudeForkCliArgs({
             sourceSessionId: 's',
             cwd: '/t',
-            newHapiSessionId: 'n',
             model: 'claude-opus-4-8'
         })
         const modelIdx = args.indexOf('--model')
@@ -35,7 +33,6 @@ describe('buildClaudeForkCliArgs', () => {
         const args = buildClaudeForkCliArgs({
             sourceSessionId: 's',
             cwd: '/t',
-            newHapiSessionId: 'n'
         })
         expect(args.indexOf('--model')).toBe(-1)
     })

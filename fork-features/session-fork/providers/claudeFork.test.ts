@@ -4,7 +4,7 @@ import { claudeForkProvider, __setSpawnClaudeForkForTests, __resetSpawnClaudeFor
 beforeEach(() => __resetSpawnClaudeForkForTests())
 
 describe('claudeForkProvider', () => {
-    it('calls claude with sourceSessionId+cwd+newHapiSessionId and returns new sessionId', async () => {
+    it('calls claude with sourceSessionId+cwd and returns new sessionId', async () => {
         const calls: any[] = []
         __setSpawnClaudeForkForTests(async (args) => {
             calls.push(args)
@@ -12,13 +12,11 @@ describe('claudeForkProvider', () => {
         })
         const result = await claudeForkProvider.spawnFork({
             sourceMetadata: { path: '/w', host: 'h', claudeSessionId: 'src-sess' },
-            sourceCwd: '/tmp/work',
-            newHapiSessionId: 'new-hapi'
+            sourceCwd: '/tmp/work'
         } as any)
         expect(calls.length).toBe(1)
         expect(calls[0].sourceSessionId).toBe('src-sess')
         expect(calls[0].cwd).toBe('/tmp/work')
-        expect(calls[0].newHapiSessionId).toBe('new-hapi')
         expect(result.providerSessionId).toBe('new-claude-sess')
         expect(result.metadataPatch.claudeSessionId).toBe('new-claude-sess')
     })
@@ -32,8 +30,7 @@ describe('claudeForkProvider', () => {
         await claudeForkProvider.spawnFork({
             sourceMetadata: { path: '/w', host: 'h', claudeSessionId: 'src' },
             sourceCwd: '/w',
-            sourceModel: 'claude-opus-4-8',
-            newHapiSessionId: 'n'
+            sourceModel: 'claude-opus-4-8'
         } as any)
         expect(calls[0].model).toBe('claude-opus-4-8')
     })
@@ -42,8 +39,7 @@ describe('claudeForkProvider', () => {
         await expect(
             claudeForkProvider.spawnFork({
                 sourceMetadata: { path: '/w', host: 'h' },
-                sourceCwd: '/tmp/x',
-                newHapiSessionId: 'n'
+                sourceCwd: '/tmp/x'
             } as any)
         ).rejects.toThrow(/claudeSessionId/)
     })

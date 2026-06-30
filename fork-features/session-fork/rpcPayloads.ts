@@ -6,8 +6,7 @@ export const ForkSpawnPayloadSchema = z.object({
     sourceCwd: z.string(),
     sourceModel: z.string().optional(),
     sourcePermissionMode: z.string().optional(),
-    sourceCollaborationMode: z.string().optional(),
-    newHapiSessionId: z.string()
+    sourceCollaborationMode: z.string().optional()
 })
 export type ForkSpawnPayload = z.infer<typeof ForkSpawnPayloadSchema>
 

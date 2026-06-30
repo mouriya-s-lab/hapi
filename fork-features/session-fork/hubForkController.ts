@@ -1,4 +1,4 @@
-import { listForkCapableFlavors } from './providerRegistry'
+import { FORK_CAPABLE_FLAVORS } from './forkCapabilities'
 
 export class HttpError extends Error {
     constructor(public status: number, message: string) {
@@ -73,11 +73,10 @@ export async function forkSession(args: {
     }
 
     const flavor = typeof src.metadata?.flavor === 'string' ? src.metadata.flavor : null
-    const capableFlavors = listForkCapableFlavors()
-    if (!flavor || !capableFlavors.includes(flavor)) {
+    if (!flavor || !FORK_CAPABLE_FLAVORS.includes(flavor as never)) {
         throw new HttpError(
             400,
-            `flavor ${flavor ?? '<none>'} does not support fork (supported: ${capableFlavors.join(', ') || 'none'})`
+            `flavor ${flavor ?? '<none>'} does not support fork (supported: ${FORK_CAPABLE_FLAVORS.join(', ')})`
         )
     }
 
@@ -126,17 +125,22 @@ export async function forkSession(args: {
         // missing transcript clone is a degraded state but not a leak.
     }
 
-    // Step 4 — write fork lineage + title. Provider's metadataPatch (e.g. the
-    // new claudeSessionId / codexSessionId) is merged in case the spawn flow
-    // hasn't populated it yet from the cli session-add event.
-    const sourceTitle =
-        typeof src.metadata?.title === 'string' ? src.metadata.title : 'Untitled'
+    // Step 4 — write fork lineage + display name. Provider's metadataPatch
+    // (e.g. the new claudeSessionId / codexSessionId) is merged in case the
+    // spawn flow hasn't populated it yet from the cli session-add event.
+    // hapi's user-facing session title lives in MetadataSchema.name (set by
+    // PATCH /sessions/:id rename), not `title` — write `name` so the UI
+    // surfaces "<source> (fork)" in the list.
+    const sourceName =
+        typeof src.metadata?.name === 'string' && src.metadata.name.length > 0
+            ? src.metadata.name
+            : 'Untitled'
     try {
         deps.updateMetadata(newSessionId, {
             ...forkResult.metadataPatch,
             forkedFrom: srcSessionId,
             forkedAt: Date.now(),
-            title: `${sourceTitle} (fork)`
+            name: `${sourceName} (fork)`
         })
     } catch (err) {
         // Same rationale: lineage metadata is nice-to-have, doesn't gate success.
