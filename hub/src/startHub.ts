@@ -8,6 +8,7 @@ import { startWebServer } from './web/server'
 import { getOrCreateJwtSecret } from './config/jwtSecret'
 import { bootstrapMultiUser } from './auth/bootstrap'
 import { initAuthContext } from './auth/authContext'
+import { listReadableAccountIds } from './auth/access'
 import { createSocketServer } from './socket/server'
 import { SSEManager } from './sse/sseManager'
 import { getOrCreateVapidKeys } from './config/vapidKeys'
@@ -186,7 +187,9 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
     const pushService = new PushService(vapidKeys, vapidSubject, store)
 
     visibilityTracker = new VisibilityTracker()
-    sseManager = new SSEManager(30_000, visibilityTracker)
+    sseManager = new SSEManager(30_000, visibilityTracker, {
+        listReadableAccountIds: (resourceType, resourceId) => listReadableAccountIds(store, resourceType, resourceId)
+    })
 
     const socketServer = createSocketServer({
         store,
@@ -211,7 +214,7 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
     syncEngine = new SyncEngine(store, socketServer.io, socketServer.rpcRegistry, sseManager)
 
     const notificationChannels: NotificationChannel[] = [
-        new PushNotificationChannel(pushService, sseManager, visibilityTracker, config.publicUrl)
+        new PushNotificationChannel(pushService, sseManager, visibilityTracker, config.publicUrl, store)
     ]
 
     if (config.serverChanSendKey && config.serverChanNotification) {

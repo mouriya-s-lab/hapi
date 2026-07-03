@@ -3,6 +3,7 @@ import { getTelegramWebApp, isTelegramEnvironment } from './useTelegram'
 import type { AuthSource } from './useAuth'
 
 const ACCESS_TOKEN_PREFIX = 'hapi_access_token::'
+const PASSWORD_JWT_PREFIX = 'hapi_password_jwt::'
 
 function getTelegramInitData(): string | null {
     const tg = getTelegramWebApp()
@@ -31,7 +32,11 @@ function getAccessTokenKey(baseUrl: string): string {
     return `${ACCESS_TOKEN_PREFIX}${baseUrl}`
 }
 
-function getStoredAccessToken(key: string): string | null {
+function getPasswordJwtKey(baseUrl: string): string {
+    return `${PASSWORD_JWT_PREFIX}${baseUrl}`
+}
+
+function getStoredValue(key: string): string | null {
     try {
         return localStorage.getItem(key)
     } catch {
@@ -39,15 +44,15 @@ function getStoredAccessToken(key: string): string | null {
     }
 }
 
-function storeAccessToken(key: string, token: string): void {
+function storeValue(key: string, value: string): void {
     try {
-        localStorage.setItem(key, token)
+        localStorage.setItem(key, value)
     } catch {
         // Ignore storage errors
     }
 }
 
-function clearStoredAccessToken(key: string): void {
+function clearStoredValue(key: string): void {
     try {
         localStorage.removeItem(key)
     } catch {
@@ -60,6 +65,9 @@ export function useAuthSource(baseUrl: string): {
     isLoading: boolean
     isTelegram: boolean
     setAccessToken: (token: string) => void
+    setPasswordToken: (jwt: string) => void
+    persistPasswordToken: (jwt: string) => void
+    clearStoredPasswordToken: () => void
     clearAuth: () => void
 } {
     const [authSource, setAuthSource] = useState<AuthSource | null>(null)
@@ -67,6 +75,7 @@ export function useAuthSource(baseUrl: string): {
     const [isTelegram, setIsTelegram] = useState(false)
     const retryCountRef = useRef(0)
     const accessTokenKey = useMemo(() => getAccessTokenKey(baseUrl), [baseUrl])
+    const passwordJwtKey = useMemo(() => getPasswordJwtKey(baseUrl), [baseUrl])
 
     // Initialize auth source on mount, with retry for delayed Telegram initData
     useEffect(() => {
@@ -88,16 +97,25 @@ export function useAuthSource(baseUrl: string): {
         // Check for URL token parameter (for direct access links)
         const urlToken = getTokenFromUrlParams()
         if (urlToken) {
-            storeAccessToken(accessTokenKey, urlToken) // Save to localStorage for refresh
+            storeValue(accessTokenKey, urlToken) // Save to localStorage for refresh
             setAuthSource({ type: 'accessToken', token: urlToken })
             setIsLoading(false)
             return
         }
 
         // Check for stored access token as fallback
-        const storedToken = getStoredAccessToken(accessTokenKey)
+        const storedToken = getStoredValue(accessTokenKey)
         if (storedToken) {
             setAuthSource({ type: 'accessToken', token: storedToken })
+            setIsLoading(false)
+            return
+        }
+
+        // Check for a persisted password-session JWT (multi-user password login).
+        // It may be expired; useAuth's refresh will fail and route back to login.
+        const storedPasswordJwt = getStoredValue(passwordJwtKey)
+        if (storedPasswordJwt) {
+            setAuthSource({ type: 'password', token: storedPasswordJwt })
             setIsLoading(false)
             return
         }
@@ -133,23 +151,47 @@ export function useAuthSource(baseUrl: string): {
         return () => {
             clearInterval(interval)
         }
-    }, [accessTokenKey])
+    }, [accessTokenKey, passwordJwtKey])
 
     const setAccessToken = useCallback((token: string) => {
-        storeAccessToken(accessTokenKey, token)
+        // Access-token and password sessions are mutually exclusive.
+        clearStoredValue(passwordJwtKey)
+        storeValue(accessTokenKey, token)
         setAuthSource({ type: 'accessToken', token })
-    }, [accessTokenKey])
+    }, [accessTokenKey, passwordJwtKey])
+
+    const setPasswordToken = useCallback((jwt: string) => {
+        clearStoredValue(accessTokenKey)
+        storeValue(passwordJwtKey, jwt)
+        setAuthSource({ type: 'password', token: jwt })
+    }, [accessTokenKey, passwordJwtKey])
+
+    // Keep the persisted JWT fresh across sliding-session refreshes without
+    // changing the authSource identity (which would re-trigger auth effects).
+    const persistPasswordToken = useCallback((jwt: string) => {
+        storeValue(passwordJwtKey, jwt)
+    }, [passwordJwtKey])
+
+    // Drop a stale/rejected password JWT so the next page load shows a clean
+    // login form instead of retrying a dead session.
+    const clearStoredPasswordToken = useCallback(() => {
+        clearStoredValue(passwordJwtKey)
+    }, [passwordJwtKey])
 
     const clearAuth = useCallback(() => {
-        clearStoredAccessToken(accessTokenKey)
+        clearStoredValue(accessTokenKey)
+        clearStoredValue(passwordJwtKey)
         setAuthSource(null)
-    }, [accessTokenKey])
+    }, [accessTokenKey, passwordJwtKey])
 
     return {
         authSource,
         isLoading,
         isTelegram,
         setAccessToken,
+        setPasswordToken,
+        persistPasswordToken,
+        clearStoredPasswordToken,
         clearAuth
     }
 }

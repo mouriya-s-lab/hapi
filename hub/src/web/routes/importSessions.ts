@@ -91,7 +91,7 @@ export function createImportSessionsRoutes(options: {
             return c.json({ success: false, error: 'Not connected' }, 503)
         }
         const machineId = c.req.param('id')
-        const machine = requireMachine(c, engine, machineId)
+        const machine = requireMachine(c, engine, machineId, { store })
         if (machine instanceof Response) {
             return machine
         }
@@ -113,7 +113,8 @@ export function createImportSessionsRoutes(options: {
             return c.json({ success: false, error: 'Not connected' }, 503)
         }
         const machineId = c.req.param('id')
-        const machine = requireMachine(c, engine, machineId)
+        // 触发机器扫描/读取本地文件属于操作性动作,要求 operator 以上权限。
+        const machine = requireMachine(c, engine, machineId, { store, requireOperate: true })
         if (machine instanceof Response) {
             return machine
         }
@@ -164,7 +165,8 @@ export function createImportSessionsRoutes(options: {
 
             try {
                 const metadata = buildImportedMetadata(flavor, sourceId, read.meta ?? {})
-                const created = engine.getOrCreateSession(randomUUID(), metadata, {}, namespace)
+                // 归属到发起导入的账号,否则非管理员导入后自己看不到。
+                const created = engine.getOrCreateSession(randomUUID(), metadata, {}, namespace, undefined, undefined, undefined, c.get('accountId') ?? null)
                 const sessionId = created.id
                 let lastCreatedAt = Date.now()
                 for (const message of read.messages) {

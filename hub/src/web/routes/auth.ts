@@ -16,6 +16,52 @@ import type { AccountRole } from '../../store/types'
 // transparent to users.
 const JWT_TTL = '1h'
 
+// Password brute-force throttle: after this many consecutive failures for a
+// (client, username) pair, further attempts are rejected until the window
+// elapses. In-memory only — a hub restart resets it, which is acceptable for
+// slowing online guessing without a persistence dependency.
+const LOGIN_FAILURE_LIMIT = 10
+const LOGIN_FAILURE_WINDOW_MS = 15 * 60 * 1000
+
+type FailureRecord = { count: number; firstAt: number }
+const loginFailures = new Map<string, FailureRecord>()
+
+function loginThrottleKey(c: { req: { header: (name: string) => string | undefined } }, username: string): string {
+    const forwarded = c.req.header('x-forwarded-for')
+    const client = forwarded?.split(',')[0]?.trim() || 'local'
+    return `${client}::${username.toLowerCase()}`
+}
+
+function isLoginThrottled(key: string): boolean {
+    const record = loginFailures.get(key)
+    if (!record) {
+        return false
+    }
+    if (Date.now() - record.firstAt > LOGIN_FAILURE_WINDOW_MS) {
+        loginFailures.delete(key)
+        return false
+    }
+    return record.count >= LOGIN_FAILURE_LIMIT
+}
+
+function recordLoginFailure(key: string): void {
+    const now = Date.now()
+    const record = loginFailures.get(key)
+    if (!record || now - record.firstAt > LOGIN_FAILURE_WINDOW_MS) {
+        loginFailures.set(key, { count: 1, firstAt: now })
+        return
+    }
+    record.count += 1
+    // Opportunistic cleanup so the map cannot grow unbounded under scanning.
+    if (loginFailures.size > 10_000) {
+        for (const [k, v] of loginFailures) {
+            if (now - v.firstAt > LOGIN_FAILURE_WINDOW_MS) {
+                loginFailures.delete(k)
+            }
+        }
+    }
+}
+
 async function signSessionJwt(
     jwtSecret: Uint8Array,
     params: { userId: number; accountId: number; role: AccountRole; namespace: string }
@@ -44,14 +90,20 @@ export function createAuthRoutes(jwtSecret: Uint8Array, store: Store): Hono<WebA
 
         // 1. Username + password (multi-user local accounts).
         if ('username' in parsed.data && 'password' in parsed.data) {
+            const throttleKey = loginThrottleKey(c, parsed.data.username)
+            if (isLoginThrottled(throttleKey)) {
+                return c.json({ error: 'Too many failed attempts. Try again later.' }, 429)
+            }
             const account = store.accounts.getByUsername(parsed.data.username)
             // Reject disabled / passwordless (SSO-only or not-yet-set) accounts.
             const ok = account
                 && account.disabledAt === null
                 && verifyPassword(parsed.data.password, account.passwordHash)
             if (!account || !ok) {
+                recordLoginFailure(throttleKey)
                 return c.json({ error: 'Invalid username or password' }, 401)
             }
+            loginFailures.delete(throttleKey)
 
             const token = await signSessionJwt(jwtSecret, {
                 userId: account.id,
@@ -107,17 +159,25 @@ export function createAuthRoutes(jwtSecret: Uint8Array, store: Store): Hono<WebA
             return c.json({ error: 'not_bound' }, 401)
         }
 
-        // A Telegram-bound user maps to the bootstrap admin's identity for
-        // resource ownership (its namespace comes from the binding). This
-        // preserves pre-multi-user Telegram behaviour.
+        // A Telegram binding carries the account whose token performed the
+        // bind, so Telegram login inherits THAT account's role — a user-role
+        // token must not surface as admin here. Pre-multi-user bindings
+        // (accountId null) fall back to the bootstrap admin, preserving the
+        // original single-user behaviour.
         const ownerId = await getOrCreateOwnerId()
-        const adminAccount = store.accounts.list().find((a) => a.role === 'admin')
-        const accountId = adminAccount?.id ?? ownerId
-        const role: AccountRole = adminAccount?.role ?? 'user'
+        const account = storedUser.accountId !== null
+            ? store.accounts.getById(storedUser.accountId)
+            : store.accounts.list().find((a) => a.role === 'admin') ?? null
+        if (!account || account.disabledAt !== null) {
+            // Bound account was deleted or disabled — treat as unbound so the
+            // client offers to re-bind rather than issuing a dead token.
+            return c.json({ error: 'not_bound' }, 401)
+        }
+        const role: AccountRole = account.role
 
         const token = await signSessionJwt(jwtSecret, {
             userId: ownerId,
-            accountId,
+            accountId: account.id,
             role,
             namespace: storedUser.namespace
         })

@@ -2,6 +2,7 @@ import { isPermissionModeAllowedForFlavor } from '@hapi/protocol'
 import { PermissionModeSchema } from '@hapi/protocol/schemas'
 import { Hono } from 'hono'
 import { z } from 'zod'
+import type { Store } from '../../store'
 import type { SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import { requireSessionFromParam, requireSyncEngine } from './guards'
@@ -26,7 +27,10 @@ const denyBodySchema = z.object({
     decision: decisionSchema.optional()
 })
 
-export function createPermissionsRoutes(getSyncEngine: () => SyncEngine | null): Hono<WebAppEnv> {
+export function createPermissionsRoutes(
+    getSyncEngine: () => SyncEngine | null,
+    getStore?: () => Store | null
+): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
 
     app.post('/sessions/:id/permissions/:requestId/approve', async (c) => {
@@ -37,7 +41,7 @@ export function createPermissionsRoutes(getSyncEngine: () => SyncEngine | null):
 
         const requestId = c.req.param('requestId')
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true, store: getStore?.() ?? null, requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -76,7 +80,7 @@ export function createPermissionsRoutes(getSyncEngine: () => SyncEngine | null):
 
         const requestId = c.req.param('requestId')
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true, store: getStore?.() ?? null, requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }

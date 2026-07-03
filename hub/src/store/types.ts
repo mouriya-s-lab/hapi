@@ -54,6 +54,8 @@ export type StoredUser = {
     platformUserId: string
     namespace: string
     createdAt: number
+    /** Account that performed the bind; null = pre-multi-user binding (treated as the bootstrap admin). */
+    accountId: number | null
 }
 
 export type AccountRole = 'admin' | 'user'
@@ -99,6 +101,8 @@ export type StoredPushSubscription = {
     p256dh: string
     auth: string
     createdAt: number
+    /** Subscribing account; null = pre-multi-user subscription (treated as the bootstrap admin). */
+    accountId: number | null
 }
 
 export type VersionedUpdateResult<T> =

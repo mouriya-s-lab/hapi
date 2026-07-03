@@ -45,10 +45,11 @@ function createTranscript(codexHome: string, sessionId: string): void {
     writeFileSync(transcriptPath, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`, 'utf-8')
 }
 
-function createRoutesApp(namespace: string): Hono<WebAppEnv> {
+function createRoutesApp(namespace: string, role: 'admin' | 'user' = 'admin'): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
     app.use('*', async (c, next) => {
         c.set('namespace', namespace)
+        c.set('role', role)
         await next()
     })
     app.route('/api', createCodexDesktopRoutes({
@@ -126,6 +127,17 @@ describe('Codex Desktop import routes', () => {
         expect(await response.json()).toEqual({
             success: false,
             error: 'Codex transcript import is not available outside the default namespace'
+        })
+    })
+
+    it('rejects Codex transcript endpoints for non-admin accounts', async () => {
+        const app = createRoutesApp('default', 'user')
+        const response = await app.request('/api/codex/sessions')
+
+        expect(response.status).toBe(403)
+        expect(await response.json()).toEqual({
+            success: false,
+            error: 'Codex Desktop management requires admin access'
         })
     })
 

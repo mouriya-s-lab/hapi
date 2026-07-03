@@ -37,6 +37,8 @@ describe('LoginPrompt', () => {
             />
         )
 
+        // Password mode is the default since multi-user; switch to token login.
+        fireEvent.click(screen.getByRole('button', { name: 'API token' }))
         fireEvent.change(screen.getByPlaceholderText('Access token'), { target: { value: 'token' } })
         fireEvent.click(screen.getByRole('button', { name: 'Sign In' }))
 

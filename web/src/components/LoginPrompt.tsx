@@ -46,7 +46,7 @@ export function LoginPrompt(props: LoginPromptProps) {
                 return
             }
         } else if (!trimmedUsername || !trimmedPassword) {
-            setError('Enter username and password')
+            setError(t('login.error.enterCredentials'))
             return
         }
 
@@ -157,14 +157,14 @@ export function LoginPrompt(props: LoginPromptProps) {
                                 onClick={() => setLoginMode('password')}
                                 className={`rounded-md px-3 py-1.5 transition-colors ${loginMode === 'password' ? 'bg-[var(--app-bg)] text-[var(--app-fg)] shadow-sm' : 'text-[var(--app-hint)]'}`}
                             >
-                                Password
+                                {t('login.mode.password')}
                             </button>
                             <button
                                 type="button"
                                 onClick={() => setLoginMode('token')}
                                 className={`rounded-md px-3 py-1.5 transition-colors ${loginMode === 'token' ? 'bg-[var(--app-bg)] text-[var(--app-fg)] shadow-sm' : 'text-[var(--app-hint)]'}`}
                             >
-                                API token
+                                {t('login.mode.token')}
                             </button>
                         </div>
                     )}
@@ -175,7 +175,7 @@ export function LoginPrompt(props: LoginPromptProps) {
                                 type="text"
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
-                                placeholder="Username"
+                                placeholder={t('login.username.placeholder')}
                                 autoComplete="username"
                                 disabled={isLoading}
                                 className="w-full px-3 py-2.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"
@@ -184,7 +184,7 @@ export function LoginPrompt(props: LoginPromptProps) {
                                 type="password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                placeholder="Password"
+                                placeholder={t('login.password.placeholder')}
                                 autoComplete="current-password"
                                 disabled={isLoading}
                                 className="w-full px-3 py-2.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"

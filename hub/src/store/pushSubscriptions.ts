@@ -9,6 +9,7 @@ type DbPushSubscriptionRow = {
     p256dh: string
     auth: string
     created_at: number
+    account_id: number | null
 }
 
 function toStoredPushSubscription(row: DbPushSubscriptionRow): StoredPushSubscription {
@@ -18,33 +19,36 @@ function toStoredPushSubscription(row: DbPushSubscriptionRow): StoredPushSubscri
         endpoint: row.endpoint,
         p256dh: row.p256dh,
         auth: row.auth,
-        createdAt: row.created_at
+        createdAt: row.created_at,
+        accountId: row.account_id ?? null
     }
 }
 
 export function addPushSubscription(
     db: Database,
     namespace: string,
-    subscription: { endpoint: string; p256dh: string; auth: string }
+    subscription: { endpoint: string; p256dh: string; auth: string; accountId?: number | null }
 ): void {
     const now = Date.now()
     db.prepare(`
         INSERT INTO push_subscriptions (
-            namespace, endpoint, p256dh, auth, created_at
+            namespace, endpoint, p256dh, auth, created_at, account_id
         ) VALUES (
-            @namespace, @endpoint, @p256dh, @auth, @created_at
+            @namespace, @endpoint, @p256dh, @auth, @created_at, @account_id
         )
         ON CONFLICT(namespace, endpoint)
         DO UPDATE SET
             p256dh = excluded.p256dh,
             auth = excluded.auth,
-            created_at = excluded.created_at
+            created_at = excluded.created_at,
+            account_id = excluded.account_id
     `).run({
         namespace,
         endpoint: subscription.endpoint,
         p256dh: subscription.p256dh,
         auth: subscription.auth,
-        created_at: now
+        created_at: now,
+        account_id: subscription.accountId ?? null
     })
 }
 

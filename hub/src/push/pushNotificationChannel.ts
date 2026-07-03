@@ -2,7 +2,9 @@ import type { Session } from '../sync/syncEngine'
 import type { NotificationChannel, TaskNotification } from '../notifications/notificationTypes'
 import { getAgentName, getSessionName } from '../notifications/sessionInfo'
 import type { SSEManager } from '../sse/sseManager'
+import type { Store } from '../store'
 import type { VisibilityTracker } from '../visibility/visibilityTracker'
+import { listActiveAdminAccountIds, listReadableAccountIds } from '../auth/access'
 import type { PushPayload, PushService } from './pushService'
 
 export class PushNotificationChannel implements NotificationChannel {
@@ -10,8 +12,25 @@ export class PushNotificationChannel implements NotificationChannel {
         private readonly pushService: PushService,
         private readonly sseManager: SSEManager,
         private readonly visibilityTracker: VisibilityTracker,
-        _appUrl: string
+        _appUrl: string,
+        private readonly store?: Store
     ) {}
+
+    /**
+     * Accounts allowed to receive notifications about a session: owner,
+     * grantees, and admins. Undefined (no store wired, e.g. tests) keeps the
+     * legacy namespace-wide behaviour.
+     */
+    private resolveAudience(sessionId: string): Set<number> | undefined {
+        if (!this.store) {
+            return undefined
+        }
+        const audience = listReadableAccountIds(this.store, 'session', sessionId)
+        for (const adminId of listActiveAdminAccountIds(this.store)) {
+            audience.add(adminId)
+        }
+        return audience
+    }
 
     async sendPermissionRequest(session: Session): Promise<void> {
         if (!session.active) {
@@ -51,7 +70,7 @@ export class PushNotificationChannel implements NotificationChannel {
             }
         }
 
-        await this.pushService.sendToNamespace(session.namespace, payload)
+        await this.pushService.sendToNamespace(session.namespace, payload, this.resolveAudience(session.id))
     }
 
     async sendReady(session: Session): Promise<void> {
@@ -89,7 +108,7 @@ export class PushNotificationChannel implements NotificationChannel {
             }
         }
 
-        await this.pushService.sendToNamespace(session.namespace, payload)
+        await this.pushService.sendToNamespace(session.namespace, payload, this.resolveAudience(session.id))
     }
 
     async sendTaskNotification(session: Session, notification: TaskNotification): Promise<void> {
@@ -131,7 +150,7 @@ export class PushNotificationChannel implements NotificationChannel {
             }
         }
 
-        await this.pushService.sendToNamespace(session.namespace, payload)
+        await this.pushService.sendToNamespace(session.namespace, payload, this.resolveAudience(session.id))
     }
 
     private buildSessionPath(sessionId: string): string {

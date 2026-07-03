@@ -486,16 +486,15 @@ function SessionsPage() {
                             >
                                 <FolderOpenIcon className="h-5 w-5" />
                             </button>
-                            {user.role === 'admin' && (
-                                <button
-                                    type="button"
-                                    onClick={() => navigate({ to: '/admin' })}
-                                    className="p-1.5 rounded-full text-[var(--app-hint)] hover:text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)] transition-colors"
-                                    title="管理面板"
-                                >
-                                    <SettingsIcon className="h-5 w-5" />
-                                </button>
-                            )}
+                            {/* 非管理员也需要该入口:页面里有"我的 API Token"与机器授权自助功能 */}
+                            <button
+                                type="button"
+                                onClick={() => navigate({ to: '/admin' })}
+                                className="p-1.5 rounded-full text-[var(--app-hint)] hover:text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)] transition-colors"
+                                title={user.role === 'admin' ? '管理面板' : '账号与 API Token'}
+                            >
+                                <SettingsIcon className="h-5 w-5" />
+                            </button>
                             <button
                                 type="button"
                                 onClick={() => navigate({ to: '/settings' })}

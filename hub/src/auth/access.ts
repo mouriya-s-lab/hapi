@@ -55,4 +55,30 @@ export function canOperate(level: AccessLevel): boolean {
     return meetsAccess(level, 'operator')
 }
 
+/**
+ * Non-admin account ids that may read a resource: its owner plus every
+ * grantee. Admins are NOT enumerated here — callers that fan events out
+ * (SSE, web push) check the admin role separately, or append
+ * listActiveAdminAccountIds for channels that have no role attached.
+ */
+export function listReadableAccountIds(store: Store, resourceType: ResourceType, resourceId: string): Set<number> {
+    const ownerAccountId = resourceType === 'machine'
+        ? store.machines.getMachine(resourceId)?.ownerAccountId ?? null
+        : store.sessions.getSession(resourceId)?.ownerAccountId ?? null
+    const ids = new Set<number>()
+    if (ownerAccountId !== null) {
+        ids.add(ownerAccountId)
+    }
+    for (const grant of store.grants.listForResource(resourceType, resourceId)) {
+        ids.add(grant.granteeAccountId)
+    }
+    return ids
+}
+
+export function listActiveAdminAccountIds(store: Store): number[] {
+    return store.accounts.list()
+        .filter((a) => a.role === 'admin' && a.disabledAt === null)
+        .map((a) => a.id)
+}
+
 export type { GrantRole }

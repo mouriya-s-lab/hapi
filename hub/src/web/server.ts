@@ -239,12 +239,12 @@ function createWebApp(options: {
     app.use('/api/*', createAuthMiddleware(options.jwtSecret))
     app.route('/api', createAccountRoutes(options.store, options.jwtSecret))
     app.route('/api', createGrantRoutes(options.store))
-    app.route('/api', createEventsRoutes(options.getSseManager, options.getSyncEngine, options.getVisibilityTracker))
+    app.route('/api', createEventsRoutes(options.getSseManager, options.getSyncEngine, options.getVisibilityTracker, () => options.store))
     app.route('/api', createSessionsRoutes(options.getSyncEngine, () => options.store))
-    app.route('/api', createMessagesRoutes(options.getSyncEngine))
-    app.route('/api', createPermissionsRoutes(options.getSyncEngine))
+    app.route('/api', createMessagesRoutes(options.getSyncEngine, () => options.store))
+    app.route('/api', createPermissionsRoutes(options.getSyncEngine, () => options.store))
     app.route('/api', createMachinesRoutes(options.getSyncEngine, () => options.store))
-    app.route('/api', createGitRoutes(options.getSyncEngine))
+    app.route('/api', createGitRoutes(options.getSyncEngine, () => options.store))
     // 中文注释：这里提供两类 Codex 辅助能力：扫描本地 transcript 以导入到 Hapi，以及按需重启 Codex Desktop 客户端。
     app.route('/api', createCodexDesktopRoutes({
         store: options.store,

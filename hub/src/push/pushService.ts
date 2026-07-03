@@ -36,8 +36,17 @@ export class PushService {
         webPush.setVapidDetails(this.subject, this.vapidKeys.publicKey, this.vapidKeys.privateKey)
     }
 
-    async sendToNamespace(namespace: string, payload: PushPayload): Promise<void> {
-        const subscriptions = this.store.push.getPushSubscriptionsByNamespace(namespace)
+    /**
+     * Send to the namespace's subscribers. When `allowedAccountIds` is given,
+     * delivery is restricted to those accounts; subscriptions without an
+     * account (created pre-multi-user) are treated as the bootstrap admin's
+     * and always included.
+     */
+    async sendToNamespace(namespace: string, payload: PushPayload, allowedAccountIds?: Set<number>): Promise<void> {
+        let subscriptions = this.store.push.getPushSubscriptionsByNamespace(namespace)
+        if (allowedAccountIds) {
+            subscriptions = subscriptions.filter((s) => s.accountId === null || allowedAccountIds.has(s.accountId))
+        }
         if (subscriptions.length === 0) {
             return
         }

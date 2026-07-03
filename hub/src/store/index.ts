@@ -35,7 +35,7 @@ export { PushStore } from './pushStore'
 export { SessionStore } from './sessionStore'
 export { UserStore } from './userStore'
 
-const SCHEMA_VERSION: number = 10
+const SCHEMA_VERSION: number = 11
 const REQUIRED_TABLES = [
     'sessions',
     'machines',
@@ -145,6 +145,7 @@ export class Store {
             7: () => this.migrateFromV7ToV8(),
             8: () => this.migrateFromV8ToV9(),
             9: () => this.migrateFromV9ToV10(legacy),
+            10: () => this.migrateFromV10ToV11(),
         })
 
         if (currentVersion === 0) {
@@ -261,6 +262,7 @@ export class Store {
                 platform_user_id TEXT NOT NULL,
                 namespace TEXT NOT NULL DEFAULT 'default',
                 created_at INTEGER NOT NULL,
+                account_id INTEGER,
                 UNIQUE(platform, platform_user_id)
             );
             CREATE INDEX IF NOT EXISTS idx_users_platform ON users(platform);
@@ -273,6 +275,7 @@ export class Store {
                 p256dh TEXT NOT NULL,
                 auth TEXT NOT NULL,
                 created_at INTEGER NOT NULL,
+                account_id INTEGER,
                 UNIQUE(namespace, endpoint)
             );
             CREATE INDEX IF NOT EXISTS idx_push_subscriptions_namespace ON push_subscriptions(namespace);
@@ -553,6 +556,30 @@ export class Store {
             CREATE INDEX IF NOT EXISTS idx_grants_grantee ON resource_grants(grantee_account_id);
             CREATE INDEX IF NOT EXISTS idx_grants_resource ON resource_grants(resource_type, resource_id);
         `)
+    }
+
+    private migrateFromV10ToV11(): void {
+        // Multi-user hardening:
+        //   - users.account_id ties a Telegram binding to the account whose
+        //     token performed the bind, so Telegram login inherits THAT
+        //     account's role instead of unconditionally mapping to the admin.
+        //   - push_subscriptions.account_id scopes web-push delivery to
+        //     accounts that can actually read the session an event is about.
+        // Both are nullable: NULL means "created pre-v11" and is treated as
+        // belonging to the bootstrap admin for backward compatibility.
+        const userColumns = this.getTableColumnNames('users')
+        if (userColumns.size > 0 && !userColumns.has('account_id')) {
+            this.db.exec('ALTER TABLE users ADD COLUMN account_id INTEGER')
+        }
+        const pushColumns = this.getTableColumnNames('push_subscriptions')
+        if (pushColumns.size > 0 && !pushColumns.has('account_id')) {
+            this.db.exec('ALTER TABLE push_subscriptions ADD COLUMN account_id INTEGER')
+        }
+    }
+
+    private getTableColumnNames(table: string): Set<string> {
+        const rows = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+        return new Set(rows.map((row) => row.name))
     }
 
     private getSessionColumnNames(): Set<string> {

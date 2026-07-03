@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
+import type { Store } from '../../store'
 import type { SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import { requireSessionFromParam, requireSyncEngine } from './guards'
@@ -35,7 +36,10 @@ async function runRpc<T>(fn: () => Promise<T>): Promise<T | { success: false; er
     }
 }
 
-export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<WebAppEnv> {
+export function createGitRoutes(
+    getSyncEngine: () => SyncEngine | null,
+    getStore?: () => Store | null
+): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
 
     app.get('/sessions/:id/git-status', async (c) => {
@@ -44,7 +48,7 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = requireSessionFromParam(c, engine, { store: getStore?.() ?? null })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -64,7 +68,7 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = requireSessionFromParam(c, engine, { store: getStore?.() ?? null })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -85,7 +89,7 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = requireSessionFromParam(c, engine, { store: getStore?.() ?? null })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -115,7 +119,7 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = requireSessionFromParam(c, engine, { store: getStore?.() ?? null })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -140,7 +144,7 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = requireSessionFromParam(c, engine, { store: getStore?.() ?? null })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -169,7 +173,7 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = requireSessionFromParam(c, engine, { store: getStore?.() ?? null })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -223,7 +227,7 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = requireSessionFromParam(c, engine, { store: getStore?.() ?? null })
         if (sessionResult instanceof Response) {
             return sessionResult
         }

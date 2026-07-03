@@ -1611,6 +1611,14 @@ export function createCodexDesktopRoutes(options: {
                 error: CODEX_TRANSCRIPT_IMPORT_NAMESPACE_ERROR
             }, 403)
         }
+        // Codex Desktop 管理操作 hub 宿主机本地文件,且合并/去重会按 namespace 批量
+        // 删除会话(无逐会话属主校验),多用户下仅管理员可用。
+        if ((c.get('role') ?? 'user') !== 'admin') {
+            return c.json({
+                success: false,
+                error: 'Codex Desktop management requires admin access'
+            }, 403)
+        }
         return next()
     })
 

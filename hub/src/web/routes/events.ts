@@ -3,11 +3,12 @@ import { streamSSE } from 'hono/streaming'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { SSEManager } from '../../sse/sseManager'
+import type { Store } from '../../store'
 import type { SyncEngine } from '../../sync/syncEngine'
 import type { VisibilityState } from '../../visibility/visibilityTracker'
 import type { VisibilityTracker } from '../../visibility/visibilityTracker'
 import type { WebAppEnv } from '../middleware/auth'
-import { requireSession } from './guards'
+import { requireMachine, requireSession } from './guards'
 
 function parseOptionalId(value: string | undefined): string | null {
     if (!value) {
@@ -35,7 +36,8 @@ const visibilitySchema = z.object({
 export function createEventsRoutes(
     getSseManager: () => SSEManager | null,
     getSyncEngine: () => SyncEngine | null,
-    getVisibilityTracker: () => VisibilityTracker | null
+    getVisibilityTracker: () => VisibilityTracker | null,
+    getStore?: () => Store | null
 ): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
 
@@ -52,6 +54,7 @@ export function createEventsRoutes(
         const subscriptionId = randomUUID()
         const visibility = parseVisibility(query.visibility)
         const namespace = c.get('namespace')
+        const store = getStore?.() ?? null
         let resolvedSessionId = sessionId
 
         if (sessionId || machineId) {
@@ -60,19 +63,16 @@ export function createEventsRoutes(
                 return c.json({ error: 'Not connected' }, 503)
             }
             if (sessionId) {
-                const sessionResult = requireSession(c, engine, sessionId)
+                const sessionResult = requireSession(c, engine, sessionId, { store })
                 if (sessionResult instanceof Response) {
                     return sessionResult
                 }
                 resolvedSessionId = sessionResult.sessionId
             }
             if (machineId) {
-                const machine = engine.getMachine(machineId)
-                if (!machine) {
-                    return c.json({ error: 'Machine not found' }, 404)
-                }
-                if (machine.namespace !== namespace) {
-                    return c.json({ error: 'Machine access denied' }, 403)
+                const machine = requireMachine(c, engine, machineId, { store })
+                if (machine instanceof Response) {
+                    return machine
                 }
             }
         }
@@ -84,6 +84,8 @@ export function createEventsRoutes(
                 all,
                 sessionId: resolvedSessionId,
                 machineId,
+                accountId: c.get('accountId') ?? null,
+                role: c.get('role') ?? 'user',
                 visibility,
                 send: (event) => stream.writeSSE({ data: JSON.stringify(event) }),
                 sendHeartbeat: async () => {

@@ -8,6 +8,9 @@ export type SSESubscription = {
     all: boolean
     sessionId: string | null
     machineId: string | null
+    /** Account the subscriber authenticated as; null = legacy token without account claims. */
+    accountId: number | null
+    role: 'admin' | 'user'
 }
 
 type SSEConnection = SSESubscription & {
@@ -15,15 +18,51 @@ type SSEConnection = SSESubscription & {
     sendHeartbeat: () => void | Promise<void>
 }
 
+/**
+ * Store-backed authorization for event fan-out. When provided, session- and
+ * machine-scoped events are only delivered to admins, the resource owner, and
+ * grantees — namespace membership alone is no longer enough to observe other
+ * users' activity.
+ */
+export type SSEAccessDeps = {
+    listReadableAccountIds: (resourceType: 'session' | 'machine', resourceId: string) => Set<number>
+}
+
+type EventResource = { type: 'session' | 'machine'; id: string } | null
+
+function resolveEventResource(event: SyncEvent): EventResource {
+    if (event.type === 'heartbeat' || event.type === 'connection-changed') {
+        return null
+    }
+    // session-removed fires after the row is deleted, so ownership can no
+    // longer be resolved; it carries no content beyond the id, deliver
+    // namespace-wide so the owner's other clients still drop the session.
+    if (event.type === 'session-removed') {
+        return null
+    }
+    if (event.type === 'machine-updated') {
+        return { type: 'machine', id: event.machineId }
+    }
+    if (event.type === 'toast') {
+        return event.data.sessionId ? { type: 'session', id: event.data.sessionId } : null
+    }
+    if ('sessionId' in event && typeof event.sessionId === 'string') {
+        return { type: 'session', id: event.sessionId }
+    }
+    return null
+}
+
 export class SSEManager {
     private readonly connections: Map<string, SSEConnection> = new Map()
     private heartbeatTimer: NodeJS.Timeout | null = null
     private readonly heartbeatMs: number
     private readonly visibilityTracker: VisibilityTracker
+    private readonly accessDeps: SSEAccessDeps | null
 
-    constructor(heartbeatMs = 30_000, visibilityTracker: VisibilityTracker) {
+    constructor(heartbeatMs = 30_000, visibilityTracker: VisibilityTracker, accessDeps?: SSEAccessDeps) {
         this.heartbeatMs = heartbeatMs
         this.visibilityTracker = visibilityTracker
+        this.accessDeps = accessDeps ?? null
     }
 
     subscribe(options: {
@@ -32,6 +71,8 @@ export class SSEManager {
         all?: boolean
         sessionId?: string | null
         machineId?: string | null
+        accountId?: number | null
+        role?: 'admin' | 'user'
         visibility?: VisibilityState
         send: (event: SyncEvent) => void | Promise<void>
         sendHeartbeat: () => void | Promise<void>
@@ -42,6 +83,8 @@ export class SSEManager {
             all: Boolean(options.all),
             sessionId: options.sessionId ?? null,
             machineId: options.machineId ?? null,
+            accountId: options.accountId ?? null,
+            role: options.role ?? 'user',
             send: options.send,
             sendHeartbeat: options.sendHeartbeat
         }
@@ -58,7 +101,9 @@ export class SSEManager {
             namespace: subscription.namespace,
             all: subscription.all,
             sessionId: subscription.sessionId,
-            machineId: subscription.machineId
+            machineId: subscription.machineId,
+            accountId: subscription.accountId,
+            role: subscription.role
         }
     }
 
@@ -71,12 +116,16 @@ export class SSEManager {
     }
 
     async sendToast(namespace: string, event: Extract<SyncEvent, { type: 'toast' }>): Promise<number> {
+        const canAccess = this.buildAccessCheck(event)
         const deliveries: Array<Promise<{ id: string; ok: boolean }>> = []
         for (const connection of this.connections.values()) {
             if (connection.namespace !== namespace) {
                 continue
             }
             if (!this.visibilityTracker.isVisibleConnection(connection.id)) {
+                continue
+            }
+            if (!canAccess(connection)) {
                 continue
             }
 
@@ -105,8 +154,12 @@ export class SSEManager {
     }
 
     broadcast(event: SyncEvent): void {
+        const canAccess = this.buildAccessCheck(event)
         for (const connection of this.connections.values()) {
             if (!this.shouldSend(connection, event)) {
+                continue
+            }
+            if (!canAccess(connection)) {
                 continue
             }
 
@@ -122,6 +175,35 @@ export class SSEManager {
             this.visibilityTracker.removeConnection(id)
         }
         this.connections.clear()
+    }
+
+    /**
+     * Per-event ownership check, resolved lazily and at most once per event
+     * regardless of connection count. Without accessDeps (tests, legacy
+     * setups) every connection passes, preserving namespace-only filtering.
+     */
+    private buildAccessCheck(event: SyncEvent): (connection: SSEConnection) => boolean {
+        const deps = this.accessDeps
+        if (!deps) {
+            return () => true
+        }
+        const resource = resolveEventResource(event)
+        if (!resource) {
+            return () => true
+        }
+        let audience: Set<number> | null = null
+        return (connection) => {
+            if (connection.role === 'admin') {
+                return true
+            }
+            if (connection.accountId === null) {
+                return false
+            }
+            if (!audience) {
+                audience = deps.listReadableAccountIds(resource.type, resource.id)
+            }
+            return audience.has(connection.accountId)
+        }
     }
 
     private ensureHeartbeat(): void {
