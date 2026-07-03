@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { join } from 'node:path'
@@ -34,6 +34,7 @@ import { jwtVerify } from 'jose'
 import type { WebSocketData } from '@socket.io/bun-engine'
 import { loadEmbeddedAssetMap, type EmbeddedWebAsset } from './embeddedAssets'
 import { isBunCompiled } from '../utils/bunCompiled'
+import { constantTimeEquals } from '../utils/crypto'
 import type { Store } from '../store'
 
 // Normalise upstream close codes before forwarding to the browser client.
@@ -257,6 +258,41 @@ function createWebApp(options: {
     }))
     app.route('/api', createPushRoutes(options.store, options.vapidPublicKey))
     app.route('/api', createVoiceRoutes())
+
+    // Binary distribution: serve files from a directory on disk at
+    // /download/<token>/<file>. Gated by HAPI_DOWNLOAD_TOKEN (a hard-to-guess
+    // path segment) so it isn't openly enumerable, and off entirely when the
+    // env var is unset. Registered before the SPA catch-all so it wins.
+    // Future binary updates are just an scp into the directory — no rebuild.
+    const downloadToken = process.env.HAPI_DOWNLOAD_TOKEN?.trim()
+    if (downloadToken) {
+        const downloadDir = process.env.HAPI_DOWNLOAD_DIR?.trim()
+            || join(configuration.dataDir, 'downloads')
+        const safeFile = /^[A-Za-z0-9._-]+$/
+        const serveDownload = (c: Context<WebAppEnv>, headOnly: boolean): Response => {
+            if (!constantTimeEquals(c.req.param('token'), downloadToken)) {
+                return c.text('Not found', 404)
+            }
+            const file = c.req.param('file')
+            if (!file || !safeFile.test(file)) {
+                return c.text('Invalid file name', 400)
+            }
+            const path = join(downloadDir, file)
+            if (!existsSync(path)) {
+                return c.text('Not found', 404)
+            }
+            const bunFile = Bun.file(path)
+            const headers: Record<string, string> = {
+                'content-type': 'application/octet-stream',
+                'content-disposition': `attachment; filename="${file}"`,
+                'content-length': String(bunFile.size),
+                'cache-control': 'no-cache'
+            }
+            return new Response(headOnly ? null : bunFile, { headers })
+        }
+        app.get('/download/:token/:file', (c) => serveDownload(c, false))
+        app.on('HEAD', '/download/:token/:file', (c) => serveDownload(c, true))
+    }
 
     // Skip static serving in relay mode, show helpful message on root
     if (options.relayMode) {
