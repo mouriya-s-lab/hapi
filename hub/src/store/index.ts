@@ -35,7 +35,7 @@ export { PushStore } from './pushStore'
 export { SessionStore } from './sessionStore'
 export { UserStore } from './userStore'
 
-const SCHEMA_VERSION: number = 11
+const SCHEMA_VERSION: number = 12
 const REQUIRED_TABLES = [
     'sessions',
     'machines',
@@ -146,6 +146,7 @@ export class Store {
             8: () => this.migrateFromV8ToV9(),
             9: () => this.migrateFromV9ToV10(legacy),
             10: () => this.migrateFromV10ToV11(),
+            11: () => this.migrateFromV11ToV12(),
         })
 
         if (currentVersion === 0) {
@@ -288,7 +289,8 @@ export class Store {
                 role TEXT NOT NULL DEFAULT 'user',
                 default_namespace TEXT NOT NULL DEFAULT 'default',
                 created_at INTEGER NOT NULL,
-                disabled_at INTEGER
+                disabled_at INTEGER,
+                memory TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_accounts_username ON accounts(username);
 
@@ -574,6 +576,17 @@ export class Store {
         const pushColumns = this.getTableColumnNames('push_subscriptions')
         if (pushColumns.size > 0 && !pushColumns.has('account_id')) {
             this.db.exec('ALTER TABLE push_subscriptions ADD COLUMN account_id INTEGER')
+        }
+    }
+
+    private migrateFromV11ToV12(): void {
+        // Per-account memory prompt: free text the hub prepends to messages
+        // delivered to the CLI, so the agent knows user-specific context like
+        // "my computer" = DESKTOP-BIG79TP. Nullable; NULL/empty means no
+        // injection for that account.
+        const accountColumns = this.getTableColumnNames('accounts')
+        if (accountColumns.size > 0 && !accountColumns.has('memory')) {
+            this.db.exec('ALTER TABLE accounts ADD COLUMN memory TEXT')
         }
     }
 

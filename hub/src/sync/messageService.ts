@@ -227,11 +227,49 @@ export class MessageService {
             id: message.id,
             seq: message.seq,
             localId: message.localId,
-            content: message.content,
+            content: this.decorateContentForCli(message.content),
             createdAt: message.createdAt,
             invokedAt: message.invokedAt,
             scheduledAt: message.scheduledAt
         }))
+    }
+
+    /**
+     * Rewrite a stored user-message envelope for CLI delivery, prepending the
+     * sending account's memory prompt so the agent understands user-specific
+     * references like "my computer". The stored row keeps the original text —
+     * the web UI renders exactly what the user typed; only the CLI-bound copy
+     * is decorated, and the memory is read fresh at delivery time so edits
+     * apply to the next message without republishing anything.
+     */
+    private decorateContentForCli(content: unknown): unknown {
+        if (!isObject(content) || content.role !== 'user') {
+            return content
+        }
+        const meta = isObject(content.meta) ? content.meta : null
+        const senderAccountId = typeof meta?.senderAccountId === 'number' ? meta.senderAccountId : null
+        if (senderAccountId === null) {
+            return content
+        }
+        const inner = isObject(content.content) ? content.content : null
+        if (!inner || inner.type !== 'text' || typeof inner.text !== 'string') {
+            return content
+        }
+        const account = this.store.accounts.getById(senderAccountId)
+        const memory = account?.memory?.trim()
+        if (!account || !memory) {
+            return content
+        }
+        const block = [
+            `<hapi_user_context user="${account.username}">`,
+            '以下是该用户保存在 hapi 的个人记忆（hapi 服务端自动附加，非用户输入）。消息中的“我”指该用户，请结合记忆理解其指代：',
+            memory,
+            '</hapi_user_context>'
+        ].join('\n')
+        return {
+            ...content,
+            content: { ...inner, text: `${block}\n\n${inner.text}` }
+        }
     }
 
     async cancelQueuedMessage(
@@ -438,6 +476,7 @@ export class MessageService {
             attachments?: AttachmentMetadata[]
             sentFrom?: 'telegram-bot' | 'webapp'
             scheduledAt?: number | null
+            senderAccountId?: number | null
         }
     ): Promise<void> {
         // Defence-in-depth invariant for non-REST callers (Telegram bot, MCP,
@@ -462,7 +501,10 @@ export class MessageService {
                 attachments: payload.attachments
             },
             meta: {
-                sentFrom
+                sentFrom,
+                ...(typeof payload.senderAccountId === 'number'
+                    ? { senderAccountId: payload.senderAccountId }
+                    : {})
             }
         }
 
@@ -494,7 +536,7 @@ export class MessageService {
                         seq: msg.seq,
                         createdAt: msg.createdAt,
                         localId: msg.localId,
-                        content: msg.content
+                        content: this.decorateContentForCli(msg.content)
                     }
                 }
             }
@@ -584,7 +626,7 @@ export class MessageService {
                         seq: msg.seq,
                         createdAt: msg.createdAt,
                         localId: msg.localId,
-                        content: msg.content
+                        content: this.decorateContentForCli(msg.content)
                     }
                 }
             }

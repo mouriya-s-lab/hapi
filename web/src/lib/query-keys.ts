@@ -25,6 +25,7 @@ export const queryKeys = {
     machineCcSwitchUsage: (machineId: string, providerId: string) => ['machine-cc-switch-usage', machineId, providerId] as const,
     machineImportableSessions: (machineId: string) => ['machine-importable-sessions', machineId] as const,
     accounts: ['accounts'] as const,
+    me: ['me'] as const,
     apiTokens: ['api-tokens'] as const,
     resourceGrants: (resourceType: 'machine' | 'session', resourceId: string) => ['resource-grants', resourceType, resourceId] as const,
     skills: (sessionId: string) => ['skills', sessionId] as const,

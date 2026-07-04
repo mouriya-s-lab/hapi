@@ -38,6 +38,7 @@ export default function AdminPage() {
                     </Card>
                 )}
                 {user.role === 'admin' && <AccountsSection />}
+                <MemorySection />
                 <TokensSection />
                 <MachineGrantsSection />
             </div>
@@ -115,6 +116,8 @@ function AccountRow(props: { account: AccountSummary }) {
     const queryClient = useQueryClient()
     const [passwordOpen, setPasswordOpen] = useState(false)
     const [newPassword, setNewPassword] = useState('')
+    const [memoryOpen, setMemoryOpen] = useState(false)
+    const [memoryDraft, setMemoryDraft] = useState('')
     const [error, setError] = useState<string | null>(null)
 
     const invalidate = async () => queryClient.invalidateQueries({ queryKey: queryKeys.accounts })
@@ -124,6 +127,11 @@ function AccountRow(props: { account: AccountSummary }) {
         mutationFn: () => api.updateAccount(props.account.id, { password: newPassword }),
         onSuccess: async () => { setPasswordOpen(false); setNewPassword(''); setError(null); await invalidate() },
         onError: (e) => setError(e instanceof Error ? e.message : '重置密码失败')
+    })
+    const memoryMutation = useMutation({
+        mutationFn: () => api.updateAccount(props.account.id, { memory: memoryDraft.trim() ? memoryDraft : null }),
+        onSuccess: async () => { setMemoryOpen(false); setError(null); await invalidate() },
+        onError: (e) => setError(e instanceof Error ? e.message : '保存记忆失败')
     })
     const deleteMutation = useMutation({ mutationFn: () => api.deleteAccount(props.account.id), onSuccess: invalidate })
 
@@ -142,6 +150,7 @@ function AccountRow(props: { account: AccountSummary }) {
                 <div className="flex flex-wrap items-center gap-2">
                     <Button size="sm" variant="outline" onClick={() => roleMutation.mutate(props.account.role === 'admin' ? 'user' : 'admin')}>{props.account.role === 'admin' ? '降为用户' : '升为管理员'}</Button>
                     <Button size="sm" variant="outline" onClick={() => setPasswordOpen(true)}>设密码</Button>
+                    <Button size="sm" variant="outline" onClick={() => { setMemoryDraft(props.account.memory ?? ''); setMemoryOpen(true) }}>记忆</Button>
                     <Button size="sm" variant="outline" onClick={() => disableMutation.mutate()}>{props.account.disabled ? '启用' : '禁用'}</Button>
                     <Button
                         size="sm"
@@ -169,7 +178,78 @@ function AccountRow(props: { account: AccountSummary }) {
                     </form>
                 </DialogContent>
             </Dialog>
+
+            <Dialog open={memoryOpen} onOpenChange={setMemoryOpen}>
+                <DialogContent className="max-w-lg">
+                    <DialogHeader><DialogTitle>用户记忆：{props.account.username}</DialogTitle></DialogHeader>
+                    <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); memoryMutation.mutate() }}>
+                        <textarea
+                            className={`${inputClass()} min-h-[120px] resize-y`}
+                            placeholder="随该用户的每条消息附加给 agent，例如：我的电脑是 DESKTOP-BIG79TP"
+                            maxLength={4000}
+                            value={memoryDraft}
+                            onChange={(e) => setMemoryDraft(e.target.value)}
+                        />
+                        {error && <div className="text-sm text-red-500">{error}</div>}
+                        <div className="flex justify-end gap-2">
+                            <Button type="button" variant="outline" onClick={() => setMemoryOpen(false)}>取消</Button>
+                            <Button type="submit" disabled={memoryMutation.isPending}>保存</Button>
+                        </div>
+                    </form>
+                </DialogContent>
+            </Dialog>
         </div>
+    )
+}
+
+function MemorySection() {
+    const { api } = useAppContext()
+    const queryClient = useQueryClient()
+    const [draft, setDraft] = useState<string | null>(null)
+    const [savedAt, setSavedAt] = useState<number | null>(null)
+    const [error, setError] = useState<string | null>(null)
+
+    const meQuery = useQuery({
+        queryKey: queryKeys.me,
+        queryFn: async () => (await api.getMe()).user
+    })
+    const memory = (meQuery.data && 'memory' in meQuery.data ? meQuery.data.memory : null) ?? ''
+    const value = draft ?? memory
+
+    const saveMutation = useMutation({
+        mutationFn: () => api.updateMyMemory(value.trim() ? value : null),
+        onSuccess: async () => {
+            setDraft(null)
+            setError(null)
+            setSavedAt(Date.now())
+            await queryClient.invalidateQueries({ queryKey: queryKeys.me })
+        },
+        onError: (e) => setError(e instanceof Error ? e.message : '保存失败')
+    })
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle>我的记忆</CardTitle>
+                <CardDescription>
+                    这段文字会随你发出的每条消息一起提供给 agent（对话里不显示）。适合写清个人指代，比如"我的电脑是 DESKTOP-BIG79TP"。
+                </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+                <textarea
+                    className={`${inputClass()} min-h-[96px] resize-y`}
+                    placeholder={'例如：\n我的电脑是 DESKTOP-BIG79TP（Windows 11）\n我常用的项目目录是 C:\\work\\app'}
+                    maxLength={4000}
+                    value={value}
+                    onChange={(e) => { setDraft(e.target.value); setSavedAt(null) }}
+                />
+                {error && <div className="text-sm text-red-500">{error}</div>}
+                <div className="flex items-center justify-end gap-3">
+                    {savedAt !== null && <span className="text-xs text-[var(--app-hint)]">已保存，下一条消息生效</span>}
+                    <Button size="sm" disabled={draft === null || saveMutation.isPending} onClick={() => saveMutation.mutate()}>保存</Button>
+                </div>
+            </CardContent>
+        </Card>
     )
 }
 

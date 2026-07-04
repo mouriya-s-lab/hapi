@@ -281,6 +281,8 @@ export type AccountSummary = {
     hasPassword: boolean
     disabled: boolean
     createdAt: number
+    /** Per-user memory prompt the hub prepends to messages this user sends to agents. */
+    memory?: string | null
 }
 
 export type ApiTokenSummary = {
@@ -315,9 +317,15 @@ export const UpdateAccountRequestSchema = z.object({
     role: z.enum(['admin', 'user']).optional(),
     password: z.string().min(8).max(256).optional(),
     disabled: z.boolean().optional(),
-    defaultNamespace: z.string().min(1).max(64).optional()
+    defaultNamespace: z.string().min(1).max(64).optional(),
+    memory: z.string().max(4000).nullable().optional()
 })
 export type UpdateAccountRequest = z.infer<typeof UpdateAccountRequestSchema>
+
+export const UpdateMemoryRequestSchema = z.object({
+    memory: z.string().max(4000).nullable()
+})
+export type UpdateMemoryRequest = z.infer<typeof UpdateMemoryRequestSchema>
 
 export const CreateApiTokenRequestSchema = z.object({
     name: z.string().max(128).optional(),

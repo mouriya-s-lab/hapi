@@ -414,6 +414,7 @@ export class SyncEngine {
             }>
             sentFrom?: 'telegram-bot' | 'webapp'
             scheduledAt?: number | null
+            senderAccountId?: number | null
         }
     ): Promise<void> {
         await this.messageService.sendMessage(sessionId, payload)

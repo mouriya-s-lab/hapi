@@ -1278,3 +1278,82 @@ describe('MessageService.sweepImmediateQueuedOnSessionEnd — scheduled rows are
         expect(stillQueued.find((m) => m.localId === 'local-future')?.invokedAt).toBeNull()
     })
 })
+
+describe('MessageService per-account memory injection', () => {
+    function makeCapturingIo(): { io: Server; updates: Array<{ body: { message: { content: unknown } } }> } {
+        const updates: Array<{ body: { message: { content: unknown } } }> = []
+        const io = {
+            of: (_ns: string) => ({
+                to: (_room: string) => ({
+                    emit: (_event: string, data: unknown) => { updates.push(data as { body: { message: { content: unknown } } }) },
+                    timeout: () => ({ emit: () => {} })
+                }),
+                adapter: { rooms: { get: () => new Set(['socket-0']) } }
+            })
+        } as unknown as Server
+        return { io, updates }
+    }
+
+    function textOf(content: unknown): string {
+        return (content as { content: { text: string } }).content.text
+    }
+
+    it('decorates the CLI-bound copy with sender memory; stored row and SSE keep the original', async () => {
+        const store = makeStore()
+        const peter = store.accounts.create({ username: 'peter', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+        store.accounts.setMemory(peter.id, '我的电脑是 DESKTOP-BIG79TP')
+        const session = makeSession(store, 'memory-inject')
+        const { io, updates } = makeCapturingIo()
+        const publisher = makePublisher()
+        const service = new MessageService(store, io, publisher as any)
+
+        await service.sendMessage(session.id, { text: '帮我搜索我电脑上的文件', senderAccountId: peter.id })
+
+        // CLI socket copy is decorated.
+        expect(updates).toHaveLength(1)
+        const cliText = textOf(updates[0].body.message.content)
+        expect(cliText).toContain('<hapi_user_context user="peter">')
+        expect(cliText).toContain('我的电脑是 DESKTOP-BIG79TP')
+        expect(cliText.endsWith('帮我搜索我电脑上的文件')).toBe(true)
+
+        // Stored row keeps exactly what the user typed.
+        const stored = store.messages.getMessages(session.id, 10)
+        expect(textOf(stored[0].content)).toBe('帮我搜索我电脑上的文件')
+
+        // Web SSE copy is NOT decorated.
+        const received = publisher.events.find((e) => e.type === 'message-received') as { message: { content: unknown } }
+        expect(textOf(received.message.content)).toBe('帮我搜索我电脑上的文件')
+
+        // CLI reconnect backfill is decorated the same way.
+        const backfill = service.getDeliverableMessagesAfter(session.id, { afterSeq: -1, limit: 10, now: Date.now() })
+        expect(textOf(backfill[0].content)).toContain('<hapi_user_context user="peter">')
+    })
+
+    it('leaves messages untouched without senderAccountId or without memory', async () => {
+        const store = makeStore()
+        const bob = store.accounts.create({ username: 'bob', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+        const session = makeSession(store, 'memory-none')
+        const { io, updates } = makeCapturingIo()
+        const service = new MessageService(store, io, makePublisher() as any)
+
+        await service.sendMessage(session.id, { text: 'no sender attached' })
+        await service.sendMessage(session.id, { text: 'sender without memory', senderAccountId: bob.id })
+
+        expect(textOf(updates[0].body.message.content)).toBe('no sender attached')
+        expect(textOf(updates[1].body.message.content)).toBe('sender without memory')
+    })
+
+    it('memory edits apply to delivery of already-queued messages (read at delivery time)', async () => {
+        const store = makeStore()
+        const peter = store.accounts.create({ username: 'peter', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+        const session = makeSession(store, 'memory-late-edit')
+        const { io } = makeCapturingIo()
+        const service = new MessageService(store, io, makePublisher() as any)
+
+        await service.sendMessage(session.id, { text: 'queued before memory existed', senderAccountId: peter.id })
+        store.accounts.setMemory(peter.id, 'my machine is BIG79TP')
+
+        const backfill = service.getDeliverableMessagesAfter(session.id, { afterSeq: -1, limit: 10, now: Date.now() })
+        expect(textOf(backfill[0].content)).toContain('my machine is BIG79TP')
+    })
+})

@@ -212,10 +212,17 @@ export class ApiClient {
         })
     }
 
-    async updateAccount(id: number, payload: { role?: 'admin' | 'user'; password?: string; disabled?: boolean; defaultNamespace?: string }): Promise<{ account: AccountSummary }> {
+    async updateAccount(id: number, payload: { role?: 'admin' | 'user'; password?: string; disabled?: boolean; defaultNamespace?: string; memory?: string | null }): Promise<{ account: AccountSummary }> {
         return await this.request(`/api/admin/accounts/${encodeURIComponent(String(id))}`, {
             method: 'PATCH',
             body: JSON.stringify(payload)
+        })
+    }
+
+    async updateMyMemory(memory: string | null): Promise<{ user: AccountSummary }> {
+        return await this.request('/api/me/memory', {
+            method: 'PATCH',
+            body: JSON.stringify({ memory })
         })
     }
 

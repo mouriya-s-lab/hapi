@@ -10,6 +10,7 @@ import {
     listAccounts,
     setAccountDefaultNamespace,
     setAccountDisabled,
+    setAccountMemory,
     setAccountPassword,
     setAccountRole
 } from './accounts'
@@ -57,6 +58,10 @@ export class AccountStore {
 
     setDefaultNamespace(id: number, namespace: string): boolean {
         return setAccountDefaultNamespace(this.db, id, namespace)
+    }
+
+    setMemory(id: number, memory: string | null): boolean {
+        return setAccountMemory(this.db, id, memory)
     }
 
     setDisabled(id: number, disabled: boolean): boolean {

@@ -4,6 +4,7 @@ import {
     CreateAccountRequestSchema,
     CreateApiTokenRequestSchema,
     UpdateAccountRequestSchema,
+    UpdateMemoryRequestSchema,
     type AccountSummary,
     type ApiTokenSummary
 } from '@hapi/protocol'
@@ -22,7 +23,8 @@ function toAccountSummary(a: StoredAccount): AccountSummary {
         authProvider: a.authProvider,
         hasPassword: a.passwordHash !== null,
         disabled: a.disabledAt !== null,
-        createdAt: a.createdAt
+        createdAt: a.createdAt,
+        memory: a.memory
     }
 }
 
@@ -82,6 +84,25 @@ export function createAccountRoutes(store: Store, jwtSecret: Uint8Array): Hono<W
             })
         }
         return c.json({ user: toAccountSummary(account) })
+    })
+
+    // --- Caller's own memory prompt ---
+    // Free text the hub prepends to messages this user sends to agents, so
+    // the agent resolves user-specific references ("my computer"). Applies
+    // from the next message; nothing stored in past messages changes.
+    app.patch('/me/memory', async (c) => {
+        const accountId = c.get('accountId')
+        const account = store.accounts.getById(accountId)
+        if (!account) {
+            return c.json({ error: 'Account not found' }, 404)
+        }
+        const json = await c.req.json().catch(() => null)
+        const parsed = UpdateMemoryRequestSchema.safeParse(json)
+        if (!parsed.success) {
+            return c.json({ error: 'Invalid body' }, 400)
+        }
+        store.accounts.setMemory(accountId, parsed.data.memory)
+        return c.json({ user: toAccountSummary(store.accounts.getById(accountId)!) })
     })
 
     // --- Caller's own API tokens ---
@@ -191,6 +212,7 @@ export function createAccountRoutes(store: Store, jwtSecret: Uint8Array): Hono<W
         if (parsed.data.password) store.accounts.setPassword(id, hashPassword(parsed.data.password))
         if (parsed.data.disabled !== undefined) store.accounts.setDisabled(id, parsed.data.disabled)
         if (parsed.data.defaultNamespace) store.accounts.setDefaultNamespace(id, parsed.data.defaultNamespace)
+        if (parsed.data.memory !== undefined) store.accounts.setMemory(id, parsed.data.memory)
 
         return c.json({ account: toAccountSummary(store.accounts.getById(id)!) })
     })

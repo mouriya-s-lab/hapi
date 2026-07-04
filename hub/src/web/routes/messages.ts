@@ -80,7 +80,8 @@ export function createMessagesRoutes(
             localId: parsed.data.localId,
             attachments: parsed.data.attachments,
             sentFrom: 'webapp',
-            scheduledAt: parsed.data.scheduledAt
+            scheduledAt: parsed.data.scheduledAt,
+            senderAccountId: c.get('accountId') ?? null
         })
         return c.json({ ok: true })
     })

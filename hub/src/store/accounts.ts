@@ -11,6 +11,7 @@ type DbAccountRow = {
     default_namespace: string
     created_at: number
     disabled_at: number | null
+    memory: string | null
 }
 
 function toStoredAccount(row: DbAccountRow): StoredAccount {
@@ -22,7 +23,8 @@ function toStoredAccount(row: DbAccountRow): StoredAccount {
         role: row.role === 'admin' ? 'admin' : 'user',
         defaultNamespace: row.default_namespace,
         createdAt: row.created_at,
-        disabledAt: row.disabled_at
+        disabledAt: row.disabled_at,
+        memory: row.memory ?? null
     }
 }
 
@@ -95,6 +97,12 @@ export function setAccountRole(db: Database, id: number, role: AccountRole): boo
 
 export function setAccountDefaultNamespace(db: Database, id: number, namespace: string): boolean {
     const result = db.prepare('UPDATE accounts SET default_namespace = ? WHERE id = ?').run(namespace, id)
+    return result.changes > 0
+}
+
+export function setAccountMemory(db: Database, id: number, memory: string | null): boolean {
+    const normalized = memory !== null && memory.trim().length > 0 ? memory : null
+    const result = db.prepare('UPDATE accounts SET memory = ? WHERE id = ?').run(normalized, id)
     return result.changes > 0
 }
 

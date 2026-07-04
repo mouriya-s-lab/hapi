@@ -69,6 +69,8 @@ export type StoredAccount = {
     defaultNamespace: string
     createdAt: number
     disabledAt: number | null
+    /** Per-user memory prompt injected into messages delivered to the CLI. */
+    memory: string | null
 }
 
 export type StoredApiToken = {
