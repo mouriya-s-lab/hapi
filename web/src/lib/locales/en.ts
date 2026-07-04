@@ -167,6 +167,7 @@ export default {
   'share.grantFailed': 'Grant failed',
   'share.batchDone': 'Granted {ok} of {total} sessions',
   'share.batchPartialFailure': '{failed} session(s) failed to grant',
+  'todoPanel.title': 'Tasks',
   'share.existing': 'Shared with',
   'share.noGrants': 'Not shared with anyone yet',
   'share.remove': 'Remove',

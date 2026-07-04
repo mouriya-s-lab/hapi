@@ -167,6 +167,7 @@ export default {
   'share.grantFailed': '授权失败',
   'share.batchDone': '已授权 {ok}/{total} 个会话',
   'share.batchPartialFailure': '{failed} 个会话授权失败',
+  'todoPanel.title': '任务清单',
   'share.existing': '已共享给',
   'share.noGrants': '尚未共享给任何人',
   'share.remove': '移除',
