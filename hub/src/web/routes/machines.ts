@@ -72,6 +72,16 @@ export function createMachinesRoutes(
             undefined,
             parsed.data.effort
         )
+        if (result.type === 'success') {
+            // The spawned CLI registered the session under the machine
+            // daemon's token account. The account that clicked "spawn" owns
+            // the conversation — without this, an operator-grantee spawning
+            // on someone else's machine cannot see the session they created.
+            const accountId = c.get('accountId')
+            if (typeof accountId === 'number') {
+                engine.assignSessionOwner(result.sessionId, accountId)
+            }
+        }
         return c.json(result)
     })
 

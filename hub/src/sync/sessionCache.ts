@@ -165,6 +165,29 @@ export class SessionCache {
         }
     }
 
+    /**
+     * Reassign a session's owner. Used by the web spawn route: the spawned CLI
+     * registers the session under the machine daemon's token account, which is
+     * not necessarily the account that requested the spawn (e.g. an
+     * operator-grantee spawning on a machine owned by someone else). The
+     * refresh emits a session-updated event whose SSE fan-out already reads
+     * the new owner from the store, so the new owner's UI picks it up live.
+     */
+    assignOwner(sessionId: string, ownerAccountId: number): boolean {
+        const stored = this.store.sessions.getSession(sessionId)
+        if (!stored) {
+            return false
+        }
+        if (stored.ownerAccountId === ownerAccountId) {
+            return true
+        }
+        if (!this.store.sessions.setSessionOwner(sessionId, ownerAccountId)) {
+            return false
+        }
+        this.refreshSession(sessionId)
+        return true
+    }
+
     handleSessionAlive(payload: {
         sid: string
         time: number
@@ -694,6 +717,38 @@ export class SessionCache {
         const newStored = this.store.sessions.getSessionByNamespace(newSessionId, namespace)
         if (!oldStored || !newStored) {
             throw new Error('Session not found for merge')
+        }
+
+        // Ownership must survive the merge. On resume, the freshly spawned CLI
+        // registers the surviving row under the machine daemon's token account,
+        // which can differ from whoever owned the original session — without
+        // this a non-admin would lose access to their own session by resuming
+        // it. The earlier-created row is the original conversation, so its
+        // owner wins.
+        const preferredOwner = (oldStored.createdAt <= newStored.createdAt
+            ? oldStored.ownerAccountId
+            : newStored.ownerAccountId)
+            ?? oldStored.ownerAccountId
+            ?? newStored.ownerAccountId
+        if (preferredOwner !== null && newStored.ownerAccountId !== preferredOwner) {
+            this.store.sessions.setSessionOwner(newSessionId, preferredOwner)
+        }
+
+        // Grants follow the surviving row so shared access is not silently
+        // dropped. Existing grants on the target win on conflict.
+        for (const grant of this.store.grants.listForResource('session', oldSessionId)) {
+            if (grant.granteeAccountId !== preferredOwner
+                && !this.store.grants.get('session', newSessionId, grant.granteeAccountId)) {
+                this.store.grants.upsert({
+                    resourceType: 'session',
+                    resourceId: newSessionId,
+                    granteeAccountId: grant.granteeAccountId,
+                    role: grant.role
+                })
+            }
+            if (options.deleteOldSession) {
+                this.store.grants.remove('session', oldSessionId, grant.granteeAccountId)
+            }
         }
 
         const movedMessages = this.store.messages.mergeSessionMessages(oldSessionId, newSessionId)
