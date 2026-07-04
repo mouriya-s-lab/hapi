@@ -554,9 +554,11 @@ export function getSessionsByNamespace(db: Database, namespace: string): StoredS
 }
 
 /**
- * Sessions visible to an account within a namespace: those it owns plus any
- * explicitly granted to it. Admins should bypass this and use
- * getSessionsByNamespace instead.
+ * Sessions visible to an account within a namespace: those it owns, any
+ * explicitly granted to it, plus every session on a machine it owns or has
+ * a grant on (machine-access inheritance — sharing a machine shares read
+ * access to its sessions; see auth/access.ts). Admins should bypass this
+ * and use getSessionsByNamespace instead.
  */
 export function getSessionsForAccount(
     db: Database,
@@ -569,8 +571,15 @@ export function getSessionsForAccount(
             ON g.resource_type = 'session'
             AND g.resource_id = s.id
             AND g.grantee_account_id = @accountId
+        LEFT JOIN resource_grants mg
+            ON mg.resource_type = 'machine'
+            AND mg.resource_id = json_extract(s.metadata, '$.machineId')
+            AND mg.grantee_account_id = @accountId
+        LEFT JOIN machines m
+            ON m.id = json_extract(s.metadata, '$.machineId')
+            AND m.owner_account_id = @accountId
         WHERE s.namespace = @namespace
-          AND (s.owner_account_id = @accountId OR g.id IS NOT NULL)
+          AND (s.owner_account_id = @accountId OR g.id IS NOT NULL OR mg.id IS NOT NULL OR m.id IS NOT NULL)
         ORDER BY s.updated_at DESC
     `).all({ namespace, accountId }) as DbSessionRow[]
     return rows.map(toStoredSession)
