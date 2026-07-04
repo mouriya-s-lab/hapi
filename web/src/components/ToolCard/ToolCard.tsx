@@ -14,7 +14,7 @@ import { isAskUserQuestionToolName } from '@/components/ToolCard/askUserQuestion
 import { isRequestUserInputToolName } from '@/components/ToolCard/requestUserInput'
 import { getToolPresentation } from '@/components/ToolCard/knownTools'
 import { getToolFullViewComponent, getToolViewComponent } from '@/components/ToolCard/views/_all'
-import { getToolResultViewComponent } from '@/components/ToolCard/views/_results'
+import { extractImagesFromResult, getToolResultViewComponent, ToolResultImages } from '@/components/ToolCard/views/_results'
 import { formatTaskChildLabel, TaskStateIcon } from '@/components/ToolCard/helpers'
 import type { TerminalToolDisplayMode } from '@/hooks/useTerminalToolDisplayMode'
 import { usePointerFocusRing } from '@/hooks/usePointerFocusRing'
@@ -284,7 +284,14 @@ function ToolCardInner(props: ToolCardProps) {
         permission.status === 'pending'
         || ((permission.status === 'denied' || permission.status === 'canceled') && Boolean(permission.reason))
     ))
-    const hasBody = showInline || taskSummary !== null || showsPermissionFooter
+    // 结果里有图片时,即使卡片是折叠形态也把图片内联到会话流里
+    // (Read 图片、MCP 截图/生图工具),避免用户必须点开详情才能看到图。
+    // showInline 时结果视图本身会渲染图片,不再重复。
+    const hasInlineResultImages = useMemo(
+        () => !showInline && extractImagesFromResult(props.block.tool.result).length > 0,
+        [showInline, props.block.tool.result]
+    )
+    const hasBody = showInline || taskSummary !== null || showsPermissionFooter || hasInlineResultImages
     const stateColor = toolStatusColorClass(props.block.tool.state)
     const { suppressFocusRing, onTriggerPointerDown, onTriggerKeyDown, onTriggerBlur } = usePointerFocusRing()
     const openDetails = () => setDetailsOpen(true)
@@ -372,6 +379,12 @@ function ToolCardInner(props: ToolCardProps) {
                     {taskSummary ? (
                         <div className="mt-2">
                             {taskSummary}
+                        </div>
+                    ) : null}
+
+                    {hasInlineResultImages ? (
+                        <div className="mt-3">
+                            <ToolResultImages result={props.block.tool.result} input={props.block.tool.input} />
                         </div>
                     ) : null}
 

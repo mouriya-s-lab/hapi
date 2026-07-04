@@ -37,6 +37,76 @@ function extractTextFromContentBlock(block: unknown): string | null {
     return null
 }
 
+function base64ToDataUrl(data: string, mediaType: string | null): string {
+    // media_type 缺失时用 base64 魔数猜测，兜底 PNG
+    let mime = mediaType && mediaType.startsWith('image/') ? mediaType : null
+    if (!mime) {
+        if (data.startsWith('/9j/')) mime = 'image/jpeg'
+        else if (data.startsWith('R0lGOD')) mime = 'image/gif'
+        else if (data.startsWith('UklGR')) mime = 'image/webp'
+        else mime = 'image/png'
+    }
+    return `data:${mime};base64,${data}`
+}
+
+/**
+ * 识别 tool_result 里的图片块并还原为可渲染的 src。支持两种形态：
+ * - Anthropic 内容块:{type:'image', source:{type:'base64', data, media_type}}
+ *   (Read 读图片、MCP 工具返回图片时的标准形态)或 source:{type:'url', url}
+ * - Claude Code jsonl 的 toolUseResult:{type:'image', file:{base64, type}}
+ */
+function extractImageSrcFromBlock(block: unknown): string | null {
+    if (!isObject(block) || block.type !== 'image') return null
+
+    const source = isObject(block.source) ? block.source : null
+    if (source) {
+        if (source.type === 'base64' && typeof source.data === 'string' && source.data.length > 0) {
+            return base64ToDataUrl(source.data, typeof source.media_type === 'string' ? source.media_type : null)
+        }
+        if (source.type === 'url' && typeof source.url === 'string' && source.url.length > 0) {
+            return source.url
+        }
+    }
+
+    const file = isObject(block.file) ? block.file : null
+    if (file && typeof file.base64 === 'string' && file.base64.length > 0) {
+        return base64ToDataUrl(file.base64, typeof file.type === 'string' ? file.type : null)
+    }
+
+    return null
+}
+
+export function extractImagesFromResult(result: unknown, depth: number = 0): string[] {
+    if (depth > 2) return []
+    if (result === null || result === undefined) return []
+
+    if (Array.isArray(result)) {
+        return result
+            .map(extractImageSrcFromBlock)
+            .filter((src): src is string => typeof src === 'string')
+    }
+
+    if (!isObject(result)) return []
+
+    const direct = extractImageSrcFromBlock(result)
+    if (direct) return [direct]
+
+    if (Array.isArray(result.content)) {
+        const images = extractImagesFromResult(result.content, depth + 1)
+        if (images.length > 0) return images
+    }
+
+    for (const key of ['result', 'data', 'output'] as const) {
+        const nested: unknown = result[key]
+        if (nested !== undefined && nested !== result) {
+            const images = extractImagesFromResult(nested, depth + 1)
+            if (images.length > 0) return images
+        }
+    }
+
+    return []
+}
+
 export function extractTextFromResult(result: unknown, depth: number = 0): string | null {
     if (depth > 2) return null
     if (result === null || result === undefined) return null
@@ -456,6 +526,27 @@ function renderImageResult(src: string, path: string | null) {
     )
 }
 
+function renderResultImages(images: string[], path: string | null) {
+    if (images.length === 1) return renderImageResult(images[0], path)
+    return (
+        <div className="flex flex-col gap-2">
+            {images.map((src, index) => (
+                <div key={index}>{renderImageResult(src, path)}</div>
+            ))}
+        </div>
+    )
+}
+
+/**
+ * 会话流内联的图片结果条:工具结果里有图片时直接显示在卡片上,
+ * 不用点开详情对话框(用户预期图片"显示在会话窗口中")。
+ */
+export function ToolResultImages(props: { result: unknown; input: unknown }) {
+    const images = extractImagesFromResult(props.result)
+    if (images.length === 0) return null
+    return renderResultImages(images, extractReadPathFromInput(props.input))
+}
+
 function renderReadTextResult(text: string, path: string | null, surface: ToolViewProps['surface']) {
     const imageSrc = detectImageDataUrl(text, path)
     if (imageSrc) {
@@ -592,11 +683,13 @@ const MarkdownResultView: ToolViewComponent = (props: ToolViewProps) => {
         return <ResultStatusPill text={placeholderForState(props.block.tool.state)} />
     }
 
+    const images = extractImagesFromResult(result)
     const text = extractTextFromResult(result)
-    if (text) {
+    if (images.length > 0 || text) {
         return (
             <>
-                {renderText(text, { mode: 'auto', collapseLongContent: props.surface === 'inline', surface: props.surface })}
+                {images.length > 0 ? renderResultImages(images, null) : null}
+                {text ? renderText(text, { mode: 'auto', collapseLongContent: props.surface === 'inline', surface: props.surface }) : null}
                 <RawJsonDevOnly value={result} surface={props.surface} />
             </>
         )
@@ -686,10 +779,23 @@ const ReadResultView: ToolViewComponent = (props: ToolViewProps) => {
         )
     }
 
+    const path = extractReadPathFromInput(props.block.tool.input)
+    const displayPath = path ? resolveDisplayPath(path, props.metadata) : null
+
+    // Read 图片文件时结果是 [{type:'image', source:{type:'base64',…}}] 内容块,
+    // 不含任何文本,必须先于文本提取处理,否则会落到 "(no output)"
+    const images = extractImagesFromResult(result)
+    if (images.length > 0) {
+        return (
+            <>
+                {renderResultImages(images, displayPath)}
+                <RawJsonDevOnly value={result} surface={props.surface} />
+            </>
+        )
+    }
+
     const text = extractTextFromResult(result)
     if (text) {
-        const path = extractReadPathFromInput(props.block.tool.input)
-        const displayPath = path ? resolveDisplayPath(path, props.metadata) : null
         return (
             <>
                 {renderReadTextResult(text, displayPath, props.surface)}
@@ -1001,6 +1107,19 @@ const GenericResultView: ToolViewComponent = (props: ToolViewProps) => {
                 </>
             )
         }
+    }
+
+    // MCP 工具(截图、生图等)返回的 image 内容块
+    const images = extractImagesFromResult(result)
+    if (images.length > 0) {
+        const text = extractTextFromResult(result)
+        return (
+            <>
+                {renderResultImages(images, extractReadPathFromInput(props.block.tool.input))}
+                {text ? renderText(text, { mode: 'auto', collapseLongContent: props.surface === 'inline', surface: props.surface }) : null}
+                {typeof result === 'object' ? <RawJsonDevOnly value={result} surface={props.surface} /> : null}
+            </>
+        )
     }
 
     const text = extractTextFromResult(result)
