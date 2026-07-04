@@ -163,7 +163,7 @@ function HappyNestedBlockList(props: {
                 if (block.kind === 'cli-output') {
                     const alignClass = block.source === 'user' ? 'ml-auto w-full max-w-[92%]' : ''
                     return (
-                        <div key={`cli:${block.id}`} className="px-1 min-w-0 max-w-full overflow-x-hidden">
+                        <div key={`cli:${block.id}`} className="px-1 min-w-0 max-w-full overflow-x-clip">
                             <div className={alignClass}>
                                 <CliOutputBlock text={block.text} />
                             </div>
@@ -219,7 +219,7 @@ function HappyNestedBlockList(props: {
                                         ) : null}
                                         {taskChildren && taskChildren.rest.length > 0 ? (
                                             <details className="mt-2">
-                                                <summary className="cursor-pointer text-xs text-[var(--app-hint)]">
+                                                <summary className="sticky top-0 z-10 cursor-pointer bg-[var(--app-bg)] py-1 text-xs text-[var(--app-hint)]">
                                                     Task details ({taskChildren.rest.length})
                                                 </summary>
                                                 <div className="mt-2 pl-3">
@@ -250,7 +250,7 @@ export function HappyToolMessage(props: ToolCallMessagePartProps) {
 
     if (isToolGroupBlock(artifact)) {
         return (
-            <div className="py-1 min-w-0 max-w-full overflow-x-hidden">
+            <div className="py-1 min-w-0 max-w-full overflow-x-clip">
                 <ToolGroupCard
                     block={artifact}
                     metadata={ctx.metadata}
@@ -261,7 +261,7 @@ export function HappyToolMessage(props: ToolCallMessagePartProps) {
 
     if (isGeneratedImageBlock(artifact)) {
         return (
-            <div className="py-1 min-w-0 max-w-full overflow-x-hidden">
+            <div className="py-1 min-w-0 max-w-full overflow-x-clip">
                 <GeneratedImageCard block={artifact} />
             </div>
         )
@@ -274,8 +274,8 @@ export function HappyToolMessage(props: ToolCallMessagePartProps) {
         const resultText = hasResult ? safeStringify(props.result) : ''
 
         return (
-            <div className="py-1 min-w-0 max-w-full overflow-x-hidden">
-                <div className="overflow-hidden rounded-[20px] bg-[var(--app-tool-card-bg)] p-3 shadow-none">
+            <div className="py-1 min-w-0 max-w-full overflow-x-clip">
+                <div className="overflow-clip rounded-[20px] bg-[var(--app-tool-card-bg)] p-3 shadow-none">
                     <div className="flex items-center gap-2 text-xs">
                         <div className="font-mono text-[var(--app-tool-card-accent)]">
                             Tool: {props.toolName}
@@ -290,13 +290,13 @@ export function HappyToolMessage(props: ToolCallMessagePartProps) {
 
                     {hasArgsText ? (
                         <div className="mt-2">
-                            <CodeBlock code={argsText} language="json" title="Input" />
+                            <CodeBlock code={argsText} language="json" title="Input" collapseLongContent />
                         </div>
                     ) : null}
 
                     {hasResult ? (
                         <div className="mt-2">
-                            <CodeBlock code={resultText} language={typeof props.result === 'string' ? 'text' : 'json'} title="Output" />
+                            <CodeBlock code={resultText} language={typeof props.result === 'string' ? 'text' : 'json'} title="Output" collapseLongContent />
                         </div>
                     ) : null}
                 </div>
@@ -310,7 +310,7 @@ export function HappyToolMessage(props: ToolCallMessagePartProps) {
     const taskChildren = isTask ? splitTaskChildren(block) : null
 
     return (
-        <div className="py-1 min-w-0 max-w-full overflow-x-hidden">
+        <div className="py-1 min-w-0 max-w-full overflow-x-clip">
             <ToolCard
                 api={ctx.api}
                 sessionId={ctx.sessionId}
@@ -330,7 +330,7 @@ export function HappyToolMessage(props: ToolCallMessagePartProps) {
                         ) : null}
                         {taskChildren && taskChildren.rest.length > 0 ? (
                             <details className="mt-2">
-                                <summary className="cursor-pointer text-xs text-[var(--app-hint)]">
+                                <summary className="sticky top-0 z-10 cursor-pointer bg-[var(--app-bg)] py-1 text-xs text-[var(--app-hint)]">
                                     Task details ({taskChildren.rest.length})
                                 </summary>
                                 <div className="mt-2 pl-3">

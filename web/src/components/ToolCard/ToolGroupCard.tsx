@@ -223,8 +223,14 @@ export function ToolGroupCard(props: {
     const fileCount = props.block.summary.fileTargets.length
 
     return (
-        <Card className="overflow-hidden rounded-[20px] bg-[var(--app-tool-group-bg)] shadow-none">
-            <CardHeader className={cn('space-y-0 p-3', subtitle ? 'pb-2' : null)}>
+        // overflow-clip：保留圆角但不产生滚动上下文，表头才能 sticky 吸顶
+        <Card className="overflow-clip rounded-[20px] bg-[var(--app-tool-group-bg)] shadow-none">
+            {/* 组展开后表头吸顶，滚到组内任意位置都能一键折叠，无需滚回顶端 */}
+            <CardHeader className={cn(
+                'space-y-0 p-3',
+                subtitle ? 'pb-2' : null,
+                open ? 'sticky top-0 z-10 rounded-t-[20px] bg-[var(--app-tool-group-bg)]' : null
+            )}>
                 <button
                     type="button"
                     onClick={() => setOpen((value) => !value)}

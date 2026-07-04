@@ -1,7 +1,8 @@
-import type { CSSProperties } from 'react'
+import { useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { useShikiHighlighter } from '@/lib/shiki'
 import { CopyIcon, CheckIcon } from '@/components/icons'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/use-translation'
 
 const DEFAULT_COLLAPSE_LINE_THRESHOLD = 18
@@ -29,6 +30,24 @@ function countCodeLines(code: string): number {
     return Math.max(lines.length, 1)
 }
 
+function ChevronIcon(props: { open: boolean }) {
+    return (
+        <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={cn('shrink-0 transition-transform duration-200', props.open ? 'rotate-90' : '')}
+        >
+            <polyline points="9 18 15 12 9 6" />
+        </svg>
+    )
+}
+
 export function CodeBlock(props: {
     code: string
     language?: string
@@ -46,11 +65,14 @@ export function CodeBlock(props: {
     const showCopyButton = props.showCopyButton ?? true
     const { copied, copy } = useCopyToClipboard()
     const highlighted = useShikiHighlighter(props.code, props.language)
-    const isCollapsed = Boolean(props.collapseLongContent) && shouldCollapseCode(
+    const [expanded, setExpanded] = useState(false)
+    const rootRef = useRef<HTMLDivElement>(null)
+    const collapsible = Boolean(props.collapseLongContent) && shouldCollapseCode(
         props.code,
         props.collapseLineThreshold ?? DEFAULT_COLLAPSE_LINE_THRESHOLD,
         props.collapseCharThreshold ?? DEFAULT_COLLAPSE_CHAR_THRESHOLD
     )
+    const isCollapsed = collapsible && !expanded
     const collapsedHeight = props.collapsedHeight ?? DEFAULT_COLLAPSED_HEIGHT
     const scrollHeight = props.maxHeight ?? DEFAULT_SCROLL_HEIGHT
     const codeTextClass = props.size === 'comfortable'
@@ -69,12 +91,41 @@ export function CodeBlock(props: {
             ? { maxHeight: scrollHeight, overflowY: 'auto' as const }
             : { overflowY: 'hidden' as const }
 
+    const toggleExpanded = (event: MouseEvent<HTMLButtonElement>) => {
+        event.stopPropagation()
+        setExpanded((value) => {
+            // 折叠后区块高度骤减，把它拉回视口，避免滚动位置落到别处
+            if (value) {
+                requestAnimationFrame(() => rootRef.current?.scrollIntoView?.({ block: 'nearest' }))
+            }
+            return !value
+        })
+    }
+
     return (
-        <div className="aui-code-surface relative min-w-0 max-w-full overflow-hidden rounded-xl bg-[var(--app-code-bg)] shadow-none">
-            <div className="aui-code-surface-header flex items-center justify-between gap-3 bg-[var(--app-code-header-bg)] px-3 py-2">
-                <div className="min-w-0 flex-1 truncate font-mono text-[11px] uppercase tracking-[0.08em] text-[var(--app-code-header-fg)]">
-                    {label}
-                </div>
+        // overflow-clip（而非 hidden）保住圆角裁剪的同时不产生滚动上下文，
+        // 否则下面 sticky 的表头无法粘在会话视口顶部。
+        <div ref={rootRef} className="aui-code-surface relative min-w-0 max-w-full overflow-clip rounded-xl bg-[var(--app-code-bg)] shadow-none">
+            <div className={cn(
+                'aui-code-surface-header flex items-center justify-between gap-3 bg-[var(--app-code-header-bg)] px-3 py-2',
+                // 展开长内容后表头吸顶，滚到代码任意位置都能一键折叠
+                collapsible && expanded && 'sticky top-0 z-10'
+            )}>
+                {collapsible ? (
+                    <button
+                        type="button"
+                        onClick={toggleExpanded}
+                        title={expanded ? t('collapse.collapse') : t('collapse.expand')}
+                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left font-mono text-[11px] uppercase tracking-[0.08em] text-[var(--app-code-header-fg)] transition-colors hover:text-[var(--app-fg)]"
+                    >
+                        <ChevronIcon open={expanded} />
+                        <span className="truncate">{label}</span>
+                    </button>
+                ) : (
+                    <div className="min-w-0 flex-1 truncate font-mono text-[11px] uppercase tracking-[0.08em] text-[var(--app-code-header-fg)]">
+                        {label}
+                    </div>
+                )}
                 {showCopyButton ? (
                     <button
                         type="button"
@@ -108,9 +159,14 @@ export function CodeBlock(props: {
             </div>
             {isCollapsed ? (
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-t from-[var(--app-code-bg)] via-[var(--app-code-bg)]/94 to-transparent px-2 pb-2 pt-10">
-                    <span className="rounded-full bg-[var(--app-chat-user-chip-bg)] px-2 py-0.5 text-[10px] text-[var(--app-hint)] shadow-none">
-                        {t('code.truncated')}
-                    </span>
+                    <button
+                        type="button"
+                        onClick={toggleExpanded}
+                        className="pointer-events-auto inline-flex cursor-pointer items-center gap-1 rounded-full bg-[var(--app-chat-user-chip-bg)] px-2.5 py-0.5 text-[10px] text-[var(--app-hint)] shadow-none transition-colors hover:text-[var(--app-fg)]"
+                    >
+                        <ChevronIcon open={false} />
+                        {t('collapse.expandLines', { n: lineCount })}
+                    </button>
                 </div>
             ) : null}
         </div>

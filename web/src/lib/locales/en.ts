@@ -150,6 +150,26 @@ export default {
   'session.action.reopen': 'Reopen',
   'session.action.delete': 'Delete',
   'session.action.copy': 'Copy',
+  'session.action.share': 'Share…',
+
+  // Resource sharing (grants)
+  'share.title.session': 'Share session: {name}',
+  'share.title.machine': 'Share machine: {name}',
+  'share.title.directory': 'Share directory: {name}',
+  'share.machineNote': 'Sharing a machine only makes the machine itself visible — existing sessions on it must be shared separately.',
+  'share.directoryNote': 'Grants will be applied to each of the {n} sessions currently in this directory.',
+  'share.selectUser': 'Select a user…',
+  'share.usernamePlaceholder': 'Username to grant',
+  'share.role.viewer': 'viewer (read-only)',
+  'share.role.operator': 'operator (can act)',
+  'share.grant': 'Grant',
+  'share.granting': 'Granting…',
+  'share.grantFailed': 'Grant failed',
+  'share.batchDone': 'Granted {ok} of {total} sessions',
+  'share.batchPartialFailure': '{failed} session(s) failed to grant',
+  'share.existing': 'Shared with',
+  'share.noGrants': 'Not shared with anyone yet',
+  'share.remove': 'Remove',
 
   // Dialogs
   'dialog.uri.title': 'Open this link?',
@@ -266,7 +286,11 @@ export default {
 
   // Code block
   'code.copy': 'Copy',
-  'code.truncated': 'Preview truncated — open details for full output',
+
+  // Long content collapse
+  'collapse.expand': 'Expand',
+  'collapse.collapse': 'Collapse',
+  'collapse.expandLines': 'Show all ({n} lines)',
 
   // Diff view
   'diff.title': 'Diff',

@@ -1,4 +1,5 @@
 import type { MessageStatus } from '@/types/api'
+import { CollapsibleContent } from '@/components/CollapsibleContent'
 import { LazyRainbowText } from '@/components/LazyRainbowText'
 import { SparklesIcon } from '@/components/ToolCard/icons'
 import { cn } from '@/lib/utils'
@@ -81,7 +82,12 @@ export function UserBubbleContent(props: { text: string }) {
                     {directives.map((directive) => <DirectiveChip key={directive} value={directive} />)}
                 </div>
             ) : null}
-            {hasBody ? <LazyRainbowText text={body} preserveSingleLineBreaks /> : null}
+            {hasBody ? (
+                // skill/命令展开等注入内容常以超长用户消息进入会话，默认折叠为固定高度
+                <CollapsibleContent text={body} surfaceVar="--app-chat-user-surface-bg">
+                    <LazyRainbowText text={body} preserveSingleLineBreaks />
+                </CollapsibleContent>
+            ) : null}
         </div>
     )
 }

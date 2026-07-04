@@ -2,6 +2,7 @@ import type { ToolViewComponent, ToolViewProps } from '@/components/ToolCard/vie
 import type { ReactNode } from 'react'
 import { isObject, safeStringify } from '@hapi/protocol'
 import { CodeBlock } from '@/components/CodeBlock'
+import { CollapsibleContent } from '@/components/CollapsibleContent'
 import { ImagePreview } from '@/components/ImagePreview'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import { ChecklistList, extractTodoChecklist } from '@/components/ToolCard/checklist'
@@ -320,11 +321,22 @@ function resultCodeBlockProps(surface: ToolViewProps['surface'], collapseLongCon
 function renderResultBody(
     content: ReactNode,
     surface: ToolViewProps['surface'],
-    opts: { forceQuote?: boolean } = {}
+    opts: { forceQuote?: boolean; collapseText?: string } = {}
 ) {
-    if (surface !== 'dialog' && !opts.forceQuote) return content
+    // 会话流内联的超长结果（markdown、纯文本、行列表）默认折叠；
+    // 对话框里空间充足且自身可滚动，保持完整展示。
+    const wrapCollapse = (node: ReactNode) => {
+        if (surface === 'dialog' || !opts.collapseText) return node
+        return (
+            <CollapsibleContent text={opts.collapseText} surfaceVar="--app-tool-card-bg">
+                {node}
+            </CollapsibleContent>
+        )
+    }
 
-    return (
+    if (surface !== 'dialog' && !opts.forceQuote) return wrapCollapse(content)
+
+    return wrapCollapse(
         <div className="tool-result-quote rounded-r-2xl border-l-[3px] border-[var(--app-md-quote-border)] bg-[var(--app-md-quote-bg)] px-4 py-3 text-sm leading-6 text-[var(--app-md-quote-fg)]">
             {content}
         </div>
@@ -337,7 +349,7 @@ function renderPlainTextQuote(text: string, surface: ToolViewProps['surface']) {
             {text}
         </div>,
         surface,
-        { forceQuote: true }
+        { forceQuote: true, collapseText: text }
     )
 }
 
@@ -361,7 +373,7 @@ function renderText(text: string, opts: { mode: 'markdown' | 'code' | 'auto'; la
         const markdown = renderMarkdown(text, opts.surface)
         return standaloneCodeBlock
             ? <CodeBlock code={standaloneCodeBlock.code} language={standaloneCodeBlock.language} {...resultCodeBlockProps(opts.surface, opts.collapseLongContent)} />
-            : renderResultBody(markdown, opts.surface)
+            : renderResultBody(markdown, opts.surface, { collapseText: opts.collapseLongContent ? text : undefined })
     }
 
     if (looksLikeHtml(text) || looksLikeJson(text)) {
@@ -372,7 +384,7 @@ function renderText(text: string, opts: { mode: 'markdown' | 'code' | 'auto'; la
         return <CodeBlock code={standaloneCodeBlock.code} language={standaloneCodeBlock.language} {...resultCodeBlockProps(opts.surface, opts.collapseLongContent)} />
     }
 
-    return renderResultBody(renderMarkdown(text, opts.surface), opts.surface)
+    return renderResultBody(renderMarkdown(text, opts.surface), opts.surface, { collapseText: opts.collapseLongContent ? text : undefined })
 }
 
 function placeholderForState(state: ToolViewProps['block']['tool']['state']): string {
@@ -723,7 +735,7 @@ const LineListResultView: ToolViewComponent = (props: ToolViewProps) => {
     if (isProbablyMarkdownList(text)) {
         return (
             <>
-                {renderResultBody(renderMarkdown(text, props.surface), props.surface)}
+                {renderResultBody(renderMarkdown(text, props.surface), props.surface, { collapseText: text })}
                 <RawJsonDevOnly value={result} surface={props.surface} />
             </>
         )
@@ -749,7 +761,8 @@ const LineListResultView: ToolViewComponent = (props: ToolViewProps) => {
                         </div>
                     ))}
                 </div>,
-                props.surface
+                props.surface,
+                { collapseText: text }
             )}
             <RawJsonDevOnly value={result} surface={props.surface} />
         </>

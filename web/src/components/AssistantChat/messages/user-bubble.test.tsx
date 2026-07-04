@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import type { ReactNode } from 'react'
+import { I18nProvider } from '@/lib/i18n-context'
 
 vi.mock('@/components/LazyRainbowText', () => ({
     LazyRainbowText: ({ text, inline, preserveSingleLineBreaks }: { text: string; inline?: boolean; preserveSingleLineBreaks?: boolean }) => (
@@ -14,6 +16,10 @@ vi.mock('@/components/LazyRainbowText', () => ({
 }))
 
 import { UserBubbleContent, extractLeadingDirectives, formatDirectiveLabel, getUserBubbleClassName } from '@/components/AssistantChat/messages/user-bubble'
+
+function renderWithI18n(node: ReactNode) {
+    return render(<I18nProvider>{node}</I18nProvider>)
+}
 
 describe('extractLeadingDirectives', () => {
     it('extracts leading skill and command directives', () => {
@@ -40,7 +46,7 @@ describe('extractLeadingDirectives', () => {
 
 describe('UserBubbleContent', () => {
     it('renders directive chips inline with the remaining single-line message body', () => {
-        render(<UserBubbleContent text="$ralplan polish the user bubble" />)
+        renderWithI18n(<UserBubbleContent text="$ralplan polish the user bubble" />)
 
         expect(screen.getByText('ralplan')).toBeInTheDocument()
         expect(screen.getByText('polish the user bubble')).toBeInTheDocument()
@@ -49,7 +55,7 @@ describe('UserBubbleContent', () => {
     })
 
     it('asks LazyRainbowText to preserve single newlines in sent prompt bodies', () => {
-        const { container } = render(<UserBubbleContent text={'Line one\nLine two\nLine three'} />)
+        const { container } = renderWithI18n(<UserBubbleContent text={'Line one\nLine two\nLine three'} />)
         const lazyText = container.querySelector('[data-testid="lazy-rainbow-text"]')
 
         expect(lazyText).toHaveAttribute('data-preserve-single-line-breaks', 'true')

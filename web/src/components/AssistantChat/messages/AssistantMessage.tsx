@@ -63,15 +63,17 @@ export function HappyAssistantMessage() {
         || (messageModel != null && messageModel !== '')
         || (typeof turnCount === 'number' && turnCount >= 2)
 
+    // overflow-x-clip 而非 hidden：hidden 会把消息根变成滚动上下文，
+    // 破坏子孙（reasoning 手柄、代码块表头等）的 sticky 吸顶
     const rootClass = toolOnly
-        ? 'py-1 min-w-0 max-w-full overflow-x-hidden'
-        : 'px-1 min-w-0 max-w-full overflow-x-hidden'
+        ? 'py-1 min-w-0 max-w-full overflow-x-clip'
+        : 'px-1 min-w-0 max-w-full overflow-x-clip'
 
     if (isCliOutput) {
         return (
             <MessagePrimitive.Root
                 id={getConversationMessageAnchorId(messageId)}
-                className="scroll-mt-4 px-1 min-w-0 max-w-full overflow-x-hidden"
+                className="scroll-mt-4 px-1 min-w-0 max-w-full overflow-x-clip"
             >
                 <CliOutputBlock text={cliText} />
                 <div className="mt-1 flex items-center gap-2">
@@ -218,7 +220,7 @@ export function HappyAssistantMessage() {
                     )}
                 </div>
                 {copyText ? (
-                    <div className="happy-message-actions-first-line hidden sm:flex shrink-0 opacity-0 group-hover/msg:opacity-100 transition-opacity">
+                    <div className="happy-message-actions-first-line flex shrink-0 opacity-60 sm:opacity-0 sm:group-hover/msg:opacity-100 transition-opacity">
                         <button
                             type="button"
                             title="Copy"

@@ -150,6 +150,26 @@ export default {
   'session.action.reopen': '重新打开',
   'session.action.delete': '删除',
   'session.action.copy': '复制',
+  'session.action.share': '共享…',
+
+  // Resource sharing (grants)
+  'share.title.session': '共享会话：{name}',
+  'share.title.machine': '共享机器：{name}',
+  'share.title.directory': '共享目录：{name}',
+  'share.machineNote': '共享机器只会让对方看到机器本身——其上已有的会话需要单独共享。',
+  'share.directoryNote': '将对该目录下当前的 {n} 个会话逐个授权。',
+  'share.selectUser': '选择用户…',
+  'share.usernamePlaceholder': '被授权的用户名',
+  'share.role.viewer': 'viewer（只读）',
+  'share.role.operator': 'operator（可操作）',
+  'share.grant': '授权',
+  'share.granting': '授权中…',
+  'share.grantFailed': '授权失败',
+  'share.batchDone': '已授权 {ok}/{total} 个会话',
+  'share.batchPartialFailure': '{failed} 个会话授权失败',
+  'share.existing': '已共享给',
+  'share.noGrants': '尚未共享给任何人',
+  'share.remove': '移除',
 
   // Dialogs
   'dialog.uri.title': '打开此链接？',
@@ -270,7 +290,11 @@ export default {
 
   // Code block
   'code.copy': '复制',
-  'code.truncated': '预览已截断 — 打开详情查看完整输出',
+
+  // Long content collapse
+  'collapse.expand': '展开',
+  'collapse.collapse': '折叠',
+  'collapse.expandLines': '展开全部（{n} 行）',
 
   // Diff view
   'diff.title': '差异',

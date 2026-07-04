@@ -59,7 +59,7 @@ export function HappyUserMessage() {
         return (
             <MessagePrimitive.Root
                 id={getConversationMessageAnchorId(messageId)}
-                className="scroll-mt-4 px-1 min-w-0 max-w-full overflow-x-hidden"
+                className="scroll-mt-4 px-1 min-w-0 max-w-full overflow-x-clip"
             >
                 <div className="ml-auto w-full max-w-[92%]">
                     <CliOutputBlock text={cliText} />
