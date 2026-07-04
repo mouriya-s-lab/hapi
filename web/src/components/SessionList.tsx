@@ -5,7 +5,9 @@ import { useLongPress } from '@/hooks/useLongPress'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
 import { SessionActionMenu } from '@/components/SessionActionMenu'
+import { ShareGrantDialog, type ShareTarget } from '@/components/ShareGrantDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
+import { useOptionalAppContext } from '@/lib/app-context'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { CopyIcon, CheckIcon, ScheduleIcon } from '@/components/icons'
 import { cn } from '@/lib/utils'
@@ -594,13 +596,15 @@ function SessionItem(props: {
     api: ApiClient | null
     selected?: boolean
     showDetailedStatus?: boolean
+    canShare?: boolean
 }) {
     const { t } = useTranslation()
-    const { session: s, onSelect, showPath = true, api, selected = false, showDetailedStatus = false } = props
+    const { session: s, onSelect, showPath = true, api, selected = false, showDetailedStatus = false, canShare = false } = props
     const { haptic } = usePlatform()
     const [menuOpen, setMenuOpen] = useState(false)
     const [menuAnchorPoint, setMenuAnchorPoint] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
     const [renameOpen, setRenameOpen] = useState(false)
+    const [shareOpen, setShareOpen] = useState(false)
     const [archiveOpen, setArchiveOpen] = useState(false)
     const [deleteOpen, setDeleteOpen] = useState(false)
 
@@ -659,6 +663,12 @@ function SessionItem(props: {
             <button
                 type="button"
                 {...longPressHandlers}
+                onContextMenu={(event) => {
+                    // 桌面右键与移动端长按同源：都打开会话操作菜单
+                    event.preventDefault()
+                    setMenuAnchorPoint({ x: event.clientX, y: event.clientY })
+                    setMenuOpen(true)
+                }}
                 className={`session-list-item flex w-full flex-col gap-1 px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] select-none rounded-lg ${selected ? 'bg-[var(--app-secondary-bg)]' : ''}`}
                 style={{ WebkitTouchCallout: 'none' }}
                 aria-current={selected ? 'page' : undefined}
@@ -712,11 +722,20 @@ function SessionItem(props: {
                 onClose={() => setMenuOpen(false)}
                 sessionActive={s.active}
                 onRename={() => setRenameOpen(true)}
+                onShare={canShare && api ? () => setShareOpen(true) : undefined}
                 onArchive={() => setArchiveOpen(true)}
                 onReopen={handleReopen}
                 onDelete={() => setDeleteOpen(true)}
                 anchorPoint={menuAnchorPoint}
             />
+
+            {api ? (
+                <ShareGrantDialog
+                    api={api}
+                    target={shareOpen ? { kind: 'session', id: s.id, label: sessionName } : null}
+                    onClose={() => setShareOpen(false)}
+                />
+            ) : null}
 
             {reopenError ? (
                 <ConfirmDialog
@@ -784,6 +803,10 @@ export function SessionList(props: {
     const { sessionPreviewLimit } = useSessionPreviewLimit()
     const { sessionListStatusMode } = useSessionListStatusMode()
     const showDetailedStatus = sessionListStatusMode === 'detailed'
+    // 右键授权仅对 admin 开放（/api/admin/accounts 选人接口也是 admin-only）
+    const appContext = useOptionalAppContext()
+    const canShare = appContext?.user.role === 'admin' && api !== null
+    const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null)
     const [searchQuery, setSearchQuery] = useState('')
     const [, setCodexImportedSessionsVersion] = useState(0)
     const normalizedQuery = normalizeSearch(searchQuery)
@@ -1009,6 +1032,10 @@ export function SessionList(props: {
                             <button
                                 type="button"
                                 onClick={() => toggleMachine(mg)}
+                                onContextMenu={canShare && mg.machineId ? (event) => {
+                                    event.preventDefault()
+                                    setShareTarget({ kind: 'machine', id: mg.machineId!, label: mg.label })
+                                } : undefined}
                                 className="flex w-full items-center gap-2 px-1 py-1.5 text-left rounded-lg transition-colors hover:bg-[var(--app-subtle-bg)] select-none"
                             >
                                 <ChevronIcon className="h-4 w-4 text-[var(--app-hint)] shrink-0" collapsed={machineCollapsed} />
@@ -1032,6 +1059,14 @@ export function SessionList(props: {
                                                 <div
                                                     className="group/project sticky top-0 z-10 flex items-center gap-2 px-1 py-1.5 text-left rounded-lg transition-colors hover:bg-[var(--app-subtle-bg)] cursor-pointer min-w-0 w-full select-none"
                                                     onClick={() => toggleGroup(group.key, isCollapsed)}
+                                                    onContextMenu={canShare ? (event) => {
+                                                        event.preventDefault()
+                                                        setShareTarget({
+                                                            kind: 'directory',
+                                                            label: group.displayName,
+                                                            sessionIds: group.sessions.map((s) => s.id)
+                                                        })
+                                                    } : undefined}
                                                     title={group.directory}
                                                 >
                                                     <ChevronIcon className="h-3.5 w-3.5 text-[var(--app-hint)] shrink-0" collapsed={isCollapsed} />
@@ -1074,6 +1109,7 @@ export function SessionList(props: {
                                                                 api={api}
                                                                 selected={s.id === selectedSessionId}
                                                                 showDetailedStatus={showDetailedStatus}
+                                                                canShare={canShare}
                                                             />
                                                         ))}
                                                         {!isSearching && group.sessions.length > sessionPreviewLimit && (sessionGroupExpanded || hiddenSessionCount > 0) ? (
@@ -1103,6 +1139,14 @@ export function SessionList(props: {
                     )
                 })}
             </div>
+
+            {api ? (
+                <ShareGrantDialog
+                    api={api}
+                    target={shareTarget}
+                    onClose={() => setShareTarget(null)}
+                />
+            ) : null}
         </div>
     )
 }

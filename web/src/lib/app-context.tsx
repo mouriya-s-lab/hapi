@@ -29,3 +29,8 @@ export function useAppContext(): AppContextValue {
     }
     return context
 }
+
+// 供可能在 provider 外渲染的组件（如测试中的 SessionList）安全读取
+export function useOptionalAppContext(): AppContextValue | null {
+    return useContext(AppContext)
+}

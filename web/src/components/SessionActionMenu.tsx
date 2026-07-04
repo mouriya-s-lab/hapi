@@ -15,11 +15,34 @@ type SessionActionMenuProps = {
     sessionActive: boolean
     onRename: () => void
     onExport?: () => void
+    onShare?: () => void
     onArchive: () => void
     onReopen?: () => void
     onDelete: () => void
     anchorPoint: { x: number; y: number }
     menuId?: string
+}
+
+function ShareIcon(props: { className?: string }) {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={props.className}
+        >
+            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M2 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2" />
+        </svg>
+    )
 }
 
 function EditIcon(props: { className?: string }) {
@@ -141,6 +164,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         sessionActive,
         onRename,
         onExport,
+        onShare,
         onArchive,
         onReopen,
         onDelete,
@@ -171,6 +195,11 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
     const handleExport = () => {
         onClose()
         onExport?.()
+    }
+
+    const handleShare = () => {
+        onClose()
+        onShare?.()
     }
 
     const handleDelete = () => {
@@ -303,6 +332,18 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                     >
                         <DownloadIcon className="text-[var(--app-hint)]" />
                         {t('session.action.export')}
+                    </button>
+                ) : null}
+
+                {onShare ? (
+                    <button
+                        type="button"
+                        role="menuitem"
+                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                        onClick={handleShare}
+                    >
+                        <ShareIcon className="text-[var(--app-hint)]" />
+                        {t('session.action.share')}
                     </button>
                 ) : null}
 
