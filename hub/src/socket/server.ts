@@ -60,12 +60,19 @@ export function createSocketServer(deps: SocketServerDeps): {
     }
 
     const io = new Server<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>({
-        cors: corsOptions
+        cors: corsOptions,
+        // 历史会话导入等场景会经 RPC 回传较大的消息载荷(单会话可达数 MB)。
+        // socket.io / bun-engine 默认 maxHttpBufferSize 仅 1MB,会静默丢弃超限消息,
+        // 导致 RPC 无响应而超时。放大到 100MB。
+        maxHttpBufferSize: 100 * 1024 * 1024
     })
 
     const engine = new Engine({
         path: '/socket.io/',
         cors: corsOptions,
+        // bun-engine 据此设置 Bun WebSocket 的 maxPayloadLength/maxRequestBodySize,
+        // 与上面的 Server 配置保持一致(真正的强制点在这里)。
+        maxHttpBufferSize: 100 * 1024 * 1024,
         allowRequest: async (req) => {
             const origin = req.headers.get('origin')
             if (!origin || allowAllOrigins || corsOrigins.includes(origin)) {

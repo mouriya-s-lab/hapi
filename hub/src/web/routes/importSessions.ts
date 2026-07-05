@@ -33,6 +33,8 @@ function buildImportedMetadata(
     flavor: 'claude' | 'codex',
     sourceId: string,
     meta: ImportedSessionMeta,
+    machineId: string,
+    host: string,
     existing?: Record<string, unknown> | null
 ): Record<string, unknown> {
     const now = Date.now()
@@ -42,6 +44,10 @@ function buildImportedMetadata(
     return {
         ...(existing ?? {}),
         ...(path ? { path } : {}),
+        // 关联来源机器:machineId 供前端按机器分组;host 是 MetadataSchema 的必填字段,
+        // 缺失会导致会话重载时 metadata 校验(safeParse)失败被置为 null(无标题、归到"未知机器")。
+        machineId,
+        host,
         name: title,
         summary: title
             ? { text: title, updatedAt: now }
@@ -164,7 +170,10 @@ export function createImportSessionsRoutes(options: {
             }
 
             try {
-                const metadata = buildImportedMetadata(flavor, sourceId, read.meta ?? {})
+                const host = (typeof machine.metadata?.host === 'string' && machine.metadata.host)
+                    ? machine.metadata.host
+                    : machineId
+                const metadata = buildImportedMetadata(flavor, sourceId, read.meta ?? {}, machineId, host)
                 // 归属到发起导入的账号,否则非管理员导入后自己看不到。
                 const created = engine.getOrCreateSession(randomUUID(), metadata, {}, namespace, undefined, undefined, undefined, c.get('accountId') ?? null)
                 const sessionId = created.id
