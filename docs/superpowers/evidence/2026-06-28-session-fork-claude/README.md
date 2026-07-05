@@ -137,3 +137,59 @@ Distinct provider session ids, distinct on-disk JSONL files, lineage metadata wr
 2. `claude` binary here is a symlinked shim (`~/.local/bin/claude → ~/.claude-shim/claude`) whose PATH lookup differs across shells. Set `HAPI_CLAUDE_PATH=/Users/mouriya/.local/bin/claude` on the runner explicitly to sidestep the lookup ambiguity.
 
 Both are environment concerns for reproducing the e2e, not code issues in this PR.
+
+## Live context-inheritance verification (2026-07-05 addendum #2)
+
+The GUI addendum above establishes that fork endpoint fires end-to-end from a real click and produces the correct file / DB shape. The complementary check — **does the fork actually inherit source's conversation context, and does the source stay isolated when the fork advances** — needs a live prompt sent into the fork after `spawnSession`, then Claude's real reply observed. This section captures that.
+
+### Setup for the live probe
+
+- Same dev hub / cli runner as above; 2026-07-05 fork `25510cd5-…` (source `38364427-…`, fork `claudeSessionId d011b225-…`) still live under runner-spawned bun launcher pid 62031.
+- Probe driven by `POST /api/sessions/:id/messages` with `Content-Type: application/json` body `{"text": "<prompt>"}`. This is the same endpoint the web mutation `useSessionActions.sendMessage` posts to; skipping the browser here removes vite/moat flakiness from the loop, not the fork feature itself. Same hub, same runner, same launcher — the composer text field is a thin wrapper over this endpoint.
+
+### Probe 1 — does the fork know what the source's user asked for?
+
+```
+POST /api/sessions/25510cd5-9c36-47e2-a121-55464c700cf2/messages
+{"text":"In one word, what did the user in this conversation ask you to reply with?"}
+→ 200 {"ok":true}
+```
+
+The only mention of "reply with a single word" lives in the **source** session's user turn (`Reply with just the single word: ORIGINAL`, 2026-06-30, hub message seq=1). The fork was created after that turn. If context inherited, Claude should answer `ORIGINAL`. If not, Claude would refuse for lack of context.
+
+Fork's transcript after 25s (`GET /api/sessions/:id/messages` filtered to seq ≥ 7 — the send + reply pair):
+
+```
+seq=7  user  "In one word, what did the user in this conversation ask you to reply with?"
+seq=8  agent event/type=ready
+seq=9  agent output   text="ORIGINAL"
+              model=claude-opus-4-7
+              sessionId=d011b225-ab90-48f8-b392-8819cdd1a672   ← fork, not source
+              timestamp=2026-07-05T10:28:17.931Z
+              msg_id=msg_019BovAwSWEaYuXNkJmWjoHs
+              cache_read_input_tokens=16768  cache_creation_input_tokens=44314
+              cache_miss_reason=system_changed   ← expected: new session id invalidates cache
+```
+
+Claude replied `ORIGINAL`. The reply carries a fresh `msg_id` and the **fork's** `sessionId d011b225-…`, i.e. it is a live turn produced inside the fork's Claude process, not a replay of source's cached reply. This is context inheritance in the direction that matters: the fork's Claude has the source's turns in its resume state and uses them to answer.
+
+### Probe 2 — is the source unaffected by the fork's new turn?
+
+Same runner, same hub, source is `active=false / inactive`. If fork's activity leaked back, either source's hub message count or its Claude JSONL would grow.
+
+Live counts after probe 1 completed:
+
+| Property | source `38364427-…` (`3107fecd-…jsonl`) | fork `25510cd5-…` (`d011b225-…jsonl`) |
+|---|---|---|
+| hub `messages` rows | **4** (unchanged from before fork) | 9 (4 copied + probe user + retry user + fork's assistant turns) |
+| on-disk JSONL lines | **12** (unchanged) | 25 (grew from 19 → 25 with fork's `.` primer + probe reply + resume markers) |
+
+Source is not polluted by fork's new user prompt or Claude reply — neither in the hub messages table nor in Claude's own JSONL. Fork advanced independently.
+
+### What this addendum #2 changes vs #1
+
+Addendum #1 only observed the fork's on-disk shape (`d011b225` JSONL exists, distinct md5, hub row has lineage metadata). It didn't drive a live turn through the fork's Claude launcher, so it couldn't distinguish "fork looks right on disk" from "fork actually behaves like an inherited-context session in a real Claude process." Probe 1 in #2 forces Claude to demonstrate it has the source's context and answer from it; Probe 2 forces the reverse independence check. Together they cover the two directions of what "fork" means at the user-value level.
+
+### Runner startup note (not a PR issue)
+
+Reproducing the live probes required restarting the hub bun process — an earlier probe at 19:15 UTC returned `Process exited unexpectedly: Claude Code process exited with code null` because bun's JS runtime was in a transient bad state on this machine (fresh `bun -e "1+1"` also returned `error: An unknown error occurred (Unexpected)` at the same time; the same command worked again a minute later). Restarted hub, re-sent the same probe, got `ORIGINAL`. Not a code path in this PR.
