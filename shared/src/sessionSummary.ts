@@ -38,6 +38,8 @@ export type SessionSummaryMetadata = {
     worktree?: WorktreeMetadata
     agentSessionId?: string
     lifecycleState?: string
+    /** Present when the session was explicitly archived via the session menu. */
+    archivedAt?: number
 }
 
 export type SessionSummary = {
@@ -122,7 +124,8 @@ export function toSessionSummary(session: Session): SessionSummary {
             ?? session.metadata.cursorSessionId
             ?? session.metadata.kimiSessionId
             ?? undefined,
-        lifecycleState: session.metadata.lifecycleState
+        lifecycleState: session.metadata.lifecycleState,
+        archivedAt: session.metadata.archivedAt
     } : null
 
     const todoProgress = session.todos?.length ? {

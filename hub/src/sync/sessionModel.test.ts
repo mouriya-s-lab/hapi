@@ -430,6 +430,38 @@ describe('session model', () => {
         })
     })
 
+    it('does not advance updatedAt on agent_state updates, but message activity does (fork #5/#2)', () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+
+        const session = cache.getOrCreateSession(
+            'session-agent-state-no-touch',
+            { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
+            null,
+            'default'
+        )
+        const before = store.sessions.getSession(session.id)!.updatedAt
+        const versionBefore = store.sessions.getSession(session.id)!.agentStateVersion
+
+        // agent_state churn (thinking / internal request changes) must NOT advance updatedAt
+        const result = store.sessions.updateSessionAgentState(
+            session.id,
+            { requests: { r1: { tool: 'Bash' } } },
+            versionBefore,
+            'default'
+        )
+        expect(result.result).toBe('success')
+        const after = store.sessions.getSession(session.id)!
+        expect(after.agentStateVersion).toBe(versionBefore + 1) // the update really happened
+        expect(after.updatedAt).toBe(before) // ...but updatedAt did not move
+
+        // a real message/reply still advances updatedAt ("time since last reply")
+        const activityAt = before + 60_000
+        cache.recordSessionActivity(session.id, activityAt)
+        expect(store.sessions.getSession(session.id)!.updatedAt).toBe(activityAt)
+    })
+
     it('rejects active session config updates when CLI ignores requested keys', async () => {
         const store = new Store(':memory:')
         const engine = new SyncEngine(
@@ -710,6 +742,179 @@ describe('session model', () => {
 
             expect(result).toEqual({ type: 'success', sessionId: session.id })
             expect(capturedModelReasoningEffort).toBe('xhigh')
+        } finally {
+            engine.stop()
+        }
+    })
+
+    it('omits stored Claude model parameters when resume model setting is disabled', async () => {
+        const store = new Store(':memory:')
+        const engine = new SyncEngine(
+            store,
+            {} as never,
+            new RpcRegistry(),
+            { broadcast() {} } as never
+        )
+
+        try {
+            const session = engine.getOrCreateSession(
+                'session-claude-resume-default-model',
+                {
+                    path: '/tmp/project',
+                    host: 'localhost',
+                    machineId: 'machine-1',
+                    flavor: 'claude',
+                    claudeSessionId: 'claude-session-1'
+                },
+                null,
+                'default',
+                'sonnet',
+                'high'
+            )
+            engine.getOrCreateMachine(
+                'machine-1',
+                { host: 'localhost', platform: 'linux', happyCliVersion: '0.1.0' },
+                null,
+                'default'
+            )
+            engine.handleMachineAlive({ machineId: 'machine-1', time: Date.now() })
+
+            let capturedModel: string | undefined
+            let capturedEffort: string | undefined
+            ;(engine as any).rpcGateway.spawnSession = async (
+                _machineId: string,
+                _directory: string,
+                _agent: string,
+                model?: string,
+                _modelReasoningEffort?: string,
+                _yolo?: boolean,
+                _sessionType?: 'simple' | 'worktree',
+                _worktreeName?: string,
+                _resumeSessionId?: string,
+                effort?: string
+            ) => {
+                capturedModel = model
+                capturedEffort = effort
+                return { type: 'success', sessionId: session.id }
+            }
+            ;(engine as any).waitForSessionActive = async () => true
+
+            const result = await engine.resumeSession(session.id, 'default')
+
+            expect(result).toEqual({ type: 'success', sessionId: session.id })
+            expect(capturedModel).toBeUndefined()
+            expect(capturedEffort).toBeUndefined()
+        } finally {
+            engine.stop()
+        }
+    })
+
+    it('passes stored Claude model parameters when resume model setting is enabled', async () => {
+        const store = new Store(':memory:')
+        const engine = new SyncEngine(
+            store,
+            {} as never,
+            new RpcRegistry(),
+            { broadcast() {} } as never
+        )
+
+        try {
+            const session = engine.getOrCreateSession(
+                'session-claude-resume-session-model',
+                {
+                    path: '/tmp/project',
+                    host: 'localhost',
+                    machineId: 'machine-1',
+                    flavor: 'claude',
+                    claudeSessionId: 'claude-session-1'
+                },
+                null,
+                'default',
+                'sonnet',
+                'high'
+            )
+            await engine.applySessionConfig(session.id, { resumeWithSessionModel: true })
+            engine.getOrCreateMachine(
+                'machine-1',
+                { host: 'localhost', platform: 'linux', happyCliVersion: '0.1.0' },
+                null,
+                'default'
+            )
+            engine.handleMachineAlive({ machineId: 'machine-1', time: Date.now() })
+
+            let capturedModel: string | undefined
+            let capturedEffort: string | undefined
+            ;(engine as any).rpcGateway.spawnSession = async (
+                _machineId: string,
+                _directory: string,
+                _agent: string,
+                model?: string,
+                _modelReasoningEffort?: string,
+                _yolo?: boolean,
+                _sessionType?: 'simple' | 'worktree',
+                _worktreeName?: string,
+                _resumeSessionId?: string,
+                effort?: string
+            ) => {
+                capturedModel = model
+                capturedEffort = effort
+                return { type: 'success', sessionId: session.id }
+            }
+            ;(engine as any).waitForSessionActive = async () => true
+
+            const result = await engine.resumeSession(session.id, 'default')
+
+            expect(result).toEqual({ type: 'success', sessionId: session.id })
+            expect(capturedModel).toBe('sonnet')
+            expect(capturedEffort).toBe('high')
+        } finally {
+            engine.stop()
+        }
+    })
+
+    it('local Claude resume target follows resume model setting', async () => {
+        const store = new Store(':memory:')
+        const engine = new SyncEngine(
+            store,
+            {} as never,
+            new RpcRegistry(),
+            { broadcast() {} } as never
+        )
+
+        try {
+            const session = engine.getOrCreateSession(
+                'session-claude-local-resume-model-setting',
+                {
+                    path: '/tmp/project',
+                    host: 'localhost',
+                    machineId: 'machine-1',
+                    flavor: 'claude',
+                    claudeSessionId: 'claude-session-1'
+                },
+                null,
+                'default',
+                'sonnet',
+                'high'
+            )
+
+            const disabled = engine.resolveLocalResumeTarget(session.id, 'default')
+            expect(disabled).toMatchObject({
+                type: 'success',
+                target: {
+                    model: null,
+                    effort: null
+                }
+            })
+
+            await engine.applySessionConfig(session.id, { resumeWithSessionModel: true })
+            const enabled = engine.resolveLocalResumeTarget(session.id, 'default')
+            expect(enabled).toMatchObject({
+                type: 'success',
+                target: {
+                    model: 'sonnet',
+                    effort: 'high'
+                }
+            })
         } finally {
             engine.stop()
         }

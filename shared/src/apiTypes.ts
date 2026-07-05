@@ -135,6 +135,12 @@ export const SessionModelRequestSchema = z.object({
 
 export type SessionModelRequest = z.infer<typeof SessionModelRequestSchema>
 
+export const SessionResumeModelRequestSchema = z.object({
+    resumeWithSessionModel: z.boolean()
+})
+
+export type SessionResumeModelRequest = z.infer<typeof SessionResumeModelRequestSchema>
+
 export const SessionModelReasoningEffortRequestSchema = z.object({
     modelReasoningEffort: z.string().trim().min(1).nullable()
 })

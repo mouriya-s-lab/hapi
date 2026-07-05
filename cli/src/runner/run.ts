@@ -1089,7 +1089,9 @@ export function buildCliArgs(
           ? 'opencode'
           : agent === 'pi'
             ? 'pi'
-            : 'claude';
+            : agent === 'omp'
+              ? 'omp'
+              : 'claude';
   const args = [agentCommand];
   if (options.resumeSessionId) {
     if (agent === 'codex') {
