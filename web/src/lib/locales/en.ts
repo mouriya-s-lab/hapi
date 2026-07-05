@@ -160,6 +160,7 @@ export default {
   'session.action.reopen': 'Reopen',
   'session.action.delete': 'Delete',
   'session.action.copy': 'Copy',
+  'session.action.fork': 'Fork session',
 
   // Dialogs
   'dialog.uri.title': 'Open this link?',
@@ -171,6 +172,8 @@ export default {
   'dialog.rename.save': 'Save',
   'dialog.rename.saving': 'Saving…',
   'dialog.rename.error': 'Failed to rename. Please try again.',
+  'dialog.fork.errorTitle': 'Fork failed',
+  'dialog.fork.dismiss': 'OK',
   'dialog.sessionId.title': 'Session ID',
   'dialog.sessionId.description': 'The resume-able session id for this conversation. Select the text to copy it manually, or use the Copy button.',
   'dialog.sessionId.empty': 'This conversation has no resume-able session id yet.',

@@ -118,6 +118,23 @@ export interface ThreadResumeResponse {
     [key: string]: unknown;
 }
 
+/**
+ * thread/fork — forks a thread at head (or before last N turns if numTurns given).
+ * Used by fork-features/session-fork to clone a codex session into a new thread
+ * that hapi can then resume independently.
+ */
+export interface ThreadForkParams {
+    threadId: string;
+    numTurns?: number;
+}
+
+export interface ThreadForkResponse {
+    thread: {
+        id: string;
+    };
+    [key: string]: unknown;
+}
+
 export type UserInput =
     | {
         type: 'text';

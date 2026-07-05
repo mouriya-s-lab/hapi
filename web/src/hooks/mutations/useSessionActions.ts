@@ -26,6 +26,7 @@ export function useSessionActions(
     setServiceTier: (serviceTier: string | null) => Promise<void>
     renameSession: (name: string) => Promise<void>
     deleteSession: () => Promise<void>
+    forkSession: () => Promise<{ newSessionId: string }>
     isPending: boolean
 } {
     const queryClient = useQueryClient()
@@ -206,6 +207,18 @@ export function useSessionActions(
         },
     })
 
+    const forkMutation = useMutation<{ newSessionId: string }, Error, void>({
+        mutationFn: async () => {
+            if (!api || !sessionId) {
+                throw new Error('Session unavailable')
+            }
+            return await api.forkSession(sessionId)
+        },
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: queryKeys.sessions })
+        },
+    })
+
     return {
         abortSession: abortMutation.mutateAsync,
         archiveSession: archiveMutation.mutateAsync,
@@ -220,6 +233,7 @@ export function useSessionActions(
         setServiceTier: serviceTierMutation.mutateAsync,
         renameSession: renameMutation.mutateAsync,
         deleteSession: deleteMutation.mutateAsync,
+        forkSession: forkMutation.mutateAsync,
         isPending: abortMutation.isPending
             || archiveMutation.isPending
             || reopenMutation.isPending
@@ -232,6 +246,7 @@ export function useSessionActions(
             || effortMutation.isPending
             || serviceTierMutation.isPending
             || renameMutation.isPending
-            || deleteMutation.isPending,
+            || deleteMutation.isPending
+            || forkMutation.isPending,
     }
 }

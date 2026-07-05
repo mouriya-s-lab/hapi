@@ -3,6 +3,7 @@ import type { Session } from '@/types/api'
 import type { ApiClient } from '@/api/client'
 import { isTelegramApp } from '@/hooks/useTelegram'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
+import { useFlavorCapabilities } from '@/hooks/queries/useFlavorCapabilities'
 import { SessionActionMenu } from '@/components/SessionActionMenu'
 import { SessionExportDialog } from '@/components/SessionExportDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
@@ -106,9 +107,10 @@ export function SessionHeader(props: {
     api: ApiClient | null
     onSessionDeleted?: () => void
     onSessionReopened?: (newSessionId: string) => void
+    onSessionForked?: (newSessionId: string) => void
 }) {
     const { t } = useTranslation()
-    const { session, api, onSessionDeleted, onSessionReopened } = props
+    const { session, api, onSessionDeleted, onSessionReopened, onSessionForked } = props
     const title = useMemo(() => getSessionTitle(session), [session])
     const worktreeBranch = session.metadata?.worktree?.branch
     const modelLabel = getSessionModelLabel(session)
@@ -123,12 +125,17 @@ export function SessionHeader(props: {
     const [archiveOpen, setArchiveOpen] = useState(false)
     const [deleteOpen, setDeleteOpen] = useState(false)
 
-    const { archiveSession, reopenSession, renameSession, deleteSession, isPending } = useSessionActions(
+    const { archiveSession, reopenSession, renameSession, deleteSession, forkSession, isPending } = useSessionActions(
         api,
         session.id,
         session.metadata?.flavor ?? null
     )
+    const { data: capabilities } = useFlavorCapabilities(api)
+    const sessionFlavor = session.metadata?.flavor ?? null
+    const forkSupported =
+        Boolean(sessionFlavor) && (capabilities?.fork?.includes(sessionFlavor as string) ?? false)
     const [reopenError, setReopenError] = useState<string | null>(null)
+    const [forkError, setForkError] = useState<string | null>(null)
 
     const handleDelete = async () => {
         await deleteSession()
@@ -144,6 +151,16 @@ export function SessionHeader(props: {
             }
         } catch (error) {
             setReopenError(formatReopenError(error))
+        }
+    }
+
+    const handleFork = async () => {
+        setForkError(null)
+        try {
+            const { newSessionId } = await forkSession()
+            onSessionForked?.(newSessionId)
+        } catch (error) {
+            setForkError(error instanceof Error ? error.message : 'Fork failed')
         }
     }
 
@@ -258,9 +275,24 @@ export function SessionHeader(props: {
                 onArchive={() => setArchiveOpen(true)}
                 onReopen={handleReopen}
                 onDelete={() => setDeleteOpen(true)}
+                onFork={forkSupported ? handleFork : undefined}
+                forkSupported={forkSupported}
                 anchorPoint={menuAnchorPoint}
                 menuId={menuId}
             />
+
+            {forkError ? (
+                <ConfirmDialog
+                    isOpen={true}
+                    onClose={() => setForkError(null)}
+                    title={t('dialog.fork.errorTitle', { defaultValue: 'Fork failed' })}
+                    description={forkError}
+                    confirmLabel={t('dialog.fork.dismiss', { defaultValue: 'OK' })}
+                    confirmingLabel={t('dialog.fork.dismiss', { defaultValue: 'OK' })}
+                    onConfirm={async () => setForkError(null)}
+                    isPending={false}
+                />
+            ) : null}
 
             {reopenError ? (
                 <ConfirmDialog

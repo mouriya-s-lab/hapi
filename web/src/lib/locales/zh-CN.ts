@@ -160,6 +160,7 @@ export default {
   'session.action.reopen': '重新打开',
   'session.action.delete': '删除',
   'session.action.copy': '复制',
+  'session.action.fork': 'Fork 会话',
 
   // Dialogs
   'dialog.uri.title': '打开此链接？',
@@ -171,6 +172,8 @@ export default {
   'dialog.rename.save': '保存',
   'dialog.rename.saving': '保存中…',
   'dialog.rename.error': '重命名失败，请重试。',
+  'dialog.fork.errorTitle': 'Fork 失败',
+  'dialog.fork.dismiss': '好',
   'dialog.sessionId.title': 'Session ID',
   'dialog.sessionId.description': '本会话可用于 resume 的 session id。可手动选中文本复制，或点「复制」按钮。',
   'dialog.sessionId.empty': '本会话暂无可 resume 的 session id。',

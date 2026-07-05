@@ -23,6 +23,8 @@ import { createCliRoutes } from './routes/cli'
 import { createCodexDesktopRoutes } from './routes/codexDesktop'
 import { createPushRoutes } from './routes/push'
 import { createVoiceRoutes } from './routes/voice'
+import { mountForkRoutes } from '../../../fork-features/session-fork/hubMount'
+import { buildForkDeps } from '../../../fork-features/session-fork/hubSyncEngineAdapter'
 import type { SSEManager } from '../sse/sseManager'
 import type { VisibilityTracker } from '../visibility/visibilityTracker'
 import type { Server as BunServer, ServerWebSocket } from 'bun'
@@ -247,6 +249,15 @@ function createWebApp(options: {
     }))
     app.route('/api', createPushRoutes(options.store, options.vapidPublicKey))
     app.route('/api', createVoiceRoutes())
+
+    // fork-features/session-fork: POST /api/sessions/:id/fork +
+    // GET /api/flavors/capabilities. Trunk patch — full handler lives
+    // in fork-features/session-fork/hubMount.ts.
+    mountForkRoutes(app, (namespace) => {
+        const engine = options.getSyncEngine()
+        if (!engine) return null
+        return buildForkDeps({ store: options.store, syncEngine: engine, namespace })
+    })
 
     // Skip static serving in relay mode, show helpful message on root
     if (options.relayMode) {

@@ -778,6 +778,18 @@ export class SyncEngine {
         )
     }
 
+    /**
+     * Trigger a provider-native session fork on the target machine.
+     * Wraps rpcGateway.forkProviderSessionOnMachine for fork-features/session-fork.
+     * Returned shape matches ForkSpawnResult (validated by the caller).
+     */
+    async forkProviderSession(
+        machineId: string,
+        request: { flavor: string; payload: unknown }
+    ): Promise<unknown> {
+        return await this.rpcGateway.forkProviderSessionOnMachine(machineId, request)
+    }
+
     private resolveFlavor(session: Session): AgentFlavor {
         const flavor = session.metadata?.flavor
         return isKnownFlavor(flavor) ? flavor : 'claude'

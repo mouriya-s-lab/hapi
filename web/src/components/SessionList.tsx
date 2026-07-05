@@ -4,6 +4,7 @@ import type { ApiClient } from '@/api/client'
 import { useLongPress } from '@/hooks/useLongPress'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
+import { useFlavorCapabilities } from '@/hooks/queries/useFlavorCapabilities'
 import { SessionActionMenu } from '@/components/SessionActionMenu'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -590,12 +591,17 @@ function SessionItem(props: {
     const [archiveOpen, setArchiveOpen] = useState(false)
     const [deleteOpen, setDeleteOpen] = useState(false)
 
-    const { archiveSession, reopenSession, renameSession, deleteSession, isPending } = useSessionActions(
+    const { archiveSession, reopenSession, renameSession, deleteSession, forkSession, isPending } = useSessionActions(
         api,
         s.id,
         s.metadata?.flavor ?? null
     )
+    const { data: capabilities } = useFlavorCapabilities(api)
+    const sessionFlavor = s.metadata?.flavor ?? null
+    const forkSupported =
+        Boolean(sessionFlavor) && (capabilities?.fork?.includes(sessionFlavor as string) ?? false)
     const [reopenError, setReopenError] = useState<string | null>(null)
+    const [forkError, setForkError] = useState<string | null>(null)
 
     const handleReopen = async () => {
         setReopenError(null)
@@ -608,6 +614,16 @@ function SessionItem(props: {
             }
         } catch (error) {
             setReopenError(formatReopenError(error))
+        }
+    }
+
+    const handleFork = async () => {
+        setForkError(null)
+        try {
+            const { newSessionId } = await forkSession()
+            onSelect(newSessionId)
+        } catch (error) {
+            setForkError(error instanceof Error ? error.message : 'Fork failed')
         }
     }
 
@@ -721,6 +737,8 @@ function SessionItem(props: {
                 onArchive={() => setArchiveOpen(true)}
                 onReopen={handleReopen}
                 onDelete={() => setDeleteOpen(true)}
+                onFork={forkSupported ? handleFork : undefined}
+                forkSupported={forkSupported}
                 anchorPoint={menuAnchorPoint}
             />
 
@@ -733,6 +751,19 @@ function SessionItem(props: {
                     confirmLabel={t('dialog.reopen.dismiss')}
                     confirmingLabel={t('dialog.reopen.dismiss')}
                     onConfirm={async () => setReopenError(null)}
+                    isPending={false}
+                />
+            ) : null}
+
+            {forkError ? (
+                <ConfirmDialog
+                    isOpen={true}
+                    onClose={() => setForkError(null)}
+                    title={t('dialog.fork.errorTitle', { defaultValue: 'Fork failed' })}
+                    description={forkError}
+                    confirmLabel={t('dialog.fork.dismiss', { defaultValue: 'OK' })}
+                    confirmingLabel={t('dialog.fork.dismiss', { defaultValue: 'OK' })}
+                    onConfirm={async () => setForkError(null)}
                     isPending={false}
                 />
             ) : null}

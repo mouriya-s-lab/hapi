@@ -429,6 +429,22 @@ export class ApiClient {
     }
 
     /**
+     * Session fork (fork-features/session-fork). Returns the new hapi session
+     * id for the forked copy.
+     */
+    async forkSession(sessionId: string): Promise<{ newSessionId: string }> {
+        return await this.request<{ newSessionId: string }>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/fork`,
+            { method: 'POST', body: JSON.stringify({}) }
+        )
+    }
+
+    /** Lists flavors that support fork. Used to capability-gate the Fork menu item. */
+    async getFlavorCapabilities(): Promise<{ fork: string[] }> {
+        return await this.request<{ fork: string[] }>('/api/flavors/capabilities')
+    }
+
+    /**
      * Migrate a legacy stream-json Cursor session to ACP. See tiann/hapi#824.
      *
      * Refusals (e.g. running session, missing on-disk store, target collision)

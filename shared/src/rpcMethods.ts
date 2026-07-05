@@ -6,6 +6,7 @@ export const RPC_METHODS = {
     KillSession: 'killSession',
     HandoffLocal: 'handoff-local',
     SpawnHappySession: 'spawn-happy-session',
+    ForkSpawnSession: 'fork-spawn-session',
     StopSession: 'stop-session',
     StopRunner: 'stop-runner',
     ListMachineDirectory: 'list-directory',

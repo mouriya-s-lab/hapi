@@ -180,6 +180,19 @@ export class RpcGateway {
         }
     }
 
+    /**
+     * Trigger a provider-native session fork on the target machine.
+     * Used by fork-features/session-fork to clone a session into a new
+     * provider session id. Returns the raw RPC result (typed by the caller
+     * via ForkSpawnResult); status code mapping happens in hubForkController.
+     */
+    async forkProviderSessionOnMachine(
+        machineId: string,
+        request: { flavor: string; payload: unknown }
+    ): Promise<unknown> {
+        return await this.machineRpc(machineId, RPC_METHODS.ForkSpawnSession, request)
+    }
+
     async listMachineDirectory(machineId: string, path: string): Promise<RpcListDirectoryResponse> {
         const result = await this.machineRpc(machineId, RPC_METHODS.ListMachineDirectory, { path }) as RpcListDirectoryResponse | unknown
         if (!result || typeof result !== 'object') {
