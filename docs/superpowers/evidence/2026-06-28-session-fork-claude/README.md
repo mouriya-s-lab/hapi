@@ -85,5 +85,55 @@ fork    : 4   (copied)
 ## What was NOT exercised
 
 - Codex fork (per user direction: "codex 不需要跑，跑 claude 就行"). T20 deferred.
-- UI menu-click path: moat-browser refs were unstable across re-snapshots, so the final fork was triggered via direct `POST /api/sessions/:id/fork`. The UI menu wiring (`useFlavorCapabilities` → `useSessionActions.forkSession` mutation → `/api/sessions/:id/fork`) was exercised through the same endpoint indirectly. The menu item visibility was verified in the snapshot before invocation (`menuitem "session.action.fork"`).
 - Active-turn fork rejection — MVP does not check active-turn state; deferred.
+
+## GUI click-path verification (2026-07-05 addendum)
+
+The T19 pass above triggered the final fork via direct `POST /api/sessions/:id/fork` because moat-browser accessibility refs were unstable across snapshots for the virtual-scroll session-list items. This addendum backfills the missing evidence: a user actually clicking the Fork menu item and observing the mutation propagate end-to-end.
+
+Setup: same dev environment (`HAPI_HOME=~/.hapi-dev-fork-e2e`, hub `127.0.0.1:3106`, vite `127.0.0.1:5173`, dev cli runner with independent machineId `4ec8c36e-…`). Browser: moat-browser remote session (`ws://browser.hb.lan:3000`). The virtual-scroll list-item refs still race with timestamp text updates ("just now" → "1m ago" → "2m ago"); worked around with a JS-eval scroll-and-click via `.session-list-item` class rather than Playwright role locators.
+
+**Menu item renders on a Claude source session:**
+
+![Fork menu item in More Actions on a Claude session](https://img.237575.xyz/media/bdRQa77QPKirz03-Scrc_dYMhSA7dgEKcPs-kGDw7sA)
+
+Menu order: `Rename / Session ID / Export conversation / Fork session / Reopen / Delete`. Rendered from the same `useFlavorCapabilities` hook + `SessionActionMenu` wiring paths; capability-gated by `GET /api/flavors/capabilities`.
+
+**Clicking the menu item invokes the mutation, hub log:**
+
+```
+<-- POST /api/sessions/38364427-da6b-4375-8ebc-d54def7cc353/fork
+<-- POST /cli/machines
+--> POST /cli/machines 200 1ms
+<-- POST /cli/sessions
+--> POST /cli/sessions 200 1ms
+--> POST /api/sessions/38364427-da6b-4375-8ebc-d54def7cc353/fork 200 3s
+```
+
+The 3s window covers claude fork spawn + JSONL materialization + hub's standard `spawnSession` reuse; the interleaved `/cli/*` POSTs are the runner reporting the new session back through the sync path.
+
+**New fork appears in the sessions list with the correct label:**
+
+![Sessions list post-fork: "Untitled (fork) just now" alongside T19 fork and source](https://img.237575.xyz/media/w4DpkBZvsVv_iogs94XMrKptaql1MwabQbhLqiULBeg)
+
+Header count changes `2 sessions in 1 projects` → `3 sessions in 1 projects`; the new row `Untitled (fork) just now` renders at the top under `tmp/hapi-fork-e2e-cwd`.
+
+**Post-click state verification (2026-07-05 fork):**
+
+| Property | Source `38364427-…` | 2026-07-05 fork `25510cd5-…` |
+|---|---|---|
+| `metadata.claudeSessionId` | `3107fecd-…` | `d011b225-…` (distinct) |
+| `metadata.forkedFrom` | — | `38364427-…` |
+| `metadata.forkedAt` | — | `2026-07-05 09:56:16 UTC` |
+| `metadata.name` | (default from path) | `Untitled (fork)` |
+| On-disk JSONL | `3107fecd-…jsonl` — 12 lines, 62 907 B, md5 `7476be47…` | `d011b225-…jsonl` — 19 lines, 68 756 B, md5 `7d4676e7…` |
+| hub `messages` rows | 4 | 4 (transcript cloned) |
+
+Distinct provider session ids, distinct on-disk JSONL files, lineage metadata written — same shape as T19 verified via curl, now re-verified through the GUI-triggered path.
+
+**Env-specific gaps re-hit while reproducing on a new dev env (not PR defects):**
+
+1. Source session's cwd `/tmp/hapi-fork-e2e-cwd` had been GC'd between T19 and this addendum — first click failed with `posix_spawn '/Users/mouriya/.local/bin/claude'` ENOENT before Claude got a chance to run (posix_spawn reports the executable path even when the missing entry is the cwd). Recreated via `mkdir -p /tmp/hapi-fork-e2e-cwd`.
+2. `claude` binary here is a symlinked shim (`~/.local/bin/claude → ~/.claude-shim/claude`) whose PATH lookup differs across shells. Set `HAPI_CLAUDE_PATH=/Users/mouriya/.local/bin/claude` on the runner explicitly to sidestep the lookup ambiguity.
+
+Both are environment concerns for reproducing the e2e, not code issues in this PR.
