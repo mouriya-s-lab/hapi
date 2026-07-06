@@ -15,7 +15,7 @@
 
 ### 1. 合并后必须主动问一次「是否现在 CD」
 
-PR 合并不要默认「已生效」，也不要默认「自动部署」。有 runtime 改动落到 main 后，**主动问 operator**：这批改动是否现在部署到 hapi 主入口（`hapi.237575.xyz` / homelab `hapi` 栈），以及/或 fork 旁路（`hapi-fork.237575.xyz` / `hapi-fork` 栈）。
+PR 合并不要默认「已生效」，也不要默认「自动部署」。有 runtime 改动落到 main 后，**主动问 operator**：这批改动是否现在部署到 hapi 主入口（`hapi.237575.xyz` / homelab `hapi` 栈）。
 
 - 这是少数**值得问**的决策（部署有 blast radius，时机由 operator 定），不违反 `no-pointless-questions`。
 - 问法走正文自然语言（`no-ask-user-question-tool`）。
@@ -34,7 +34,7 @@ PR 合并不要默认「已生效」，也不要默认「自动部署」。有 r
 ### 4. 用既有 skill 开 IaC 部署任务
 
 - 用 `iac-auto-deploy-issue` skill，在 **`mouriya-s-lab/homelab-tf`** 开 `iac:deploy` issue（注意：实际 owner 是 `mouriya-s-lab`，不是部分 skill/inventory 里写的 `Mouriya-Emma`）。
-- 把第 3 步的 URL + sha256 写成执行契约里的 compose pin。默认部署形态 = **版本更新 / 原地换芯**：改 `komodo/roles/komodo-stacks/templates/{hapi,hapi-fork}/compose.yaml.j2` 的下载 pin，**保持卷 / 端口 / connector·token / tunnel / DNS 不变**。
+- 把第 3 步的 URL + sha256 写成执行契约里的 compose pin。默认部署形态 = **版本更新 / 原地换芯**：改 `komodo/roles/komodo-stacks/templates/hapi/compose.yaml.j2` 的下载 pin，**保持卷 / 端口 / connector·token / tunnel / DNS 不变**。
 - hapi 是 tunnel·session 单例：issue 的验收标准里**必须**含 stop-before-start、以及切换前备份 `hapi-data` 的检查项（怎么写归 iac-auto-deploy-issue skill，这里只提醒别漏）。
 
 ### 5. 收尾（不属于 IaC issue 的部分）
