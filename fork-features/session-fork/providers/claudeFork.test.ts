@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
-import { claudeForkProvider, __setSpawnClaudeForkForTests, __resetSpawnClaudeForkForTests } from './claudeFork'
+import {
+    claudeForkProvider,
+    ClaudeForkNotAtMessageError,
+    __setSpawnClaudeForkForTests,
+    __resetSpawnClaudeForkForTests
+} from './claudeFork'
 
 beforeEach(() => __resetSpawnClaudeForkForTests())
 
@@ -42,5 +47,35 @@ describe('claudeForkProvider', () => {
                 sourceCwd: '/tmp/x'
             } as any)
         ).rejects.toThrow(/claudeSessionId/)
+    })
+
+    it('rejects payload with forkPoint (head-only capability, #60)', async () => {
+        let spawnCalled = false
+        __setSpawnClaudeForkForTests(async () => {
+            spawnCalled = true
+            return { newClaudeSessionId: 'unreached' }
+        })
+        await expect(
+            claudeForkProvider.spawnFork({
+                sourceMetadata: { path: '/w', host: 'h', claudeSessionId: 'src' },
+                sourceCwd: '/tmp/x',
+                forkPoint: { messageId: 'm-42', tailOffset: 3 }
+            } as any)
+        ).rejects.toBeInstanceOf(ClaudeForkNotAtMessageError)
+        expect(spawnCalled).toBe(false)
+    })
+
+    it('accepts payload without forkPoint (HEAD fork, #55 semantics preserved)', async () => {
+        const calls: any[] = []
+        __setSpawnClaudeForkForTests(async (args) => {
+            calls.push(args)
+            return { newClaudeSessionId: 'ok' }
+        })
+        const result = await claudeForkProvider.spawnFork({
+            sourceMetadata: { path: '/w', host: 'h', claudeSessionId: 'src' },
+            sourceCwd: '/w'
+        } as any)
+        expect(calls.length).toBe(1)
+        expect(result.providerSessionId).toBe('ok')
     })
 })
