@@ -4,14 +4,20 @@
  *
  *   fork:
  *     'none'       — flavor has no fork primitive; UI hides all fork entries.
- *     'head-only'  — provider forks from HEAD only (e.g. Claude CLI
- *                    `--fork-session` has no per-message flag). UI shows the
+ *     'head-only'  — provider forks from HEAD only. UI shows the
  *                    session-level "Fork session" menu but no message-level
  *                    rewind button; hub rejects requests carrying forkPoint.
- *     'at-message' — provider can fork at an arbitrary user message
- *                    (e.g. Codex app-server `thread/fork { numTurns }`). UI
+ *                    (Currently no shipped provider hits this branch — kept
+ *                    as a shape for future providers whose native surface is
+ *                    HEAD-only.)
+ *     'at-message' — provider can fork at an arbitrary user message. UI
  *                    shows both session-level menu and the trailing-row
- *                    rewind button on user messages.
+ *                    rewind button on user messages. Two provider-native
+ *                    forms are supported: count-based (Codex app-server
+ *                    `thread/fork { numTurns }` — hub emits `tailOffset`) and
+ *                    id-based (Claude CLI hidden `--fork-session --resume
+ *                    <sid> --resume-session-at <assistantUuid>` — hub emits
+ *                    `providerMessageId`).
  *
  *   files:
  *     'none' — no filesystem checkpoint / rewind support wired in this
@@ -42,7 +48,7 @@ export type FlavorForkCapability = {
 const NONE_CAPABILITY: FlavorForkCapability = { fork: 'none', files: 'none' }
 
 const FLAVOR_FORK_CAPABILITIES = {
-    claude: { fork: 'head-only', files: 'none' },
+    claude: { fork: 'at-message', files: 'none' },
     codex: { fork: 'at-message', files: 'none' },
     cursor: { fork: 'none', files: 'none' },
     gemini: { fork: 'none', files: 'none' },

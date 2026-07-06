@@ -49,7 +49,7 @@ describe('mountForkRoutes', () => {
         const body = (await res.json()) as {
             capabilities: Record<string, { fork: string; files: string }>
         }
-        expect(body.capabilities.claude).toEqual({ fork: 'head-only', files: 'none' })
+        expect(body.capabilities.claude).toEqual({ fork: 'at-message', files: 'none' })
         expect(body.capabilities.codex).toEqual({ fork: 'at-message', files: 'none' })
         expect(body.capabilities.cursor).toEqual({ fork: 'none', files: 'none' })
     })

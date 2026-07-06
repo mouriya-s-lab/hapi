@@ -6,11 +6,11 @@ import {
 } from './forkCapabilities'
 
 describe('forkCapabilities', () => {
-    it('claude reports head-only fork', () => {
-        expect(getForkCapability('claude')).toEqual({ fork: 'head-only', files: 'none' })
+    it('claude reports at-message fork (via --resume-session-at)', () => {
+        expect(getForkCapability('claude')).toEqual({ fork: 'at-message', files: 'none' })
     })
 
-    it('codex reports at-message fork', () => {
+    it('codex reports at-message fork (via ThreadForkParams.numTurns)', () => {
         expect(getForkCapability('codex')).toEqual({ fork: 'at-message', files: 'none' })
     })
 
@@ -39,11 +39,11 @@ describe('forkCapabilities', () => {
 
     it('getAllForkCapabilities exposes the full static table', () => {
         const all = getAllForkCapabilities()
-        expect(all.claude).toEqual({ fork: 'head-only', files: 'none' })
+        expect(all.claude).toEqual({ fork: 'at-message', files: 'none' })
         expect(all.codex).toEqual({ fork: 'at-message', files: 'none' })
         expect(all.cursor).toEqual({ fork: 'none', files: 'none' })
         // Mutating the returned map does not affect subsequent reads.
         all.claude = { fork: 'none', files: 'none' }
-        expect(getForkCapability('claude').fork).toBe('head-only')
+        expect(getForkCapability('claude').fork).toBe('at-message')
     })
 })

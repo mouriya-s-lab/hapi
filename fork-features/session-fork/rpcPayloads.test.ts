@@ -84,4 +84,26 @@ describe('rpcPayloads', () => {
             })
         ).toThrow()
     })
+
+    it('accepts forkPoint with providerMessageId (Claude id-based fork)', () => {
+        const payload = ForkSpawnPayloadSchema.parse({
+            sourceMetadata: { path: '/w', host: 'h' },
+            sourceCwd: '/w',
+            forkPoint: {
+                messageId: 'm-42',
+                tailOffset: 2,
+                providerMessageId: '1c2445d0-d4aa-4507-915b-2667fbd32144'
+            }
+        })
+        expect(payload.forkPoint?.providerMessageId).toBe('1c2445d0-d4aa-4507-915b-2667fbd32144')
+    })
+
+    it('providerMessageId is optional (Codex forks without it)', () => {
+        const payload = ForkSpawnPayloadSchema.parse({
+            sourceMetadata: { path: '/w', host: 'h' },
+            sourceCwd: '/w',
+            forkPoint: { messageId: 'm-42', tailOffset: 3 }
+        })
+        expect(payload.forkPoint?.providerMessageId).toBeUndefined()
+    })
 })
