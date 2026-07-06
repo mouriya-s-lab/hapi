@@ -5,6 +5,18 @@ export interface SpawnClaudeForkArgs {
     sourceSessionId: string
     cwd: string
     model?: string
+    /**
+     * When present, passed to Claude as `--resume-session-at <providerMessageId>`
+     * alongside `--fork-session --resume <sourceSessionId>`. Claude then
+     * copies the source jsonl transcript up to and including the message
+     * with this uuid into the new session and starts the next turn from
+     * there. Absent = HEAD fork (all source messages copied).
+     *
+     * Hub controller resolves this uuid from the hub's messages table by
+     * walking back from the target user message to the immediately-
+     * preceding role=agent message and reading `content.data.uuid`.
+     */
+    providerMessageId?: string
 }
 
 export interface SpawnClaudeForkResult {
@@ -31,31 +43,8 @@ export function __resetSpawnClaudeForkForTests(): void {
     spawnClaudeForkImpl = NOT_WIRED
 }
 
-/**
- * Emitted when a caller passes `forkPoint` to Claude's fork provider — Claude
- * CLI's native `--fork-session` flag only forks at HEAD (see `claude --help`:
- * "When resuming, create a new session ID instead of reusing the original")
- * so hapi declares `fork: 'head-only'` for the Claude flavor (#58
- * FlavorForkCapability). Hub controller maps this error class to 400.
- */
-export class ClaudeForkNotAtMessageError extends Error {
-    readonly code = 'claude_fork_head_only'
-    constructor() {
-        super(
-            'claude flavor does not support per-message fork: `claude --fork-session` forks at HEAD only. Use session-level fork (no forkPoint) to fork from the current head.'
-        )
-        this.name = 'ClaudeForkNotAtMessageError'
-    }
-}
-
 export const claudeForkProvider: ForkProvider = {
     async spawnFork(payload: ForkSpawnPayload): Promise<ForkSpawnResult> {
-        if (payload.forkPoint) {
-            // Second-line defence: hub controller (#61 c4) rejects at 400
-            // before reaching us, but a direct caller (test, CLI RPC round-
-            // trip, future consumer) could still land a forkPoint here.
-            throw new ClaudeForkNotAtMessageError()
-        }
         const sourceSessionId = payload.sourceMetadata.claudeSessionId
         if (!sourceSessionId) {
             throw new Error('claude fork: sourceMetadata.claudeSessionId is required')
@@ -63,7 +52,8 @@ export const claudeForkProvider: ForkProvider = {
         const { newClaudeSessionId } = await spawnClaudeForkImpl({
             sourceSessionId,
             cwd: payload.sourceCwd,
-            model: payload.sourceModel
+            model: payload.sourceModel,
+            providerMessageId: payload.forkPoint?.providerMessageId
         })
         return {
             providerSessionId: newClaudeSessionId,
