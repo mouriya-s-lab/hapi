@@ -1,6 +1,6 @@
 import type { Hono } from 'hono'
 import { forkSession, HttpError, type ForkDeps } from './hubForkController'
-import { FORK_CAPABLE_FLAVORS } from './forkCapabilities'
+import { getAllForkCapabilities } from './forkCapabilities'
 
 export type ForkSyncEngineLike = ForkDeps
 
@@ -17,7 +17,7 @@ export function mountForkRoutes(
     getDeps: (namespace: string) => ForkSyncEngineLike | null
 ): void {
     app.get('/api/flavors/capabilities', (c) => {
-        return c.json({ fork: [...FORK_CAPABLE_FLAVORS] })
+        return c.json({ capabilities: getAllForkCapabilities() })
     })
 
     app.post('/api/sessions/:id/fork', async (c) => {

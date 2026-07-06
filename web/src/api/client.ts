@@ -439,9 +439,15 @@ export class ApiClient {
         )
     }
 
-    /** Lists flavors that support fork. Used to capability-gate the Fork menu item. */
-    async getFlavorCapabilities(): Promise<{ fork: string[] }> {
-        return await this.request<{ fork: string[] }>('/api/flavors/capabilities')
+    /**
+     * Returns per-flavor fork capability shape (see
+     * `useFlavorCapabilities`). Web uses it to capability-gate the
+     * session-level Fork menu and the per-message rewind button.
+     */
+    async getFlavorCapabilities(): Promise<{
+        capabilities: Record<string, { fork: 'none' | 'head-only' | 'at-message'; files: 'none' }>
+    }> {
+        return await this.request('/api/flavors/capabilities')
     }
 
     /**

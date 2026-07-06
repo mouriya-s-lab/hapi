@@ -37,4 +37,51 @@ describe('rpcPayloads', () => {
         expect(() => ForkSpawnPayloadSchema.parse({})).toThrow()
         expect(() => ForkSpawnPayloadSchema.parse({ sourceCwd: '/w' })).toThrow()
     })
+
+    it('parses ForkSpawnPayload with forkPoint (per-message fork)', () => {
+        const payload = ForkSpawnPayloadSchema.parse({
+            sourceMetadata: { path: '/w', host: 'h' },
+            sourceCwd: '/w',
+            forkPoint: { messageId: 'm-42', tailOffset: 3 }
+        })
+        expect(payload.forkPoint).toEqual({ messageId: 'm-42', tailOffset: 3 })
+    })
+
+    it('parses ForkSpawnPayload without forkPoint (HEAD fork, backward-compat)', () => {
+        const payload = ForkSpawnPayloadSchema.parse({
+            sourceMetadata: { path: '/w', host: 'h' },
+            sourceCwd: '/w'
+        })
+        expect(payload.forkPoint).toBeUndefined()
+    })
+
+    it('rejects forkPoint with missing tailOffset', () => {
+        expect(() =>
+            ForkSpawnPayloadSchema.parse({
+                sourceMetadata: { path: '/w', host: 'h' },
+                sourceCwd: '/w',
+                forkPoint: { messageId: 'm-42' }
+            })
+        ).toThrow()
+    })
+
+    it('rejects forkPoint with negative tailOffset', () => {
+        expect(() =>
+            ForkSpawnPayloadSchema.parse({
+                sourceMetadata: { path: '/w', host: 'h' },
+                sourceCwd: '/w',
+                forkPoint: { messageId: 'm-42', tailOffset: -1 }
+            })
+        ).toThrow()
+    })
+
+    it('rejects forkPoint with non-integer tailOffset', () => {
+        expect(() =>
+            ForkSpawnPayloadSchema.parse({
+                sourceMetadata: { path: '/w', host: 'h' },
+                sourceCwd: '/w',
+                forkPoint: { messageId: 'm-42', tailOffset: 1.5 }
+            })
+        ).toThrow()
+    })
 })
