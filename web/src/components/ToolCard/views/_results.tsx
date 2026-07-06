@@ -3,11 +3,13 @@ import type { ReactNode } from 'react'
 import { isObject, safeStringify } from '@hapi/protocol'
 import { CodeBlock } from '@/components/CodeBlock'
 import { CollapsibleContent } from '@/components/CollapsibleContent'
+import { FileContentToggleView } from '@/components/FileContentToggleView'
 import { ImagePreview } from '@/components/ImagePreview'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import { ChecklistList, extractTodoChecklist } from '@/components/ToolCard/checklist'
 import { basename, resolveDisplayPath } from '@/utils/path'
 import { getInputStringAny } from '@/lib/toolInputUtils'
+import { detectImageDataUrl } from '@/components/ToolCard/views/readImageDetection'
 import {
     getCodexAgentActivity,
     getCodexAgentTargets,
@@ -478,53 +480,6 @@ function extractReadPathFromInput(input: unknown): string | null {
     return null
 }
 
-const IMAGE_PATH_EXTENSIONS = /\.(png|jpe?g|gif|webp|bmp|avif|svg)$/i
-const IMAGE_EXT_TO_MIME: Record<string, string> = {
-    png: 'image/png',
-    jpg: 'image/jpeg',
-    jpeg: 'image/jpeg',
-    gif: 'image/gif',
-    webp: 'image/webp',
-    bmp: 'image/bmp',
-    avif: 'image/avif',
-    svg: 'image/svg+xml'
-}
-
-/**
- * Read 工具读取被 base64 编码的图片文件时，结果是一长串 base64 文本（PNG 以
- * iVBORw0KGgo 开头、JPEG 以 /9j/ 开头等）。Read 还会给每行加 "N\t" 行号前缀，
- * 需先剥掉行号与空白，再判断是否为图片 base64，能识别就还原成 data URL。
- */
-function detectImageDataUrl(rawText: string, path: string | null): string | null {
-    const stripped = rawText
-        .replace(/^\s*\d+\t/gm, '') // 去掉 Read 的 "行号\t" 前缀
-        .replace(/\s+/g, '')        // base64 不含空白，去掉换行/空格
-    if (!stripped) return null
-
-    // 已经是 data:image/...;base64,xxx
-    const dataUrlMatch = /^data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+$/i.exec(stripped)
-    if (dataUrlMatch) return stripped
-
-    // 纯 base64：要求足够长且整体是合法 base64 字符
-    if (stripped.length < 64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(stripped)) return null
-
-    // 用 base64 头部魔数识别图片类型
-    let mime: string | null = null
-    if (stripped.startsWith('iVBORw0KGgo')) mime = 'image/png'
-    else if (stripped.startsWith('/9j/')) mime = 'image/jpeg'
-    else if (stripped.startsWith('R0lGOD')) mime = 'image/gif'
-    else if (stripped.startsWith('UklGR')) mime = 'image/webp'
-    else if (stripped.startsWith('Qk')) mime = 'image/bmp'
-    else {
-        // 头部无法识别时，仅当路径明确是图片扩展名才认定
-        const ext = path?.toLowerCase().match(IMAGE_PATH_EXTENSIONS)?.[1]
-        if (ext) mime = IMAGE_EXT_TO_MIME[ext] ?? null
-    }
-    if (!mime) return null
-
-    return `data:${mime};base64,${stripped}`
-}
-
 function renderImageResult(src: string, path: string | null) {
     const fileName = path ? basename(path) : 'image'
     return (
@@ -560,9 +515,18 @@ export function ToolResultImages(props: { result: unknown; input: unknown }) {
 }
 
 function renderReadTextResult(text: string, path: string | null, surface: ToolViewProps['surface']) {
+    // Read on an image file returns base64 (with Read's per-line "N\t" prefix).
+    // Detect and render as inline preview across all surfaces — a base64 blob
+    // has no useful CodeBlock / toggle view. See readImageDetection.ts.
     const imageSrc = detectImageDataUrl(text, path)
     if (imageSrc) {
         return renderImageResult(imageSrc, path)
+    }
+    // In the detail dialog (the "click a file → popup preview" surface) show the
+    // full file with the fork's markdown-preview + word-wrap toggles, matching
+    // the file-viewer route. Inline cards keep the compact CodeBlock preview.
+    if (surface === 'dialog') {
+        return <FileContentToggleView content={text} path={path} />
     }
     const language = inferCodeLanguage(path, text)
     if (language) {

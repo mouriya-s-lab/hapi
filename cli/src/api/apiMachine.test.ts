@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -135,10 +135,71 @@ describe('ApiMachineClient listOpencodeModelsForCwd handler', () => {
                 availableModels: [{ modelId: 'x/y' }],
                 currentModelId: 'x/y'
             })
-            expect(listOpencodeModelsForCwdMock).toHaveBeenCalledWith(secondWorkspaceRoot)
+            // The handler realpaths the cwd (security: prevents symlink escape),
+            // so on macOS /var/folders/... resolves to /private/var/folders/...
+            expect(listOpencodeModelsForCwdMock).toHaveBeenCalledWith(realpathSync(secondWorkspaceRoot))
         } finally {
             rmSync(secondWorkspaceRoot, { recursive: true, force: true })
             client.shutdown()
         }
+    })
+})
+
+describe('ApiMachineClient keepAlive lifecycle', () => {
+    beforeEach(() => {
+        vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+        vi.useRealTimers()
+    })
+
+    it('clears priming timeout on shutdown before first machine-alive emit', () => {
+        const machine = makeMachine('machine-keepalive')
+        const client = new ApiMachineClient('cli-token', machine)
+        const emit = vi.fn()
+        ;(client as unknown as { socket: { emit: typeof emit; close: () => void } }).socket = {
+            emit,
+            close: vi.fn(),
+        } as never
+
+        const priv = client as unknown as {
+            startKeepAlive: () => void
+            keepAliveInterval: NodeJS.Timeout | null
+            keepAliveStartTimeout: ReturnType<typeof setTimeout> | null
+        }
+
+        priv.startKeepAlive()
+        client.shutdown()
+        vi.advanceTimersByTime(100)
+
+        expect(emit).not.toHaveBeenCalled()
+        expect(priv.keepAliveInterval).toBeNull()
+        expect(priv.keepAliveStartTimeout).toBeNull()
+    })
+
+    it('clears running keepAlive interval on shutdown', () => {
+        const machine = makeMachine('machine-keepalive-2')
+        const client = new ApiMachineClient('cli-token', machine)
+        const emit = vi.fn()
+        ;(client as unknown as { socket: { emit: typeof emit; close: () => void } }).socket = {
+            emit,
+            close: vi.fn(),
+        } as never
+
+        const priv = client as unknown as {
+            startKeepAlive: () => void
+            keepAliveInterval: NodeJS.Timeout | null
+        }
+
+        priv.startKeepAlive()
+        vi.advanceTimersByTime(50)
+        expect(emit).toHaveBeenCalledTimes(1)
+
+        client.shutdown()
+        vi.advanceTimersByTime(20_000)
+
+        expect(emit).toHaveBeenCalledTimes(1)
+        expect(priv.keepAliveInterval).toBeNull()
     })
 })

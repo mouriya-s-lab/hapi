@@ -35,7 +35,7 @@ export { PushStore } from './pushStore'
 export { SessionStore } from './sessionStore'
 export { UserStore } from './userStore'
 
-const SCHEMA_VERSION: number = 12
+const SCHEMA_VERSION: number = 13
 const REQUIRED_TABLES = [
     'sessions',
     'machines',
@@ -115,6 +115,15 @@ export class Store {
         this.grants = new GrantStore(this.db)
     }
 
+    /**
+     * Run a synchronous function inside a SQLite transaction. Used by
+     * fork-features/session-fork to atomically insert the forked session
+     * row + clone its messages without exposing the raw db handle.
+     */
+    runInTransaction<T>(fn: () => T): T {
+        return this.db.transaction(fn)() as T
+    }
+
     close(): void {
         if (this.closed) return
         this.db.close()
@@ -147,6 +156,7 @@ export class Store {
             9: () => this.migrateFromV9ToV10(legacy),
             10: () => this.migrateFromV10ToV11(),
             11: () => this.migrateFromV11ToV12(),
+            12: () => this.migrateFromV12ToV13(),
         })
 
         if (currentVersion === 0) {
@@ -208,6 +218,8 @@ export class Store {
                 model TEXT,
                 model_reasoning_effort TEXT,
                 effort TEXT,
+                service_tier TEXT,
+                resume_with_session_model INTEGER NOT NULL DEFAULT 0,
                 todos TEXT,
                 todos_updated_at INTEGER,
                 team_state TEXT,
@@ -593,6 +605,22 @@ export class Store {
     private getTableColumnNames(table: string): Set<string> {
         const rows = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
         return new Set(rows.map((row) => row.name))
+    }
+
+    // 合并 mouriya-s-lab fork 时的版本号调和：fork 侧 v9→v10 加 `service_tier`
+    // （tiann/hapi#904）、v10→v11 加 `resume_with_session_model`（其 PR #43），
+    // 但本分支的 v10~v12 已被多用户体系占用，故两列统一挪到 v13，幂等补齐——
+    // 无论 DB 此前走的是哪条阶梯（本分支 v12 / fork v11 / upstream v10），
+    // 到 v13 后列集合一致。
+    private migrateFromV12ToV13(): void {
+        const columns = this.getSessionColumnNames()
+        if (columns.size === 0) return
+        if (!columns.has('service_tier')) {
+            this.db.exec('ALTER TABLE sessions ADD COLUMN service_tier TEXT')
+        }
+        if (!columns.has('resume_with_session_model')) {
+            this.db.exec('ALTER TABLE sessions ADD COLUMN resume_with_session_model INTEGER NOT NULL DEFAULT 0')
+        }
     }
 
     private getSessionColumnNames(): Set<string> {

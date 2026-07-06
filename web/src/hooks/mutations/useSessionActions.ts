@@ -19,11 +19,14 @@ export function useSessionActions(
     switchSession: () => Promise<void>
     setPermissionMode: (mode: PermissionMode) => Promise<void>
     setCollaborationMode: (mode: CodexCollaborationMode) => Promise<void>
-    setModel: (model: string | null) => Promise<void>
+    setModel: (model: { provider: string; modelId: string } | string | null) => Promise<void>
+    setResumeWithSessionModel: (enabled: boolean) => Promise<void>
     setModelReasoningEffort: (modelReasoningEffort: string | null) => Promise<void>
     setEffort: (effort: string | null) => Promise<void>
+    setServiceTier: (serviceTier: string | null) => Promise<void>
     renameSession: (name: string) => Promise<void>
     deleteSession: () => Promise<void>
+    forkSession: () => Promise<{ newSessionId: string }>
     isPending: boolean
 } {
     const queryClient = useQueryClient()
@@ -110,7 +113,7 @@ export function useSessionActions(
     })
 
     const modelMutation = useMutation({
-        mutationFn: async (model: string | null) => {
+        mutationFn: async (model: { provider: string; modelId: string } | string | null) => {
             if (!api || !sessionId) {
                 throw new Error('Session unavailable')
             }
@@ -122,6 +125,19 @@ export function useSessionActions(
                 await invalidateCursorModels()
             })()
         },
+    })
+
+    const resumeWithSessionModelMutation = useMutation({
+        mutationFn: async (enabled: boolean) => {
+            if (!api || !sessionId) {
+                throw new Error('Session unavailable')
+            }
+            if (agentFlavor !== 'claude') {
+                throw new Error('Resume model selection is only supported for Claude sessions')
+            }
+            await api.setResumeWithSessionModel(sessionId, enabled)
+        },
+        onSuccess: () => void invalidateSession(),
     })
 
     const modelReasoningEffortMutation = useMutation({
@@ -146,6 +162,22 @@ export function useSessionActions(
                 throw new Error('Session unavailable')
             }
             await api.setEffort(sessionId, effort)
+        },
+        onSuccess: () => void invalidateSession(),
+    })
+
+    const serviceTierMutation = useMutation({
+        mutationFn: async (serviceTier: string | null) => {
+            if (!api || !sessionId) {
+                throw new Error('Session unavailable')
+            }
+            if (agentFlavor !== 'codex') {
+                throw new Error('Fast mode is only supported for Codex sessions')
+            }
+            if (!codexCollaborationModeSupported) {
+                throw new Error('Fast mode is only supported for remote sessions')
+            }
+            await api.setServiceTier(sessionId, serviceTier)
         },
         onSuccess: () => void invalidateSession(),
     })
@@ -175,6 +207,18 @@ export function useSessionActions(
         },
     })
 
+    const forkMutation = useMutation<{ newSessionId: string }, Error, void>({
+        mutationFn: async () => {
+            if (!api || !sessionId) {
+                throw new Error('Session unavailable')
+            }
+            return await api.forkSession(sessionId)
+        },
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: queryKeys.sessions })
+        },
+    })
+
     return {
         abortSession: abortMutation.mutateAsync,
         archiveSession: archiveMutation.mutateAsync,
@@ -183,10 +227,13 @@ export function useSessionActions(
         setPermissionMode: permissionMutation.mutateAsync,
         setCollaborationMode: collaborationMutation.mutateAsync,
         setModel: modelMutation.mutateAsync,
+        setResumeWithSessionModel: resumeWithSessionModelMutation.mutateAsync,
         setModelReasoningEffort: modelReasoningEffortMutation.mutateAsync,
         setEffort: effortMutation.mutateAsync,
+        setServiceTier: serviceTierMutation.mutateAsync,
         renameSession: renameMutation.mutateAsync,
         deleteSession: deleteMutation.mutateAsync,
+        forkSession: forkMutation.mutateAsync,
         isPending: abortMutation.isPending
             || archiveMutation.isPending
             || reopenMutation.isPending
@@ -194,9 +241,12 @@ export function useSessionActions(
             || permissionMutation.isPending
             || collaborationMutation.isPending
             || modelMutation.isPending
+            || resumeWithSessionModelMutation.isPending
             || modelReasoningEffortMutation.isPending
             || effortMutation.isPending
+            || serviceTierMutation.isPending
             || renameMutation.isPending
-            || deleteMutation.isPending,
+            || deleteMutation.isPending
+            || forkMutation.isPending,
     }
 }

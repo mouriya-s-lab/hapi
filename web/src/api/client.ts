@@ -510,6 +510,22 @@ export class ApiClient {
     }
 
     /**
+     * Session fork (fork-features/session-fork). Returns the new hapi session
+     * id for the forked copy.
+     */
+    async forkSession(sessionId: string): Promise<{ newSessionId: string }> {
+        return await this.request<{ newSessionId: string }>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/fork`,
+            { method: 'POST', body: JSON.stringify({}) }
+        )
+    }
+
+    /** Lists flavors that support fork. Used to capability-gate the Fork menu item. */
+    async getFlavorCapabilities(): Promise<{ fork: string[] }> {
+        return await this.request<{ fork: string[] }>('/api/flavors/capabilities')
+    }
+
+    /**
      * Migrate a legacy stream-json Cursor session to ACP. See tiann/hapi#824.
      *
      * Refusals (e.g. running session, missing on-disk store, target collision)
@@ -578,10 +594,17 @@ export class ApiClient {
         })
     }
 
-    async setModel(sessionId: string, model: string | null): Promise<void> {
+    async setModel(sessionId: string, model: { provider: string; modelId: string } | string | null): Promise<void> {
         await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/model`, {
             method: 'POST',
             body: JSON.stringify({ model })
+        })
+    }
+
+    async setResumeWithSessionModel(sessionId: string, resumeWithSessionModel: boolean): Promise<void> {
+        await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/resume-model`, {
+            method: 'POST',
+            body: JSON.stringify({ resumeWithSessionModel })
         })
     }
 
@@ -596,6 +619,13 @@ export class ApiClient {
         await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/effort`, {
             method: 'POST',
             body: JSON.stringify({ effort })
+        })
+    }
+
+    async setServiceTier(sessionId: string, serviceTier: string | null): Promise<void> {
+        await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/service-tier`, {
+            method: 'POST',
+            body: JSON.stringify({ serviceTier })
         })
     }
 
@@ -741,6 +771,14 @@ export class ApiClient {
     async getSessionCursorModels(sessionId: string): Promise<CursorModelsResponse> {
         return await this.request<CursorModelsResponse>(
             `/api/sessions/${encodeURIComponent(sessionId)}/cursor-models`
+        )
+    }
+
+    /** Generic Pi session endpoint — replaces per-method wrappers. */
+    async callPiEndpoint<T = unknown>(sessionId: string, path: string, init?: RequestInit): Promise<T> {
+        return await this.request<T>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/pi-${path}`,
+            init
         )
     }
 

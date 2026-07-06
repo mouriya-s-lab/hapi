@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'bun:test'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Store } from './index'
 
 function makeStore(): Store {
@@ -9,6 +12,41 @@ function getMetadata(store: Store, id: string): Record<string, unknown> | null {
     const row = store.sessions.getSession(id)
     return (row?.metadata ?? null) as Record<string, unknown> | null
 }
+
+describe('session resume model setting', () => {
+    it('defaults false and persists enabled state across Store reopen', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'hapi-resume-model-setting-'))
+        const dbPath = join(dir, 'hapi.db')
+        let store: Store | undefined
+        let reopened: Store | undefined
+
+        try {
+            store = new Store(dbPath)
+            const session = store.sessions.getOrCreateSession(
+                'resume-model-setting',
+                { path: '/tmp/project', host: 'example', flavor: 'claude' },
+                null,
+                'default',
+                'sonnet',
+                'high'
+            )
+
+            expect(session.resumeWithSessionModel).toBe(false)
+            expect(store.sessions.setSessionResumeWithSessionModel(session.id, true, 'default')).toBe(true)
+            expect(store.sessions.getSession(session.id)?.resumeWithSessionModel).toBe(true)
+
+            store.close()
+            store = undefined
+
+            reopened = new Store(dbPath)
+            expect(reopened.sessions.getSession(session.id)?.resumeWithSessionModel).toBe(true)
+        } finally {
+            reopened?.close()
+            store?.close()
+            rmSync(dir, { recursive: true, force: true })
+        }
+    })
+})
 
 describe('updateSessionMetadata: protocol resume token preservation', () => {
     it('preserves cursorSessionId when archive payload omits it (Cursor crash-archive)', () => {

@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -39,12 +39,26 @@ async function waitForHub(baseUrl: string, timeoutMs = 15_000): Promise<void> {
 
 function findBunExec(): string {
     const cmd = process.platform === 'win32' ? 'where bun' : 'command -v bun'
-    const p = execSync(cmd, { encoding: 'utf8' })
+    const candidates = execSync(cmd, { encoding: 'utf8' })
         .split(/\r?\n/)
         .map(line => line.trim())
-        .find(Boolean)
-    if (!p) throw new Error('[globalSetup] bun executable not found')
-    return p
+        .filter(Boolean)
+    if (process.platform !== 'win32') {
+        const p = candidates[0]
+        if (!p) throw new Error('[globalSetup] bun executable not found')
+        return p
+    }
+    // Windows 上 `where bun` 常只返回 npm 的 shim（无扩展名 sh 脚本 + .cmd），
+    // 二者都不能被 spawn 直接执行。优先 .exe；否则把 npm shim 解析到
+    // node_modules\bun\bin\bun.exe（npm i -g bun 的真实安装位置）。
+    const exe = candidates.find(line => line.toLowerCase().endsWith('.exe'))
+    if (exe) return exe
+    for (const candidate of candidates) {
+        const resolved = join(dirname(candidate), 'node_modules', 'bun', 'bin', 'bun.exe')
+        if (existsSync(resolved)) return resolved
+    }
+    if (!candidates[0]) throw new Error('[globalSetup] bun executable not found')
+    return candidates[0]
 }
 
 let hubProcess: ChildProcess | null = null

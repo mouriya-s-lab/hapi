@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { AssistantRuntimeProvider, useAssistantApi } from '@assistant-ui/react'
+import { AssistantRuntimeProvider, useAssistantApi, useAssistantState } from '@assistant-ui/react'
+import { DragDropZone } from '@/components/AssistantChat/DragDropZone'
 import type { ApiClient } from '@/api/client'
 import type {
     AttachmentMetadata,
@@ -8,9 +9,10 @@ import type {
     DecryptedMessage,
     PermissionMode,
     Session,
+    PiModelSummary,
     SlashCommand
 } from '@/types/api'
-import type { ChatBlock, NormalizedMessage } from '@/chat/types'
+import type { ChatBlock, ModelRefusalFallbackEvent, NormalizedMessage } from '@/chat/types'
 import type { Suggestion } from '@/hooks/useActiveSuggestions'
 import { normalizeDecryptedMessage } from '@/chat/normalize'
 import { reduceChatBlocks } from '@/chat/reducer'
@@ -20,6 +22,7 @@ import { buildVisibleChatBlocks, isToolGroupBlock, type ToolGroupBlock } from '@
 import { isQueuedForInvocation, mergeMessages } from '@/lib/messages'
 import { inactiveSessionCanResume } from '@/lib/sessionResume'
 import { HappyComposer, type ComposerSendError } from '@/components/AssistantChat/HappyComposer'
+import { codexModelAdvertisesFastTier } from '@/components/AssistantChat/codexFastMode'
 import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import { resolvePendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import { HappyThread } from '@/components/AssistantChat/HappyThread'
@@ -27,8 +30,12 @@ import { QueuedMessagesBar } from '@/components/AssistantChat/QueuedMessagesBar'
 import { TodoPanel } from '@/components/AssistantChat/TodoPanel'
 import { ScratchlistDrawer } from '@/components/AssistantChat/ScratchlistPanel'
 import { useScratchlist } from '@/lib/use-scratchlist'
+import { useToast } from '@/lib/toast-context'
 import { useHappyRuntime } from '@/lib/assistant-runtime'
 import { createAttachmentAdapter } from '@/lib/attachmentAdapter'
+import { consumeSharePendingTransfer } from '@/lib/sharePendingState'
+import { deleteShareTransfer, getShareTransfer } from '@/lib/shareTransfer'
+import { getDraft } from '@/lib/composer-drafts'
 import { useTranslation } from '@/lib/use-translation'
 import { SessionHeader } from '@/components/SessionHeader'
 import { CursorMigrationBanner } from '@/components/CursorMigrationBanner'
@@ -53,6 +60,7 @@ import {
 } from '@/lib/sessionChatCursorModel'
 import { buildCursorEffortPickerOptions, resolveCursorVariantOptions } from '@/lib/cursorModelOptions'
 import { useOpencodeModels } from '@/hooks/queries/useOpencodeModels'
+import { usePiModels } from '@/hooks/queries/usePiModels'
 import { useOpencodeReasoningEffortOptions } from '@/hooks/queries/useOpencodeReasoningEffortOptions'
 import { useCcSwitchProviders } from '@/hooks/queries/useCcSwitchProviders'
 import { useCcSwitchProvider } from '@/hooks/mutations/useCcSwitchProvider'
@@ -157,6 +165,97 @@ function isUninvokedScheduledMessage(message: DecryptedMessage): boolean {
 }
 
 /**
+ * Consumes a pending Web Share Target transfer once the assistant runtime
+ * is mounted and the session is active enough to accept attachments.
+ *
+ * Lifecycle:
+ *  - A mount effect reads the transfer id out of sessionStorage *once*
+ *    via consumeSharePendingTransfer() (not during render — StrictMode
+ *    would consume on the discarded pass). The id is stashed in a ref.
+ *  - The actual seed (composer.setText + composer.addAttachment per file)
+ *    runs once `props.sessionActive` is true. Inactive sessions disable
+ *    the attachmentAdapter, so writing attachments while inactive would
+ *    no-op and leak Blobs in IDB. The seed waits in a re-renderable
+ *    effect for the active flip.
+ *  - `consumedRef` gates the effect to a single seed per component
+ *    instance — refs survive a StrictMode mount/cleanup/remount pair, so
+ *    the second invoke early-returns and the first invoke's async chain
+ *    completes naturally (we deliberately don't cancel on cleanup; the
+ *    upload is idempotent and the only side effects on the composer are
+ *    no-ops once the runtime is unmounted).
+ *  - The IDB row is deleted after the seed completes so a back-button
+ *    refresh of /sessions/:id doesn't re-attach the same payload.
+ */
+function ShareSeedConsumer(props: { sessionId: string; sessionActive: boolean }) {
+    const assistantApi = useAssistantApi()
+    const composerText = useAssistantState(({ composer }) => composer.text)
+    const composerTextRef = useRef(composerText)
+    const initRef = useRef(false)
+    const transferIdRef = useRef<string | null>(null)
+    const consumedRef = useRef(false)
+    const [transferReady, setTransferReady] = useState(false)
+
+    useEffect(() => {
+        composerTextRef.current = composerText
+    }, [composerText])
+
+    // Consume in an effect, not during render — React.StrictMode double-
+    // invokes render functions in dev; a render-time consume deletes the
+    // sessionStorage key on the discarded pass and the committed render
+    // then sees no transfer.
+    useEffect(() => {
+        if (initRef.current) return
+        initRef.current = true
+        transferIdRef.current = consumeSharePendingTransfer()
+        setTransferReady(true)
+    }, [])
+
+    useEffect(() => {
+        if (!transferReady) return
+        if (consumedRef.current) return
+        const transferId = transferIdRef.current
+        if (!transferId) return
+        if (!props.sessionActive) return
+        consumedRef.current = true
+
+        void (async () => {
+            try {
+                const payload = await getShareTransfer(transferId)
+                if (!payload) return
+                const seedText = [payload.title, payload.text, payload.url]
+                    .filter((part) => typeof part === 'string' && part.length > 0)
+                    .join('\n')
+                    .trim()
+                if (seedText.length > 0) {
+                    const existingText = composerTextRef.current.trim().length > 0
+                        ? composerTextRef.current
+                        : getDraft(props.sessionId)
+                    const nextText = [existingText.trim(), seedText]
+                        .filter((part) => part.length > 0)
+                        .join('\n\n')
+                    if (nextText.length > 0) {
+                        assistantApi.composer().setText(nextText)
+                    }
+                }
+                for (const file of payload.files) {
+                    const reconstructed = new File([file.blob], file.name, { type: file.type })
+                    try {
+                        await assistantApi.composer().addAttachment(reconstructed)
+                    } catch (err) {
+                        console.error('share-seed addAttachment failed', err)
+                    }
+                }
+                await deleteShareTransfer(transferId).catch(() => {})
+            } catch (err) {
+                console.error('share-seed pull failed', err)
+            }
+        })()
+    }, [transferReady, props.sessionActive, props.sessionId, assistantApi])
+
+    return null
+}
+
+/**
  * Mounts the per-session scratchlist DRAWER (composer-controlled).
  *
  * The drawer renders only when the operator toggles into "scratchlist
@@ -232,6 +331,12 @@ function getOutlineTitle(session: Session): string {
     return session.id.slice(0, 8)
 }
 
+const MODEL_REFUSAL_FALLBACK_TOAST_DURATION_MS = 5000
+
+function isModelRefusalFallbackEvent(value: unknown): value is ModelRefusalFallbackEvent {
+    return Boolean(value) && typeof value === 'object' && (value as { type?: unknown }).type === 'model-refusal-fallback'
+}
+
 function hasAbortableAgentRun(blocks: readonly ChatBlock[]): boolean {
     for (const block of blocks) {
         if (block.kind === 'tool-call') {
@@ -280,6 +385,8 @@ type SessionChatProps = {
     // user dismisses or starts editing.
     sendError?: ComposerSendError | null
     onClearSendError?: () => void
+    initialOutlineOpen?: boolean
+    onInitialOutlineConsumed?: () => void
 }
 
 /**
@@ -306,14 +413,24 @@ function SessionChatInner(props: SessionChatProps) {
     const { haptic } = usePlatform()
     const { t } = useTranslation()
     const navigate = useNavigate()
+    const { addToast } = useToast()
     const sessionInactive = !props.session.active
     const inactiveCanResume = inactiveSessionCanResume(props.session, props.messages.length)
     const terminalSupported = isRemoteTerminalSupported(props.session.metadata)
     const normalizedCacheRef = useRef<Map<string, { source: DecryptedMessage; normalized: NormalizedMessage | null }>>(new Map())
+    const modelRefusalFallbackToastIdsRef = useRef<Set<string>>(new Set())
     const blocksByIdRef = useRef<Map<string, ChatBlock>>(new Map())
     const visibleGroupsRef = useRef<ToolGroupBlock[]>([])
     const [forceScrollToken, setForceScrollToken] = useState(0)
-    const [outlineOpen, setOutlineOpen] = useState(false)
+    const [outlineOpen, setOutlineOpen] = useState(props.initialOutlineOpen ?? false)
+    useEffect(() => {
+        if (!props.initialOutlineOpen) {
+            return
+        }
+        setOutlineOpen(true)
+        props.onInitialOutlineConsumed?.()
+    }, [props.initialOutlineOpen, props.onInitialOutlineConsumed])
+
     const [cursorSelectedBase, setCursorSelectedBase] = useState('auto')
     const lastSyncedCursorModelRef = useRef<string | null | undefined>(undefined)
     const scratchlist = useScratchlist(props.session.id)
@@ -414,7 +531,7 @@ function SessionChatInner(props: SessionChatProps) {
     const opencodeModelsState = useOpencodeModels({
         api: props.api,
         sessionId: props.session.id,
-        enabled: agentFlavor === 'opencode' && props.session.active
+        enabled: (agentFlavor === 'opencode' || agentFlavor === 'omp') && props.session.active
     })
     const opencodeReasoningEffortState = useOpencodeReasoningEffortOptions({
         api: props.api,
@@ -422,7 +539,7 @@ function SessionChatInner(props: SessionChatProps) {
         enabled: agentFlavor === 'opencode' && props.session.active
     })
     const opencodeModelOptions = useMemo(() => {
-        if (agentFlavor !== 'opencode') {
+        if (agentFlavor !== 'opencode' && agentFlavor !== 'omp') {
             return undefined
         }
 
@@ -468,6 +585,17 @@ function SessionChatInner(props: SessionChatProps) {
         sessionCliModelSkus,
         props.session.model
     ])
+    const piModelsState = usePiModels({
+        api: props.api,
+        sessionId: props.session.id,
+        enabled: agentFlavor === 'pi' && props.session.active
+    })
+    // Fallback to cached models from metadata when session is inactive
+    const piMetadata = props.session.metadata as Record<string, unknown> | null
+    const piCachedModels = piMetadata?.piAvailableModels as PiModelSummary[] | undefined ?? []
+    // Provider-qualified selected model — disambiguates when two providers
+    // share a modelId (hub persists this alongside the legacy modelId string).
+    const piSelectedModel = piMetadata?.piSelectedModel as { provider: string; modelId: string } | null | undefined
     const cursorCatalogReadinessArgs = useMemo(() => ({
         sessionLoading: cursorModelsState.isLoading,
         machineLoading: machineCursorModelsState.isLoading,
@@ -554,15 +682,16 @@ function SessionChatInner(props: SessionChatProps) {
             ? resolveSessionCursorVariantSelectValue(props.session.model, cursorModelEffortOptions)
             : null
     ), [agentFlavor, cursorModelEffortOptions, props.session.model])
-
     const {
         abortSession,
         switchSession,
         setPermissionMode,
         setCollaborationMode,
         setModel,
+        setResumeWithSessionModel,
         setModelReasoningEffort,
-        setEffort
+        setEffort,
+        setServiceTier
     } = useSessionActions(
         props.api,
         props.session.id,
@@ -689,6 +818,7 @@ function SessionChatInner(props: SessionChatProps) {
 
     useEffect(() => {
         normalizedCacheRef.current.clear()
+        modelRefusalFallbackToastIdsRef.current.clear()
         blocksByIdRef.current.clear()
         visibleGroupsRef.current = []
         setOutlineOpen(false)
@@ -736,6 +866,29 @@ function SessionChatInner(props: SessionChatProps) {
         }
         return normalized
     }, [visibleMessages])
+
+    useEffect(() => {
+        const displayedIds = modelRefusalFallbackToastIdsRef.current
+        for (const message of normalizedMessages) {
+            if (message.role !== 'event') continue
+            if (!isModelRefusalFallbackEvent(message.content)) continue
+            if (displayedIds.has(message.id)) continue
+
+            displayedIds.add(message.id)
+            const event = message.content
+            addToast({
+                title: t('toast.modelRefusalFallback.title'),
+                body: t('toast.modelRefusalFallback.body', {
+                    originalModel: event.originalModel,
+                    message: event.message
+                }),
+                sessionId: props.session.id,
+                url: `/sessions/${props.session.id}`,
+                variant: 'warning',
+                durationMs: MODEL_REFUSAL_FALLBACK_TOAST_DURATION_MS
+            })
+        }
+    }, [addToast, normalizedMessages, props.session.id, t])
 
     const goalStateSourceMessages = useMemo(
         () => buildGoalStateMessages(props.messages, props.pendingMessages ?? []),
@@ -816,7 +969,7 @@ function SessionChatInner(props: SessionChatProps) {
     }, [setCollaborationMode, props.onRefresh, haptic])
 
     // Model mode change handler
-    const handleModelChange = useCallback(async (model: string | null) => {
+    const handleModelChange = useCallback(async (model: { provider: string; modelId: string } | string | null) => {
         try {
             await setModel(model)
             haptic.notification('success')
@@ -826,6 +979,17 @@ function SessionChatInner(props: SessionChatProps) {
             console.error('Failed to set model:', e)
         }
     }, [setModel, props.onRefresh, haptic])
+
+    const handleResumeWithSessionModelChange = useCallback(async (enabled: boolean) => {
+        try {
+            await setResumeWithSessionModel(enabled)
+            haptic.notification('success')
+            props.onRefresh()
+        } catch (e) {
+            haptic.notification('error')
+            console.error('Failed to set resume model setting:', e)
+        }
+    }, [setResumeWithSessionModel, props.onRefresh, haptic])
 
     const handleCursorBaseModelChange = useCallback(async (baseKey: string | null) => {
         if (!cursorPicker) {
@@ -890,6 +1054,17 @@ function SessionChatInner(props: SessionChatProps) {
         }
     }, [setEffort, props.onRefresh, haptic])
 
+    const handleServiceTierChange = useCallback(async (serviceTier: string | null) => {
+        try {
+            await setServiceTier(serviceTier)
+            haptic.notification('success')
+            props.onRefresh()
+        } catch (e) {
+            haptic.notification('error')
+            console.error('Failed to set service tier:', e)
+        }
+    }, [setServiceTier, props.onRefresh, haptic])
+
     // Abort handler
     const handleAbort = useCallback(async () => {
         await abortSession()
@@ -902,12 +1077,17 @@ function SessionChatInner(props: SessionChatProps) {
         props.onRefresh()
     }, [switchSession, props.onRefresh])
 
-    const handleViewFiles = useCallback(() => {
+    const handleToggleFiles = useCallback(() => {
+        setOutlineOpen(false)
         navigate({
             to: '/sessions/$sessionId/files',
             params: { sessionId: props.session.id }
         })
     }, [navigate, props.session.id])
+
+    const handleToggleOutline = useCallback(() => {
+        setOutlineOpen((open) => !open)
+    }, [])
 
     const handleViewTerminal = useCallback(() => {
         navigate({
@@ -996,8 +1176,10 @@ function SessionChatInner(props: SessionChatProps) {
             <SessionHeader
                 session={props.session}
                 onBack={props.onBack}
-                onViewFiles={props.session.metadata?.path ? handleViewFiles : undefined}
-                onOpenOutline={() => setOutlineOpen(true)}
+                onToggleFiles={props.session.metadata?.path ? handleToggleFiles : undefined}
+                filesActive={false}
+                onToggleOutline={handleToggleOutline}
+                outlineActive={outlineOpen}
                 api={props.api}
                 onSessionDeleted={props.onBack}
                 onSessionReopened={(newSessionId) => {
@@ -1026,9 +1208,15 @@ function SessionChatInner(props: SessionChatProps) {
             ) : null}
 
             <AssistantRuntimeProvider runtime={runtime}>
-                <div className="relative flex min-h-0 flex-1 flex-col">
+                <ShareSeedConsumer sessionId={props.session.id} sessionActive={props.session.active} />
+                <DragDropZone disabled={sessionInactive || props.isSending || pendingSchedule != null}>
+
                     <HappyThread
-                        key={props.session.id}
+                        // Key with prefix: different components under the same session
+                        // (thread, scratchlist, composer) must have distinct keys to avoid
+                        // React reconciliation issues when switching sessions rapidly.
+                        // Without prefixes, React may reuse the wrong component's DOM/localStorage.
+                        key={`thread-${props.session.id}`}
                         api={props.api}
                         sessionId={props.session.id}
                         metadata={props.session.metadata}
@@ -1090,7 +1278,7 @@ function SessionChatInner(props: SessionChatProps) {
                     </div>
 
                     <HappyComposer
-                        key={props.session.id}
+                        key={`composer-${props.session.id}`}
                         sessionId={props.session.id}
                         disabled={props.isSending}
                         pendingSchedule={pendingSchedule}
@@ -1102,6 +1290,7 @@ function SessionChatInner(props: SessionChatProps) {
                         model={props.session.model}
                         modelReasoningEffort={agentFlavor === 'codex' || agentFlavor === 'opencode' ? props.session.modelReasoningEffort : undefined}
                         effort={props.session.effort}
+                        resumeWithSessionModel={props.session.resumeWithSessionModel}
                         agentFlavor={agentFlavor}
                         availableModelOptions={
                             agentFlavor === 'codex'
@@ -1114,10 +1303,18 @@ function SessionChatInner(props: SessionChatProps) {
                                             ? undefined
                                             : cursorPicker.modelOptions
                                     )
-                                    : agentFlavor === 'opencode'
+                                    : (agentFlavor === 'opencode' || agentFlavor === 'omp')
                                         ? opencodeModelOptions
+                                        // Pi uses its own provider-qualified picker (piModels prop).
+                                        // Feeding piModelOptions here would make the generic Ctrl/Cmd+M
+                                        // cycler (getNextModelForFlavor) post a bare modelId string,
+                                        // which loses the provider and can pick the wrong cached
+                                        // match or throw in runPi. undefined makes the shortcut a no-op
+                                        // so Pi model changes go through the dedicated picker only.
                                         : undefined
                         }
+                        piModels={agentFlavor === 'pi' ? (piModelsState.availableModels.length > 0 ? piModelsState.availableModels : piCachedModels) : undefined}
+                        piSelectedModel={agentFlavor === 'pi' ? piSelectedModel : undefined}
                         availableModelReasoningEffortOptions={
                             agentFlavor === 'opencode' && opencodeReasoningEffortState.options.length > 0
                                 ? opencodeReasoningEffortState.options
@@ -1189,10 +1386,13 @@ function SessionChatInner(props: SessionChatProps) {
                                         && !cursorModelsState.error
                                         && cursorPicker
                                         && cursorPicker.modelOptions.length > 0
-                                        ? handleCursorBaseModelChange
+                                        ? ((model) => handleCursorBaseModelChange(typeof model === 'string' ? model : model?.modelId ?? null))
                                         : undefined)
-                                    : handleModelChange
+                                    : agentFlavor === 'pi'
+                                        ? (props.session.active && !piModelsState.error ? handleModelChange : undefined)
+                                        : handleModelChange
                         }
+                        onResumeWithSessionModelChange={agentFlavor === 'claude' ? handleResumeWithSessionModelChange : undefined}
                         onModelEffortChange={
                             agentFlavor === 'cursor'
                                 && props.session.active
@@ -1211,6 +1411,16 @@ function SessionChatInner(props: SessionChatProps) {
                                 : undefined
                         }
                         onEffortChange={handleEffortChange}
+                        serviceTier={agentFlavor === 'codex' ? props.session.serviceTier : undefined}
+                        onServiceTierChange={
+                            agentFlavor === 'codex'
+                                && props.session.active
+                                && !controlledByUser
+                                && !codexModelsState.error
+                                && codexModelAdvertisesFastTier(props.session.model, codexModelsState.models)
+                                ? handleServiceTierChange
+                                : undefined
+                        }
                         onSwitchToRemote={handleSwitchToRemote}
                         onTerminal={props.session.active && terminalSupported ? handleViewTerminal : undefined}
                         terminalUnsupported={props.session.active && !terminalSupported}
@@ -1225,7 +1435,7 @@ function SessionChatInner(props: SessionChatProps) {
                         sendError={props.sendError ?? null}
                         onClearSendError={props.onClearSendError}
                     />
-                </div>
+                </DragDropZone>
             </AssistantRuntimeProvider>
 
             {/* Voice session component - renders nothing but initializes voice backend */}

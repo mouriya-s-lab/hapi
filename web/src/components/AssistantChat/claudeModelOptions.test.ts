@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { getClaudeComposerModelOptions, getNextClaudeComposerModel } from './claudeModelOptions'
 
 const PRESET_OPTIONS = [
+    { value: 'fable', label: 'Fable' },
+    { value: 'fable[1m]', label: 'Fable 1M' },
     { value: 'sonnet', label: 'Sonnet' },
     { value: 'sonnet[1m]', label: 'Sonnet 1M' },
     { value: 'opus', label: 'Opus' },
     { value: 'opus[1m]', label: 'Opus 1M' },
-    { value: 'fable', label: 'Fable' },
-    { value: 'fable[1m]', label: 'Fable 1M' },
+    { value: 'haiku', label: 'Haiku' },
 ]
 
 const MODEL_ID_OPTIONS = [
@@ -52,7 +53,7 @@ describe('getClaudeComposerModelOptions', () => {
 
 describe('getNextClaudeComposerModel', () => {
     it('cycles from a non-preset Claude model to the next selectable model instead of auto', () => {
-        expect(getNextClaudeComposerModel('claude-opus-4-1-20250805')).toBe('sonnet')
+        expect(getNextClaudeComposerModel('claude-opus-4-1-20250805')).toBe('fable')
     })
 
     it('cycles from the last specific model id back to Default', () => {

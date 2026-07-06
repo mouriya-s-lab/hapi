@@ -49,6 +49,8 @@ function toProtocolSession(session: ReturnType<typeof makeSession>): Session {
         model: session.model,
         modelReasoningEffort: session.modelReasoningEffort,
         effort: session.effort,
+        serviceTier: session.serviceTier,
+        resumeWithSessionModel: session.resumeWithSessionModel,
         permissionMode: 'default',
         collaborationMode: 'default'
     }

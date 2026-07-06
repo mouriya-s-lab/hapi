@@ -13,9 +13,18 @@ export type UsageData = {
     service_tier?: string
 }
 
+export type ModelRefusalFallbackEvent = {
+    type: 'model-refusal-fallback'
+    originalModel: string
+    message: string
+    direction?: string
+    trigger?: string
+}
+
 export type AgentEvent =
     | { type: 'switch'; mode: 'local' | 'remote' }
     | { type: 'message'; message: string }
+    | { type: 'error'; message: string }
     | { type: 'title-changed'; title: string }
     | { type: 'limit-reached'; endsAt: number; limitType: string }
     | { type: 'limit-warning'; /** 0–1 ratio (e.g. 0.9 = 90%), integer-precision via CLI pipe format */ utilization: number; endsAt: number; limitType: string }
@@ -24,6 +33,7 @@ export type AgentEvent =
     | { type: 'turn-duration'; durationMs: number; targetMessageId?: string }
     | { type: 'microcompact'; trigger: string; preTokens: number; tokensSaved: number }
     | { type: 'compact'; trigger: string; preTokens: number }
+    | ModelRefusalFallbackEvent
     | { type: 'thread-goal-updated'; goal: ThreadGoal; threadId?: string; turnId?: string }
     | { type: 'thread-goal-cleared'; threadId?: string }
     | ({ type: string } & Record<string, unknown>)

@@ -26,6 +26,9 @@ import { createCodexDesktopRoutes } from './routes/codexDesktop'
 import { createImportSessionsRoutes } from './routes/importSessions'
 import { createPushRoutes } from './routes/push'
 import { createVoiceRoutes } from './routes/voice'
+import { mountForkRoutes } from '../../../fork-features/session-fork/hubMount'
+import { buildForkDeps } from '../../../fork-features/session-fork/hubSyncEngineAdapter'
+import { requireSessionFromParam } from './routes/guards'
 import type { SSEManager } from '../sse/sseManager'
 import type { VisibilityTracker } from '../visibility/visibilityTracker'
 import type { Server as BunServer, ServerWebSocket } from 'bun'
@@ -258,6 +261,33 @@ function createWebApp(options: {
     }))
     app.route('/api', createPushRoutes(options.store, options.vapidPublicKey))
     app.route('/api', createVoiceRoutes())
+
+    // fork-features/session-fork: POST /api/sessions/:id/fork +
+    // GET /api/flavors/capabilities. Trunk patch — full handler lives
+    // in fork-features/session-fork/hubMount.ts.
+    mountForkRoutes(app, (namespace) => {
+        const engine = options.getSyncEngine()
+        if (!engine) return null
+        return buildForkDeps({ store: options.store, syncEngine: engine, namespace })
+    }, {
+        // 多用户体系：fork 前校验发起人对源会话的归属/grant（operator 级），
+        // fork 后把新会话归属到发起人账号（对齐 spawn 归属修复 eb42b9f）。
+        authorize: (c) => {
+            const engine = options.getSyncEngine()
+            if (!engine) return null
+            const guard = requireSessionFromParam(c as Context<WebAppEnv>, engine, {
+                store: options.store,
+                requireOperate: true
+            })
+            return guard instanceof Response ? guard : null
+        },
+        onForked: (c, newSessionId) => {
+            const accountId = (c as Context<WebAppEnv>).get('accountId')
+            if (typeof accountId === 'number') {
+                options.store.sessions.setSessionOwner(newSessionId, accountId)
+            }
+        }
+    })
 
     // Binary distribution: serve files from a directory on disk at
     // /download/<token>/<file>. Gated by HAPI_DOWNLOAD_TOKEN (a hard-to-guess

@@ -21,6 +21,14 @@ vi.mock('@/components/CodeBlock', () => ({
     )
 }))
 
+vi.mock('@/components/FileContentToggleView', () => ({
+    FileContentToggleView: (props: { content: string; path: string | null }) => (
+        <div data-testid="file-content-toggle" data-path={props.path ?? ''}>
+            {props.content}
+        </div>
+    )
+}))
+
 describe('extractTextFromResult', () => {
     it('returns string directly', () => {
         expect(extractTextFromResult('hello')).toBe('hello')
@@ -436,7 +444,11 @@ describe('read file result formatting', () => {
         )
     }
 
-    it('renders source file content as a code block', () => {
+    // In the detail dialog every read result is shown through the fork's
+    // FileContentToggleView (markdown-preview + word-wrap toggles), matching the
+    // file-viewer route. These assert the routing + path/content handed over;
+    // the toggle behaviour itself is covered by the component test + e2e spec.
+    it('renders read file content through the toggle view with its path', () => {
         const { container } = renderToolResult('Read', {
             file: {
                 filePath: '/tmp/example.ts',
@@ -444,25 +456,23 @@ describe('read file result formatting', () => {
             }
         })
 
-        expect(container.querySelector('[class*="border-l-"]')).toBeNull()
-        expect(container.querySelector('pre')).not.toBeNull()
-        expect(container).toHaveTextContent('File content')
-        expect(container).toHaveTextContent('const value = 1')
+        const view = container.querySelector('[data-testid="file-content-toggle"]')
+        expect(view).toHaveAttribute('data-path', '/tmp/example.ts')
+        expect(view).toHaveTextContent('const value = 1')
         expect(screen.getAllByText('Raw JSON').length).toBeGreaterThan(0)
     })
 
-    it('renders plain read output as a quote', () => {
+    it('renders plain read output through the toggle view', () => {
         const { container } = renderToolResult('Read', {
             file: {
                 filePath: '/tmp/notes.txt',
                 content: 'plain notes from the workspace'
             }
         })
-        const quote = container.querySelector('[class*="border-l-"]')
 
-        expect(quote).toHaveTextContent('plain notes from the workspace')
-        expect(quote).toHaveClass('tool-result-quote')
-        expect(quote?.querySelector('pre')).toBeNull()
+        const view = container.querySelector('[data-testid="file-content-toggle"]')
+        expect(view).toHaveAttribute('data-path', '/tmp/notes.txt')
+        expect(view).toHaveTextContent('plain notes from the workspace')
         expect(screen.getAllByText('Raw JSON').length).toBeGreaterThan(0)
     })
 
@@ -542,28 +552,23 @@ describe('read file result formatting', () => {
         expect(container.querySelector('img')).toBeNull()
     })
 
-    it('renders parsed Codex read command output as a quote', () => {
+    it('renders parsed Codex read command output through the toggle view', () => {
         const { container } = renderToolResult(
             'CodexBash',
             'Exit code: 0\nWall time: 0.1s\nOutput:\nhello from file',
             { parsed_cmd: [{ type: 'read', name: 'debug.txt' }] }
         )
-        const quote = container.querySelector('[class*="border-l-"]')
 
-        expect(quote).toHaveTextContent('hello from file')
-        expect(quote?.querySelector('pre')).toBeNull()
+        expect(container.querySelector('[data-testid="file-content-toggle"]')).toHaveTextContent('hello from file')
     })
 
-    it('renders parsed Codex read command source output as a code block', () => {
+    it('renders parsed Codex read command source output through the toggle view', () => {
         const { container } = renderToolResult(
             'CodexBash',
             'Exit code: 0\nWall time: 0.1s\nOutput:\nconst value = 1',
             { parsed_cmd: [{ type: 'read', name: 'debug.ts' }] }
         )
 
-        expect(container.querySelector('[class*="border-l-"]')).toBeNull()
-        expect(container.querySelector('pre')).not.toBeNull()
-        expect(container).toHaveTextContent('File content')
-        expect(container).toHaveTextContent('const value = 1')
+        expect(container.querySelector('[data-testid="file-content-toggle"]')).toHaveTextContent('const value = 1')
     })
 })

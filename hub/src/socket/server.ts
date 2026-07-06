@@ -8,6 +8,7 @@ import { resolveAuth } from '../auth/authContext'
 import { registerCliHandlers } from './handlers/cli'
 import { registerTerminalHandlers } from './handlers/terminal'
 import { RpcRegistry } from './rpcRegistry'
+import { SOCKET_MAX_HTTP_BUFFER_SIZE } from './socketLimits'
 import type { SyncEvent } from '../sync/syncEngine'
 import { TerminalRegistry } from './terminalRegistry'
 import type { CliSocketWithData, SocketData, SocketServer } from './socketTypes'
@@ -36,8 +37,9 @@ export type SocketServerDeps = {
     getSession?: (sessionId: string) => { active: boolean; namespace: string } | null
     onWebappEvent?: (event: SyncEvent) => void
     onSessionAlive?: (payload: { sid: string; time: number; thinking?: boolean; mode?: 'local' | 'remote' }) => void
+    onSessionReady?: (payload: { sid: string; time: number }) => void
     onSessionEnd?: (payload: { sid: string; time: number }) => void
-    onMachineAlive?: (payload: { machineId: string; time: number }) => void
+    onMachineAlive?: (payload: { machineId: string; time: number; health?: unknown }) => void
     onBackgroundTaskDelta?: (sessionId: string, delta: { started: number; completed: number }) => void
     onSessionActivity?: (sessionId: string, updatedAt: number) => void
     onSweepImmediateQueued?: (sessionId: string, now: number) => void
@@ -61,10 +63,7 @@ export function createSocketServer(deps: SocketServerDeps): {
 
     const io = new Server<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>({
         cors: corsOptions,
-        // 历史会话导入等场景会经 RPC 回传较大的消息载荷(单会话可达数 MB)。
-        // socket.io / bun-engine 默认 maxHttpBufferSize 仅 1MB,会静默丢弃超限消息,
-        // 导致 RPC 无响应而超时。放大到 100MB。
-        maxHttpBufferSize: 100 * 1024 * 1024
+        maxHttpBufferSize: SOCKET_MAX_HTTP_BUFFER_SIZE
     })
 
     const engine = new Engine({
@@ -72,7 +71,7 @@ export function createSocketServer(deps: SocketServerDeps): {
         cors: corsOptions,
         // bun-engine 据此设置 Bun WebSocket 的 maxPayloadLength/maxRequestBodySize,
         // 与上面的 Server 配置保持一致(真正的强制点在这里)。
-        maxHttpBufferSize: 100 * 1024 * 1024,
+        maxHttpBufferSize: SOCKET_MAX_HTTP_BUFFER_SIZE,
         allowRequest: async (req) => {
             const origin = req.headers.get('origin')
             if (!origin || allowAllOrigins || corsOrigins.includes(origin)) {
@@ -124,6 +123,7 @@ export function createSocketServer(deps: SocketServerDeps): {
         rpcRegistry,
         terminalRegistry,
         onSessionAlive: deps.onSessionAlive,
+        onSessionReady: deps.onSessionReady,
         onSessionEnd: deps.onSessionEnd,
         onMachineAlive: deps.onMachineAlive,
         onWebappEvent: deps.onWebappEvent,

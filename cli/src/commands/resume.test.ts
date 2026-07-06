@@ -10,6 +10,7 @@ const {
     renderMock,
     runCodexMock,
     runClaudeMock,
+    runPiMock,
     assertCodexLocalSupportedMock,
     existsSyncMock
 } = vi.hoisted(() => ({
@@ -22,6 +23,7 @@ const {
     renderMock: vi.fn(),
     runCodexMock: vi.fn(async () => {}),
     runClaudeMock: vi.fn(async () => {}),
+    runPiMock: vi.fn(async () => {}),
     assertCodexLocalSupportedMock: vi.fn(),
     existsSyncMock: vi.fn(() => true)
 }))
@@ -44,6 +46,7 @@ vi.mock('@/ui/ink/ResumeSessionPicker', () => ({
 }))
 vi.mock('@/codex/runCodex', () => ({ runCodex: runCodexMock }))
 vi.mock('@/claude/runClaude', () => ({ runClaude: runClaudeMock }))
+vi.mock('@/pi/runPi', () => ({ runPi: runPiMock }))
 vi.mock('@/codex/utils/codexVersion', () => ({ assertCodexLocalSupported: assertCodexLocalSupportedMock }))
 vi.mock('node:fs', () => ({ existsSync: existsSyncMock }))
 
@@ -72,6 +75,7 @@ describe('resumeCommand', () => {
         })
         runCodexMock.mockClear()
         runClaudeMock.mockClear()
+        runPiMock.mockClear()
         assertCodexLocalSupportedMock.mockClear()
         existsSyncMock.mockReturnValue(true)
     })
@@ -135,6 +139,67 @@ describe('resumeCommand', () => {
             permissionMode: 'default',
             model: 'sonnet',
             effort: 'high'
+        })
+    })
+
+    it('rejects an active Gemini target before handoff (no longer supported, leaves running session alone)', async () => {
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+            throw new Error(`process.exit:${code ?? 'undefined'}`)
+        }) as never)
+
+        getLocalResumeTargetMock.mockResolvedValue({
+            sessionId: 'hapi-session-gemini',
+            flavor: 'gemini',
+            directory: '/tmp/project',
+            machineId: 'machine-1',
+            active: true,
+            thinking: false,
+            controlledByUser: false,
+            agentSessionId: 'gemini-conv-1',
+            model: 'gemini-2.5-pro',
+            permissionMode: 'default'
+        })
+
+        try {
+            await expect(resumeCommand.run(createContext(['hapi-session-gemini']))).rejects.toThrow('process.exit:1')
+            // Regression (#953): the gemini guard must fire BEFORE handoff so an
+            // active Gemini session is not stopped and then left failing locally.
+            expect(handoffSessionToLocalMock).not.toHaveBeenCalled()
+            expect(consoleErrorSpy).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('no longer supported'))
+        } finally {
+            consoleErrorSpy.mockRestore()
+            exitSpy.mockRestore()
+        }
+    })
+
+    it('resumes an inactive Claude target with Claude defaults when target omits model parameters', async () => {
+        getLocalResumeTargetMock.mockResolvedValue({
+            sessionId: 'hapi-session-2-default-model',
+            flavor: 'claude',
+            directory: '/tmp/project',
+            machineId: 'machine-1',
+            active: false,
+            thinking: false,
+            controlledByUser: false,
+            agentSessionId: '11111111-1111-4111-8111-111111111111',
+            model: null,
+            effort: null,
+            permissionMode: 'default'
+        })
+
+        await resumeCommand.run(createContext(['hapi-session-2-default-model']))
+
+        expect(handoffSessionToLocalMock).not.toHaveBeenCalled()
+        expect(runClaudeMock).toHaveBeenCalledWith({
+            existingSessionId: 'hapi-session-2-default-model',
+            workingDirectory: '/tmp/project',
+            resumeSessionId: '11111111-1111-4111-8111-111111111111',
+            startedBy: 'terminal',
+            startingMode: 'local',
+            permissionMode: 'default',
+            model: undefined,
+            effort: undefined
         })
     })
 
@@ -245,6 +310,36 @@ describe('resumeCommand', () => {
                 value: originalIsTTY
             })
         }
+    })
+
+    it('resumes a Pi target with effort', async () => {
+        getLocalResumeTargetMock.mockResolvedValue({
+            sessionId: 'hapi-session-pi',
+            flavor: 'pi',
+            directory: '/tmp/project',
+            machineId: 'machine-1',
+            active: false,
+            thinking: false,
+            controlledByUser: false,
+            agentSessionId: 'pi-session-123',
+            model: 'deepseek-v3',
+            effort: 'high',
+            permissionMode: 'yolo'
+        })
+
+        await resumeCommand.run(createContext(['hapi-session-pi']))
+
+        expect(handoffSessionToLocalMock).not.toHaveBeenCalled()
+        expect(runPiMock).toHaveBeenCalledWith({
+            existingSessionId: 'hapi-session-pi',
+            workingDirectory: '/tmp/project',
+            resumeSessionId: 'pi-session-123',
+            startedBy: 'terminal',
+            // Pi has no local TUI input path, so resume defaults to remote control.
+            startingMode: 'remote',
+            model: 'deepseek-v3',
+            effort: 'high'
+        })
     })
 
     it('keeps the non-TTY fallback and asks for an explicit session id', async () => {

@@ -9,11 +9,14 @@ import { useAppGoBack } from '@/hooks/useAppGoBack'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { formatDiffError, formatReadFileError } from '@/lib/files-i18n'
 import { queryKeys } from '@/lib/query-keys'
-import { langAlias, useShikiHighlighter } from '@/lib/shiki'
+import { useShikiHighlighter } from '@/lib/shiki'
 import { useTranslation } from '@/lib/use-translation'
 import { decodeBase64 } from '@/lib/utils'
 import { base64ToUint8Array, downloadBlob, resolveDownloadMimeType } from '@/lib/file-download'
 import { ImagePreview } from '@/components/ImagePreview'
+import { FileMarkdownView } from '@/components/FileMarkdownView'
+import { useFileWordWrap, useFileMarkdownPreview } from '@/hooks/useFileViewPrefs'
+import { isMarkdownPath, resolveLanguage } from '@/lib/file-preview'
 
 const MAX_COPYABLE_FILE_BYTES = 1_000_000
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
@@ -35,6 +38,23 @@ function decodePath(value: string): string {
     if (!value) return ''
     const decoded = decodeBase64(value)
     return decoded.ok ? decoded.text : value
+}
+
+function triggerDownload(fileName: string, base64Content: string, mimeType: string | null) {
+    const byteChars = atob(base64Content)
+    const byteArray = new Uint8Array(byteChars.length)
+    for (let i = 0; i < byteChars.length; i++) {
+        byteArray[i] = byteChars.charCodeAt(i)
+    }
+    const blob = new Blob([byteArray], { type: mimeType ?? 'application/octet-stream' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
 }
 
 function BackIcon(props: { className?: string }) {
@@ -104,14 +124,6 @@ function FileContentSkeleton(props: { label: string }) {
             </div>
         </div>
     )
-}
-
-function resolveLanguage(path: string): string | undefined {
-    const parts = path.split('.')
-    if (parts.length <= 1) return undefined
-    const ext = parts[parts.length - 1]?.toLowerCase()
-    if (!ext) return undefined
-    return langAlias[ext] ?? ext
 }
 
 function resolveImageMimeType(path: string): string | null {
@@ -213,7 +225,20 @@ export default function FilePage() {
         downloadBlob(fileName, base64ToUint8Array(fileContentResult.content), mimeType)
     }, [binaryFile, fileContentResult, fileName, imageMimeType])
 
+    const canDownload = fileContentResult?.success === true && Boolean(fileContentResult.content)
+
     const [displayMode, setDisplayMode] = useState<'diff' | 'file'>('diff')
+    const [wordWrap, setWordWrap] = useFileWordWrap()
+    const [markdownPreview, setMarkdownPreview] = useFileMarkdownPreview()
+
+    const isMarkdownFile = useMemo(() => isMarkdownPath(filePath), [filePath])
+    const showFileTextContent = displayMode === 'file'
+        && fileContentResult?.success === true
+        && !imagePreviewUrl
+        && !binaryFile
+        && decodedContent.length > 0
+    const renderMarkdownPreview = showFileTextContent && isMarkdownFile && markdownPreview
+    const showWordWrapToggle = showFileTextContent && !renderMarkdownPreview
 
     useEffect(() => {
         if (imageMimeType) {
@@ -276,6 +301,16 @@ export default function FilePage() {
                     >
                         {pathCopied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
                     </button>
+                    {canDownload ? (
+                        <button
+                            type="button"
+                            onClick={() => triggerDownload(fileName, fileContentResult!.content!, imageMimeType)}
+                            className="shrink-0 rounded p-1 text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)] transition-colors"
+                            title={t('file.page.download')}
+                        >
+                            <DownloadIcon className="h-3.5 w-3.5" />
+                        </button>
+                    ) : null}
                 </div>
             </div>
 
@@ -296,6 +331,48 @@ export default function FilePage() {
                         >
                             {t('file.page.tab.file')}
                         </button>
+                    </div>
+                </div>
+            ) : null}
+
+            {showFileTextContent && (isMarkdownFile || showWordWrapToggle) ? (
+                <div className="bg-[var(--app-bg)]">
+                    <div className="mx-auto w-full max-w-content px-3 py-2 flex items-center gap-2 border-b border-[var(--app-divider)]">
+                        <div className="flex-1" />
+                        {isMarkdownFile ? (
+                            <div className="flex items-center gap-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setMarkdownPreview(true)}
+                                    aria-pressed={markdownPreview}
+                                    data-testid="md-preview-toggle"
+                                    className={`rounded px-3 py-1 text-xs font-semibold ${markdownPreview ? 'bg-[var(--app-button)] text-[var(--app-button-text)] opacity-80' : 'bg-[var(--app-subtle-bg)] text-[var(--app-hint)]'}`}
+                                >
+                                    {t('file.page.tab.preview')}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setMarkdownPreview(false)}
+                                    aria-pressed={!markdownPreview}
+                                    data-testid="md-raw-toggle"
+                                    className={`rounded px-3 py-1 text-xs font-semibold ${!markdownPreview ? 'bg-[var(--app-button)] text-[var(--app-button-text)] opacity-80' : 'bg-[var(--app-subtle-bg)] text-[var(--app-hint)]'}`}
+                                >
+                                    {t('file.page.tab.raw')}
+                                </button>
+                            </div>
+                        ) : null}
+                        {showWordWrapToggle ? (
+                            <button
+                                type="button"
+                                onClick={() => setWordWrap(!wordWrap)}
+                                aria-pressed={wordWrap}
+                                data-testid="word-wrap-toggle"
+                                title={t('file.page.wordWrap')}
+                                className={`rounded px-3 py-1 text-xs font-semibold ${wordWrap ? 'bg-[var(--app-button)] text-[var(--app-button-text)] opacity-80' : 'bg-[var(--app-subtle-bg)] text-[var(--app-hint)]'}`}
+                            >
+                                {t('file.page.wordWrap')}
+                            </button>
+                        ) : null}
                     </div>
                 </div>
             ) : null}
@@ -341,9 +418,22 @@ export default function FilePage() {
                                             {contentCopied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
                                         </button>
                                     ) : null}
-                                    <pre className="shiki overflow-auto rounded-md bg-[var(--app-code-bg)] p-3 pr-8 text-xs font-mono">
-                                        <code>{highlighted ?? decodedContent}</code>
-                                    </pre>
+                                    {renderMarkdownPreview ? (
+                                        <div
+                                            data-testid="md-preview"
+                                            className="rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] p-4 pr-8"
+                                        >
+                                            <FileMarkdownView content={decodedContent} />
+                                        </div>
+                                    ) : (
+                                        <pre
+                                            data-testid="file-raw-pre"
+                                            data-word-wrap={wordWrap ? 'on' : 'off'}
+                                            className={`shiki rounded-md bg-[var(--app-code-bg)] p-3 pr-8 text-xs font-mono ${wordWrap ? 'overflow-x-hidden whitespace-pre-wrap break-words' : 'overflow-auto'}`}
+                                        >
+                                            <code>{highlighted ?? decodedContent}</code>
+                                        </pre>
+                                    )}
                                 </div>
                             ) : (
                                 <div className="text-sm text-[var(--app-hint)]">{t('file.page.empty')}</div>

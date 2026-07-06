@@ -31,6 +31,8 @@ function createSession(overrides?: Partial<Session>): Session {
         model: 'gpt-5.4',
         modelReasoningEffort: null,
         effort: null,
+        serviceTier: null,
+        resumeWithSessionModel: false,
         permissionMode: 'default',
         collaborationMode: 'default'
     }
@@ -61,6 +63,7 @@ function createApp(session: Session, opts?: {
     listSlashCommands?: SyncEngine['listSlashCommands']
     getSessionExport?: (sessionId: string, session: Session) => unknown
     sessionExists?: boolean
+    archiveSession?: (sessionId: string) => Promise<void>
 }) {
     const applySessionConfigCalls: Array<[string, Record<string, unknown>]> = []
     const applySessionConfig = async (sessionId: string, config: Record<string, unknown>) => {
@@ -103,6 +106,7 @@ function createApp(session: Session, opts?: {
         resumed: true
     }))
     const sessionExists = opts?.sessionExists !== false
+    const archiveSessionMock = opts?.archiveSession ?? (async () => {})
     const engine = {
         resolveSessionAccess: () => sessionExists
             ? { ok: true, sessionId: session.id, session }
@@ -114,6 +118,7 @@ function createApp(session: Session, opts?: {
         listOpencodeReasoningEffortOptionsForSession,
         resumeSession,
         reopenSession,
+        archiveSession: archiveSessionMock,
         getSessionExport: opts?.getSessionExport ?? (() => ({
             type: 'success',
             payload: {
@@ -365,6 +370,71 @@ describe('sessions routes', () => {
         ])
     })
 
+    it('applies fast service tier changes for remote Codex sessions', async () => {
+        const { app, applySessionConfigCalls } = createApp(createSession())
+
+        const response = await app.request('/api/sessions/session-1/service-tier', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ serviceTier: 'fast' })
+        })
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ ok: true })
+        expect(applySessionConfigCalls).toEqual([
+            ['session-1', { serviceTier: 'fast' }]
+        ])
+    })
+
+    it('persists an explicit Standard service tier (distinct from untouched)', async () => {
+        const { app, applySessionConfigCalls } = createApp(createSession())
+
+        const response = await app.request('/api/sessions/session-1/service-tier', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ serviceTier: 'standard' })
+        })
+
+        expect(response.status).toBe(200)
+        expect(applySessionConfigCalls).toEqual([
+            ['session-1', { serviceTier: 'standard' }]
+        ])
+    })
+
+    it('rejects unsupported service tier values', async () => {
+        const { app, applySessionConfigCalls } = createApp(createSession())
+
+        const response = await app.request('/api/sessions/session-1/service-tier', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ serviceTier: 'turbo' })
+        })
+
+        expect(response.status).toBe(400)
+        expect(applySessionConfigCalls).toEqual([])
+    })
+
+    it('rejects service tier changes for local Codex sessions', async () => {
+        const { app, applySessionConfigCalls } = createApp(
+            createSession({
+                agentState: {
+                    controlledByUser: true,
+                    requests: {},
+                    completedRequests: {}
+                }
+            })
+        )
+
+        const response = await app.request('/api/sessions/session-1/service-tier', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ serviceTier: 'fast' })
+        })
+
+        expect(response.status).toBe(409)
+        expect(applySessionConfigCalls).toEqual([])
+    })
+
     it('applies model changes for remote Codex sessions', async () => {
         const { app, applySessionConfigCalls } = createApp(createSession())
 
@@ -379,6 +449,92 @@ describe('sessions routes', () => {
         expect(applySessionConfigCalls).toEqual([
             ['session-1', { model: 'gpt-5.5' }]
         ])
+    })
+
+    it('applies model changes for inactive Claude sessions before resume', async () => {
+        const session = createSession({
+            active: false,
+            metadata: {
+                path: '/tmp/project',
+                host: 'localhost',
+                flavor: 'claude'
+            }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/model', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ model: 'fable' })
+        })
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ ok: true })
+        expect(applySessionConfigCalls).toEqual([
+            ['session-1', { model: 'fable' }]
+        ])
+    })
+
+    it('keeps inactive non-Claude model changes rejected', async () => {
+        const session = createSession({
+            active: false,
+            metadata: {
+                path: '/tmp/project',
+                host: 'localhost',
+                flavor: 'codex'
+            }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/model', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ model: 'gpt-5.5' })
+        })
+
+        expect(response.status).toBe(409)
+        expect(await response.json()).toEqual({ error: 'Session is inactive' })
+        expect(applySessionConfigCalls).toEqual([])
+    })
+
+    it('applies resume model setting for Claude sessions', async () => {
+        const session = createSession({
+            active: false,
+            metadata: {
+                path: '/tmp/project',
+                host: 'localhost',
+                flavor: 'claude'
+            }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/resume-model', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ resumeWithSessionModel: true })
+        })
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ ok: true })
+        expect(applySessionConfigCalls).toEqual([
+            ['session-1', { resumeWithSessionModel: true }]
+        ])
+    })
+
+    it('rejects resume model setting for non-Claude sessions', async () => {
+        const { app, applySessionConfigCalls } = createApp(createSession())
+
+        const response = await app.request('/api/sessions/session-1/resume-model', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ resumeWithSessionModel: true })
+        })
+
+        expect(response.status).toBe(400)
+        expect(await response.json()).toEqual({
+            error: 'Resume model selection is only supported for Claude sessions'
+        })
+        expect(applySessionConfigCalls).toEqual([])
     })
 
     it('rejects model changes for local Codex sessions', async () => {
@@ -510,7 +666,7 @@ describe('sessions routes', () => {
 
         expect(response.status).toBe(400)
         expect(await response.json()).toEqual({
-            error: 'Effort selection is only supported for Claude sessions'
+            error: 'Effort selection is not supported for this session type'
         })
         expect(applySessionConfigCalls).toEqual([])
     })
@@ -536,6 +692,52 @@ describe('sessions routes', () => {
         expect(applySessionConfigCalls).toEqual([
             ['session-1', { effort: 'max' }]
         ])
+    })
+
+    it('applies effort changes for inactive Claude sessions before resume', async () => {
+        const session = createSession({
+            active: false,
+            metadata: {
+                path: '/tmp/project',
+                host: 'localhost',
+                flavor: 'claude'
+            }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/effort', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ effort: 'max' })
+        })
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ ok: true })
+        expect(applySessionConfigCalls).toEqual([
+            ['session-1', { effort: 'max' }]
+        ])
+    })
+
+    it('keeps inactive non-Claude effort changes rejected', async () => {
+        const session = createSession({
+            active: false,
+            metadata: {
+                path: '/tmp/project',
+                host: 'localhost',
+                flavor: 'codex'
+            }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/effort', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ effort: 'high' })
+        })
+
+        expect(response.status).toBe(409)
+        expect(await response.json()).toEqual({ error: 'Session is inactive' })
+        expect(applySessionConfigCalls).toEqual([])
     })
 
     it('returns Codex models for active Codex sessions', async () => {
@@ -945,6 +1147,126 @@ describe('sessions routes', () => {
                 { name: 'clear', source: 'builtin' },
                 { name: 'project-only', source: 'project', content: 'Project prompt' }
             ]
+        })
+    })
+
+    // tiann/hapi#916: archive endpoint must be idempotent for already-archived
+    // rows and for split-brain rows whose CLI is gone but the in-memory `active`
+    // flag has not been reconciled to false yet.
+    describe('POST /sessions/:id/archive (tiann/hapi#916)', () => {
+        it('returns 2xx and calls archiveSession for an active session', async () => {
+            const calls: string[] = []
+            const session = createSession({ active: true })
+            const { app } = createApp(session, {
+                archiveSession: async (sessionId: string) => { calls.push(sessionId) }
+            })
+
+            const response = await app.request('/api/sessions/session-1/archive', { method: 'POST' })
+
+            expect(response.status).toBe(200)
+            expect(await response.json()).toEqual({ ok: true })
+            expect(calls).toEqual(['session-1'])
+        })
+
+        it('returns 2xx and skips archiveSession when the row is already archived (idempotent)', async () => {
+            let called = false
+            const session = createSession({
+                active: false,
+                metadata: {
+                    path: '/tmp/project',
+                    host: 'localhost',
+                    flavor: 'codex',
+                    lifecycleState: 'archived',
+                    archivedBy: 'cli',
+                    archiveReason: 'User terminated'
+                }
+            })
+            const { app } = createApp(session, {
+                archiveSession: async () => { called = true }
+            })
+
+            const response = await app.request('/api/sessions/session-1/archive', { method: 'POST' })
+
+            expect(response.status).toBe(200)
+            expect(await response.json()).toEqual({ ok: true, alreadyArchived: true })
+            expect(called).toBe(false)
+        })
+
+        it('returns 2xx when the active session\'s CLI is gone — engine.archiveSession swallows the missing-RPC error', async () => {
+            // Pre-fix this returned 500 because rpcGateway.killSession threw
+            // 'RPC handler not registered'. Post-fix the engine narrows on
+            // RpcTargetMissingError and still flips lifecycle to archived.
+            const session = createSession({ active: true })
+            const { app } = createApp(session, {
+                archiveSession: async () => {
+                    // Simulates the post-fix behavior: engine catches the
+                    // RpcTargetMissingError, calls markSessionArchivedFromHub,
+                    // and returns normally.
+                }
+            })
+
+            const response = await app.request('/api/sessions/session-1/archive', { method: 'POST' })
+
+            expect(response.status).toBe(200)
+            expect(await response.json()).toEqual({ ok: true })
+        })
+
+        it('still surfaces a 5xx for non-RPC errors (e.g. DB write failure)', async () => {
+            const session = createSession({ active: true })
+            const { app } = createApp(session, {
+                archiveSession: async () => {
+                    throw new Error('DB write failed')
+                }
+            })
+
+            const response = await app.request('/api/sessions/session-1/archive', { method: 'POST' })
+            expect(response.status).toBe(500)
+        })
+
+        it('returns 404 when the session id is unknown', async () => {
+            const session = createSession()
+            const { app } = createApp(session, { sessionExists: false })
+
+            const response = await app.request('/api/sessions/missing-id/archive', { method: 'POST' })
+
+            expect(response.status).toBe(404)
+            expect(await response.json()).toEqual({ error: 'Session not found' })
+        })
+
+        it('returns 409 for an inactive non-archived row whose lifecycle is not running', async () => {
+            let called = false
+            const session = createSession({ active: false })
+            const { app } = createApp(session, {
+                archiveSession: async () => { called = true }
+            })
+
+            const response = await app.request('/api/sessions/session-1/archive', { method: 'POST' })
+
+            expect(response.status).toBe(409)
+            expect(await response.json()).toEqual({ error: 'Session is inactive' })
+            expect(called).toBe(false)
+        })
+
+        it('returns 2xx for an inactive split-brain row still marked lifecycleState=running', async () => {
+            const calls: string[] = []
+            const session = createSession({
+                active: false,
+                metadata: {
+                    path: '/tmp/project',
+                    host: 'localhost',
+                    flavor: 'codex',
+                    lifecycleState: 'running'
+                }
+            })
+            const { app } = createApp(session, {
+                archiveSession: async (sessionId: string) => { calls.push(sessionId) }
+            })
+
+            const response = await app.request('/api/sessions/session-1/archive', { method: 'POST' })
+
+            expect(response.status).toBe(200)
+            expect(await response.json()).toEqual({ ok: true })
+            expect(calls).toEqual(['session-1'])
         })
     })
 

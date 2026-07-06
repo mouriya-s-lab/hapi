@@ -34,6 +34,12 @@ export interface ModelListItem {
         description?: string;
     }>;
     defaultReasoningEffort?: string | null;
+    serviceTiers?: Array<{
+        id?: string;
+        name?: string;
+        description?: string;
+    }>;
+    defaultServiceTier?: string | null;
     isDefault?: boolean;
     [key: string]: unknown;
 }
@@ -63,6 +69,11 @@ export interface CollaborationModeListResponse {
 export interface ThreadStartParams {
     model?: string;
     modelProvider?: string;
+    /**
+     * Service tier override (e.g. 'fast'). `null` selects the standard tier
+     * explicitly; omit to inherit the account/thread default.
+     */
+    serviceTier?: string | null;
     cwd?: string;
     approvalPolicy?: ApprovalPolicy;
     sandbox?: SandboxMode;
@@ -104,6 +115,23 @@ export interface ThreadResumeResponse {
         id: string;
     };
     model: string;
+    [key: string]: unknown;
+}
+
+/**
+ * thread/fork — forks a thread at head (or before last N turns if numTurns given).
+ * Used by fork-features/session-fork to clone a codex session into a new thread
+ * that hapi can then resume independently.
+ */
+export interface ThreadForkParams {
+    threadId: string;
+    numTurns?: number;
+}
+
+export interface ThreadForkResponse {
+    thread: {
+        id: string;
+    };
     [key: string]: unknown;
 }
 
@@ -161,6 +189,11 @@ export interface TurnStartParams {
     approvalPolicy?: ApprovalPolicy;
     sandboxPolicy?: SandboxPolicy;
     model?: string;
+    /**
+     * Service tier override for this turn and subsequent turns (e.g. 'fast').
+     * `null` selects the standard tier explicitly; omit to leave it unchanged.
+     */
+    serviceTier?: string | null;
     effort?: ReasoningEffort;
     summary?: ReasoningSummary;
     personality?: string;

@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { getEventPresentation, formatMessageTimestamp, formatResetTime } from './presentation'
 
+describe('getEventPresentation — agent errors', () => {
+    it('formats error events with warning icon and message text', () => {
+        const result = getEventPresentation({
+            type: 'error',
+            message: 'Cursor Agent failed: authentication required'
+        })
+
+        expect(result.icon).toBe('⚠️')
+        expect(result.text).toBe('Cursor Agent failed: authentication required')
+    })
+})
+
 describe('getEventPresentation — limit-warning', () => {
     it('formats five_hour warning', () => {
         const result = getEventPresentation({
@@ -119,6 +131,20 @@ describe('getEventPresentation — thread goals', () => {
         const result = getEventPresentation({ type: 'thread-goal-cleared', threadId: 'thread-1' })
 
         expect(result.text).toBe('Goal cleared')
+    })
+})
+
+
+describe('getEventPresentation — model refusal fallback', () => {
+    it('formats the original model switch warning', () => {
+        const result = getEventPresentation({
+            type: 'model-refusal-fallback',
+            originalModel: 'claude-fable-5[1m]',
+            message: 'Switched to Opus 4.8 (1M context).'
+        })
+
+        expect(result.icon).toBe('⚠️')
+        expect(result.text).toContain('claude-fable-5[1m]')
     })
 })
 

@@ -1,5 +1,11 @@
 const FILE_PATH_HREF_PREFIX = 'hapi-file:'
 
+// Path prefixes recognized by the match pattern:
+//   ~/            — home-relative absolute path
+//   /             — POSIX absolute path
+//   C:\ / C:/     — Windows drive absolute path
+//   ./            — explicit relative
+//   foo/ or foo\  — bare-relative starting with a name segment (POSIX or Windows)
 const PATH_PATTERN = /(?:~\/|\/|[A-Za-z]:[\\/]|\.\/|[A-Za-z0-9_.-]+[\\/])[^\s`"\'<>]*?\.(?:[A-Za-z0-9]{1,12}|lock)(?::\d+(?::\d+)?)?|(?:[A-Za-z0-9_.-]+\.(?:[A-Za-z0-9]{1,12}|lock))(?::\d+(?::\d+)?)?/g
 
 const TRAILING_PUNCTUATION = new Set(['.', ',', ';', ':', '!', '?'])
@@ -88,9 +94,16 @@ function linkTextNode(node: MarkdownNode): MarkdownNode[] {
     let match: RegExpExecArray | null
     while ((match = PATH_PATTERN.exec(value)) !== null) {
         const rawMatch = match[0]
+        // Skip matches that sit inside a URL. The current token (from the
+        // nearest whitespace back) containing `://` means the match is a
+        // hostname/path fragment of a URL and shouldn't be turned into a link.
         const prefix = value.slice(0, match.index)
-        const currentTokenPrefix = prefix.slice(Math.max(prefix.lastIndexOf(' '), prefix.lastIndexOf('\n'), prefix.lastIndexOf('\t')) + 1)
-        if (currentTokenPrefix.includes('://')) {
+        const tokenStart = Math.max(
+            prefix.lastIndexOf(' '),
+            prefix.lastIndexOf('\n'),
+            prefix.lastIndexOf('\t')
+        ) + 1
+        if (prefix.slice(tokenStart).includes('://')) {
             continue
         }
         const previousChar = match.index > 0 ? value[match.index - 1] : ''

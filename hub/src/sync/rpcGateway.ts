@@ -32,6 +32,27 @@ const MODEL_LIST_RPC_TIMEOUT_MS = 120_000
 // 历史会话扫描/读取可能涉及大量本地文件,放宽超时上限。
 const IMPORT_SCAN_RPC_TIMEOUT_MS = 180_000
 
+/**
+ * tiann/hapi#916: thrown by {@link RpcGateway.rpcCall} when the target CLI is
+ * unreachable (handler not registered or socket disconnected). Callers can
+ * narrow on this to treat "CLI gone" as a benign condition (e.g. archive
+ * still succeeds at the hub level) without swallowing real RPC errors like
+ * timeouts or protocol failures.
+ */
+export class RpcTargetMissingError extends Error {
+    readonly code: 'handler-not-registered' | 'socket-disconnected'
+    readonly method: string
+
+    constructor(method: string, reason: 'handler-not-registered' | 'socket-disconnected') {
+        super(reason === 'handler-not-registered'
+            ? `RPC handler not registered: ${method}`
+            : `RPC socket disconnected: ${method}`)
+        this.name = 'RpcTargetMissingError'
+        this.code = reason
+        this.method = method
+    }
+}
+
 export type RpcCommandResponse = CommandResponse
 export type RpcReadFileResponse = FileReadResponse
 export type RpcGeneratedImageResponse = GeneratedImageResponse
@@ -97,7 +118,7 @@ export class RpcGateway {
         sessionId: string,
         config: {
             permissionMode?: PermissionMode
-            model?: string | null
+            model?: { provider: string; modelId: string } | string | null
             modelReasoningEffort?: string | null
             effort?: string | null
             collaborationMode?: CodexCollaborationMode
@@ -125,13 +146,14 @@ export class RpcGateway {
         worktreeName?: string,
         resumeSessionId?: string,
         effort?: string,
-        permissionMode?: PermissionMode
+        permissionMode?: PermissionMode,
+        serviceTier?: string
     ): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }> {
         try {
             const result = await this.machineRpc(
                 machineId,
                 RPC_METHODS.SpawnHappySession,
-                { type: 'spawn-in-directory', directory, agent, model, modelReasoningEffort, yolo, sessionType, worktreeName, resumeSessionId, effort, permissionMode }
+                { type: 'spawn-in-directory', directory, agent, model, modelReasoningEffort, yolo, sessionType, worktreeName, resumeSessionId, effort, permissionMode, serviceTier }
             )
             if (result && typeof result === 'object') {
                 const obj = result as Record<string, unknown>
@@ -164,6 +186,19 @@ export class RpcGateway {
         } catch (error) {
             return { type: 'error', message: error instanceof Error ? error.message : String(error) }
         }
+    }
+
+    /**
+     * Trigger a provider-native session fork on the target machine.
+     * Used by fork-features/session-fork to clone a session into a new
+     * provider session id. Returns the raw RPC result (typed by the caller
+     * via ForkSpawnResult); status code mapping happens in hubForkController.
+     */
+    async forkProviderSessionOnMachine(
+        machineId: string,
+        request: { flavor: string; payload: unknown }
+    ): Promise<unknown> {
+        return await this.machineRpc(machineId, RPC_METHODS.ForkSpawnSession, request)
     }
 
     async listMachineDirectory(machineId: string, path: string): Promise<RpcListDirectoryResponse> {
@@ -292,6 +327,12 @@ export class RpcGateway {
         return await this.machineRpc(machineId, RPC_METHODS.ListOpencodeModelsForCwd, { cwd }) as RpcListOpencodeModelsResponse
     }
 
+    /** Generic Pi RPC call — routes all Pi-specific session RPCs through
+     *  a single entry point instead of per-method wrappers. */
+    async callPiRpc<T = unknown>(sessionId: string, method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<T> {
+        return await this.sessionRpc(sessionId, method, params ?? {}, timeoutMs ?? DEFAULT_RPC_TIMEOUT_MS) as T
+    }
+
     async listOpencodeReasoningEffortOptionsForSession(sessionId: string): Promise<RpcListOpencodeReasoningEffortOptionsResponse> {
         return await this.sessionRpc(sessionId, RPC_METHODS.ListOpencodeReasoningEffortOptions, {}) as RpcListOpencodeReasoningEffortOptionsResponse
     }
@@ -317,12 +358,12 @@ export class RpcGateway {
     private async rpcCall(method: string, params: unknown, timeoutMs: number = DEFAULT_RPC_TIMEOUT_MS): Promise<unknown> {
         const socketId = this.rpcRegistry.getSocketIdForMethod(method)
         if (!socketId) {
-            throw new Error(`RPC handler not registered: ${method}`)
+            throw new RpcTargetMissingError(method, 'handler-not-registered')
         }
 
         const socket = this.io.of('/cli').sockets.get(socketId)
         if (!socket) {
-            throw new Error(`RPC socket disconnected: ${method}`)
+            throw new RpcTargetMissingError(method, 'socket-disconnected')
         }
 
         const response = await socket.timeout(timeoutMs).emitWithAck('rpc-request', {

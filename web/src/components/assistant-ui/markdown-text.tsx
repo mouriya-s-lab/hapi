@@ -13,6 +13,7 @@ import remarkBreaks from 'remark-breaks'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import remarkDisableIndentedCode from '@/lib/remark-disable-indented-code'
+import remarkRepairTables from '@/lib/remark-repair-tables'
 import { useNavigate } from '@tanstack/react-router'
 import remarkStripCjkAutolink from '@/lib/remark-strip-cjk-autolink'
 import remarkNonHttpsAutolink from '@/lib/remark-non-https-autolink'
@@ -30,7 +31,9 @@ import { UriConfirmDialog } from '@/components/UriConfirmDialog'
 import type { MarkdownTextPrimitiveProps } from '@assistant-ui/react-markdown'
 
 // ── Plugin array ────────────────────────────────────────────────────────────
-// Order: remarkGfm → remarkNonHttpsAutolink → remarkStripCjkAutolink → remarkMath → remarkDisableIndentedCode → remarkFilePathLinks
+// Order: remarkGfm → remarkRepairTables → remarkNonHttpsAutolink → remarkStripCjkAutolink → remarkMath → remarkDisableIndentedCode → remarkFilePathLinks
+// remarkRepairTables must run immediately after remarkGfm — it reads file.value
+// (raw source) to pad short separator rows before remark-gfm parses the table.
 // remarkNonHttpsAutolink must run BEFORE remarkStripCjkAutolink so that the
 // CJK strip plugin sees the new link nodes and can trim trailing CJK punctuation
 // from them. Both must come before remarkMath (to avoid treating TeX as URI).
@@ -53,6 +56,7 @@ const MARKDOWN_PLUGIN_TAIL = [
 
 export const MARKDOWN_PLUGINS = [
     remarkGfm,
+    remarkRepairTables,
     ...MARKDOWN_PLUGIN_TAIL,
 ] satisfies NonNullable<MarkdownTextPrimitiveProps['remarkPlugins']>
 
@@ -60,6 +64,7 @@ export const MARKDOWN_PLUGINS = [
 // changing assistant/tool markdown behavior globally.
 export const MARKDOWN_PLUGINS_WITH_BREAKS = [
     remarkGfm,
+    remarkRepairTables,
     remarkBreaks,
     ...MARKDOWN_PLUGIN_TAIL,
 ] satisfies NonNullable<MarkdownTextPrimitiveProps['remarkPlugins']>
@@ -179,10 +184,9 @@ function hasScheme(href: string): boolean {
 // Relative paths (no colon, or colon only in path/query) have no scheme and
 // are always passed through — they are safe and used for img src etc.
 //
-// Known limitation (FIX 5, deferred): data:image/png;base64,... used in
-// <img src> is also stripped because DENY_SCHEMES includes 'data'. However,
-// react-markdown's own defaultUrlTransform strips all data: URLs identically,
-// so this is not a regression introduced by this PR.
+// `data:image/*` is allowed as an inline-image escape hatch (Read tool image
+// preview via <img src>). `data:text/html` and other data: schemes still fall
+// through to classifyScheme, which keeps them denied by default.
 export function denyOnlyTransform(url: string): string {
     if (!url) return url
     const trimmed = url.trimStart()

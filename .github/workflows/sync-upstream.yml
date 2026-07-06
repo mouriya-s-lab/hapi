@@ -1,0 +1,186 @@
+name: Sync upstream
+
+# Pulls new commits from upstream into this fork and lands them through PRs:
+#
+#   - The longest prefix of upstream commits that merges CLEANLY into the
+#     fork's main goes onto `sync/merge`, opens a PR, waits for CI, and
+#     auto-merges when green.
+#   - Whatever is left after the first conflicting commit (the "tail") goes
+#     onto `sync/review`, opens a PR, and is LEFT OPEN for a human to resolve.
+#   - When everything merges cleanly (the normal case for this fork, whose
+#     only customization lives in .github/workflows/*), there is just the one
+#     auto-merge PR and no review PR.
+#
+# Guarantees and the reasoning behind them:
+#   - At most ONE un-merged sync PR of each kind lives at a time. This is NOT
+#     enforced by counting — it relies on GitHub's server-side rule that a
+#     given (head, base) pair can have only one open PR. The fixed branch
+#     names `sync/merge` / `sync/review` are the real uniqueness key; a
+#     duplicate POST /pulls returns 422 and we treat that as "already there".
+#   - Before doing anything, we bail out if ANY open PR carries the
+#     `upstream-sync` label. That covers both the review PR waiting on a human
+#     and an auto-merge PR that stayed open because its CI went red. We never
+#     force-push a sync branch while a human may be resolving conflicts on it.
+#   - `concurrency` stops a manual dispatch and the cron from racing.
+#   - This fork's Release workflow (release.yml) triggers ONLY on `v*` tag
+#     pushes, not on push to main — so auto-merging upstream commits into main
+#     cannot trigger a publish.
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # daily 06:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+env:
+  UPSTREAM: https://github.com/tiann/hapi.git
+  UPSTREAM_BRANCH: main
+  BASE_BRANCH: main
+  MERGE_BRANCH: sync/merge      # clean prefix → auto-merge
+  REVIEW_BRANCH: sync/review    # conflicting tail → human review
+  SYNC_LABEL: upstream-sync
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      # PAT, not GITHUB_TOKEN: (1) GITHUB_TOKEN can't open PRs on a fork;
+      # (2) it lacks the `workflows` permission so pushing upstream changes to
+      # .github/workflows/* is rejected; (3) a PAT-opened PR actually triggers
+      # ci.yml's pull_request job — GITHUB_TOKEN-opened PRs don't, which would
+      # make the CI gate below a no-op.
+      GH_TOKEN: ${{ secrets.SYNC_PAT }}
+      REPO: ${{ github.repository }}
+      OWNER: ${{ github.repository_owner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_PAT }}
+
+      - name: Re-entrancy gate — skip if a sync PR is still open
+        id: gate
+        run: |
+          gh label create "$SYNC_LABEL" --repo "$REPO" --color ededed \
+            --description "Automated upstream-sync PR" >/dev/null 2>&1 || true
+          open=$(gh pr list --repo "$REPO" --label "$SYNC_LABEL" --state open \
+            --json number --jq 'length')
+          if [ "$open" -gt 0 ]; then
+            echo "An un-merged sync PR is still open — resolve it first. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch upstream + base
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          git remote add upstream "$UPSTREAM" 2>/dev/null || true
+          git fetch upstream "$UPSTREAM_BRANCH"
+          git fetch origin "$BASE_BRANCH"
+
+      - name: Sync
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+
+          # --- helpers ----------------------------------------------------
+          # All diagnostics go to stderr so the captured stdout of open_pr()
+          # is ONLY the PR number.
+          open_pr() {
+            local head="$1" base="$2" title="$3" body="$4" n
+            # Reuse an existing open PR for this (head, base) if present.
+            n=$(gh api "repos/$REPO/pulls?head=$OWNER:$head&base=$base&state=open" \
+                  --jq '.[0].number // empty')
+            if [ -z "$n" ]; then
+              # 422 fallback: a racing run may have just created it.
+              n=$(gh api "repos/$REPO/pulls" -X POST \
+                    -f title="$title" -f head="$head" -f base="$base" -f body="$body" \
+                    --jq '.number' 2>/dev/null) || \
+              n=$(gh api "repos/$REPO/pulls?head=$OWNER:$head&base=$base&state=open" \
+                    --jq '.[0].number // empty')
+            fi
+            if [ -n "$n" ]; then
+              gh pr edit "$n" --repo "$REPO" --add-label "$SYNC_LABEL" >/dev/null 2>&1 || true
+            fi
+            echo "$n"
+          }
+
+          # Wait for the PR's CI to finish, then merge if green. Returns 0 on
+          # merge, 1 if CI failed (PR is left open for a human).
+          gate_and_merge() {
+            local pr="$1"
+            echo "Waiting for CI on PR #$pr ..." >&2
+            sleep 20  # give the pull_request CI run time to register
+            if gh pr checks "$pr" --repo "$REPO" --watch --fail-fast; then
+              gh pr merge "$pr" --repo "$REPO" --merge
+              echo "PR #$pr auto-merged." >&2
+              return 0
+            fi
+            echo "CI not green on PR #$pr — leaving it open for review." >&2
+            return 1
+          }
+
+          today=$(date +%F)
+
+          # --- nothing to do? --------------------------------------------
+          if git merge-base --is-ancestor upstream/"$UPSTREAM_BRANCH" origin/"$BASE_BRANCH"; then
+            echo "No new upstream commits."
+            exit 0
+          fi
+
+          # --- can the whole batch merge cleanly? ------------------------
+          if git merge-tree --write-tree origin/"$BASE_BRANCH" upstream/"$UPSTREAM_BRANCH" >/dev/null 2>&1; then
+            echo "Whole upstream batch merges cleanly — single auto-merge PR."
+            git push --force-with-lease origin \
+              "upstream/$UPSTREAM_BRANCH:refs/heads/$MERGE_BRANCH"
+            pr=$(open_pr "$MERGE_BRANCH" "$BASE_BRANCH" \
+              "Sync upstream (auto-merge) → $today" \
+              $'Automated sync of `upstream/main` — merges cleanly into this fork.\n\nAuto-merges once CI is green.')
+            gate_and_merge "$pr" || true
+            exit 0
+          fi
+
+          # --- conflicts: split into clean prefix + conflicting tail -----
+          echo "Conflicts detected — splitting clean prefix from conflicting tail."
+          split=""
+          for c in $(git rev-list --reverse origin/"$BASE_BRANCH"..upstream/"$UPSTREAM_BRANCH"); do
+            if git merge-tree --write-tree origin/"$BASE_BRANCH" "$c" >/dev/null 2>&1; then
+              split="$c"
+            else
+              break   # first conflicting commit; prefix ends at $split
+            fi
+          done
+
+          if [ -n "$split" ]; then
+            echo "Clean prefix ends at $split — auto-merge PR."
+            git push --force-with-lease origin "$split:refs/heads/$MERGE_BRANCH"
+            prA=$(open_pr "$MERGE_BRANCH" "$BASE_BRANCH" \
+              "Sync upstream (auto-merge prefix) → $today" \
+              $'Automated sync — the prefix of upstream commits that merges cleanly.\n\nAuto-merges once CI is green; the conflicting tail is in a separate review PR.')
+            if ! gate_and_merge "$prA"; then
+              echo "Prefix CI not green — NOT opening the review PR this round."
+              echo "Resolve PR #$prA first; the tail will follow next run."
+              exit 0
+            fi
+            # main advanced to $split; re-fetch so the review PR's diff is
+            # exactly the conflicting tail, not prefix+tail.
+            git fetch origin "$BASE_BRANCH"
+          else
+            echo "Even the first upstream commit conflicts — no auto-merge prefix."
+          fi
+
+          # --- conflicting tail → review PR (left open) ------------------
+          git push --force-with-lease origin \
+            "upstream/$UPSTREAM_BRANCH:refs/heads/$REVIEW_BRANCH"
+          prB=$(open_pr "$REVIEW_BRANCH" "$BASE_BRANCH" \
+            "Sync upstream — conflicts, needs review → $today" \
+            $'Automated sync — these upstream commits do NOT merge cleanly into the fork.\n\nResolve the conflicts here, then merge. The next scheduled run is gated on this PR being closed/merged.')
+          echo "Opened review PR #$prB — left open for manual conflict resolution."

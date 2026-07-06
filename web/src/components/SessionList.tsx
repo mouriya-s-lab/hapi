@@ -4,6 +4,7 @@ import type { ApiClient } from '@/api/client'
 import { useLongPress } from '@/hooks/useLongPress'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
+import { useFlavorCapabilities } from '@/hooks/queries/useFlavorCapabilities'
 import { SessionActionMenu } from '@/components/SessionActionMenu'
 import { ShareGrantDialog, type ShareTarget } from '@/components/ShareGrantDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
@@ -15,11 +16,18 @@ import { useTranslation } from '@/lib/use-translation'
 import { DEFAULT_SESSION_PREVIEW_LIMIT, useSessionPreviewLimit } from '@/hooks/useSessionPreviewLimit'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 import { useSessionListStatusMode } from '@/hooks/useSessionListStatusMode'
+import { useShowActiveSessionsOnly } from '@/hooks/useShowActiveSessionsOnly'
 import { classifySessionAttention } from '@/lib/sessionAttention'
 import { getSessionLastSeenAt } from '@/lib/sessionLastSeen'
 import { getAttentionLabel, SessionAttentionIndicator } from '@/components/SessionAttentionIndicator'
+import { HoverTooltip, SESSION_ROW_TOOLTIP_FOCUS_CLASS, useSessionRowTooltipIds } from '@/components/HoverTooltip'
+import { formatRelativeTime } from '@/lib/relativeTime'
+import { formatScheduledTooltipDetail } from '@/lib/scheduledTime'
 import { getCodexImportedAt, subscribeCodexImportedSessions } from '@/lib/codexImportedSessions'
 import { formatReopenError } from '@/lib/reopenError'
+import type { Machine } from '@/types/api'
+import { getMachinePlatform, presentMachineHealth } from '@/lib/machineHealth'
+import { MachineGroupHeader } from '@/components/MachineGroupHeader'
 
 type SessionGroup = {
     key: string
@@ -170,6 +178,20 @@ export function shouldShowSessionInSidebar(session: SessionSummary, selectedSess
 export function prepareSidebarSessions(sessions: SessionSummary[], selectedSessionId?: string | null): SessionSummary[] {
     return deduplicateSessionsByAgentId(sessions, selectedSessionId)
         .filter(session => shouldShowSessionInSidebar(session, selectedSessionId))
+}
+
+// "Active sessions only" view: hide inactive sessions, but never hide the one the
+// operator currently has open — otherwise toggling the filter would yank the
+// selected session out from under them.
+export function filterActiveSessionsOnly(sessions: SessionSummary[], selectedSessionId?: string | null): SessionSummary[] {
+    return sessions.filter(session => session.active || session.id === selectedSessionId)
+}
+
+// Paginated "Show N more": reveal one batch (step) at a time instead of expanding
+// every hidden session at once. Always advances by at least one and never exceeds
+// the total so the button reliably reaches a fully-expanded state.
+export function getNextSessionVisibleCount(current: number, step: number, total: number): number {
+    return Math.min(current + Math.max(1, step), total)
 }
 
 function groupSessionsByDirectory(sessions: SessionSummary[]): SessionGroup[] {
@@ -526,41 +548,6 @@ function SessionListSearch(props: {
     )
 }
 
-function MachineIcon(props: { className?: string }) {
-    return (
-        <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={props.className}
-        >
-            <rect x="2" y="3" width="20" height="14" rx="2" />
-            <line x1="8" y1="21" x2="16" y2="21" />
-            <line x1="12" y1="17" x2="12" y2="21" />
-        </svg>
-    )
-}
-
-function formatRelativeTime(value: number, t: (key: string, params?: Record<string, string | number>) => string): string | null {
-    const ms = value < 1_000_000_000_000 ? value * 1000 : value
-    if (!Number.isFinite(ms)) return null
-    const delta = Date.now() - ms
-    if (delta < 60_000) return t('session.time.justNow')
-    const minutes = Math.floor(delta / 60_000)
-    if (minutes < 60) return t('session.time.minutesAgo', { n: minutes })
-    const hours = Math.floor(minutes / 60)
-    if (hours < 24) return t('session.time.hoursAgo', { n: hours })
-    const days = Math.floor(hours / 24)
-    if (days < 7) return t('session.time.daysAgo', { n: days })
-    return new Date(ms).toLocaleDateString()
-}
-
 function formatCodexImportedRelativeTime(value: number, t: (key: string, params?: Record<string, string | number>) => string): string | null {
     const ms = value < 1_000_000_000_000 ? value * 1000 : value
     if (!Number.isFinite(ms)) return null
@@ -608,12 +595,17 @@ function SessionItem(props: {
     const [archiveOpen, setArchiveOpen] = useState(false)
     const [deleteOpen, setDeleteOpen] = useState(false)
 
-    const { archiveSession, reopenSession, renameSession, deleteSession, isPending } = useSessionActions(
+    const { archiveSession, reopenSession, renameSession, deleteSession, forkSession, isPending } = useSessionActions(
         api,
         s.id,
         s.metadata?.flavor ?? null
     )
+    const { data: capabilities } = useFlavorCapabilities(api)
+    const sessionFlavor = s.metadata?.flavor ?? null
+    const forkSupported =
+        Boolean(sessionFlavor) && (capabilities?.fork?.includes(sessionFlavor as string) ?? false)
     const [reopenError, setReopenError] = useState<string | null>(null)
+    const [forkError, setForkError] = useState<string | null>(null)
 
     const handleReopen = async () => {
         setReopenError(null)
@@ -626,6 +618,16 @@ function SessionItem(props: {
             }
         } catch (error) {
             setReopenError(formatReopenError(error))
+        }
+    }
+
+    const handleFork = async () => {
+        setForkError(null)
+        try {
+            const { newSessionId } = await forkSession()
+            onSelect(newSessionId)
+        } catch (error) {
+            setForkError(error instanceof Error ? error.message : 'Fork failed')
         }
     }
 
@@ -658,6 +660,11 @@ function SessionItem(props: {
     const scheduledLabel = s.futureScheduledMessageCount > 1
         ? t('session.item.scheduledMessages', { count: s.futureScheduledMessageCount })
         : t('session.item.scheduledMessage')
+    const hasScheduleTooltip = showDetailedStatus && s.futureScheduledMessageCount > 0
+    const { attentionId, scheduleId, describedBy } = useSessionRowTooltipIds(
+        Boolean(attention),
+        hasScheduleTooltip
+    )
     return (
         <>
             <button
@@ -669,9 +676,10 @@ function SessionItem(props: {
                     setMenuAnchorPoint({ x: event.clientX, y: event.clientY })
                     setMenuOpen(true)
                 }}
-                className={`session-list-item flex w-full flex-col gap-1 px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] select-none rounded-lg ${selected ? 'bg-[var(--app-secondary-bg)]' : ''}`}
+                className={`session-list-item group/session-row flex w-full flex-col gap-1 px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] select-none rounded-lg ${selected ? 'bg-[var(--app-secondary-bg)]' : ''}`}
                 style={{ WebkitTouchCallout: 'none' }}
                 aria-current={selected ? 'page' : undefined}
+                aria-describedby={describedBy}
             >
                 <div className={`flex items-center justify-between gap-3 ${!s.active ? 'opacity-50' : ''}`}>
                     <div className="flex items-center gap-2 min-w-0">
@@ -684,13 +692,27 @@ function SessionItem(props: {
                         ) : attention ? (
                             <SessionAttentionIndicator
                                 attention={attention}
+                                summary={s}
                                 label={attentionLabel ?? ''}
+                                tooltipId={attentionId!}
                             />
                         ) : null}
-                        {showDetailedStatus && s.futureScheduledMessageCount > 0 ? (
-                            <span title={scheduledLabel} aria-label={scheduledLabel} className="inline-flex shrink-0">
-                                <ScheduleIcon className="h-3.5 w-3.5 text-[var(--app-hint)]" />
-                            </span>
+                        {hasScheduleTooltip ? (
+                            <HoverTooltip
+                                id={scheduleId!}
+                                target={<ScheduleIcon className="h-3.5 w-3.5 text-[var(--app-hint)]" />}
+                                side="bottom"
+                                align="start"
+                                className="shrink-0"
+                                revealOnParentFocusClass={SESSION_ROW_TOOLTIP_FOCUS_CLASS}
+                            >
+                                <span className="block">
+                                    <span className="block font-medium">{scheduledLabel}</span>
+                                    <span className="mt-1 block text-[var(--app-hint)]">
+                                        {formatScheduledTooltipDetail(s, t)}
+                                    </span>
+                                </span>
+                            </HoverTooltip>
                         ) : null}
                     </div>
                     <div className="flex items-center gap-2 shrink-0 text-xs">
@@ -726,6 +748,8 @@ function SessionItem(props: {
                 onArchive={() => setArchiveOpen(true)}
                 onReopen={handleReopen}
                 onDelete={() => setDeleteOpen(true)}
+                onFork={forkSupported ? handleFork : undefined}
+                forkSupported={forkSupported}
                 anchorPoint={menuAnchorPoint}
             />
 
@@ -746,6 +770,19 @@ function SessionItem(props: {
                     confirmLabel={t('dialog.reopen.dismiss')}
                     confirmingLabel={t('dialog.reopen.dismiss')}
                     onConfirm={async () => setReopenError(null)}
+                    isPending={false}
+                />
+            ) : null}
+
+            {forkError ? (
+                <ConfirmDialog
+                    isOpen={true}
+                    onClose={() => setForkError(null)}
+                    title={t('dialog.fork.errorTitle', { defaultValue: 'Fork failed' })}
+                    description={forkError}
+                    confirmLabel={t('dialog.fork.dismiss', { defaultValue: 'OK' })}
+                    confirmingLabel={t('dialog.fork.dismiss', { defaultValue: 'OK' })}
+                    onConfirm={async () => setForkError(null)}
                     isPending={false}
                 />
             ) : null}
@@ -796,12 +833,14 @@ export function SessionList(props: {
     renderHeader?: boolean
     api: ApiClient | null
     machineLabelsById?: Record<string, string>
+    machinesById?: Record<string, Machine>
     selectedSessionId?: string | null
 }) {
     const { t } = useTranslation()
-    const { renderHeader = true, api, selectedSessionId, machineLabelsById = {}, onNewSessionInDirectory } = props
+    const { renderHeader = true, api, selectedSessionId, machineLabelsById = {}, machinesById = {}, onNewSessionInDirectory } = props
     const { sessionPreviewLimit } = useSessionPreviewLimit()
     const { sessionListStatusMode } = useSessionListStatusMode()
+    const { showActiveSessionsOnly } = useShowActiveSessionsOnly()
     const showDetailedStatus = sessionListStatusMode === 'detailed'
     // 右键授权仅对 admin 开放（/api/admin/accounts 选人接口也是 admin-only）
     const appContext = useOptionalAppContext()
@@ -819,7 +858,9 @@ export function SessionList(props: {
         })
     }, [])
 
-    // machineId → host 映射(从 sessions 的 metadata.host 构建，不依赖 machineCache)
+    // machineId → host fallback built from session metadata. Used when a
+    // machine has no friendly label yet (registered but unnamed): show the
+    // recorded host instead of the abstract 8-char machineId slice.
     const hostByMachineId = useMemo(() => {
         const m = new Map<string, string>()
         for (const s of props.sessions) {
@@ -832,20 +873,20 @@ export function SessionList(props: {
 
     const resolveMachineLabel = (machineId: string | null): string => {
         if (machineId) {
-            if (machineLabelsById[machineId]) {
-                return machineLabelsById[machineId]
-            }
-            if (hostByMachineId.has(machineId)) {
-                return hostByMachineId.get(machineId)!
-            }
+            if (machineLabelsById[machineId]) return machineLabelsById[machineId]
+            const host = hostByMachineId.get(machineId)
+            if (host) return host
             return machineId.slice(0, 8)
         }
         return t('machine.unknown')
     }
 
     const allSessions = useMemo(
-        () => prepareSidebarSessions(props.sessions, selectedSessionId),
-        [props.sessions, selectedSessionId]
+        () => {
+            const prepared = prepareSidebarSessions(props.sessions, selectedSessionId)
+            return showActiveSessionsOnly ? filterActiveSessionsOnly(prepared, selectedSessionId) : prepared
+        },
+        [props.sessions, selectedSessionId, showActiveSessionsOnly]
     )
     const visibleSessions = useMemo(
         () => isSearching
@@ -887,20 +928,30 @@ export function SessionList(props: {
         })
     }
 
-    const isSessionGroupExpanded = (group: SessionGroup): boolean => {
-        if (isSearching || group.sessions.length <= sessionPreviewLimit) return true
-        const key = `sessions::${group.key}`
-        const override = collapseOverrides.get(key)
-        if (override !== undefined) return !override
-        return false
+    // Per-group reveal cap for paginated "Show N more". Absent = collapsed to the
+    // preview limit; each "Show more" bumps it by one batch (step = preview limit).
+    const [sessionVisibleCounts, setSessionVisibleCounts] = useState<Map<string, number>>(
+        () => new Map()
+    )
+
+    const getGroupVisibleCount = (group: SessionGroup): number => {
+        return sessionVisibleCounts.get(group.key) ?? sessionPreviewLimit
     }
 
-    const toggleSessionGroup = (group: SessionGroup) => {
-        const key = `sessions::${group.key}`
-        const expanded = isSessionGroupExpanded(group)
-        setCollapseOverrides(prev => {
+    const showMoreSessions = (group: SessionGroup) => {
+        setSessionVisibleCounts(prev => {
             const next = new Map(prev)
-            next.set(key, expanded)
+            const current = prev.get(group.key) ?? sessionPreviewLimit
+            next.set(group.key, getNextSessionVisibleCount(current, sessionPreviewLimit, group.sessions.length))
+            return next
+        })
+    }
+
+    const collapseSessionGroup = (group: SessionGroup) => {
+        setSessionVisibleCounts(prev => {
+            if (!prev.has(group.key)) return prev
+            const next = new Map(prev)
+            next.delete(group.key)
             return next
         })
     }
@@ -909,9 +960,9 @@ export function SessionList(props: {
         return getVisibleSessionPreview(
             group.sessions,
             {
-                expanded: isSessionGroupExpanded(group),
+                expanded: isSearching,
                 selectedSessionId,
-                limit: sessionPreviewLimit
+                limit: getGroupVisibleCount(group)
             }
         )
     }
@@ -986,6 +1037,23 @@ export function SessionList(props: {
         })
     }, [allGroups])
 
+    // Clean up reveal caps for groups that no longer exist.
+    useEffect(() => {
+        setSessionVisibleCounts(prev => {
+            if (prev.size === 0) return prev
+            const knownKeys = new Set(allGroups.map(g => g.key))
+            const next = new Map(prev)
+            let changed = false
+            for (const key of next.keys()) {
+                if (!knownKeys.has(key)) {
+                    next.delete(key)
+                    changed = true
+                }
+            }
+            return changed ? next : prev
+        })
+    }, [allGroups])
+
     return (
         <div className="mx-auto w-full max-w-content flex flex-col">
             {renderHeader ? (
@@ -1026,23 +1094,27 @@ export function SessionList(props: {
             <div className="flex flex-col gap-3 px-2 pt-1 pb-2">
                 {machineGroups.map((mg) => {
                     const machineCollapsed = isMachineCollapsed(mg)
+                    const machine = mg.machineId ? machinesById[mg.machineId] : undefined
+                    const healthPresentation = presentMachineHealth(
+                        machine?.health,
+                        getMachinePlatform(machine)
+                    )
                     return (
                         <div key={mg.machineId ?? UNKNOWN_MACHINE_ID}>
-                            {/* Level 1: Machine */}
-                            <button
-                                type="button"
-                                onClick={() => toggleMachine(mg)}
+                            {/* Level 1: Machine（右键 = admin 的机器共享菜单） */}
+                            <MachineGroupHeader
+                                label={mg.label}
+                                sessionCount={mg.totalSessions}
+                                collapsed={machineCollapsed}
+                                onToggle={() => toggleMachine(mg)}
                                 onContextMenu={canShare && mg.machineId ? (event) => {
                                     event.preventDefault()
                                     setShareTarget({ kind: 'machine', id: mg.machineId!, label: mg.label })
                                 } : undefined}
-                                className="flex w-full items-center gap-2 px-1 py-1.5 text-left rounded-lg transition-colors hover:bg-[var(--app-subtle-bg)] select-none"
-                            >
-                                <ChevronIcon className="h-4 w-4 text-[var(--app-hint)] shrink-0" collapsed={machineCollapsed} />
-                                <MachineIcon className="h-4 w-4 text-[var(--app-hint)] shrink-0" />
-                                <span className="text-sm font-semibold truncate flex-1">{mg.label}</span>
-                                <span className="text-[11px] tabular-nums text-[var(--app-hint)] shrink-0">({mg.totalSessions})</span>
-                            </button>
+                                machine={machine}
+                                healthPresentation={healthPresentation}
+                            />
+
 
                             {/* Level 2: Projects */}
                             <div className="collapsible-panel" data-open={!machineCollapsed || undefined}>
@@ -1052,7 +1124,8 @@ export function SessionList(props: {
                                         const isCollapsed = isGroupCollapsed(group)
                                         const visibleGroupSessions = getVisibleGroupSessions(group)
                                         const hiddenSessionCount = group.sessions.length - visibleGroupSessions.length
-                                        const sessionGroupExpanded = isSessionGroupExpanded(group)
+                                        const canCollapseSessions = getGroupVisibleCount(group) > sessionPreviewLimit
+                                        const showMoreCount = Math.min(sessionPreviewLimit, hiddenSessionCount)
                                         const canStartInGroupDirectory = group.directory !== 'Other'
                                         return (
                                             <div key={group.key}>
@@ -1112,18 +1185,20 @@ export function SessionList(props: {
                                                                 canShare={canShare}
                                                             />
                                                         ))}
-                                                        {!isSearching && group.sessions.length > sessionPreviewLimit && (sessionGroupExpanded || hiddenSessionCount > 0) ? (
+                                                        {!isSearching && group.sessions.length > sessionPreviewLimit && (hiddenSessionCount > 0 || canCollapseSessions) ? (
                                                             <button
                                                                 type="button"
-                                                                onClick={() => toggleSessionGroup(group)}
+                                                                onClick={() => hiddenSessionCount > 0
+                                                                    ? showMoreSessions(group)
+                                                                    : collapseSessionGroup(group)}
                                                                 className={cn(
                                                                     'mx-2 my-1 rounded-md px-2 py-1 text-left text-xs text-[var(--app-hint)] transition-colors hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)]',
                                                                     hiddenSessionCount > 0 && 'border border-dashed border-[var(--app-border)]'
                                                                 )}
                                                             >
-                                                                {sessionGroupExpanded
-                                                                    ? t('sessions.group.showLess')
-                                                                    : t('sessions.group.showMore', { n: hiddenSessionCount })}
+                                                                {hiddenSessionCount > 0
+                                                                    ? t('sessions.group.showMore', { n: showMoreCount })
+                                                                    : t('sessions.group.showLess')}
                                                             </button>
                                                         ) : null}
                                                     </div>

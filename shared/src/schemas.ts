@@ -47,6 +47,8 @@ export const MetadataSchema = z.object({
     // tiann/hapi#873.
     cursorMigrationState: z.enum(['in_progress', 'ambiguous']).optional(),
     kimiSessionId: z.string().optional(),
+    piSessionId: z.string().optional(),
+    ompSessionId: z.string().optional(),
     tools: z.array(z.string()).optional(),
     slashCommands: z.array(z.string()).optional(),
     homeDir: z.string().optional(),
@@ -55,15 +57,31 @@ export const MetadataSchema = z.object({
     happyToolsDir: z.string().optional(),
     startedFromRunner: z.boolean().optional(),
     hostPid: z.number().optional(),
+    hapiMcpUrl: z.string().url().optional(),
     startedBy: z.enum(['runner', 'terminal']).optional(),
     lifecycleState: z.string().optional(),
     lifecycleStateSince: z.number().optional(),
     archivedBy: z.string().optional(),
     archiveReason: z.string().optional(),
+    // Set ONLY when the user explicitly archives a session via the session
+    // menu (syncEngine.archiveSession). Distinct from archivedBy/archiveReason,
+    // which the CLI sets on local startup failure. Used to hide user-archived
+    // sessions from the list without conflating them with naturally-ended ones.
+    archivedAt: z.number().optional(),
     preferredPermissionMode: PermissionModeSchema.optional(),
     flavor: z.string().nullish(),
     capabilities: SessionCapabilitiesSchema.optional(),
-    worktree: WorktreeMetadataSchema.optional()
+    worktree: WorktreeMetadataSchema.optional(),
+    // Cached Pi model list — written by CLI, read by web (inactive session fallback).
+    // Minimal shape: each entry must have modelId; other fields (provider, name, etc.) pass through.
+    piAvailableModels: z.array(z.object({ modelId: z.string() }).passthrough()).optional(),
+    // Pi-selected model with provider identity. The legacy `session.model`
+    // field stores only modelId (shared across all flavors); this preserves
+    // the provider so web can resolve the exact model when two providers
+    // share a modelId.
+    piSelectedModel: z.object({ provider: z.string(), modelId: z.string() }).nullable().optional(),
+    forkedFrom: z.string().optional(),
+    forkedAt: z.number().optional()
 })
 
 export type Metadata = z.infer<typeof MetadataSchema>
@@ -214,6 +232,8 @@ export const SessionSchema = z.object({
     model: z.string().nullable().optional().default(null),
     modelReasoningEffort: z.string().nullable().optional().default(null),
     effort: z.string().nullable().optional().default(null),
+    serviceTier: z.string().nullable().optional().default(null),
+    resumeWithSessionModel: z.boolean().optional().default(false),
     permissionMode: PermissionModeSchema.optional(),
     collaborationMode: CodexCollaborationModeSchema.optional()
 })
@@ -228,6 +248,8 @@ export const SessionPatchSchema = z.object({
     model: z.string().nullable().optional(),
     modelReasoningEffort: z.string().nullable().optional(),
     effort: z.string().nullable().optional(),
+    serviceTier: z.string().nullable().optional(),
+    resumeWithSessionModel: z.boolean().optional(),
     permissionMode: PermissionModeSchema.optional(),
     collaborationMode: CodexCollaborationModeSchema.optional(),
     backgroundTaskCount: z.number().optional()
@@ -266,6 +288,17 @@ export const RunnerStateSchema = z.object({
 
 export type RunnerState = z.infer<typeof RunnerStateSchema>
 
+export const MachineHealthSchema = z.object({
+    collectedAt: z.number(),
+    cpuCount: z.number().int().positive().optional(),
+    load1m: z.number().nonnegative().optional(),
+    cpuPercent: z.number().min(0).max(100).optional(),
+    memoryPercent: z.number().min(0).max(100).optional(),
+    uptimeSeconds: z.number().nonnegative().optional()
+}).strict()
+
+export type MachineHealth = z.infer<typeof MachineHealthSchema>
+
 export const MachineSchema = z.object({
     id: z.string(),
     namespace: z.string(),
@@ -277,7 +310,8 @@ export const MachineSchema = z.object({
     metadata: MachineMetadataSchema.nullable(),
     metadataVersion: z.number(),
     runnerState: RunnerStateSchema.nullable(),
-    runnerStateVersion: z.number()
+    runnerStateVersion: z.number(),
+    health: MachineHealthSchema.nullable().optional()
 })
 
 export type Machine = z.infer<typeof MachineSchema>
