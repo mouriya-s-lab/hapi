@@ -3,10 +3,12 @@ import type { ReactNode } from 'react'
 import { isObject, safeStringify } from '@hapi/protocol'
 import { CodeBlock } from '@/components/CodeBlock'
 import { FileContentToggleView } from '@/components/FileContentToggleView'
+import { ImagePreview } from '@/components/ImagePreview'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import { ChecklistList, extractTodoChecklist } from '@/components/ToolCard/checklist'
 import { basename, resolveDisplayPath } from '@/utils/path'
 import { getInputStringAny } from '@/lib/toolInputUtils'
+import { detectImageDataUrl } from '@/components/ToolCard/views/readImageDetection'
 import {
     getCodexAgentActivity,
     getCodexAgentTargets,
@@ -397,6 +399,22 @@ function extractReadPathFromInput(input: unknown): string | null {
 }
 
 function renderReadTextResult(text: string, path: string | null, surface: ToolViewProps['surface']) {
+    // Read on an image file returns base64 (with Read's per-line "N\t" prefix).
+    // Detect and render as inline preview across all surfaces — a base64 blob
+    // has no useful CodeBlock / toggle view. See readImageDetection.ts.
+    const imageDataUrl = detectImageDataUrl(text, path)
+    if (imageDataUrl) {
+        const fileName = path ? basename(path) : 'image'
+        return (
+            <ImagePreview
+                src={imageDataUrl}
+                fileName={fileName}
+                label={fileName}
+                buttonClassName="block max-w-full cursor-zoom-in rounded-xl text-left"
+                imageClassName="max-h-[min(28rem,60vh)] max-w-full rounded-xl object-contain"
+            />
+        )
+    }
     // In the detail dialog (the "click a file → popup preview" surface) show the
     // full file with the fork's markdown-preview + word-wrap toggles, matching
     // the file-viewer route. Inline cards keep the compact CodeBlock preview.

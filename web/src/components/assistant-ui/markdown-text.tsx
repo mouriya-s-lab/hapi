@@ -182,13 +182,13 @@ function hasScheme(href: string): boolean {
 // Relative paths (no colon, or colon only in path/query) have no scheme and
 // are always passed through — they are safe and used for img src etc.
 //
-// Known limitation (FIX 5, deferred): data:image/png;base64,... used in
-// <img src> is also stripped because DENY_SCHEMES includes 'data'. However,
-// react-markdown's own defaultUrlTransform strips all data: URLs identically,
-// so this is not a regression introduced by this PR.
+// `data:image/*` is allowed as an inline-image escape hatch (Read tool image
+// preview via <img src>). `data:text/html` and other data: schemes still fall
+// through to classifyScheme, which keeps them denied by default.
 export function denyOnlyTransform(url: string): string {
     if (!url) return url
     const trimmed = url.trimStart()
+    if (/^data:image\//i.test(trimmed)) return url
     const colonIdx = trimmed.indexOf(':')
     const slashIdx = trimmed.search(/[/?#]/)
     if (colonIdx < 0 || (slashIdx >= 0 && slashIdx < colonIdx)) {

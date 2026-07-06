@@ -521,8 +521,11 @@ export function HappyComposer(props: {
     const handleKeyDown = useCallback((e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
         const key = e.key
 
-        // Avoid intercepting IME composition keystrokes (Enter, arrows, etc.)
-        if (e.nativeEvent.isComposing) {
+        // Avoid intercepting IME composition keystrokes (Enter, arrows, etc.).
+        // `isComposing` covers most browsers; keyCode 229 covers IME-handled
+        // keydowns where isComposing is momentarily false (Safari + some
+        // Windows IMEs on the "confirm candidate with Enter" keystroke).
+        if (e.nativeEvent.isComposing || e.keyCode === 229) {
             return
         }
 

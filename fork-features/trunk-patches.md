@@ -36,6 +36,33 @@ Total: 17 files, ~225 lines of trunk patch (the bulk in (15)/(16)/(17) which
 are pure UI integration). Everything load-bearing is in
 `fork-features/session-fork/`.
 
+## bob-fork-customizations (2026-07-06)
+
+Five behavior tweaks selectively imported from `bobmcmxciv/hapi@1a6684d5` after
+review. Original commit bundled 14-file squash spanning three unrelated
+concerns; this fork imports only the five that solve real gaps here, drops
+the two that were security-semantic changes disguised as "supporting edits"
+(CLI `ReadFile` widening to `os.tmpdir()`, hub `PATCH /machines/:id` rename),
+and drops the download-button variant that this fork already implemented.
+
+The Read-tool image detection helper lives in its own file
+(`web/src/components/ToolCard/views/readImageDetection.ts`) so `_results.tsx`
+only receives an import + one dispatch line — web-side "fork-features"
+equivalent (web/tsconfig doesn't include `fork-features/`, matching the
+session-fork precedent for web-side integrations).
+
+| # | File | What it does | Lines |
+|---|---|---|---|
+| 1 | `shared/src/sessionSummary.ts` | Add optional `host?: string` to `SessionSummaryMetadata` and pass through `session.metadata.host` in `toSessionSummary`. Underlying `MetadataSchema.host` is already required; this just projects it into the summary that sidebars consume. | 2 |
+| 2 | `web/src/components/assistant-ui/markdown-text.tsx` | `denyOnlyTransform` short-circuits `data:image/*` (previously stripped; noted as "FIX 5, deferred" in the original comment). Only image data URIs are let through — `data:text/html` still falls through to classifyScheme. Comment block rewritten to describe current behavior (per `no-legacy-content-in-docs`). | ~3 code + comment refresh |
+| 3 | `web/src/components/AssistantChat/HappyComposer.tsx` | `handleKeyDown` gate expanded from `isComposing` to `isComposing \|\| keyCode === 229` so Safari / some IMEs don't leak IME-confirmation Enter into a message-send. | 1 code + comment |
+| 4 | `web/src/components/SessionList.tsx` | `resolveMachineLabel` gets a second fallback tier: `machineLabelsById → hostByMachineId (built from session metadata) → machineId.slice(0,8)`. New `useMemo` builds the map from `props.sessions`. | ~14 |
+| 5 | `web/src/components/ToolCard/views/_results.tsx` | Two imports (`ImagePreview`, `detectImageDataUrl`) + a leading early-return in `renderReadTextResult` that renders an inline `<ImagePreview>` when the Read tool payload is base64 image bytes. All detection logic lives in the sibling `readImageDetection.ts`. | ~15 |
+| 6 | `web/src/lib/remark-file-path-links.ts` | Extension whitelist gets `csv/doc/docx/gz/log/pdf/ppt/pptx/tar/xls/xlsx/zip`. `PATH_PATTERN` extended to recognize `~/`, `/`, `C:\`, `foo\` (Windows) prefixes. `shouldLinkPath` drops the "reject absolute paths" tier. `linkTextNode` gains a URL-prefix lookback (any `://` in the current whitespace token → skip). **Behavior turn:** the fork's original `remark-file-path-links.test.ts` asserted that absolute paths must NOT link ("outside session workspace"); test file updated to the new semantics (link the path — file-page RPC will separately gate whether it can be read). | ~10 code |
+
+Total: 6 files, ~45 lines of trunk patch, plus 1 new fork-owned helper file
+under `web/src/components/ToolCard/views/`.
+
 ## Verification record
 
 | Date | Operation | Result |
