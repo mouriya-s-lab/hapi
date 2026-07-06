@@ -3,7 +3,8 @@ import type { CodexCollaborationMode, PermissionMode, Session, SessionPatch } fr
 import type { Store } from '../store'
 import { clampAliveTime } from './aliveTime'
 import { EventPublisher } from './eventPublisher'
-import { extractTodoWriteTodosFromMessageContent, TodosSchema } from './todos'
+import { applyTaskTodoEvents, extractTaskTodoEventsFromMessageContent, extractTodoWriteTodosFromMessageContent, TodosSchema } from './todos'
+import type { TodoItem } from './todos'
 import { extractBackgroundTaskDelta } from './backgroundTasks'
 
 const QUEUED_MESSAGE_THINKING_GRACE_MS = 15_000
@@ -94,15 +95,30 @@ export class SessionCache {
         if (stored.todos === null && !this.todoBackfillAttemptedSessionIds.has(sessionId)) {
             this.todoBackfillAttemptedSessionIds.add(sessionId)
             const messages = this.store.messages.getMessages(sessionId, 200)
-            for (let i = messages.length - 1; i >= 0; i -= 1) {
-                const message = messages[i]
-                const todos = extractTodoWriteTodosFromMessageContent(message.content)
-                if (todos) {
-                    const updated = this.store.sessions.setSessionTodos(sessionId, todos, message.createdAt, stored.namespace)
-                    if (updated) {
-                        stored = this.store.sessions.getSession(sessionId) ?? stored
+            // 正序重放：TodoWrite 是全量快照直接替换；TaskCreate/TaskUpdate
+            // （新版 Claude Code 任务工具）是增量事件，叠加在当前状态上。
+            let accumulated: TodoItem[] | null = null
+            let accumulatedAt: number | null = null
+            for (const message of messages) {
+                const snapshot = extractTodoWriteTodosFromMessageContent(message.content)
+                if (snapshot) {
+                    accumulated = snapshot
+                    accumulatedAt = message.createdAt
+                    continue
+                }
+                const taskEvents = extractTaskTodoEventsFromMessageContent(message.content)
+                if (taskEvents.length > 0) {
+                    const applied = applyTaskTodoEvents(accumulated, taskEvents)
+                    if (applied) {
+                        accumulated = applied
+                        accumulatedAt = message.createdAt
                     }
-                    break
+                }
+            }
+            if (accumulated && accumulatedAt !== null) {
+                const updated = this.store.sessions.setSessionTodos(sessionId, accumulated, accumulatedAt, stored.namespace)
+                if (updated) {
+                    stored = this.store.sessions.getSession(sessionId) ?? stored
                 }
             }
         }

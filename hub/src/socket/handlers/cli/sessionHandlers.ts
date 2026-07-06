@@ -5,7 +5,7 @@ import type { CodexCollaborationMode, PermissionMode } from '@hapi/protocol/type
 import { isRedundantGoalStatusEventContent } from '@hapi/protocol/messages'
 import type { Store, StoredSession } from '../../../store'
 import type { SyncEvent } from '../../../sync/syncEngine'
-import { extractTodoWriteTodosFromMessageContent } from '../../../sync/todos'
+import { applyTaskTodoEvents, extractTaskTodoEventsFromMessageContent, extractTodoWriteTodosFromMessageContent, TodosSchema } from '../../../sync/todos'
 import { extractTeamStateFromMessageContent, applyTeamStateDelta } from '../../../sync/teams'
 import { extractBackgroundTaskDelta } from '../../../sync/backgroundTasks'
 import { shouldRecordSessionActivity } from '../../../sync/sessionActivity'
@@ -115,6 +115,24 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
             const updated = store.sessions.setSessionTodos(sid, todos, msg.createdAt, session.namespace)
             if (updated) {
                 onWebappEvent?.({ type: 'session-updated', sessionId: sid })
+            }
+        } else {
+            // 新版 Claude Code 任务工具（TaskCreate/TaskUpdate）没有全量快照，
+            // 只能对现有 todos 做增量重放。
+            const taskEvents = extractTaskTodoEventsFromMessageContent(content)
+            if (taskEvents.length > 0) {
+                const currentTodos = (() => {
+                    const stored = store.sessions.getSession(sid)?.todos
+                    const parsed = TodosSchema.safeParse(stored)
+                    return parsed.success ? parsed.data : null
+                })()
+                const nextTodos = applyTaskTodoEvents(currentTodos, taskEvents)
+                if (nextTodos) {
+                    const updated = store.sessions.setSessionTodos(sid, nextTodos, msg.createdAt, session.namespace)
+                    if (updated) {
+                        onWebappEvent?.({ type: 'session-updated', sessionId: sid })
+                    }
+                }
             }
         }
 

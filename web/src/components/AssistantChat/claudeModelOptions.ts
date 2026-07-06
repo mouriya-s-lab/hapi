@@ -1,9 +1,11 @@
-import { CLAUDE_MODEL_PRESETS, getClaudeModelLabel } from '@hapi/protocol'
+import { CLAUDE_MODEL_IDS, CLAUDE_MODEL_PRESETS, getClaudeModelLabel } from '@hapi/protocol'
 
 export type ClaudeComposerModelOption = {
     value: string | null
     label: string
 }
+
+const CLAUDE_SELECTABLE_MODELS: readonly string[] = [...CLAUDE_MODEL_PRESETS, ...CLAUDE_MODEL_IDS]
 
 function normalizeClaudeComposerModel(model?: string | null): string | null {
     const trimmedModel = model?.trim()
@@ -22,7 +24,7 @@ export function getClaudeComposerModelOptions(currentModel?: string | null): Cla
 
     if (
         normalizedCurrentModel
-        && !CLAUDE_MODEL_PRESETS.includes(normalizedCurrentModel as typeof CLAUDE_MODEL_PRESETS[number])
+        && !CLAUDE_SELECTABLE_MODELS.includes(normalizedCurrentModel)
     ) {
         options.push({
             value: normalizedCurrentModel,
@@ -30,7 +32,7 @@ export function getClaudeComposerModelOptions(currentModel?: string | null): Cla
         })
     }
 
-    options.push(...CLAUDE_MODEL_PRESETS.map((model) => ({
+    options.push(...CLAUDE_SELECTABLE_MODELS.map((model) => ({
         value: model,
         label: getClaudeModelLabel(model) ?? model
     })))

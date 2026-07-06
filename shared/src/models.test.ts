@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
+    CLAUDE_MODEL_ID_LABELS,
+    CLAUDE_MODEL_IDS,
     CLAUDE_MODEL_PRESETS,
     CLAUDE_MODEL_LABELS,
     DEFAULT_GEMINI_MODEL,
@@ -37,6 +39,12 @@ describe('getClaudeModelLabel', () => {
         expect(getClaudeModelLabel('  sonnet  ')).toBe('Sonnet')
     })
 
+    test('returns label for specific model ids', () => {
+        expect(getClaudeModelLabel('claude-opus-4-8')).toBe('Opus 4.8')
+        expect(getClaudeModelLabel('claude-opus-4-7')).toBe('Opus 4.7')
+        expect(getClaudeModelLabel('claude-fable-5')).toBe('Fable 5')
+    })
+
     test('returns null for unknown model', () => {
         expect(getClaudeModelLabel('haiku')).toBeNull()
     })
@@ -51,6 +59,13 @@ describe('model constants consistency', () => {
     test('every CLAUDE_MODEL_PRESET has a label', () => {
         for (const preset of CLAUDE_MODEL_PRESETS) {
             expect(CLAUDE_MODEL_LABELS[preset]).toBeDefined()
+        }
+    })
+
+    test('every CLAUDE_MODEL_ID has a label and does not overlap presets', () => {
+        for (const id of CLAUDE_MODEL_IDS) {
+            expect(CLAUDE_MODEL_ID_LABELS[id]).toBeDefined()
+            expect(isClaudeModelPreset(id)).toBe(false)
         }
     })
 

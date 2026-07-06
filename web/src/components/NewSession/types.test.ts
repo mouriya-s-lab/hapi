@@ -1,12 +1,12 @@
-import { CLAUDE_MODEL_PRESETS, getClaudeModelLabel } from '@hapi/protocol'
+import { CLAUDE_MODEL_IDS, CLAUDE_MODEL_PRESETS, getClaudeModelLabel } from '@hapi/protocol'
 import { describe, expect, it } from 'vitest'
 import { CLAUDE_EFFORT_OPTIONS, MODEL_OPTIONS } from './types'
 
 describe('Claude model options', () => {
-    it('derives options from shared Claude model presets', () => {
+    it('derives options from shared Claude model presets and specific model ids', () => {
         expect(MODEL_OPTIONS.claude).toEqual([
             { value: 'auto', label: 'Default' },
-            ...CLAUDE_MODEL_PRESETS.map((model) => ({
+            ...[...CLAUDE_MODEL_PRESETS, ...CLAUDE_MODEL_IDS].map((model) => ({
                 value: model,
                 label: getClaudeModelLabel(model) ?? model
             }))

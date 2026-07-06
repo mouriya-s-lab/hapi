@@ -97,3 +97,130 @@ export function extractTodoWriteTodosFromMessageContent(messageContent: unknown)
         ?? extractTodosFromCodexMessage(record.content)
         ?? extractTodosFromAcpMessage(record.content)
 }
+
+// ---------------------------------------------------------------------------
+// 新版 Claude Code 任务工具（TaskCreate/TaskUpdate，取代 TodoWrite）是增量语义：
+// TaskCreate 的任务编号只出现在 tool_result 文本里（"Task #N created
+// successfully: <subject>"），TaskUpdate 的 input 则自带 taskId 和变更字段。
+// 这里把两类消息解析成事件，由调用方对 session.todos 做增量重建。
+
+const TASK_CREATED_RESULT_PATTERN = /^Task #(\d+) created successfully: (.+)$/s
+
+type TaskTodoStatus = 'pending' | 'in_progress' | 'completed' | 'deleted'
+
+export type TaskTodoEvent =
+    | { kind: 'create'; id: string; subject: string }
+    | { kind: 'update'; taskId: string; status?: TaskTodoStatus; subject?: string; activeForm?: string }
+
+function isTaskTodoStatus(value: unknown): value is TaskTodoStatus {
+    return value === 'pending' || value === 'in_progress' || value === 'completed' || value === 'deleted'
+}
+
+function toolResultText(block: Record<string, unknown>): string | null {
+    const content = block.content
+    if (typeof content === 'string') return content
+    if (!Array.isArray(content)) return null
+    const parts = content
+        .filter((item): item is Record<string, unknown> => isObject(item) && item.type === 'text' && typeof item.text === 'string')
+        .map((item) => item.text as string)
+    return parts.length > 0 ? parts.join('\n') : null
+}
+
+export function extractTaskTodoEventsFromMessageContent(messageContent: unknown): TaskTodoEvent[] {
+    const record = unwrapRoleWrappedRecordEnvelope(messageContent)
+    if (!record) return []
+    if (record.role !== 'agent' && record.role !== 'assistant') return []
+
+    const content = record.content
+    if (!isObject(content) || content.type !== 'output') return []
+
+    const data = isObject(content.data) ? content.data : null
+    if (!data) return []
+
+    const message = isObject(data.message) ? data.message : null
+    if (!message || !Array.isArray(message.content)) return []
+
+    const events: TaskTodoEvent[] = []
+
+    if (data.type === 'assistant') {
+        for (const block of message.content) {
+            if (!isObject(block) || block.type !== 'tool_use' || block.name !== 'TaskUpdate') continue
+            const input = isObject(block.input) ? block.input : null
+            if (!input || typeof input.taskId !== 'string' || input.taskId.length === 0) continue
+            events.push({
+                kind: 'update',
+                taskId: input.taskId,
+                status: isTaskTodoStatus(input.status) ? input.status : undefined,
+                subject: typeof input.subject === 'string' ? input.subject : undefined,
+                activeForm: typeof input.activeForm === 'string' ? input.activeForm : undefined
+            })
+        }
+        return events
+    }
+
+    if (data.type === 'user') {
+        for (const block of message.content) {
+            if (!isObject(block) || block.type !== 'tool_result' || block.is_error) continue
+            const text = toolResultText(block)
+            if (!text) continue
+            const match = TASK_CREATED_RESULT_PATTERN.exec(text.trim())
+            if (!match) continue
+            events.push({ kind: 'create', id: match[1], subject: match[2].trim() })
+        }
+        return events
+    }
+
+    return events
+}
+
+/**
+ * 把任务事件叠加到现有 todos 上。返回新数组；没有实际变化时返回 null
+ * （create 幂等：同 id 重放只刷新标题，导入重放不会产生重复项）。
+ */
+export function applyTaskTodoEvents(existing: TodoItem[] | null | undefined, events: TaskTodoEvent[]): TodoItem[] | null {
+    if (events.length === 0) return null
+
+    const todos: TodoItem[] = (existing ?? []).map((item) => ({ ...item }))
+    let changed = false
+
+    for (const event of events) {
+        if (event.kind === 'create') {
+            const existingItem = todos.find((item) => item.id === event.id)
+            if (existingItem) {
+                if (existingItem.content !== event.subject) {
+                    existingItem.content = event.subject
+                    changed = true
+                }
+                continue
+            }
+            todos.push({ id: event.id, content: event.subject, status: 'pending', priority: 'medium' })
+            changed = true
+            continue
+        }
+
+        const index = todos.findIndex((item) => item.id === event.taskId)
+        if (index === -1) continue
+
+        if (event.status === 'deleted') {
+            todos.splice(index, 1)
+            changed = true
+            continue
+        }
+
+        const item = todos[index]
+        if (event.status && item.status !== event.status) {
+            item.status = event.status
+            changed = true
+        }
+        if (event.subject && item.content !== event.subject) {
+            item.content = event.subject
+            changed = true
+        }
+        if (event.activeForm && item.activeForm !== event.activeForm) {
+            item.activeForm = event.activeForm
+            changed = true
+        }
+    }
+
+    return changed ? todos : null
+}

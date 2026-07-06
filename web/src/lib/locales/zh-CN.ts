@@ -427,6 +427,8 @@ export default {
 
   // Composer buttons
   'composer.settings': '设置',
+  'composer.customModel': '自定义模型 ID…',
+  'composer.customModelPlaceholder': '如 claude-opus-4-7，回车确认',
   'composer.terminal': '终端',
   'composer.abort': '中止',
   'composer.switchRemote': '切换到远程模式',
