@@ -1,4 +1,44 @@
-import type { ForkDeps, ForkSourceSession, ForkSpawnResultLike } from './hubForkController'
+import type { ForkDeps, ForkMessage, ForkSourceSession, ForkSpawnResultLike } from './hubForkController'
+
+/**
+ * Read `role` out of a `StoredMessage.content` JSON blob. hapi's message
+ * content is `unknown` at the type layer, but conventionally `{role, content}`
+ * (see hub/src/sync/messageService*.ts, hub/src/web/routes/*.ts). Anything
+ * that doesn't fit falls through to 'unknown' so callers don't mistake
+ * missing-role for user-role.
+ */
+function extractRole(content: unknown): string {
+    if (content !== null && typeof content === 'object' && 'role' in content) {
+        const role = (content as { role?: unknown }).role
+        return typeof role === 'string' ? role : 'unknown'
+    }
+    return 'unknown'
+}
+
+/**
+ * Extract the Claude native jsonl uuid from a `role: 'agent'` hub message
+ * that wraps a Claude stream-json `type: 'output'` line, iff the wrapped
+ * line is an `assistant` message. Hub stores the raw jsonl line at
+ * `content.data`. Returns undefined for `agent` events that aren't
+ * assistant output (ready events, tool_use lines nested inside data,
+ * etc.) or for non-agent role messages.
+ *
+ * Used by `resolveProviderMessageId` to find the fork anchor to pass to
+ * `claude --resume-session-at <uuid>`.
+ */
+function extractClaudeAssistantUuid(content: unknown): string | undefined {
+    if (content === null || typeof content !== 'object') return undefined
+    const role = (content as { role?: unknown }).role
+    if (role !== 'agent') return undefined
+    const cc = (content as { content?: unknown }).content
+    if (cc === null || typeof cc !== 'object') return undefined
+    if ((cc as { type?: unknown }).type !== 'output') return undefined
+    const data = (cc as { data?: unknown }).data
+    if (data === null || typeof data !== 'object') return undefined
+    if ((data as { type?: unknown }).type !== 'assistant') return undefined
+    const uuid = (data as { uuid?: unknown }).uuid
+    return typeof uuid === 'string' && uuid.length > 0 ? uuid : undefined
+}
 
 /**
  * Adapts hub's Store + SyncEngine into the ForkDeps shape that forkController
@@ -80,9 +120,21 @@ export function buildForkDeps(args: {
             )
         },
 
-        copyMessages(srcId, dstId) {
+        listMessages(sessionId: string): ForkMessage[] {
+            const msgs = store.messages.getAllMessages(sessionId)
+            return msgs.map((m: any) => ({
+                id: m.id,
+                seq: m.seq,
+                role: extractRole(m.content)
+            }))
+        },
+
+        copyMessages(srcId, dstId, opts) {
             const msgs = store.messages.getAllMessages(srcId)
-            for (const m of msgs) {
+            const beforeSeq = opts?.beforeSeq
+            const selected =
+                beforeSeq !== undefined ? msgs.filter((m: any) => m.seq < beforeSeq) : msgs
+            for (const m of selected) {
                 store.messages.copyMessageToSession(dstId, {
                     content: m.content,
                     createdAt: m.createdAt,
@@ -91,7 +143,29 @@ export function buildForkDeps(args: {
                     scheduledAt: m.scheduledAt ?? null
                 })
             }
-            return { copied: msgs.length }
+            return { copied: selected.length }
+        },
+
+        resolveProviderMessageId(sessionId, targetSeq, flavor) {
+            // Only Claude uses an id-based fork anchor today. Other flavors
+            // are either count-based (Codex → tailOffset) or have no fork
+            // primitive. Return undefined for them so controller omits the
+            // field entirely.
+            if (flavor !== 'claude') return undefined
+            const msgs = store.messages.getAllMessages(sessionId)
+            // Walk backward from the message immediately before target.
+            for (let i = msgs.length - 1; i >= 0; i--) {
+                const m = msgs[i]
+                if (typeof m?.seq !== 'number' || m.seq >= targetSeq) continue
+                const uuid = extractClaudeAssistantUuid(m.content)
+                if (uuid !== undefined) return uuid
+            }
+            // No preceding assistant message: target is the first user turn.
+            // Undefined signals the Claude fork to fall back to HEAD fork,
+            // which combined with beforeSeq=<targetSeq>=1 gives an empty
+            // hub-DB transcript. This is the correct edge behavior — the
+            // "rewound to the very first turn" case IS an empty session.
+            return undefined
         },
 
         updateMetadata(sessionId, patch) {

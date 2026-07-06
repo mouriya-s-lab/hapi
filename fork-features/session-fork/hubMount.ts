@@ -27,8 +27,33 @@ export function mountForkRoutes(
             return c.json({ error: 'sync engine unavailable' }, 503 as StatusCode)
         }
         const srcSessionId = c.req.param('id')
+
+        // Optional per-message forkPoint. Client sends only messageId; hub
+        // controller computes tailOffset. Body may be absent (HEAD fork) or
+        // shape-invalid — we treat unparseable/missing/empty body as HEAD.
+        let forkPoint: { messageId: string } | undefined
         try {
-            const result = await forkSession({ srcSessionId, deps })
+            const body = (await c.req.json().catch(() => null)) as
+                | { forkPoint?: unknown }
+                | null
+            const raw = body?.forkPoint
+            if (raw && typeof raw === 'object') {
+                const messageId = (raw as { messageId?: unknown }).messageId
+                if (typeof messageId === 'string' && messageId.length > 0) {
+                    forkPoint = { messageId }
+                } else {
+                    return c.json(
+                        { error: 'forkPoint.messageId must be a non-empty string' },
+                        400 as StatusCode
+                    )
+                }
+            }
+        } catch {
+            // ignore body parse errors — treat as HEAD fork
+        }
+
+        try {
+            const result = await forkSession({ srcSessionId, deps, forkPoint })
             return c.json(result)
         } catch (err) {
             if (err instanceof HttpError) {
