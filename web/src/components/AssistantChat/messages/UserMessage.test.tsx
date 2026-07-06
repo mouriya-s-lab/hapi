@@ -10,13 +10,21 @@ const state = vi.hoisted(() => {
         navigate: vi.fn(async () => undefined),
         setForkedFromText: vi.fn<(sessionId: string, text: string) => void>(),
         isPending: false,
-        messageId: 'msg-42' as string,
+        // `messageId` is the composed threadMessageId assistant-ui hands to
+        // consumers; `hubMessageId` is the raw hub-DB id (unprefixed) that
+        // reducerTimeline writes into `metadata.custom` and that fork RPC
+        // must receive. Real production flow: composed = `user-text:${hubId}`.
+        messageId: 'user-text:msg-42' as string,
+        hubMessageId: 'msg-42' as string | undefined,
         text: 'source user prompt' as string,
         flavor: 'codex' as string | null,
         capabilities: {
             capabilities: {
                 codex: { fork: 'at-message', files: 'none' },
-                claude: { fork: 'head-only', files: 'none' },
+                // #60 c3 flipped claude to at-message once
+                // --resume-session-at was confirmed. Reflect real cap here so
+                // tests exercise the same path production does.
+                claude: { fork: 'at-message', files: 'none' },
                 cursor: { fork: 'none', files: 'none' }
             }
         } as any
@@ -37,7 +45,7 @@ vi.mock('@assistant-ui/react', () => ({
                 role: 'user',
                 id: state.messageId,
                 content: [{ type: 'text', text: state.text }],
-                metadata: { custom: {} }
+                metadata: { custom: { hubMessageId: state.hubMessageId } }
             }
         })
 }))
@@ -137,7 +145,8 @@ afterEach(() => {
     state.forkSession.mockImplementation(async () => ({ newSessionId: 'new-forked-id' }))
     state.navigate.mockImplementation(async () => undefined)
     state.isPending = false
-    state.messageId = 'msg-42'
+    state.messageId = 'user-text:msg-42'
+    state.hubMessageId = 'msg-42'
     state.text = 'source user prompt'
     state.flavor = 'codex'
 })
@@ -148,10 +157,10 @@ describe('HappyUserMessage rewind button (#62 c5)', () => {
         expect(screen.getByRole('button', { name: /Rewind to this message/i })).toBeInTheDocument()
     })
 
-    it('Claude flavor (head-only) → NO rewind button', () => {
+    it('Claude flavor (at-message via --resume-session-at) → rewind button renders', () => {
         state.flavor = 'claude'
         render(<HappyUserMessage />)
-        expect(screen.queryByRole('button', { name: /Rewind to this message/i })).toBeNull()
+        expect(screen.getByRole('button', { name: /Rewind to this message/i })).toBeInTheDocument()
     })
 
     it('Cursor flavor (none) → NO rewind button', () => {
@@ -166,10 +175,21 @@ describe('HappyUserMessage rewind button (#62 c5)', () => {
         expect(screen.queryByRole('button', { name: /Rewind to this message/i })).toBeNull()
     })
 
-    it('Click calls forkSession with forkPoint.messageId → setForkedFromText → navigate', async () => {
+    it('Missing hubMessageId in metadata (older stored messages) → NO rewind button (cannot fork without hub id)', () => {
+        // Guards the c9 regression: dropping the metadata.custom.hubMessageId
+        // path would silently regress to passing the composed threadMessageId
+        // to hub and getting "fork point not found" 400s.
+        state.hubMessageId = undefined
+        render(<HappyUserMessage />)
+        expect(screen.queryByRole('button', { name: /Rewind to this message/i })).toBeNull()
+    })
+
+    it('Click calls forkSession with RAW hub messageId (not composed threadMessageId)', async () => {
         render(<HappyUserMessage />)
         fireEvent.click(screen.getByRole('button', { name: /Rewind to this message/i }))
         await waitFor(() =>
+            // Must be 'msg-42', NOT 'user-text:msg-42'. Hub's fork endpoint
+            // matches raw hub-DB ids; composed id would 400.
             expect(state.forkSession).toHaveBeenCalledWith({ forkPoint: { messageId: 'msg-42' } })
         )
         await waitFor(() =>

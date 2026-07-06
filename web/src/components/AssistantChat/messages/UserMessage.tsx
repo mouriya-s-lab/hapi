@@ -58,6 +58,14 @@ export function HappyUserMessage() {
     )
     const role = useAssistantState(({ message }) => message.role)
     const messageId = useAssistantState(({ message }) => message.id)
+    // Raw hub-DB message id (unprefixed). `message.id` is the composed
+    // assistant-ui threadMessageId `${kind}:${block.id}` — hub's fork
+    // endpoint matches on the raw id, not the composed one.
+    const hubMessageId = useAssistantState(({ message }) => {
+        if (message.role !== 'user') return undefined
+        const custom = message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined
+        return custom?.hubMessageId
+    })
     const text = useAssistantState(({ message }) => {
         if (message.role !== 'user') return ''
         return message.content.find((part) => part.type === 'text')?.text ?? ''
@@ -94,14 +102,14 @@ export function HappyUserMessage() {
     const canRetry = status === 'failed' && typeof localId === 'string' && Boolean(ctx.onRetryMessage)
     const onRetry = canRetry ? () => ctx.onRetryMessage!(localId) : undefined
     const showStatus = shouldShowMessageStatus(status)
-    const canRewind = rewindSupported && typeof messageId === 'string' && messageId.length > 0
+    const canRewind = rewindSupported && typeof hubMessageId === 'string' && hubMessageId.length > 0
 
     const handleRewind = async () => {
-        if (!canRewind) return
+        if (!canRewind || !hubMessageId) return
         setRewindError(null)
         try {
             const { newSessionId } = await forkSession({
-                forkPoint: { messageId }
+                forkPoint: { messageId: hubMessageId }
             })
             if (text) {
                 setForkedFromText(newSessionId, text)
