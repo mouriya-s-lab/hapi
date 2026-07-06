@@ -1,0 +1,141 @@
+# Build + push the hapi hub container image on every release tag.
+#
+# Fork-only workflow (introduced by mouriya-s-lab/hapi#72). Runs in parallel
+# with `release.yml` — release.yml still publishes per-platform binary
+# tarballs to GitHub Release; this workflow additionally publishes an
+# amd64 container image to the self-hosted registry, keyed by the same
+# tag, so homelab-tf hapi stack (homelab-tf#405) can consume image digests
+# via Komodo `auto_update` instead of the current "curl release tarball
+# at container start" shape (homelab-tf#332 / komodo/roles/komodo-stacks/
+# templates/hapi/compose.yaml.j2).
+#
+# Runner: vctcn GARM `docker` pool for `mouriya-s-lab/hapi` (pool id
+# f4aa4caa-46c9-41b8-98a6-565ac61ee478 on VM 181). Tags
+# `[self-hosted, linux, x64, vctcn, netbird]` per pve-vctcn/apps/runner
+# convention; the pool's `registry-mesh-hosts.sh` pre-install script pins
+# `registry.237575.xyz → 100.85.231.90` in the LXD instance's /etc/hosts
+# so the docker push takes the netbird mesh path (pve-vctcn#76) instead
+# of hairpinning through OVH NAT.
+#
+# Secret: KEYCLOAK_REGISTRY_CLIENT_SECRET is synced from
+# `pve-vctcn/apps/registry` (pve-vctcn#208).
+
+name: publish-image
+
+on:
+    push:
+        tags:
+            - 'v*'
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: 'Version tag to publish (default: git ref name, must exist as a release tag)'
+                required: false
+                type: string
+
+permissions:
+    contents: read
+
+jobs:
+    publish:
+        runs-on: [self-hosted, linux, x64, vctcn, netbird]
+        env:
+            REGISTRY: registry.237575.xyz
+            IMAGE: registry.237575.xyz/hapi/hub
+        steps:
+            - uses: actions/checkout@v4
+
+            # Buildx driver=docker-container is required for `docker
+            # buildx imagetools inspect` (Layer 4 evidence step) and gives
+            # us predictable multi-tag manifest handling. `network=host`
+            # inherits the LXD instance's /etc/hosts override so buildkit
+            # push resolves `registry.237575.xyz → mesh IP` — same trick
+            # moat-browser's deploy.yml uses (pve-vctcn#76).
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+              with:
+                  driver-opts: network=host
+
+            - name: Resolve version tag
+              id: version
+              run: |
+                  set -euo pipefail
+                  if [ -n "${{ inputs.tag }}" ]; then
+                      v="${{ inputs.tag }}"
+                  else
+                      v="${GITHUB_REF#refs/tags/}"
+                  fi
+                  echo "value=$v" >> "$GITHUB_OUTPUT"
+                  echo "Publishing image tag: $v"
+
+            # 30-min TTL Keycloak access token via the standard shared
+            # composite action. Same shape runner-canary / moat-browser use.
+            - name: Fetch registry access token
+              id: kc
+              uses: Mouriya-Emma/keycloak-token-action@v1
+              with:
+                  keycloak-url: https://keycloak.237575.xyz
+                  realm: registry
+                  client-id: registry
+                  client-secret: ${{ secrets.KEYCLOAK_REGISTRY_CLIENT_SECRET }}
+
+            - name: Login to registry.237575.xyz
+              run: |
+                  echo "${{ steps.kc.outputs.access-token }}" \
+                      | docker login "$REGISTRY" -u sa-registry --password-stdin
+
+            # Single build, two tags, one push — build-push-action pushes a
+            # single manifest addressable under both tags so the immutable
+            # `${VERSION}` tag and the channel `stable` tag share a digest
+            # by construction (verified in the next step). This is what
+            # homelab-tf#405's Komodo `auto_update = true` will poll:
+            # channel-tag digest change → redeploy.
+            - name: Build + push (${{ steps.version.outputs.value }}, stable)
+              uses: docker/build-push-action@v5
+              with:
+                  context: .
+                  push: true
+                  # amd64 only — GARM LXD pool is x86-64, homelab-tf
+                  # moat-app1 (VM 110) is also x86-64. arm64 support is a
+                  # future concern that will need a second builder host.
+                  platforms: linux/amd64
+                  build-args: |
+                      HAPI_FORK_VERSION=${{ steps.version.outputs.value }}
+                  labels: |
+                      org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+                      org.opencontainers.image.revision=${{ github.sha }}
+                      org.opencontainers.image.version=${{ steps.version.outputs.value }}
+                  tags: |
+                      ${{ env.IMAGE }}:${{ steps.version.outputs.value }}
+                      ${{ env.IMAGE }}:stable
+
+            # Verify both tags share a digest via `imagetools inspect` —
+            # this is Layer 4 evidence for the double-tag same-digest
+            # verification criterion in the issue body.
+            - name: Verify dual-tag digest equality
+              run: |
+                  set -euo pipefail
+                  VERSION="${{ steps.version.outputs.value }}"
+                  imm_digest=$(docker buildx imagetools inspect "$IMAGE:$VERSION" \
+                      --format '{{.Manifest.Digest}}')
+                  stable_digest=$(docker buildx imagetools inspect "$IMAGE:stable" \
+                      --format '{{.Manifest.Digest}}')
+                  echo "immutable tag ($VERSION): $imm_digest"
+                  echo "channel   tag (stable ): $stable_digest"
+                  if [ "$imm_digest" != "$stable_digest" ]; then
+                      echo "::error::dual-tag digest mismatch — pipeline invariant broken" >&2
+                      exit 1
+                  fi
+                  echo "OK — dual-tag digest match: $imm_digest"
+
+            # Pull-back sanity check: image is reachable through the
+            # end-to-end path a homelab Periphery will see when Komodo
+            # deploys (docker daemon → NPM/mesh socat → registry).
+            - name: Pull verification
+              run: |
+                  set -euo pipefail
+                  VERSION="${{ steps.version.outputs.value }}"
+                  docker pull "$IMAGE:$VERSION"
+                  docker pull "$IMAGE:stable"
+                  docker image inspect "$IMAGE:$VERSION" >/dev/null
+                  docker image inspect "$IMAGE:stable" >/dev/null
