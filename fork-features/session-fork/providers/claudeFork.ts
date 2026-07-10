@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { ForkProvider } from '../providerRegistry'
 import type { ForkSpawnPayload, ForkSpawnResult } from '../rpcPayloads'
+import { resolveLegacyClaudeMessageUuid } from './legacyClaudeAnchor'
 
 export interface SpawnClaudeForkArgs {
     sourceSessionId: string
@@ -56,9 +57,9 @@ export const claudeForkProvider: ForkProvider = {
             })
             return { providerSessionId: newClaudeSessionId, metadataPatch: { claudeSessionId: newClaudeSessionId } }
         }
-        const providerMessageId = payload.forkPoint.providerMessageId
+        const providerAnchor = payload.forkPoint.providerAnchor
         const newClaudeSessionId = randomUUID()
-        if (!providerMessageId) {
+        if (!providerAnchor) {
             if (!payload.forkPoint.isFirstUserTurn) {
                 throw new Error('claude fork: providerMessageId is required for non-first per-message fork')
             }
@@ -68,6 +69,13 @@ export const claudeForkProvider: ForkProvider = {
                 claudeLaunch: { type: 'fresh' }
             }
         }
+        const providerMessageId = providerAnchor.type === 'message-uuid'
+            ? providerAnchor.messageUuid
+            : await resolveLegacyClaudeMessageUuid({
+                  sourceSessionId,
+                  sourceCwd: payload.sourceCwd,
+                  assistantMessageId: providerAnchor.assistantMessageId
+              })
         return {
             providerSessionId: newClaudeSessionId,
             metadataPatch: { claudeSessionId: newClaudeSessionId },

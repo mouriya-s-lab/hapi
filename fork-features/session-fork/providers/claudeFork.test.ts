@@ -53,7 +53,12 @@ describe('claudeForkProvider', () => {
         const result = await claudeForkProvider.spawnFork({
             sourceMetadata: { path: '/w', host: 'h', claudeSessionId: 'src' },
             sourceCwd: '/tmp/x',
-            forkPoint: { messageId: 'hapi-m-42', tailOffset: 3, providerMessageId: 'provider-42', isFirstUserTurn: false }
+            forkPoint: {
+                messageId: 'hapi-m-42',
+                tailOffset: 3,
+                providerAnchor: { type: 'message-uuid', messageUuid: 'provider-42' },
+                isFirstUserTurn: false
+            }
         } as any)
         expect(result.providerSessionId).toBeString()
         expect(result.claudeLaunch).toEqual({ type: 'resume-at', sourceSessionId: 'src', providerMessageId: 'provider-42' })

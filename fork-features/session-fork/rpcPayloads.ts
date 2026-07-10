@@ -22,7 +22,10 @@ import { MetadataSchema } from '../../shared/src/schemas'
 export const ForkPointSchema = z.object({
     messageId: z.string(),
     tailOffset: z.number().int().nonnegative(),
-    providerMessageId: z.string().optional(),
+    providerAnchor: z.discriminatedUnion('type', [
+        z.object({ type: z.literal('message-uuid'), messageUuid: z.string() }),
+        z.object({ type: z.literal('assistant-api-message-id'), assistantMessageId: z.string() })
+    ]).optional(),
     isFirstUserTurn: z.boolean()
 })
 export type ForkPoint = z.infer<typeof ForkPointSchema>

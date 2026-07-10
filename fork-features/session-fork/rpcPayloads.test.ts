@@ -85,7 +85,7 @@ describe('rpcPayloads', () => {
         ).toThrow()
     })
 
-    it('accepts forkPoint with providerMessageId (Claude id-based fork)', () => {
+    it('accepts forkPoint with a Claude provider anchor', () => {
         const payload = ForkSpawnPayloadSchema.parse({
             sourceMetadata: { path: '/w', host: 'h' },
             sourceCwd: '/w',
@@ -93,10 +93,13 @@ describe('rpcPayloads', () => {
                 messageId: 'm-42',
                 tailOffset: 2,
                 isFirstUserTurn: false,
-                providerMessageId: '1c2445d0-d4aa-4507-915b-2667fbd32144'
+                providerAnchor: { type: 'message-uuid', messageUuid: '1c2445d0-d4aa-4507-915b-2667fbd32144' }
             }
         })
-        expect(payload.forkPoint?.providerMessageId).toBe('1c2445d0-d4aa-4507-915b-2667fbd32144')
+        expect(payload.forkPoint?.providerAnchor).toEqual({
+            type: 'message-uuid',
+            messageUuid: '1c2445d0-d4aa-4507-915b-2667fbd32144'
+        })
     })
 
     it('providerMessageId is optional (Codex forks without it)', () => {
@@ -105,6 +108,6 @@ describe('rpcPayloads', () => {
             sourceCwd: '/w',
             forkPoint: { messageId: 'm-42', tailOffset: 3, isFirstUserTurn: false }
         })
-        expect(payload.forkPoint?.providerMessageId).toBeUndefined()
+        expect(payload.forkPoint?.providerAnchor).toBeUndefined()
     })
 })

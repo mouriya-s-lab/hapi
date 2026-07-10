@@ -10,7 +10,7 @@ interface MakeDepsOpts {
     updateShouldThrow?: Error
     captured?: any[]
     messages?: ForkMessage[]
-    resolveProviderMessageIdImpl?: (sessionId: string, targetSeq: number, flavor: string) => string | undefined
+    resolveProviderMessageIdImpl?: (sessionId: string, targetSeq: number, flavor: string) => any
 }
 
 function makeDeps(opts: MakeDepsOpts = {}): ForkDeps {
@@ -256,7 +256,9 @@ describe('forkSession per-message (#61 c4)', () => {
                 { id: 'm3', seq: 3, role: 'user' }
             ],
             resolveProviderMessageIdImpl: (_sid, _seq, flavor) =>
-                flavor === 'claude' ? 'asst-uuid-from-m2' : undefined
+                flavor === 'claude'
+                    ? { type: 'message-uuid', messageUuid: 'asst-uuid-from-m2' }
+                    : undefined
         })
         await forkSession({
             srcSessionId: 'src',
@@ -274,7 +276,7 @@ describe('forkSession per-message (#61 c4)', () => {
             messageId: 'm3',
             tailOffset: 0,
             isFirstUserTurn: false,
-            providerMessageId: 'asst-uuid-from-m2'
+            providerAnchor: { type: 'message-uuid', messageUuid: 'asst-uuid-from-m2' }
         })
 
         // Hub-DB copy is STRICTLY before target: seq=3 excluded.

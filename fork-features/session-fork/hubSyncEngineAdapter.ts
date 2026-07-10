@@ -41,6 +41,19 @@ function extractClaudeAssistantUuid(content: unknown): string | undefined {
     return typeof providerMessageId === 'string' && providerMessageId.length > 0 ? providerMessageId : undefined
 }
 
+function extractClaudeAssistantApiMessageId(content: unknown): string | undefined {
+    if (content === null || typeof content !== 'object') return undefined
+    if ((content as { role?: unknown }).role !== 'agent') return undefined
+    const cc = (content as { content?: unknown }).content
+    if (cc === null || typeof cc !== 'object' || (cc as { type?: unknown }).type !== 'output') return undefined
+    const data = (cc as { data?: unknown }).data
+    if (data === null || typeof data !== 'object' || (data as { type?: unknown }).type !== 'assistant') return undefined
+    const message = (data as { message?: unknown }).message
+    if (message === null || typeof message !== 'object') return undefined
+    const id = (message as { id?: unknown }).id
+    return typeof id === 'string' && id.length > 0 ? id : undefined
+}
+
 /**
  * Adapts hub's Store + SyncEngine into the ForkDeps shape that forkController
  * speaks. Kept in fork-features so hub itself doesn't import from us — only
@@ -150,7 +163,11 @@ export function buildForkDeps(args: {
                 const m = msgs[i]
                 if (typeof m?.seq !== 'number' || m.seq >= targetSeq) continue
                 const uuid = extractClaudeAssistantUuid(m.content)
-                if (uuid !== undefined) return uuid
+                if (uuid !== undefined) return { type: 'message-uuid', messageUuid: uuid }
+                const assistantMessageId = extractClaudeAssistantApiMessageId(m.content)
+                if (assistantMessageId !== undefined) {
+                    return { type: 'assistant-api-message-id', assistantMessageId }
+                }
             }
             // No preceding provider anchor. The controller rejects this before
             // any provider RPC so the provider cannot silently turn an
