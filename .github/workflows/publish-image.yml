@@ -22,9 +22,8 @@
 name: publish-image
 
 on:
-    push:
-        tags:
-            - 'v*'
+    release:
+        types: [published]
     workflow_dispatch:
         inputs:
             tag:
@@ -62,7 +61,7 @@ jobs:
                   if [ -n "${{ inputs.tag }}" ]; then
                       v="${{ inputs.tag }}"
                   else
-                      v="${GITHUB_REF#refs/tags/}"
+                      v="${{ github.event.release.tag_name }}"
                   fi
                   echo "value=$v" >> "$GITHUB_OUTPUT"
                   echo "Publishing image tag: $v"
@@ -82,6 +81,20 @@ jobs:
               run: |
                   echo "${{ steps.kc.outputs.access-token }}" \
                       | docker login "$REGISTRY" -u sa-registry --password-stdin
+
+            - name: Download linux/x64 release artifact
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+                  VERSION="${{ steps.version.outputs.value }}"
+                  rm -rf .image
+                  mkdir .image
+                  gh release download "$VERSION" \
+                      --pattern hapi-linux-x64-baseline.tar.gz \
+                      --dir .image
+                  tar -xzf .image/hapi-linux-x64-baseline.tar.gz -C .image
+                  test -x .image/hapi
 
             # Single build, two tags, one push — build-push-action pushes a
             # single manifest addressable under both tags so the immutable
@@ -104,8 +117,6 @@ jobs:
                   # moat-app1 (VM 110) is also x86-64. arm64 support is a
                   # future concern that will need a second builder host.
                   platforms: linux/amd64
-                  build-args: |
-                      HAPI_FORK_VERSION=${{ steps.version.outputs.value }}
                   labels: |
                       org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
                       org.opencontainers.image.revision=${{ github.sha }}
