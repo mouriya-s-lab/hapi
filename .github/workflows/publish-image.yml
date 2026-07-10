@@ -89,11 +89,17 @@ jobs:
             # by construction (verified in the next step). This is what
             # homelab-tf#405's Komodo `auto_update = true` will poll:
             # channel-tag digest change → redeploy.
-            - name: Build + push (${{ steps.version.outputs.value }}, stable)
+            - name: Build (${{ steps.version.outputs.value }}, stable)
               uses: docker/build-push-action@v5
               with:
                   context: .
-                  push: true
+                  # Single-platform image: load it into the runner daemon,
+                  # then use plain `docker push` below. BuildKit's registry
+                  # exporter repeatedly lost its upload session through the
+                  # mesh registry path after a successful build (hapi#77),
+                  # while the daemon push path is the established registry
+                  # transport used by the other local-CI workloads.
+                  load: true
                   # amd64 only — GARM LXD pool is x86-64, homelab-tf
                   # moat-app1 (VM 110) is also x86-64. arm64 support is a
                   # future concern that will need a second builder host.
@@ -107,6 +113,13 @@ jobs:
                   tags: |
                       ${{ env.IMAGE }}:${{ steps.version.outputs.value }}
                       ${{ env.IMAGE }}:stable
+
+            - name: Push immutable and stable tags
+              run: |
+                  set -euo pipefail
+                  VERSION="${{ steps.version.outputs.value }}"
+                  docker push "$IMAGE:$VERSION"
+                  docker push "$IMAGE:stable"
 
             # Verify both tags share a digest via `imagetools inspect` —
             # this is Layer 4 evidence for the double-tag same-digest
