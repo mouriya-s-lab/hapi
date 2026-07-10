@@ -41,6 +41,9 @@ export async function claudeRemote(opts: {
 
     // Check if session is valid
     let startFrom = opts.sessionId;
+    let forkSession = false;
+    let resumeSessionAt: string | undefined;
+    let newSessionId: string | undefined;
     if (opts.sessionId && !claudeCheckSession(opts.sessionId, opts.path)) {
         startFrom = null;
     }
@@ -69,6 +72,19 @@ export async function claudeRemote(opts: {
                 }
             }
         }
+    }
+
+    if (opts.claudeArgs) {
+        for (let i = 0; i < opts.claudeArgs.length; i++) {
+            const arg = opts.claudeArgs[i]
+            if (arg === '--fork-session') forkSession = true
+            if (arg === '--resume-session-at') resumeSessionAt = opts.claudeArgs[++i]
+            if (arg === '--session-id') newSessionId = opts.claudeArgs[++i]
+        }
+    }
+    const forkFlagCount = Number(forkSession) + Number(resumeSessionAt !== undefined) + Number(newSessionId !== undefined)
+    if (forkFlagCount !== 0 && forkFlagCount !== 3) {
+        throw new Error('Claude per-message fork requires --fork-session, --resume-session-at, and --session-id together')
     }
 
     // Set environment variables for Claude Code SDK
@@ -125,6 +141,9 @@ export async function claudeRemote(opts: {
     const sdkOptions: Options = {
         cwd: opts.path,
         resume: startFrom ?? undefined,
+        forkSession,
+        resumeSessionAt,
+        sessionId: newSessionId,
         mcpServers: opts.mcpServers,
         permissionMode: initial.mode.permissionMode,
         model: initial.mode.model,

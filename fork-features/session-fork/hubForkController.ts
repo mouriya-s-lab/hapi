@@ -25,6 +25,7 @@ export interface ForkSourceSession {
 export interface ForkSpawnResultLike {
     providerSessionId: string
     metadataPatch: Record<string, any>
+    claudeLaunch?: { sourceSessionId: string; providerMessageId: string }
 }
 
 /**
@@ -68,6 +69,7 @@ export interface ForkDeps {
         permissionMode?: string
         collaborationMode?: string
         resumeSessionId: string
+        claudeLaunch?: { sourceSessionId: string; providerMessageId: string }
     }): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }>
     /**
      * Return the source session's messages ordered by ascending seq. Used
@@ -97,9 +99,7 @@ export interface ForkDeps {
      * immediately-preceding assistant-role output line, reading
      * `content.data.uuid` from hub's stored raw jsonl line). Returns
      * `undefined` when the flavor is count-based (Codex uses `tailOffset`
-     * only) or when no anchor exists (target is the first user turn —
-     * Claude then degrades to a HEAD-fork-of-empty which produces an empty
-     * new session, matching the composer-prefill semantic).
+     * only) or when no valid provider anchor exists.
      */
     resolveProviderMessageId(
         sessionId: string,
@@ -182,6 +182,10 @@ export async function forkSession(args: {
             ? deps.resolveProviderMessageId(srcSessionId, resolvedForkPoint.targetSeq, flavor)
             : undefined
 
+    if (resolvedForkPoint !== null && flavor === 'claude' && providerMessageId === undefined) {
+        throw new HttpError(400, 'Claude rewind requires a preceding provider message anchor')
+    }
+
     // Step 1 — provider-native fork on the source machine.
     let forkResult: ForkSpawnResultLike
     try {
@@ -219,7 +223,8 @@ export async function forkSession(args: {
         model: src.model,
         permissionMode: src.permissionMode,
         collaborationMode: src.collaborationMode,
-        resumeSessionId: forkResult.providerSessionId
+        resumeSessionId: forkResult.providerSessionId,
+        claudeLaunch: forkResult.claudeLaunch
     })
     if (spawnResult.type !== 'success') {
         throw new HttpError(500, `fork spawn failed: ${spawnResult.message}`)
@@ -234,16 +239,11 @@ export async function forkSession(args: {
     // so it must not appear in the new session's transcript. The composer
     // in the new session is then prefilled with that message's text by #63
     // c6 fork-restore.
-    try {
-        deps.copyMessages(
-            srcSessionId,
-            newSessionId,
-            resolvedForkPoint ? { beforeSeq: resolvedForkPoint.targetSeq } : undefined
-        )
-    } catch (err) {
-        // Don't fail the whole operation: provider fork + new session exist;
-        // missing transcript clone is a degraded state but not a leak.
-    }
+    deps.copyMessages(
+        srcSessionId,
+        newSessionId,
+        resolvedForkPoint ? { beforeSeq: resolvedForkPoint.targetSeq } : undefined
+    )
 
     // Step 4 — write fork lineage + display name. Provider's metadataPatch
     // (e.g. the new claudeSessionId / codexSessionId) is merged in case the
@@ -255,17 +255,13 @@ export async function forkSession(args: {
         typeof src.metadata?.name === 'string' && src.metadata.name.length > 0
             ? src.metadata.name
             : 'Untitled'
-    try {
-        deps.updateMetadata(newSessionId, {
-            ...forkResult.metadataPatch,
-            forkedFrom: srcSessionId,
-            forkedAt: Date.now(),
-            name: `${sourceName} (fork)`,
-            ...(resolvedForkPoint ? { forkedFromMessageId: resolvedForkPoint.messageId } : {})
-        })
-    } catch (err) {
-        // Same rationale: lineage metadata is nice-to-have, doesn't gate success.
-    }
+    deps.updateMetadata(newSessionId, {
+        ...forkResult.metadataPatch,
+        forkedFrom: srcSessionId,
+        forkedAt: Date.now(),
+        name: `${sourceName} (fork)`,
+        ...(resolvedForkPoint ? { forkedFromMessageId: resolvedForkPoint.messageId } : {})
+    })
 
     return { newSessionId }
 }

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { ForkProvider } from '../providerRegistry'
 import type { ForkSpawnPayload, ForkSpawnResult } from '../rpcPayloads'
 
@@ -46,18 +47,22 @@ export function __resetSpawnClaudeForkForTests(): void {
 export const claudeForkProvider: ForkProvider = {
     async spawnFork(payload: ForkSpawnPayload): Promise<ForkSpawnResult> {
         const sourceSessionId = payload.sourceMetadata.claudeSessionId
-        if (!sourceSessionId) {
-            throw new Error('claude fork: sourceMetadata.claudeSessionId is required')
+        if (!sourceSessionId) throw new Error('claude fork: sourceMetadata.claudeSessionId is required')
+        if (!payload.forkPoint) {
+            const { newClaudeSessionId } = await spawnClaudeForkImpl({
+                sourceSessionId,
+                cwd: payload.sourceCwd,
+                model: payload.sourceModel
+            })
+            return { providerSessionId: newClaudeSessionId, metadataPatch: { claudeSessionId: newClaudeSessionId } }
         }
-        const { newClaudeSessionId } = await spawnClaudeForkImpl({
-            sourceSessionId,
-            cwd: payload.sourceCwd,
-            model: payload.sourceModel,
-            providerMessageId: payload.forkPoint?.providerMessageId
-        })
+        const providerMessageId = payload.forkPoint.providerMessageId
+        if (!providerMessageId) throw new Error('claude fork: providerMessageId is required for per-message fork')
+        const newClaudeSessionId = randomUUID()
         return {
             providerSessionId: newClaudeSessionId,
-            metadataPatch: { claudeSessionId: newClaudeSessionId }
+            metadataPatch: { claudeSessionId: newClaudeSessionId },
+            claudeLaunch: { sourceSessionId, providerMessageId }
         }
     }
 }

@@ -107,6 +107,22 @@ describe('buildForkDeps', () => {
         await expect(deps.forkProvider('mac-1', { flavor: 'x', payload: {} })).rejects.toThrow(/providerSessionId/)
     })
 
+    it('forkProvider rejects malformed deferred Claude launch metadata', async () => {
+        const { store } = fakeStore()
+        const syncEngine = {
+            async forkProviderSession() {
+                return {
+                    providerSessionId: 'new-prov',
+                    metadataPatch: { claudeSessionId: 'new-prov' },
+                    claudeLaunch: { sourceSessionId: 'src' }
+                }
+            }
+        }
+        const deps = buildForkDeps({ store, syncEngine: syncEngine as any, namespace: 'default' })
+        await expect(deps.forkProvider('mac-1', { flavor: 'claude', payload: {} }))
+            .rejects.toThrow(/providerMessageId/)
+    })
+
     it('spawnSession positional args to SyncEngine.spawnSession', async () => {
         const { store } = fakeStore()
         const calls: any[] = []
@@ -175,7 +191,7 @@ describe('buildForkDeps', () => {
                             role: 'agent',
                             content: {
                                 type: 'output',
-                                data: { type: 'assistant', uuid: 'asst-uuid-a', sessionId: 'src' }
+                                data: { type: 'assistant', uuid: 'display-a', providerMessageId: 'asst-uuid-a', sessionId: 'src' }
                             }
                         }
                     },
@@ -186,7 +202,7 @@ describe('buildForkDeps', () => {
                             role: 'agent',
                             content: {
                                 type: 'output',
-                                data: { type: 'assistant', uuid: 'asst-uuid-b', sessionId: 'src' }
+                                data: { type: 'assistant', uuid: 'display-b', providerMessageId: 'asst-uuid-b', sessionId: 'src' }
                             }
                         }
                     },
@@ -198,7 +214,7 @@ describe('buildForkDeps', () => {
                             role: 'agent',
                             content: {
                                 type: 'output',
-                                data: { type: 'assistant', uuid: 'asst-uuid-after', sessionId: 'src' }
+                                data: { type: 'assistant', uuid: 'display-after', providerMessageId: 'asst-uuid-after', sessionId: 'src' }
                             }
                         }
                     }

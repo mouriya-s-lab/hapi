@@ -137,19 +137,16 @@ describe('forkSession', () => {
         })
     })
 
-    it('still succeeds when copyMessages throws (degraded — empty transcript)', async () => {
+    it('does not report success when transcript copy fails', async () => {
         const captured: any[] = []
         const deps = makeDeps({ captured, copyShouldThrow: new Error('db locked') })
-        const res = await forkSession({ srcSessionId: 'src', deps })
-        expect(res.newSessionId).toBe('new-hapi-id')
-        // updateMetadata still runs
-        expect(captured.find(c => c[0] === 'updateMetadata')).toBeTruthy()
+        await expect(forkSession({ srcSessionId: 'src', deps })).rejects.toThrow('db locked')
+        expect(captured.find(c => c[0] === 'updateMetadata')).toBeUndefined()
     })
 
-    it('still succeeds when updateMetadata throws', async () => {
+    it('does not report success when lineage metadata write fails', async () => {
         const deps = makeDeps({ updateShouldThrow: new Error('write fail') })
-        const res = await forkSession({ srcSessionId: 'src', deps })
-        expect(res.newSessionId).toBe('new-hapi-id')
+        await expect(forkSession({ srcSessionId: 'src', deps })).rejects.toThrow('write fail')
     })
 
     it('uses "Untitled" suffix when source name missing', async () => {
@@ -284,7 +281,7 @@ describe('forkSession per-message (#61 c4)', () => {
         expect(copyCall[3]).toEqual({ beforeSeq: 3 })
     })
 
-    it('claude + forkPoint when target is first user turn: providerMessageId omitted, hub-DB copy empty', async () => {
+    it('rejects Claude rewind without a provider anchor before creating a fork', async () => {
         const captured: any[] = []
         const deps = makeDeps({
             captured,
@@ -294,22 +291,13 @@ describe('forkSession per-message (#61 c4)', () => {
             messages: [{ id: 'm1', seq: 1, role: 'user' }],
             resolveProviderMessageIdImpl: () => undefined
         })
-        await forkSession({
+        await expect(forkSession({
             srcSessionId: 'src',
             deps,
             forkPoint: { messageId: 'm1' }
-        })
-
-        const forkCall = captured.find((c) => c[0] === 'forkProvider')!
-        // providerMessageId omitted → Claude fork provider falls back to
-        // HEAD-fork of the source, but hub-DB `beforeSeq: 1` empties the
-        // transcript view — matches "rewind to first turn = empty".
-        expect(forkCall[2].payload.forkPoint).toEqual({
-            messageId: 'm1',
-            tailOffset: 0
-        })
-        const copyCall = captured.find((c) => c[0] === 'copy')!
-        expect(copyCall[3]).toEqual({ beforeSeq: 1 })
+        })).rejects.toMatchObject({ status: 400 })
+        expect(captured.some((c) => c[0] === 'forkProvider')).toBe(false)
+        expect(captured.some((c) => c[0] === 'spawnSession')).toBe(false)
     })
 
     it('rejects 400 without touching DB (no forkProvider / spawnSession / copyMessages / updateMetadata calls)', async () => {
