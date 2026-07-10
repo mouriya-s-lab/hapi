@@ -4,7 +4,7 @@ import type { ApiClient } from '@/api/client'
 import { useLongPress } from '@/hooks/useLongPress'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
-import { useFlavorCapabilities } from '@/hooks/queries/useFlavorCapabilities'
+import { useFlavorCapabilities, getFlavorForkCapability } from '@/hooks/queries/useFlavorCapabilities'
 import { SessionActionMenu } from '@/components/SessionActionMenu'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -599,7 +599,8 @@ function SessionItem(props: {
     const { data: capabilities } = useFlavorCapabilities(api)
     const sessionFlavor = s.metadata?.flavor ?? null
     const forkSupported =
-        Boolean(sessionFlavor) && (capabilities?.fork?.includes(sessionFlavor as string) ?? false)
+        Boolean(sessionFlavor) &&
+        getFlavorForkCapability(capabilities, sessionFlavor).fork !== 'none'
     const [reopenError, setReopenError] = useState<string | null>(null)
     const [forkError, setForkError] = useState<string | null>(null)
 

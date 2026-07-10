@@ -1,4 +1,4 @@
-import { FORK_CAPABLE_FLAVORS } from './forkCapabilities'
+import { isForkCapableFlavor } from './forkCapabilities'
 
 export class HttpError extends Error {
     constructor(public status: number, message: string) {
@@ -73,11 +73,8 @@ export async function forkSession(args: {
     }
 
     const flavor = typeof src.metadata?.flavor === 'string' ? src.metadata.flavor : null
-    if (!flavor || !FORK_CAPABLE_FLAVORS.includes(flavor as never)) {
-        throw new HttpError(
-            400,
-            `flavor ${flavor ?? '<none>'} does not support fork (supported: ${FORK_CAPABLE_FLAVORS.join(', ')})`
-        )
+    if (!flavor || !isForkCapableFlavor(flavor)) {
+        throw new HttpError(400, `flavor ${flavor ?? '<none>'} does not support fork`)
     }
 
     // Step 1 — provider-native fork on the source machine.
