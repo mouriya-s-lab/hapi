@@ -1,5 +1,6 @@
 import { getForkCapability, isForkCapableFlavor } from './forkCapabilities'
 import type { ClaudeLaunch } from '../../shared/src/types'
+import type { ForkPoint } from './rpcPayloads'
 
 export class HttpError extends Error {
     constructor(public status: number, message: string) {
@@ -106,7 +107,7 @@ export interface ForkDeps {
         sessionId: string,
         targetSeq: number,
         flavor: string
-    ): string | undefined
+    ): ForkPoint['providerAnchor']
     updateMetadata(sessionId: string, metadataPatch: Record<string, any>): void
 }
 
@@ -180,7 +181,7 @@ export async function forkSession(args: {
     // Resolve id-based provider anchor (Claude assistant uuid) when at-message
     // fork is requested. Undefined when the flavor is count-based (Codex uses
     // tailOffset alone) or when target is the first user turn.
-    const providerMessageId =
+    const providerAnchor =
         resolvedForkPoint !== null
             ? deps.resolveProviderMessageId(srcSessionId, resolvedForkPoint.targetSeq, flavor)
             : undefined
@@ -188,7 +189,7 @@ export async function forkSession(args: {
     if (
         resolvedForkPoint !== null &&
         flavor === 'claude' &&
-        providerMessageId === undefined &&
+        providerAnchor === undefined &&
         !resolvedForkPoint.isFirstUserTurn
     ) {
         throw new HttpError(400, 'Claude rewind requires a preceding provider message anchor')
@@ -211,7 +212,7 @@ export async function forkSession(args: {
                               messageId: resolvedForkPoint.messageId,
                               tailOffset: resolvedForkPoint.tailOffset,
                               isFirstUserTurn: resolvedForkPoint.isFirstUserTurn,
-                              ...(providerMessageId !== undefined ? { providerMessageId } : {})
+                              ...(providerAnchor !== undefined ? { providerAnchor } : {})
                           }
                       }
                     : {})

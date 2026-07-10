@@ -223,7 +223,10 @@ describe('buildForkDeps', () => {
         }
         const deps = buildForkDeps({ store: store as any, syncEngine: {} as any, namespace: 'default' })
         // Target user message is at seq=5. Last assistant before it = seq=4 (asst-uuid-b).
-        expect(deps.resolveProviderMessageId('src', 5, 'claude')).toBe('asst-uuid-b')
+        expect(deps.resolveProviderMessageId('src', 5, 'claude')).toEqual({
+            type: 'message-uuid',
+            messageUuid: 'asst-uuid-b'
+        })
     })
 
     it('resolveProviderMessageId returns undefined when target is the first user turn', () => {
@@ -237,6 +240,26 @@ describe('buildForkDeps', () => {
         }
         const deps = buildForkDeps({ store: store as any, syncEngine: {} as any, namespace: 'default' })
         expect(deps.resolveProviderMessageId('src', 1, 'claude')).toBeUndefined()
+    })
+
+    it('falls back to the stable assistant API message id for legacy Claude rows', () => {
+        const { store } = fakeStore()
+        ;(store.messages as any).getAllMessages = () => [{
+            id: 'agent',
+            seq: 2,
+            content: {
+                role: 'agent',
+                content: {
+                    type: 'output',
+                    data: { type: 'assistant', uuid: 'display-only', message: { id: 'msg_legacy' } }
+                }
+            }
+        }]
+        const deps = buildForkDeps({ store, syncEngine: {} as any, namespace: 'default' })
+        expect(deps.resolveProviderMessageId('src', 3, 'claude')).toEqual({
+            type: 'assistant-api-message-id',
+            assistantMessageId: 'msg_legacy'
+        })
     })
 
     it('resolveProviderMessageId returns undefined for non-claude flavors', () => {

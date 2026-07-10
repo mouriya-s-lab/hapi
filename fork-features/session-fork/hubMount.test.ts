@@ -12,7 +12,7 @@ function makeDeps(
         forkProviderSpy?: (req: unknown) => void
         updateMetadataSpy?: (patch: Record<string, unknown>) => void
         copySpy?: (copyOpts: { beforeSeq?: number } | undefined) => void
-        resolveProviderMessageIdImpl?: (sessionId: string, targetSeq: number, flavor: string) => string | undefined
+        resolveProviderMessageIdImpl?: (sessionId: string, targetSeq: number, flavor: string) => any
     } = {}
 ): ForkSyncEngineLike {
     const flavor = opts.flavor ?? 'claude'
@@ -129,7 +129,8 @@ describe('mountForkRoutes', () => {
         expect(forkReqs).toHaveLength(1)
         expect((forkReqs[0] as any).payload.forkPoint).toEqual({
             messageId: 'm1',
-            tailOffset: 0
+            tailOffset: 0,
+            isFirstUserTurn: true
         })
     })
 
@@ -200,7 +201,9 @@ describe('mountForkRoutes', () => {
                 forkProviderSpy: (r) => forkPayloads.push(r),
                 resolveProviderMessageIdImpl: (_sid, seq, flavor) => {
                     resolveCalls.push({ seq, flavor })
-                    return flavor === 'claude' ? 'asst-native-uuid' : undefined
+                    return flavor === 'claude'
+                        ? { type: 'message-uuid', messageUuid: 'asst-native-uuid' }
+                        : undefined
                 }
             })
         )
@@ -214,7 +217,8 @@ describe('mountForkRoutes', () => {
         expect((forkPayloads[0] as any).payload.forkPoint).toEqual({
             messageId: 'm3',
             tailOffset: 0,
-            providerMessageId: 'asst-native-uuid'
+            isFirstUserTurn: false,
+            providerAnchor: { type: 'message-uuid', messageUuid: 'asst-native-uuid' }
         })
     })
 
