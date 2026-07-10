@@ -432,10 +432,22 @@ export class ApiClient {
      * Session fork (fork-features/session-fork). Returns the new hapi session
      * id for the forked copy.
      */
-    async forkSession(sessionId: string): Promise<{ newSessionId: string }> {
+    /**
+     * Fork a session. Absent `forkPoint` = HEAD fork (session-level menu
+     * entry). With `forkPoint.messageId` = per-message fork (UserMessage
+     * trailing-row rewind button, capability-gated to at-message flavors).
+     * Hub computes `tailOffset` from the source session's messages table;
+     * clients don't send it.
+     */
+    async forkSession(
+        sessionId: string,
+        opts?: { forkPoint?: { messageId: string } }
+    ): Promise<{ newSessionId: string }> {
+        const body: Record<string, unknown> = {}
+        if (opts?.forkPoint) body.forkPoint = opts.forkPoint
         return await this.request<{ newSessionId: string }>(
             `/api/sessions/${encodeURIComponent(sessionId)}/fork`,
-            { method: 'POST', body: JSON.stringify({}) }
+            { method: 'POST', body: JSON.stringify(body) }
         )
     }
 
