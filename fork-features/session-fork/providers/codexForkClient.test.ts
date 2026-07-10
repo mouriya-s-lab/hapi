@@ -3,7 +3,8 @@ import { createCodexForkClient } from './codexForkClient'
 
 function fakeAppServer(overrides: any = {}) {
     return {
-        async forkThread(params: { threadId: string }) {
+        async forkThread(params: { threadId: string; numTurns?: number }) {
+            overrides.forkCalls?.push(params)
             return overrides.forkResp ?? { thread: { id: `forked-${params.threadId}` } }
         },
         async resumeThread(params: { threadId: string }) {
@@ -35,5 +36,21 @@ describe('createCodexForkClient', () => {
         const client = createCodexForkClient(fakeAppServer({ resumeCalls }))
         await client.resumeThread({ threadId: 't1' })
         expect(resumeCalls).toEqual(['t1'])
+    })
+
+    it('forkThread forwards numTurns to app-server (per-message fork)', async () => {
+        const forkCalls: Array<{ threadId: string; numTurns?: number }> = []
+        const client = createCodexForkClient(fakeAppServer({ forkCalls }))
+        await client.forkThread({ threadId: 'src', numTurns: 3 })
+        expect(forkCalls).toEqual([{ threadId: 'src', numTurns: 3 }])
+    })
+
+    it('forkThread omits numTurns when not provided (HEAD fork, backward-compat)', async () => {
+        const forkCalls: Array<{ threadId: string; numTurns?: number }> = []
+        const client = createCodexForkClient(fakeAppServer({ forkCalls }))
+        await client.forkThread({ threadId: 'src' })
+        expect(forkCalls).toHaveLength(1)
+        expect(forkCalls[0].threadId).toBe('src')
+        expect(forkCalls[0].numTurns).toBeUndefined()
     })
 })
