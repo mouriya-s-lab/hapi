@@ -5,9 +5,8 @@
 # tarballs to GitHub Release; this workflow additionally publishes an
 # amd64 container image to the self-hosted registry, keyed by the same
 # tag, so homelab-tf hapi stack (homelab-tf#405) can consume image digests
-# via Komodo `auto_update` instead of the current "curl release tarball
-# at container start" shape (homelab-tf#332 / komodo/roles/komodo-stacks/
-# templates/hapi/compose.yaml.j2).
+# via the hapi Stack's registry account instead of the former "curl release
+# tarball at container start" shape (homelab-tf#332 / homelab-tf#405).
 #
 # Runner: vctcn GARM `docker` pool for `mouriya-s-lab/hapi` (pool id
 # f4aa4caa-46c9-41b8-98a6-565ac61ee478 on VM 181). Tags
@@ -140,28 +139,54 @@ jobs:
                   docker image inspect "$IMAGE:$VERSION" >/dev/null
                   docker image inspect "$IMAGE:stable" >/dev/null
 
-            # Trigger the homelab Komodo Core's "Global Auto Update"
-            # procedure so stacks with `auto_update = true` (hapi, per
-            # homelab-tf#405) pick up the fresh `stable` digest within
-            # minutes instead of waiting for the procedure's daily 03:00
-            # schedule (komodo v2.2.0 bin/core/src/startup.rs:432;
-            # mechanism validated end-to-end in homelab-tf#416 spike c).
-            # Reachable because this GARM runner sits on the netbird mesh
-            # — same call shape as homelab-apps' sync-to-komodo workflow.
-            # Failure here fails the run loudly: the release is published
-            # but not yet deployed, and the operator should know.
-            - name: Trigger Komodo Global Auto Update
+            # Komodo v2.2.0's CheckStackForUpdate path does not pass the
+            # Stack registry account into its digest query. A private image
+            # therefore becomes `image_digest = None` and is silently
+            # reported as `update_available = false` (hapi#77). DeployStack
+            # is the declared fallback from homelab-tf#405: it uses the
+            # Stack's `registry_provider` / `registry_account`, pulls
+            # `stable`, and recreates the project from the existing
+            # ResourceSync declaration. Wait for the Komodo update's real
+            # terminal state so a queued request cannot masquerade as a
+            # completed release deployment.
+            - name: Deploy hapi Stack and wait for completion
               env:
                   KM_URL: ${{ secrets.KOMODO_HOMELAB_API_URL }}
                   KM_KEY: ${{ secrets.KOMODO_HOMELAB_API_KEY }}
                   KM_SECRET: ${{ secrets.KOMODO_HOMELAB_API_SECRET }}
               run: |
                   set -euo pipefail
-                  curl -fsSL -X POST "${KM_URL}/execute" \
+                  response=$(curl -fsSL -X POST "${KM_URL}/execute" \
                       -H "x-api-key: ${KM_KEY}" \
                       -H "x-api-secret: ${KM_SECRET}" \
                       -H "Content-Type: application/json" \
-                      -d '{"type":"RunProcedure","params":{"procedure":"Global Auto Update"}}' \
-                      | head -c 400
-                  echo
-                  echo "Global Auto Update triggered"
+                      -d '{"type":"DeployStack","params":{"stack":"hapi"}}')
+                  update_id=$(jq -er '._id."$oid"' <<<"$response")
+                  echo "DeployStack update id: $update_id"
+
+                  while true; do
+                      update=$(curl -fsSL -X POST "${KM_URL}/read" \
+                          -H "x-api-key: ${KM_KEY}" \
+                          -H "x-api-secret: ${KM_SECRET}" \
+                          -H "Content-Type: application/json" \
+                          -d "{\"type\":\"GetUpdate\",\"params\":{\"id\":\"${update_id}\"}}")
+                      status=$(jq -er '.status' <<<"$update")
+                      success=$(jq -er '.success' <<<"$update")
+                      echo "DeployStack status=$status success=$success"
+
+                      case "$status" in
+                          Complete)
+                              jq . <<<"$update"
+                              test "$success" = true
+                              break
+                              ;;
+                          InProgress|Queued)
+                              sleep 2
+                              ;;
+                          *)
+                              jq . <<<"$update" >&2
+                              echo "::error::DeployStack reached unexpected terminal state: $status" >&2
+                              exit 1
+                              ;;
+                      esac
+                  done
