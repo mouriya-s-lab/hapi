@@ -57,12 +57,21 @@ export const claudeForkProvider: ForkProvider = {
             return { providerSessionId: newClaudeSessionId, metadataPatch: { claudeSessionId: newClaudeSessionId } }
         }
         const providerMessageId = payload.forkPoint.providerMessageId
-        if (!providerMessageId) throw new Error('claude fork: providerMessageId is required for per-message fork')
         const newClaudeSessionId = randomUUID()
+        if (!providerMessageId) {
+            if (!payload.forkPoint.isFirstUserTurn) {
+                throw new Error('claude fork: providerMessageId is required for non-first per-message fork')
+            }
+            return {
+                providerSessionId: newClaudeSessionId,
+                metadataPatch: { claudeSessionId: newClaudeSessionId },
+                claudeLaunch: { type: 'fresh' }
+            }
+        }
         return {
             providerSessionId: newClaudeSessionId,
             metadataPatch: { claudeSessionId: newClaudeSessionId },
-            claudeLaunch: { sourceSessionId, providerMessageId }
+            claudeLaunch: { type: 'resume-at', sourceSessionId, providerMessageId }
         }
     }
 }

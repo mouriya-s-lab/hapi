@@ -114,7 +114,7 @@ describe('buildForkDeps', () => {
                 return {
                     providerSessionId: 'new-prov',
                     metadataPatch: { claudeSessionId: 'new-prov' },
-                    claudeLaunch: { sourceSessionId: 'src' }
+                    claudeLaunch: { type: 'resume-at', sourceSessionId: 'src' }
                 }
             }
         }

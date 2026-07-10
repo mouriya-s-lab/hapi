@@ -1,4 +1,4 @@
-import type { AgentFlavor, CodexCollaborationMode, PermissionMode } from '@hapi/protocol/types'
+import type { AgentFlavor, ClaudeLaunch, CodexCollaborationMode, PermissionMode } from '@hapi/protocol/types'
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import type {
     CodexModelSummary,
@@ -140,7 +140,7 @@ export class RpcGateway {
         effort?: string,
         permissionMode?: PermissionMode,
         serviceTier?: string,
-        claudeLaunch?: { sourceSessionId: string; providerMessageId: string }
+        claudeLaunch?: ClaudeLaunch
     ): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }> {
         try {
             const result = await this.machineRpc(

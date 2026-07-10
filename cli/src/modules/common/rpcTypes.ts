@@ -1,4 +1,4 @@
-import type { AgentFlavor } from '@hapi/protocol'
+import type { AgentFlavor, ClaudeLaunch } from '@hapi/protocol'
 
 export interface SpawnSessionOptions {
     machineId?: string
@@ -16,7 +16,7 @@ export interface SpawnSessionOptions {
     token?: string
     sessionType?: 'simple' | 'worktree'
     worktreeName?: string
-    claudeLaunch?: { sourceSessionId: string; providerMessageId: string }
+    claudeLaunch?: ClaudeLaunch
 }
 
 export type SpawnSessionResult =

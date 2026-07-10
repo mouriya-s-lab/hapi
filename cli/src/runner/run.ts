@@ -1094,9 +1094,11 @@ export function buildCliArgs(
               : 'claude';
   const args = [agentCommand];
   if (agent === 'claude' && options.claudeLaunch) {
-    args.push('--resume', options.claudeLaunch.sourceSessionId)
-    args.push('--fork-session', '--resume-session-at', options.claudeLaunch.providerMessageId)
     if (!options.resumeSessionId) throw new Error('Claude fork launch requires resumeSessionId')
+    if (options.claudeLaunch.type === 'resume-at') {
+      args.push('--resume', options.claudeLaunch.sourceSessionId)
+      args.push('--fork-session', '--resume-session-at', options.claudeLaunch.providerMessageId)
+    }
     args.push('--session-id', options.resumeSessionId)
   } else if (options.resumeSessionId) {
     if (agent === 'codex') {

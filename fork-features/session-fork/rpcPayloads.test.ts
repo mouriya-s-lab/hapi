@@ -42,9 +42,9 @@ describe('rpcPayloads', () => {
         const payload = ForkSpawnPayloadSchema.parse({
             sourceMetadata: { path: '/w', host: 'h' },
             sourceCwd: '/w',
-            forkPoint: { messageId: 'm-42', tailOffset: 3 }
+            forkPoint: { messageId: 'm-42', tailOffset: 3, isFirstUserTurn: false }
         })
-        expect(payload.forkPoint).toEqual({ messageId: 'm-42', tailOffset: 3 })
+        expect(payload.forkPoint).toEqual({ messageId: 'm-42', tailOffset: 3, isFirstUserTurn: false })
     })
 
     it('parses ForkSpawnPayload without forkPoint (HEAD fork, backward-compat)', () => {
@@ -92,6 +92,7 @@ describe('rpcPayloads', () => {
             forkPoint: {
                 messageId: 'm-42',
                 tailOffset: 2,
+                isFirstUserTurn: false,
                 providerMessageId: '1c2445d0-d4aa-4507-915b-2667fbd32144'
             }
         })
@@ -102,7 +103,7 @@ describe('rpcPayloads', () => {
         const payload = ForkSpawnPayloadSchema.parse({
             sourceMetadata: { path: '/w', host: 'h' },
             sourceCwd: '/w',
-            forkPoint: { messageId: 'm-42', tailOffset: 3 }
+            forkPoint: { messageId: 'm-42', tailOffset: 3, isFirstUserTurn: false }
         })
         expect(payload.forkPoint?.providerMessageId).toBeUndefined()
     })

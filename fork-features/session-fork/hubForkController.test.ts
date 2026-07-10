@@ -202,7 +202,7 @@ describe('forkSession per-message (#61 c4)', () => {
 
         const forkCall = captured.find((c) => c[0] === 'forkProvider')!
         // Codex uses tailOffset alone (count-based); no providerMessageId.
-        expect(forkCall[2].payload.forkPoint).toEqual({ messageId: 'm3', tailOffset: 1 })
+        expect(forkCall[2].payload.forkPoint).toEqual({ messageId: 'm3', tailOffset: 1, isFirstUserTurn: false })
 
         const copyCall = captured.find((c) => c[0] === 'copy')!
         // beforeSeq semantics: target user message (seq=3) is NOT copied.
@@ -273,6 +273,7 @@ describe('forkSession per-message (#61 c4)', () => {
         expect(forkCall[2].payload.forkPoint).toEqual({
             messageId: 'm3',
             tailOffset: 0,
+            isFirstUserTurn: false,
             providerMessageId: 'asst-uuid-from-m2'
         })
 
@@ -281,7 +282,7 @@ describe('forkSession per-message (#61 c4)', () => {
         expect(copyCall[3]).toEqual({ beforeSeq: 3 })
     })
 
-    it('rejects Claude rewind without a provider anchor before creating a fork', async () => {
+    it('rewinds the first Claude user turn as a fresh empty session', async () => {
         const captured: any[] = []
         const deps = makeDeps({
             captured,
@@ -291,13 +292,39 @@ describe('forkSession per-message (#61 c4)', () => {
             messages: [{ id: 'm1', seq: 1, role: 'user' }],
             resolveProviderMessageIdImpl: () => undefined
         })
-        await expect(forkSession({
+        const result = await forkSession({
             srcSessionId: 'src',
             deps,
             forkPoint: { messageId: 'm1' }
+        })
+        expect(result.newSessionId).toBe('new-hapi-id')
+        const forkCall = captured.find((c) => c[0] === 'forkProvider')!
+        expect(forkCall[2].payload.forkPoint).toEqual({
+            messageId: 'm1',
+            tailOffset: 0,
+            isFirstUserTurn: true
+        })
+        expect(captured.find((c) => c[0] === 'copy')![3]).toEqual({ beforeSeq: 1 })
+    })
+
+    it('rejects a non-first Claude turn whose legacy transcript lacks a provider anchor', async () => {
+        const captured: any[] = []
+        const deps = makeDeps({
+            captured,
+            source: { metadata: { flavor: 'claude', claudeSessionId: 'csrc' } as any },
+            messages: [
+                { id: 'm1', seq: 1, role: 'user' },
+                { id: 'm2', seq: 2, role: 'agent' },
+                { id: 'm3', seq: 3, role: 'user' }
+            ],
+            resolveProviderMessageIdImpl: () => undefined
+        })
+        await expect(forkSession({
+            srcSessionId: 'src',
+            deps,
+            forkPoint: { messageId: 'm3' }
         })).rejects.toMatchObject({ status: 400 })
         expect(captured.some((c) => c[0] === 'forkProvider')).toBe(false)
-        expect(captured.some((c) => c[0] === 'spawnSession')).toBe(false)
     })
 
     it('rejects 400 without touching DB (no forkProvider / spawnSession / copyMessages / updateMetadata calls)', async () => {
