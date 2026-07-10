@@ -1,4 +1,5 @@
 import { getForkCapability, isForkCapableFlavor } from './forkCapabilities'
+import type { ClaudeLaunch } from '../../shared/src/types'
 
 export class HttpError extends Error {
     constructor(public status: number, message: string) {
@@ -25,7 +26,7 @@ export interface ForkSourceSession {
 export interface ForkSpawnResultLike {
     providerSessionId: string
     metadataPatch: Record<string, any>
-    claudeLaunch?: { sourceSessionId: string; providerMessageId: string }
+    claudeLaunch?: ClaudeLaunch
 }
 
 /**
@@ -69,7 +70,7 @@ export interface ForkDeps {
         permissionMode?: string
         collaborationMode?: string
         resumeSessionId: string
-        claudeLaunch?: { sourceSessionId: string; providerMessageId: string }
+        claudeLaunch?: ClaudeLaunch
     }): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }>
     /**
      * Return the source session's messages ordered by ascending seq. Used
@@ -116,6 +117,7 @@ export interface ResolvedForkPoint {
     tailOffset: number
     /** Target message seq — hub-DB `copyMessages` uses this as `upToSeq`. */
     targetSeq: number
+    isFirstUserTurn: boolean
 }
 
 /**
@@ -148,7 +150,8 @@ function resolveForkPoint(
         throw new HttpError(400, `fork point must be a user message (message ${messageId} has role ${target.role})`)
     }
     const tailOffset = msgs.filter((m) => m.seq > target.seq && m.role === 'user').length
-    return { messageId, tailOffset, targetSeq: target.seq }
+    const isFirstUserTurn = !msgs.some((m) => m.seq < target.seq && m.role === 'user')
+    return { messageId, tailOffset, targetSeq: target.seq, isFirstUserTurn }
 }
 
 export async function forkSession(args: {
@@ -182,7 +185,12 @@ export async function forkSession(args: {
             ? deps.resolveProviderMessageId(srcSessionId, resolvedForkPoint.targetSeq, flavor)
             : undefined
 
-    if (resolvedForkPoint !== null && flavor === 'claude' && providerMessageId === undefined) {
+    if (
+        resolvedForkPoint !== null &&
+        flavor === 'claude' &&
+        providerMessageId === undefined &&
+        !resolvedForkPoint.isFirstUserTurn
+    ) {
         throw new HttpError(400, 'Claude rewind requires a preceding provider message anchor')
     }
 
@@ -202,6 +210,7 @@ export async function forkSession(args: {
                           forkPoint: {
                               messageId: resolvedForkPoint.messageId,
                               tailOffset: resolvedForkPoint.tailOffset,
+                              isFirstUserTurn: resolvedForkPoint.isFirstUserTurn,
                               ...(providerMessageId !== undefined ? { providerMessageId } : {})
                           }
                       }

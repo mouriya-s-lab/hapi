@@ -83,8 +83,11 @@ export async function claudeRemote(opts: {
         }
     }
     const forkFlagCount = Number(forkSession) + Number(resumeSessionAt !== undefined) + Number(newSessionId !== undefined)
-    if (forkFlagCount !== 0 && forkFlagCount !== 3) {
-        throw new Error('Claude per-message fork requires --fork-session, --resume-session-at, and --session-id together')
+    if (forkFlagCount !== 0 && forkFlagCount !== 1 && forkFlagCount !== 3) {
+        throw new Error('Claude per-message fork requires --session-id alone or the complete resume-at flag set')
+    }
+    if (forkFlagCount === 1 && newSessionId === undefined) {
+        throw new Error('Claude fresh fork requires --session-id')
     }
 
     // Set environment variables for Claude Code SDK

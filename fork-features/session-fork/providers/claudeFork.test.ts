@@ -53,17 +53,26 @@ describe('claudeForkProvider', () => {
         const result = await claudeForkProvider.spawnFork({
             sourceMetadata: { path: '/w', host: 'h', claudeSessionId: 'src' },
             sourceCwd: '/tmp/x',
-            forkPoint: { messageId: 'hapi-m-42', tailOffset: 3, providerMessageId: 'provider-42' }
+            forkPoint: { messageId: 'hapi-m-42', tailOffset: 3, providerMessageId: 'provider-42', isFirstUserTurn: false }
         } as any)
         expect(result.providerSessionId).toBeString()
-        expect(result.claudeLaunch).toEqual({ sourceSessionId: 'src', providerMessageId: 'provider-42' })
+        expect(result.claudeLaunch).toEqual({ type: 'resume-at', sourceSessionId: 'src', providerMessageId: 'provider-42' })
     })
 
-    it('rejects per-message fork without providerMessageId', async () => {
+    it('returns a fresh deferred launch for the first user turn', async () => {
+        const result = await claudeForkProvider.spawnFork({
+            sourceMetadata: { path: '/w', host: 'h', claudeSessionId: 'src' },
+            sourceCwd: '/w',
+            forkPoint: { messageId: 'm-1', tailOffset: 2, isFirstUserTurn: true }
+        } as any)
+        expect(result.claudeLaunch).toEqual({ type: 'fresh' })
+    })
+
+    it('rejects non-first per-message fork without providerMessageId', async () => {
         await expect(claudeForkProvider.spawnFork({
             sourceMetadata: { path: '/w', host: 'h', claudeSessionId: 'src' },
             sourceCwd: '/w',
-            forkPoint: { messageId: 'm-42', tailOffset: 2 }
+            forkPoint: { messageId: 'm-42', tailOffset: 2, isFirstUserTurn: false }
         } as any)).rejects.toThrow(/providerMessageId/)
     })
 

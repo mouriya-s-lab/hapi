@@ -22,7 +22,8 @@ import { MetadataSchema } from '../../shared/src/schemas'
 export const ForkPointSchema = z.object({
     messageId: z.string(),
     tailOffset: z.number().int().nonnegative(),
-    providerMessageId: z.string().optional()
+    providerMessageId: z.string().optional(),
+    isFirstUserTurn: z.boolean()
 })
 export type ForkPoint = z.infer<typeof ForkPointSchema>
 
@@ -39,9 +40,13 @@ export type ForkSpawnPayload = z.infer<typeof ForkSpawnPayloadSchema>
 export const ForkSpawnResultSchema = z.object({
     providerSessionId: z.string(),
     metadataPatch: MetadataSchema.partial(),
-    claudeLaunch: z.object({
-        sourceSessionId: z.string(),
-        providerMessageId: z.string()
-    }).optional()
+    claudeLaunch: z.discriminatedUnion('type', [
+        z.object({ type: z.literal('fresh') }),
+        z.object({
+            type: z.literal('resume-at'),
+            sourceSessionId: z.string(),
+            providerMessageId: z.string()
+        })
+    ]).optional()
 })
 export type ForkSpawnResult = z.infer<typeof ForkSpawnResultSchema>
