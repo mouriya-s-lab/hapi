@@ -7,7 +7,7 @@ import { MetadataSchema } from '../../shared/src/schemas'
  * - `messageId` — UI/UX primary key = source-session hub message id.
  * - `tailOffset` — how many user turns lie strictly after the fork-point
  *   in the source session; used by count-based providers (Codex →
- *   `ThreadForkParams.numTurns`).
+ *   Codex provider resolves this against `thread/read` to a `lastTurnId`).
  * - `providerMessageId` — opaque provider-native id computed by hub for
  *   id-based providers. For Claude, this is the *assistant* message uuid
  *   from the source jsonl transcript immediately preceding the target

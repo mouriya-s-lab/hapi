@@ -102,8 +102,8 @@ describe('codexForkProvider (factory)', () => {
         expect(closed).toBe(true)
     })
 
-    it('forkPoint absent → forkThread called with numTurns undefined (HEAD fork)', async () => {
-        const forkCalls: Array<{ threadId: string; numTurns?: number }> = []
+    it('forkPoint absent → forkThread called without tailOffset (HEAD fork)', async () => {
+        const forkCalls: Parameters<CodexForkClient['forkThread']>[0][] = []
         const client = makeClient({
             async forkThread(args) {
                 forkCalls.push(args)
@@ -117,11 +117,11 @@ describe('codexForkProvider (factory)', () => {
         } as any)
         expect(forkCalls).toHaveLength(1)
         expect(forkCalls[0].threadId).toBe('t1')
-        expect(forkCalls[0].numTurns).toBeUndefined()
+        expect(forkCalls[0].tailOffset).toBeUndefined()
     })
 
-    it('forkPoint present → forkThread called with numTurns = tailOffset', async () => {
-        const forkCalls: Array<{ threadId: string; numTurns?: number }> = []
+    it('forkPoint present → forkThread receives tailOffset', async () => {
+        const forkCalls: Parameters<CodexForkClient['forkThread']>[0][] = []
         const client = makeClient({
             async forkThread(args) {
                 forkCalls.push(args)
@@ -134,7 +134,10 @@ describe('codexForkProvider (factory)', () => {
             sourceCwd: '/w',
             forkPoint: { messageId: 'm-42', tailOffset: 3 }
         } as any)
-        expect(forkCalls).toEqual([{ threadId: 't1', numTurns: 3 }])
+        expect(forkCalls).toEqual([{
+            threadId: 't1',
+            tailOffset: 3
+        }])
     })
 
     it('resumeThread still uses newThreadId even with per-message fork', async () => {

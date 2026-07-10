@@ -13,8 +13,9 @@
  *     'at-message' — provider can fork at an arbitrary user message. UI
  *                    shows both session-level menu and the trailing-row
  *                    rewind button on user messages. Two provider-native
- *                    forms are supported: count-based (Codex app-server
- *                    `thread/fork { numTurns }` — hub emits `tailOffset`) and
+ *                    forms are supported: boundary-based (Codex app-server
+ *                    `thread/fork { lastTurnId }` — provider resolves the
+ *                    hub's `tailOffset` against `thread/read`) and
  *                    id-based (Claude CLI hidden `--fork-session --resume
  *                    <sid> --resume-session-at <assistantUuid>` — hub emits
  *                    `providerMessageId`).

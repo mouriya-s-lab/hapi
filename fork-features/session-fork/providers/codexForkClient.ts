@@ -8,12 +8,31 @@ import type { CodexForkClient } from './codexFork'
  */
 export function createCodexForkClient(appServerClient: CodexAppServerClient): CodexForkClient {
     return {
-        async forkThread({ threadId, numTurns }) {
-            const response = await appServerClient.forkThread({ threadId, numTurns })
+        async forkThread(args) {
+            if (args.tailOffset === undefined) {
+                const response = await appServerClient.forkThread({ threadId: args.threadId })
+                const newThreadId = response.thread?.id
+                if (typeof newThreadId !== 'string' || newThreadId.length === 0) {
+                    throw new Error('codex thread/fork: response missing thread.id')
+                }
+                return { newThreadId }
+            }
+
+            const source = await appServerClient.readThread({ threadId: args.threadId, includeTurns: true })
+            const targetTurnIndex = source.thread.turns.length - args.tailOffset - 1
+            if (targetTurnIndex < 0) {
+                throw new Error(`codex thread/fork: tailOffset ${args.tailOffset} exceeds source turn history`)
+            }
+            const lastTurnId = source.thread.turns[targetTurnIndex]?.id
+            if (!lastTurnId) {
+                throw new Error(`codex thread/fork: source turn ${targetTurnIndex} missing id`)
+            }
+            const response = await appServerClient.forkThread({ threadId: args.threadId, lastTurnId })
             const newThreadId = response.thread?.id
             if (typeof newThreadId !== 'string' || newThreadId.length === 0) {
                 throw new Error('codex thread/fork: response missing thread.id')
             }
+            await appServerClient.rollbackThread({ threadId: newThreadId, numTurns: 1 })
             return { newThreadId }
         },
         async resumeThread({ threadId }) {

@@ -3,12 +3,14 @@ import type { ForkSpawnPayload, ForkSpawnResult } from '../rpcPayloads'
 
 export interface CodexForkClient {
     /**
-     * Fork a codex thread. `numTurns` — when provided — asks the app-server
-     * to fork before the last N turns instead of at head; this is Codex's
-     * native per-message rewind (#57 c2 / #58). Absent = HEAD fork,
-     * behaviorally identical to #55.
+     * Fork at HEAD when tailOffset is absent. When present, omit that many
+     * tail turns plus the selected turn itself. The adapter resolves the
+     * resulting boundary to Codex's native `lastTurnId` contract.
      */
-    forkThread(args: { threadId: string; numTurns?: number }): Promise<{ newThreadId: string }>
+    forkThread(args:
+        | { threadId: string; tailOffset?: undefined }
+        | { threadId: string; tailOffset: number }
+    ): Promise<{ newThreadId: string }>
     resumeThread(args: { threadId: string }): Promise<unknown>
     /**
      * Optional teardown. Production wiring uses a short-lived app-server
@@ -32,7 +34,7 @@ export function createCodexForkProvider(factory: CodexForkClientFactory): ForkPr
             try {
                 const { newThreadId } = await client.forkThread({
                     threadId: src,
-                    numTurns: payload.forkPoint?.tailOffset
+                    tailOffset: payload.forkPoint?.tailOffset
                 })
                 await client.resumeThread({ threadId: newThreadId })
                 return {
