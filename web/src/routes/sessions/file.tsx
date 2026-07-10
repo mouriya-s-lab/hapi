@@ -184,6 +184,7 @@ export default function FilePage() {
     const search = useSearch({ from: '/sessions/$sessionId/file' })
     const encodedPath = typeof search.path === 'string' ? search.path : ''
     const staged = search.staged
+    const diffRequested = staged !== undefined
 
     const filePath = useMemo(() => decodePath(encodedPath), [encodedPath])
     const fileName = filePath.split('/').pop() || filePath || t('file.page.fallbackName')
@@ -197,7 +198,7 @@ export default function FilePage() {
             }
             return await api.getGitDiffFile(sessionId, filePath, staged)
         },
-        enabled: Boolean(api && sessionId && filePath)
+        enabled: Boolean(api && sessionId && filePath && diffRequested)
     })
 
     const fileQuery = useQuery({
@@ -241,7 +242,7 @@ export default function FilePage() {
 
     const canDownload = fileContentResult?.success === true && Boolean(fileContentResult.content)
 
-    const [displayMode, setDisplayMode] = useState<'diff' | 'file'>('diff')
+    const [displayMode, setDisplayMode] = useState<'diff' | 'file'>(() => diffRequested ? 'diff' : 'file')
     const [wordWrap, setWordWrap] = useFileWordWrap()
     const [markdownPreview, setMarkdownPreview] = useFileMarkdownPreview()
 
@@ -255,7 +256,7 @@ export default function FilePage() {
     const showWordWrapToggle = showFileTextContent && !renderMarkdownPreview
 
     useEffect(() => {
-        if (imageMimeType) {
+        if (!diffRequested || imageMimeType) {
             setDisplayMode('file')
             return
         }
@@ -266,9 +267,9 @@ export default function FilePage() {
         if (diffFailed) {
             setDisplayMode('file')
         }
-    }, [diffSuccess, diffFailed, diffContent, imageMimeType])
+    }, [diffRequested, diffSuccess, diffFailed, diffContent, imageMimeType])
 
-    const loading = diffQuery.isLoading || fileQuery.isLoading
+    const loading = (diffRequested && diffQuery.isLoading) || fileQuery.isLoading
     const fileError = fileContentResult && !fileContentResult.success
         ? (fileContentResult.error ?? 'Failed to read file')
         : null
