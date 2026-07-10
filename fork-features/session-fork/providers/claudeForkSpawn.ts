@@ -12,6 +12,13 @@ export interface ClaudeForkSpawnConfig {
  * Mirrors the shape used by cli/src/claude/sdk/query.ts (stream-json input/output
  * + --print + --resume <id>) and adds --fork-session to make claude branch the
  * existing session JSONL into a fresh session id at startup.
+ *
+ * If `providerMessageId` is present, additionally passes `--resume-session-at
+ * <providerMessageId>` — Claude's undocumented per-message fork flag. Combined
+ * with `--fork-session --resume <sourceSessionId>` it copies the source jsonl
+ * up to and including the message with that uuid into the new session, then
+ * continues from there. Hub controller populates `providerMessageId` by
+ * resolving the target user message to the preceding assistant message uuid.
  */
 export function buildClaudeForkCliArgs(args: SpawnClaudeForkArgs): string[] {
     const cliArgs = [
@@ -22,6 +29,9 @@ export function buildClaudeForkCliArgs(args: SpawnClaudeForkArgs): string[] {
         '--input-format', 'stream-json',
         '--verbose'
     ]
+    if (args.providerMessageId) {
+        cliArgs.push('--resume-session-at', args.providerMessageId)
+    }
     if (args.model) cliArgs.push('--model', args.model)
     return cliArgs
 }

@@ -5,6 +5,18 @@ export interface SpawnClaudeForkArgs {
     sourceSessionId: string
     cwd: string
     model?: string
+    /**
+     * When present, passed to Claude as `--resume-session-at <providerMessageId>`
+     * alongside `--fork-session --resume <sourceSessionId>`. Claude then
+     * copies the source jsonl transcript up to and including the message
+     * with this uuid into the new session and starts the next turn from
+     * there. Absent = HEAD fork (all source messages copied).
+     *
+     * Hub controller resolves this uuid from the hub's messages table by
+     * walking back from the target user message to the immediately-
+     * preceding role=agent message and reading `content.data.uuid`.
+     */
+    providerMessageId?: string
 }
 
 export interface SpawnClaudeForkResult {
@@ -40,7 +52,8 @@ export const claudeForkProvider: ForkProvider = {
         const { newClaudeSessionId } = await spawnClaudeForkImpl({
             sourceSessionId,
             cwd: payload.sourceCwd,
-            model: payload.sourceModel
+            model: payload.sourceModel,
+            providerMessageId: payload.forkPoint?.providerMessageId
         })
         return {
             providerSessionId: newClaudeSessionId,
