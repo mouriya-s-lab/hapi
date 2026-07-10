@@ -22,8 +22,9 @@
 name: publish-image
 
 on:
-    release:
-        types: [published]
+    workflow_run:
+        workflows: [Release]
+        types: [completed]
     workflow_dispatch:
         inputs:
             tag:
@@ -36,12 +37,15 @@ permissions:
 
 jobs:
     publish:
+        if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
         runs-on: [self-hosted, linux, x64, vctcn, netbird]
         env:
             REGISTRY: registry.237575.xyz
             IMAGE: registry.237575.xyz/hapi/hub
         steps:
             - uses: actions/checkout@v4
+              with:
+                  ref: ${{ inputs.tag || github.event.workflow_run.head_branch }}
 
             # Buildx driver=docker-container is required for `docker
             # buildx imagetools inspect` (Layer 4 evidence step) and gives
@@ -61,7 +65,7 @@ jobs:
                   if [ -n "${{ inputs.tag }}" ]; then
                       v="${{ inputs.tag }}"
                   else
-                      v="${{ github.event.release.tag_name }}"
+                      v="${{ github.event.workflow_run.head_branch }}"
                   fi
                   echo "value=$v" >> "$GITHUB_OUTPUT"
                   echo "Publishing image tag: $v"
