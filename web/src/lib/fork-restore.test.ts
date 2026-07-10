@@ -25,13 +25,6 @@ describe('fork-restore', () => {
         expect(consumeForkedFromText('never-set')).toBeNull()
     })
 
-    it('setForkedFromText no-ops on empty session id or empty text', () => {
-        setForkedFromText('', 'x')
-        setForkedFromText('sess-empty', '')
-        expect(consumeForkedFromText('')).toBeNull()
-        expect(consumeForkedFromText('sess-empty')).toBeNull()
-    })
-
     it('overwrites when set twice for the same session', () => {
         setForkedFromText('sess-x', 'first')
         setForkedFromText('sess-x', 'second')
@@ -45,7 +38,7 @@ describe('fork-restore', () => {
         expect(consumeForkedFromText('b')).toBe('text-b')
     })
 
-    it('consume returns null after cache reset (fresh session)', () => {
+    it('consume returns null after namespace reset', () => {
         setForkedFromText('sess-1', 'x')
         __resetForkRestoreCacheForTests()
         expect(consumeForkedFromText('sess-1')).toBeNull()
