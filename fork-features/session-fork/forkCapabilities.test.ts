@@ -10,7 +10,7 @@ describe('forkCapabilities', () => {
         expect(getForkCapability('claude')).toEqual({ fork: 'at-message', files: 'none' })
     })
 
-    it('codex reports at-message fork (via ThreadForkParams.numTurns)', () => {
+    it('codex reports at-message fork (via ThreadForkParams.lastTurnId)', () => {
         expect(getForkCapability('codex')).toEqual({ fork: 'at-message', files: 'none' })
     })
 
