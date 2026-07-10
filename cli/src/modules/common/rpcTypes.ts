@@ -16,6 +16,7 @@ export interface SpawnSessionOptions {
     token?: string
     sessionType?: 'simple' | 'worktree'
     worktreeName?: string
+    claudeLaunch?: { sourceSessionId: string; providerMessageId: string }
 }
 
 export type SpawnSessionResult =

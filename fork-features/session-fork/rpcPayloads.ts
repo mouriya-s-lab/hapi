@@ -38,6 +38,10 @@ export type ForkSpawnPayload = z.infer<typeof ForkSpawnPayloadSchema>
 
 export const ForkSpawnResultSchema = z.object({
     providerSessionId: z.string(),
-    metadataPatch: MetadataSchema.partial()
+    metadataPatch: MetadataSchema.partial(),
+    claudeLaunch: z.object({
+        sourceSessionId: z.string(),
+        providerMessageId: z.string()
+    }).optional()
 })
 export type ForkSpawnResult = z.infer<typeof ForkSpawnResultSchema>

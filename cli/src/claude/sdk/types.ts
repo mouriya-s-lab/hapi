@@ -179,6 +179,9 @@ export interface QueryOptions {
     permissionMode?: ClaudePermissionMode
     continue?: boolean
     resume?: string
+    forkSession?: boolean
+    resumeSessionAt?: string
+    sessionId?: string
     model?: string
     effort?: string
     fallbackModel?: string

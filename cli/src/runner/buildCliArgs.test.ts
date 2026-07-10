@@ -155,4 +155,17 @@ describe('buildCliArgs', () => {
         expect(args).toContain('--effort')
         expect(args).toContain('high')
     })
+
+    it('launches Claude per-message fork lazily on the first real user message', () => {
+        const args = buildCliArgs('claude', {
+            directory: '/w',
+            resumeSessionId: 'new-session',
+            claudeLaunch: { sourceSessionId: 'source-session', providerMessageId: 'provider-message' }
+        })
+        expect(args).toContain('--fork-session')
+        expect(args.slice(args.indexOf('--resume'), args.indexOf('--resume') + 2)).toEqual(['--resume', 'source-session'])
+        expect(args.slice(args.indexOf('--resume-session-at'), args.indexOf('--resume-session-at') + 2)).toEqual(['--resume-session-at', 'provider-message'])
+        expect(args.slice(args.indexOf('--session-id'), args.indexOf('--session-id') + 2)).toEqual(['--session-id', 'new-session'])
+    })
+
 })

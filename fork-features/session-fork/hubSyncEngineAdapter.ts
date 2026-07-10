@@ -1,4 +1,5 @@
 import type { ForkDeps, ForkMessage, ForkSourceSession, ForkSpawnResultLike } from './hubForkController'
+import { ForkSpawnResultSchema } from './rpcPayloads'
 
 /**
  * Read `role` out of a `StoredMessage.content` JSON blob. hapi's message
@@ -36,8 +37,8 @@ function extractClaudeAssistantUuid(content: unknown): string | undefined {
     const data = (cc as { data?: unknown }).data
     if (data === null || typeof data !== 'object') return undefined
     if ((data as { type?: unknown }).type !== 'assistant') return undefined
-    const uuid = (data as { uuid?: unknown }).uuid
-    return typeof uuid === 'string' && uuid.length > 0 ? uuid : undefined
+    const providerMessageId = (data as { providerMessageId?: unknown }).providerMessageId
+    return typeof providerMessageId === 'string' && providerMessageId.length > 0 ? providerMessageId : undefined
 }
 
 /**
@@ -86,17 +87,7 @@ export function buildForkDeps(args: {
 
         async forkProvider(machineId, request): Promise<ForkSpawnResultLike> {
             const raw = await syncEngine.forkProviderSession(machineId, request)
-            if (!raw || typeof raw !== 'object') {
-                throw new Error('fork provider RPC returned non-object response')
-            }
-            const obj = raw as Record<string, unknown>
-            if (typeof obj.providerSessionId !== 'string' || obj.providerSessionId.length === 0) {
-                throw new Error('fork provider RPC response missing providerSessionId')
-            }
-            const metadataPatch = (typeof obj.metadataPatch === 'object' && obj.metadataPatch !== null)
-                ? (obj.metadataPatch as Record<string, any>)
-                : {}
-            return { providerSessionId: obj.providerSessionId, metadataPatch }
+            return ForkSpawnResultSchema.parse(raw)
         },
 
         async spawnSession(opts) {
@@ -116,7 +107,8 @@ export function buildForkDeps(args: {
                 opts.resumeSessionId,
                 undefined,
                 opts.permissionMode,
-                undefined
+                undefined,
+                opts.claudeLaunch
             )
         },
 
@@ -160,11 +152,9 @@ export function buildForkDeps(args: {
                 const uuid = extractClaudeAssistantUuid(m.content)
                 if (uuid !== undefined) return uuid
             }
-            // No preceding assistant message: target is the first user turn.
-            // Undefined signals the Claude fork to fall back to HEAD fork,
-            // which combined with beforeSeq=<targetSeq>=1 gives an empty
-            // hub-DB transcript. This is the correct edge behavior — the
-            // "rewound to the very first turn" case IS an empty session.
+            // No preceding provider anchor. The controller rejects this before
+            // any provider RPC so the provider cannot silently turn an
+            // at-message rewind into a HEAD fork.
             return undefined
         },
 
