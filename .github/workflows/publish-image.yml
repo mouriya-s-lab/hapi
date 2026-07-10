@@ -83,16 +83,14 @@ jobs:
                       | docker login "$REGISTRY" -u sa-registry --password-stdin
 
             - name: Download linux/x64 release artifact
-              env:
-                  GH_TOKEN: ${{ github.token }}
               run: |
                   set -euo pipefail
                   VERSION="${{ steps.version.outputs.value }}"
                   rm -rf .image
                   mkdir .image
-                  gh release download "$VERSION" \
-                      --pattern hapi-linux-x64-baseline.tar.gz \
-                      --dir .image
+                  curl -fsSL \
+                      "${{ github.server_url }}/${{ github.repository }}/releases/download/${VERSION}/hapi-linux-x64-baseline.tar.gz" \
+                      -o .image/hapi-linux-x64-baseline.tar.gz
                   tar -xzf .image/hapi-linux-x64-baseline.tar.gz -C .image
                   test -x .image/hapi
 
