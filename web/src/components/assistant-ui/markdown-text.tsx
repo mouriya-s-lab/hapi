@@ -14,6 +14,7 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import remarkDisableIndentedCode from '@/lib/remark-disable-indented-code'
 import remarkRepairTables from '@/lib/remark-repair-tables'
+import remarkLatexBracketMath from '@/lib/remark-latex-bracket-math'
 import { useNavigate } from '@tanstack/react-router'
 import remarkStripCjkAutolink from '@/lib/remark-strip-cjk-autolink'
 import remarkNonHttpsAutolink from '@/lib/remark-non-https-autolink'
@@ -31,9 +32,14 @@ import { UriConfirmDialog } from '@/components/UriConfirmDialog'
 import type { MarkdownTextPrimitiveProps } from '@assistant-ui/react-markdown'
 
 // ── Plugin array ────────────────────────────────────────────────────────────
-// Order: remarkGfm → remarkRepairTables → remarkNonHttpsAutolink → remarkStripCjkAutolink → remarkMath → remarkDisableIndentedCode → remarkFilePathLinks
+// Order: remarkGfm → remarkRepairTables → remarkLatexBracketMath → remarkNonHttpsAutolink → remarkStripCjkAutolink → remarkMath → remarkDisableIndentedCode → remarkFilePathLinks
 // remarkRepairTables must run immediately after remarkGfm — it reads file.value
 // (raw source) to pad short separator rows before remark-gfm parses the table.
+// remarkLatexBracketMath converts LaTeX `\[ … \]` / `\( … \)` delimiters into
+// math nodes; it must run BEFORE remarkBreaks (so multi-line `\[ … \]` is not
+// split at newlines) and BEFORE the autolink plugins (so URL-like TeX is not
+// linkified). It reads raw source via node positions, so it also runs after
+// remarkRepairTables settles the tree.
 // remarkNonHttpsAutolink must run BEFORE remarkStripCjkAutolink so that the
 // CJK strip plugin sees the new link nodes and can trim trailing CJK punctuation
 // from them. Both must come before remarkMath (to avoid treating TeX as URI).
@@ -57,14 +63,18 @@ const MARKDOWN_PLUGIN_TAIL = [
 export const MARKDOWN_PLUGINS = [
     remarkGfm,
     remarkRepairTables,
+    remarkLatexBracketMath,
     ...MARKDOWN_PLUGIN_TAIL,
 ] satisfies NonNullable<MarkdownTextPrimitiveProps['remarkPlugins']>
 
 // User-authored prompts should preserve Shift+Enter/newline intent without
-// changing assistant/tool markdown behavior globally.
+// changing assistant/tool markdown behavior globally. remarkLatexBracketMath
+// must precede remarkBreaks so a multi-line `\[ … \]` block is converted before
+// hard-break splitting fragments its text node.
 export const MARKDOWN_PLUGINS_WITH_BREAKS = [
     remarkGfm,
     remarkRepairTables,
+    remarkLatexBracketMath,
     remarkBreaks,
     ...MARKDOWN_PLUGIN_TAIL,
 ] satisfies NonNullable<MarkdownTextPrimitiveProps['remarkPlugins']>

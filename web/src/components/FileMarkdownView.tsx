@@ -2,6 +2,7 @@ import type { ComponentPropsWithoutRef, ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
+import remarkLatexBracketMath from '@/lib/remark-latex-bracket-math'
 import rehypeKatex from 'rehype-katex'
 import { MermaidDiagram } from '@/components/assistant-ui/mermaid-diagram'
 import { SyntaxHighlighter } from '@/components/assistant-ui/shiki-highlighter'
@@ -21,7 +22,7 @@ import { cn } from '@/lib/utils'
 // katex CSS is imported once globally in index.css, so math rendered by
 // rehype-katex is styled without an extra import here.
 
-const REMARK_PLUGINS = [remarkGfm, remarkMath]
+const REMARK_PLUGINS = [remarkGfm, remarkLatexBracketMath, remarkMath]
 const REHYPE_PLUGINS = [rehypeKatex]
 
 // Both MermaidDiagram and SyntaxHighlighter share @assistant-ui's
