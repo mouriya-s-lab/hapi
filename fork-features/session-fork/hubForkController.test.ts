@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
-import { forkSession, HttpError, type ForkDeps, type ForkSourceSession } from './hubForkController'
+import { forkSession, HttpError, type ForkDeps, type ForkMessage, type ForkSourceSession } from './hubForkController'
 import { __resetRegistryForTests, registerForkProvider } from './providerRegistry'
 
 interface MakeDepsOpts {
@@ -9,6 +9,8 @@ interface MakeDepsOpts {
     copyShouldThrow?: Error
     updateShouldThrow?: Error
     captured?: any[]
+    messages?: ForkMessage[]
+    resolveProviderMessageIdImpl?: (sessionId: string, targetSeq: number, flavor: string) => string | undefined
 }
 
 function makeDeps(opts: MakeDepsOpts = {}): ForkDeps {
@@ -39,14 +41,23 @@ function makeDeps(opts: MakeDepsOpts = {}): ForkDeps {
             captured.push(['spawnSession', args])
             return opts.spawnResult ?? { type: 'success', sessionId: 'new-hapi-id' }
         },
-        copyMessages(srcId, dstId) {
-            captured.push(['copy', srcId, dstId])
+        listMessages() {
+            return opts.messages ?? []
+        },
+        copyMessages(srcId, dstId, copyOpts) {
+            captured.push(['copy', srcId, dstId, copyOpts])
             if (opts.copyShouldThrow) throw opts.copyShouldThrow
             return { copied: 3 }
         },
         updateMetadata(sessionId, patch) {
             captured.push(['updateMetadata', sessionId, patch])
             if (opts.updateShouldThrow) throw opts.updateShouldThrow
+        },
+        resolveProviderMessageId(sessionId, targetSeq, flavor) {
+            captured.push(['resolveProviderMessageId', sessionId, targetSeq, flavor])
+            return opts.resolveProviderMessageIdImpl
+                ? opts.resolveProviderMessageIdImpl(sessionId, targetSeq, flavor)
+                : undefined
         }
     }
 }
@@ -79,7 +90,9 @@ describe('forkSession', () => {
         expect(spawnCall[1].machineId).toBe('mac-1')
 
         const copyCall = captured.find(c => c[0] === 'copy')!
-        expect(copyCall).toEqual(['copy', 'src', 'new-hapi-id'])
+        expect(copyCall.slice(0, 3)).toEqual(['copy', 'src', 'new-hapi-id'])
+        // HEAD fork: no beforeSeq passed
+        expect(copyCall[3]).toBeUndefined()
 
         const updateCall = captured.find(c => c[0] === 'updateMetadata')!
         expect(updateCall[1]).toBe('new-hapi-id')
@@ -158,5 +171,171 @@ describe('forkSession', () => {
         } catch (err) {
             expect(err).toBeInstanceOf(HttpError)
         }
+    })
+})
+
+describe('forkSession per-message (#61 c4)', () => {
+    const CODEX_MSGS: ForkMessage[] = [
+        { id: 'm1', seq: 1, role: 'user' },
+        { id: 'm2', seq: 2, role: 'agent' },
+        { id: 'm3', seq: 3, role: 'user' },
+        { id: 'm4', seq: 4, role: 'agent' },
+        { id: 'm5', seq: 5, role: 'user' },
+        { id: 'm6', seq: 6, role: 'agent' }
+    ]
+
+    function codexDeps(overrides: Partial<MakeDepsOpts> = {}): ForkDeps {
+        return makeDeps({
+            source: {
+                metadata: { flavor: 'codex', codexSessionId: 'cx-src' } as any
+            },
+            messages: CODEX_MSGS,
+            ...overrides
+        })
+    }
+
+    it('happy per-message (codex): computes tailOffset + passes forkPoint to provider + copies STRICTLY BEFORE targetSeq + writes forkedFromMessageId', async () => {
+        const captured: any[] = []
+        const deps = codexDeps({ captured })
+        await forkSession({
+            srcSessionId: 'src',
+            deps,
+            forkPoint: { messageId: 'm3' }
+        })
+
+        const forkCall = captured.find((c) => c[0] === 'forkProvider')!
+        // Codex uses tailOffset alone (count-based); no providerMessageId.
+        expect(forkCall[2].payload.forkPoint).toEqual({ messageId: 'm3', tailOffset: 1 })
+
+        const copyCall = captured.find((c) => c[0] === 'copy')!
+        // beforeSeq semantics: target user message (seq=3) is NOT copied.
+        expect(copyCall[3]).toEqual({ beforeSeq: 3 })
+
+        const updateCall = captured.find((c) => c[0] === 'updateMetadata')!
+        expect(updateCall[2].forkedFromMessageId).toBe('m3')
+        expect(updateCall[2].forkedFrom).toBe('src')
+    })
+
+    it('tailOffset counts only user turns strictly after target', async () => {
+        const captured: any[] = []
+        const deps = codexDeps({ captured })
+        await forkSession({ srcSessionId: 'src', deps, forkPoint: { messageId: 'm1' } })
+        const forkCall = captured.find((c) => c[0] === 'forkProvider')!
+        expect(forkCall[2].payload.forkPoint.tailOffset).toBe(2) // m3, m5
+    })
+
+    it('tailOffset = 0 when target is the last user message', async () => {
+        const captured: any[] = []
+        const deps = codexDeps({ captured })
+        await forkSession({ srcSessionId: 'src', deps, forkPoint: { messageId: 'm5' } })
+        const forkCall = captured.find((c) => c[0] === 'forkProvider')!
+        expect(forkCall[2].payload.forkPoint.tailOffset).toBe(0)
+    })
+
+    it('rejects 400 when forkPoint.messageId does not belong to source session', async () => {
+        const deps = codexDeps()
+        await expect(
+            forkSession({ srcSessionId: 'src', deps, forkPoint: { messageId: 'not-real' } })
+        ).rejects.toMatchObject({ status: 400 })
+    })
+
+    it('rejects 400 when forkPoint is an assistant message (role !== user)', async () => {
+        const deps = codexDeps()
+        await expect(
+            forkSession({ srcSessionId: 'src', deps, forkPoint: { messageId: 'm2' } })
+        ).rejects.toMatchObject({ status: 400 })
+    })
+
+    it('claude + forkPoint: accepts, resolves providerMessageId, passes it in payload', async () => {
+        const captured: any[] = []
+        const deps = makeDeps({
+            captured,
+            source: {
+                metadata: { flavor: 'claude', claudeSessionId: 'csrc' } as any
+            },
+            messages: [
+                { id: 'm1', seq: 1, role: 'user' },
+                { id: 'm2', seq: 2, role: 'agent' },
+                { id: 'm3', seq: 3, role: 'user' }
+            ],
+            resolveProviderMessageIdImpl: (_sid, _seq, flavor) =>
+                flavor === 'claude' ? 'asst-uuid-from-m2' : undefined
+        })
+        await forkSession({
+            srcSessionId: 'src',
+            deps,
+            forkPoint: { messageId: 'm3' }
+        })
+
+        const resolveCall = captured.find((c) => c[0] === 'resolveProviderMessageId')!
+        expect(resolveCall.slice(1)).toEqual(['src', 3, 'claude'])
+
+        const forkCall = captured.find((c) => c[0] === 'forkProvider')!
+        // Claude uses BOTH tailOffset (unused by provider but preserved for
+        // schema compat) and providerMessageId (the actual anchor).
+        expect(forkCall[2].payload.forkPoint).toEqual({
+            messageId: 'm3',
+            tailOffset: 0,
+            providerMessageId: 'asst-uuid-from-m2'
+        })
+
+        // Hub-DB copy is STRICTLY before target: seq=3 excluded.
+        const copyCall = captured.find((c) => c[0] === 'copy')!
+        expect(copyCall[3]).toEqual({ beforeSeq: 3 })
+    })
+
+    it('claude + forkPoint when target is first user turn: providerMessageId omitted, hub-DB copy empty', async () => {
+        const captured: any[] = []
+        const deps = makeDeps({
+            captured,
+            source: {
+                metadata: { flavor: 'claude', claudeSessionId: 'csrc' } as any
+            },
+            messages: [{ id: 'm1', seq: 1, role: 'user' }],
+            resolveProviderMessageIdImpl: () => undefined
+        })
+        await forkSession({
+            srcSessionId: 'src',
+            deps,
+            forkPoint: { messageId: 'm1' }
+        })
+
+        const forkCall = captured.find((c) => c[0] === 'forkProvider')!
+        // providerMessageId omitted → Claude fork provider falls back to
+        // HEAD-fork of the source, but hub-DB `beforeSeq: 1` empties the
+        // transcript view — matches "rewind to first turn = empty".
+        expect(forkCall[2].payload.forkPoint).toEqual({
+            messageId: 'm1',
+            tailOffset: 0
+        })
+        const copyCall = captured.find((c) => c[0] === 'copy')!
+        expect(copyCall[3]).toEqual({ beforeSeq: 1 })
+    })
+
+    it('rejects 400 without touching DB (no forkProvider / spawnSession / copyMessages / updateMetadata calls)', async () => {
+        const captured: any[] = []
+        const deps = codexDeps({ captured })
+        await expect(
+            forkSession({ srcSessionId: 'src', deps, forkPoint: { messageId: 'not-real' } })
+        ).rejects.toMatchObject({ status: 400 })
+        expect(captured.find((c) => c[0] === 'forkProvider')).toBeUndefined()
+        expect(captured.find((c) => c[0] === 'spawnSession')).toBeUndefined()
+        expect(captured.find((c) => c[0] === 'copy')).toBeUndefined()
+        expect(captured.find((c) => c[0] === 'updateMetadata')).toBeUndefined()
+    })
+
+    it('backward-compat: HEAD fork (no forkPoint) does not write forkedFromMessageId and does not pass forkPoint to provider or copy', async () => {
+        const captured: any[] = []
+        const deps = codexDeps({ captured })
+        await forkSession({ srcSessionId: 'src', deps })
+
+        const forkCall = captured.find((c) => c[0] === 'forkProvider')!
+        expect(forkCall[2].payload.forkPoint).toBeUndefined()
+
+        const copyCall = captured.find((c) => c[0] === 'copy')!
+        expect(copyCall[3]).toBeUndefined()
+
+        const updateCall = captured.find((c) => c[0] === 'updateMetadata')!
+        expect(updateCall[2].forkedFromMessageId).toBeUndefined()
     })
 })
