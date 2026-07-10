@@ -1,10 +1,17 @@
 import type { Hono } from 'hono'
+import { z } from 'zod'
 import { forkSession, HttpError, type ForkDeps } from './hubForkController'
 import { getAllForkCapabilities } from './forkCapabilities'
 
 export type ForkSyncEngineLike = ForkDeps
 
 type StatusCode = 200 | 400 | 404 | 409 | 500 | 502 | 503
+
+const ForkRequestBodySchema = z.object({
+    forkPoint: z.object({
+        messageId: z.string().min(1)
+    }).optional()
+})
 
 /**
  * Mount fork-related HTTP routes onto an existing Hono app. `getDeps` receives
@@ -28,28 +35,24 @@ export function mountForkRoutes(
         }
         const srcSessionId = c.req.param('id')
 
-        // Optional per-message forkPoint. Client sends only messageId; hub
-        // controller computes tailOffset. Body may be absent (HEAD fork) or
-        // shape-invalid — we treat unparseable/missing/empty body as HEAD.
+        // Empty body means the existing HEAD-fork operation. Any non-empty
+        // body is an explicit contract boundary: malformed JSON or an invalid
+        // forkPoint must fail instead of silently changing the requested
+        // operation into a HEAD fork.
+        const rawBody = await c.req.text()
         let forkPoint: { messageId: string } | undefined
-        try {
-            const body = (await c.req.json().catch(() => null)) as
-                | { forkPoint?: unknown }
-                | null
-            const raw = body?.forkPoint
-            if (raw && typeof raw === 'object') {
-                const messageId = (raw as { messageId?: unknown }).messageId
-                if (typeof messageId === 'string' && messageId.length > 0) {
-                    forkPoint = { messageId }
-                } else {
-                    return c.json(
-                        { error: 'forkPoint.messageId must be a non-empty string' },
-                        400 as StatusCode
-                    )
-                }
+        if (rawBody.trim().length > 0) {
+            let json: unknown
+            try {
+                json = JSON.parse(rawBody) as unknown
+            } catch {
+                return c.json({ error: 'request body must be valid JSON' }, 400 as StatusCode)
             }
-        } catch {
-            // ignore body parse errors — treat as HEAD fork
+            const parsed = ForkRequestBodySchema.safeParse(json)
+            if (!parsed.success) {
+                return c.json({ error: 'invalid fork request body', issues: parsed.error.issues }, 400 as StatusCode)
+            }
+            forkPoint = parsed.data.forkPoint
         }
 
         try {

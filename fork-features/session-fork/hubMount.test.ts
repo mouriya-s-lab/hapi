@@ -228,4 +228,19 @@ describe('mountForkRoutes', () => {
         })
         expect(res.status).toBe(400)
     })
+
+    it('POST malformed JSON → 400 instead of silently running a HEAD fork', async () => {
+        const forkReqs: unknown[] = []
+        const app = new Hono()
+        mountForkRoutes(app, () =>
+            makeDeps({ forkProviderSpy: (request) => forkReqs.push(request) })
+        )
+        const res = await app.request('/api/sessions/src/fork', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: 'not-json'
+        })
+        expect(res.status).toBe(400)
+        expect(forkReqs).toHaveLength(0)
+    })
 })
