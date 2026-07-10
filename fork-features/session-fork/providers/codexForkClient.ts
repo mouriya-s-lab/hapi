@@ -8,8 +8,8 @@ import type { CodexForkClient } from './codexFork'
  */
 export function createCodexForkClient(appServerClient: CodexAppServerClient): CodexForkClient {
     return {
-        async forkThread({ threadId }) {
-            const response = await appServerClient.forkThread({ threadId })
+        async forkThread({ threadId, numTurns }) {
+            const response = await appServerClient.forkThread({ threadId, numTurns })
             const newThreadId = response.thread?.id
             if (typeof newThreadId !== 'string' || newThreadId.length === 0) {
                 throw new Error('codex thread/fork: response missing thread.id')

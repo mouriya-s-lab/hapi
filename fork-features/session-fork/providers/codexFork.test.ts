@@ -101,4 +101,60 @@ describe('codexForkProvider (factory)', () => {
         } as any)).rejects.toThrow(/fork-boom/)
         expect(closed).toBe(true)
     })
+
+    it('forkPoint absent → forkThread called with numTurns undefined (HEAD fork)', async () => {
+        const forkCalls: Array<{ threadId: string; numTurns?: number }> = []
+        const client = makeClient({
+            async forkThread(args) {
+                forkCalls.push(args)
+                return { newThreadId: 'nt' }
+            }
+        })
+        const provider = createCodexForkProvider(() => client)
+        await provider.spawnFork({
+            sourceMetadata: { path: '/w', host: 'h', codexSessionId: 't1' },
+            sourceCwd: '/w'
+        } as any)
+        expect(forkCalls).toHaveLength(1)
+        expect(forkCalls[0].threadId).toBe('t1')
+        expect(forkCalls[0].numTurns).toBeUndefined()
+    })
+
+    it('forkPoint present → forkThread called with numTurns = tailOffset', async () => {
+        const forkCalls: Array<{ threadId: string; numTurns?: number }> = []
+        const client = makeClient({
+            async forkThread(args) {
+                forkCalls.push(args)
+                return { newThreadId: 'nt' }
+            }
+        })
+        const provider = createCodexForkProvider(() => client)
+        await provider.spawnFork({
+            sourceMetadata: { path: '/w', host: 'h', codexSessionId: 't1' },
+            sourceCwd: '/w',
+            forkPoint: { messageId: 'm-42', tailOffset: 3 }
+        } as any)
+        expect(forkCalls).toEqual([{ threadId: 't1', numTurns: 3 }])
+    })
+
+    it('resumeThread still uses newThreadId even with per-message fork', async () => {
+        const resumeCalls: string[] = []
+        const client = makeClient({
+            async forkThread() {
+                return { newThreadId: 'new-nt' }
+            },
+            async resumeThread({ threadId }) {
+                resumeCalls.push(threadId)
+                return undefined
+            }
+        })
+        const provider = createCodexForkProvider(() => client)
+        const result = await provider.spawnFork({
+            sourceMetadata: { path: '/w', host: 'h', codexSessionId: 'src' },
+            sourceCwd: '/w',
+            forkPoint: { messageId: 'm', tailOffset: 2 }
+        } as any)
+        expect(resumeCalls).toEqual(['new-nt'])
+        expect(result.metadataPatch.codexSessionId).toBe('new-nt')
+    })
 })
