@@ -7,6 +7,11 @@ export type ClaudeComposerModelOption = {
 
 const CLAUDE_SELECTABLE_MODELS: readonly string[] = [...CLAUDE_MODEL_PRESETS, ...CLAUDE_MODEL_IDS]
 
+export function isListedClaudeModel(model?: string | null): boolean {
+    const normalizedModel = normalizeClaudeComposerModel(model)
+    return normalizedModel !== null && CLAUDE_SELECTABLE_MODELS.includes(normalizedModel)
+}
+
 export function normalizeCustomClaudeModelId(value: string): string | null {
     const modelId = value.trim()
     return modelId || null
@@ -22,20 +27,9 @@ function normalizeClaudeComposerModel(model?: string | null): string | null {
 }
 
 export function getClaudeComposerModelOptions(currentModel?: string | null): ClaudeComposerModelOption[] {
-    const normalizedCurrentModel = normalizeClaudeComposerModel(currentModel)
     const options: ClaudeComposerModelOption[] = [
         { value: null, label: 'Default' }
     ]
-
-    if (
-        normalizedCurrentModel
-        && !CLAUDE_SELECTABLE_MODELS.includes(normalizedCurrentModel)
-    ) {
-        options.push({
-            value: normalizedCurrentModel,
-            label: getClaudeModelLabel(normalizedCurrentModel) ?? normalizedCurrentModel
-        })
-    }
 
     options.push(...CLAUDE_SELECTABLE_MODELS.map((model) => ({
         value: model,
