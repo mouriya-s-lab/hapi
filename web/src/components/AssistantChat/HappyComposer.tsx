@@ -169,6 +169,9 @@ export function HappyComposer(props: {
     onCollaborationModeChange?: (mode: CodexCollaborationMode) => void
     onPermissionModeChange?: (mode: PermissionMode) => void
     onModelChange?: (model: { provider: string; modelId: string } | string | null) => void
+    ccSwitchProviders?: Array<{ id: string; name: string; isCurrent: boolean }>
+    currentCcSwitchProviderId?: string | null
+    onCcSwitchProviderChange?: (providerId: string) => void
     onResumeWithSessionModelChange?: (enabled: boolean) => void
     /** Cursor: effort/variant wire id (separate from base model change). */
     onModelEffortChange?: (wireId: string | null) => void
@@ -235,6 +238,9 @@ export function HappyComposer(props: {
         onCollaborationModeChange,
         onPermissionModeChange,
         onModelChange,
+        ccSwitchProviders,
+        currentCcSwitchProviderId,
+        onCcSwitchProviderChange,
         onResumeWithSessionModelChange,
         onModelEffortChange,
         onModelReasoningEffortChange,
@@ -726,6 +732,13 @@ export function HappyComposer(props: {
         haptic('light')
     }, [onResumeWithSessionModelChange, controlsDisabled, haptic, resumeWithSessionModel])
 
+    const handleCcSwitchProviderChange = useCallback((providerId: string) => {
+        if (!onCcSwitchProviderChange || controlsDisabled) return
+        if (providerId !== currentCcSwitchProviderId) onCcSwitchProviderChange(providerId)
+        setShowSettings(false)
+        haptic('light')
+    }, [onCcSwitchProviderChange, currentCcSwitchProviderId, controlsDisabled, haptic])
+
     const handleModelEffortChange = useCallback((nextWireId: string | null) => {
         const handler = onModelEffortChange ?? onModelChange
         if (!handler || controlsDisabled) return
@@ -764,6 +777,7 @@ export function HappyComposer(props: {
 
     const showCollaborationSettings = Boolean(onCollaborationModeChange && collaborationModeOptions.length > 0)
     const showPermissionSettings = Boolean(onPermissionModeChange && permissionModeOptions.length > 0)
+    const showCcSwitchSettings = Boolean(onCcSwitchProviderChange && ccSwitchProviders?.length)
     const showModelSettings = Boolean(onModelChange && supportsModelChange(agentFlavor) && (piModels && piModels.length > 0 || modelOptions.length > 0))
     const showResumeModelSettings = Boolean(agentFlavor === 'claude' && onResumeWithSessionModelChange)
     const showModelEffortSettings = Boolean(
@@ -779,6 +793,7 @@ export function HappyComposer(props: {
     const showSettingsButton = Boolean(
         showCollaborationSettings
         || showPermissionSettings
+        || showCcSwitchSettings
         || showModelSettings
         || showResumeModelSettings
         || showModelEffortSettings
@@ -886,7 +901,7 @@ export function HappyComposer(props: {
         }
 
         // Non-Pi flavors: original unified gear menu
-        if (showSettings && (showCollaborationSettings || showPermissionSettings || showModelSettings || showResumeModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings || showFastModeSettings)) {
+        if (showSettings && (showCollaborationSettings || showPermissionSettings || showCcSwitchSettings || showModelSettings || showResumeModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings || showFastModeSettings)) {
             return (
                 <div className="absolute bottom-[100%] mb-2 w-full">
                     <FloatingOverlay maxHeight={320}>
@@ -968,7 +983,30 @@ export function HappyComposer(props: {
                             </div>
                         ) : null}
 
-                        {(showCollaborationSettings || showPermissionSettings) && (showModelSettings || showResumeModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings) ? (
+                        {(showCollaborationSettings || showPermissionSettings) && (showCcSwitchSettings || showModelSettings || showResumeModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings) ? (
+                            <div className="mx-3 h-px bg-[var(--app-divider)]" />
+                        ) : null}
+
+                        {showCcSwitchSettings ? (
+                            <div className="py-2">
+                                <div className="px-3 pb-1 text-xs font-semibold text-[var(--app-hint)]">{t('misc.provider')}</div>
+                                {ccSwitchProviders!.map((provider) => {
+                                    const selected = currentCcSwitchProviderId === provider.id
+                                    return (
+                                        <button key={provider.id} type="button" disabled={controlsDisabled}
+                                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--app-secondary-bg)] disabled:opacity-50"
+                                            onClick={() => handleCcSwitchProviderChange(provider.id)} onMouseDown={(event) => event.preventDefault()}>
+                                            <span className={`flex h-4 w-4 items-center justify-center rounded-full border-2 ${selected ? 'border-[var(--app-link)]' : 'border-[var(--app-hint)]'}`}>
+                                                {selected ? <span className="h-2 w-2 rounded-full bg-[var(--app-link)]" /> : null}
+                                            </span>
+                                            <span className={selected ? 'text-[var(--app-link)]' : ''}>{provider.name}</span>
+                                        </button>
+                                    )
+                                })}
+                            </div>
+                        ) : null}
+
+                        {showCcSwitchSettings && (showModelSettings || showResumeModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings) ? (
                             <div className="mx-3 h-px bg-[var(--app-divider)]" />
                         ) : null}
 

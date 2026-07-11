@@ -26,6 +26,36 @@ function createMachine(overrides?: Partial<Machine>): Machine {
 }
 
 describe('machines routes', () => {
+    it('forwards cc-switch list, switch, and usage while rejecting malformed switch bodies', async () => {
+        const machine = createMachine()
+        const switched: string[] = []
+        const engine = {
+            getMachine: () => machine,
+            getMachineByNamespace: () => machine,
+            listCcSwitchProvidersForMachine: async () => ({ success: true, available: true, providers: [] }),
+            switchCcSwitchProviderForMachine: async (_machineId: string, providerId: string) => {
+                switched.push(providerId)
+                return { success: true, currentProviderName: 'Provider' }
+            },
+            queryCcSwitchUsageForMachine: async () => ({ success: false, providerName: 'Provider', error: 'no usage script' })
+        } as Partial<SyncEngine>
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => { c.set('namespace', 'default'); await next() })
+        app.route('/api', createMachinesRoutes(() => engine as SyncEngine))
+
+        expect(await (await app.request('/api/machines/machine-1/cc-switch/providers')).json())
+            .toEqual({ success: true, available: true, providers: [] })
+        const switchedResponse = await app.request('/api/machines/machine-1/cc-switch/switch', {
+            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ providerId: 'provider-1' })
+        })
+        expect(await switchedResponse.json()).toEqual({ success: true, currentProviderName: 'Provider' })
+        expect(switched).toEqual(['provider-1'])
+        expect((await app.request('/api/machines/machine-1/cc-switch/switch', {
+            method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}'
+        })).status).toBe(400)
+        expect(await (await app.request('/api/machines/machine-1/cc-switch/usage')).json())
+            .toEqual({ success: false, providerName: 'Provider', error: 'no usage script' })
+    })
     it('forwards create-directory requests to the selected machine', async () => {
         const machine = createMachine()
         const calls: Array<{ machineId: string; parentPath: string; name: string }> = []

@@ -32,12 +32,15 @@ import type {
     FileReadResponse,
     FileWriteResponse,
     GitCommandResponse,
+    ListCcSwitchProvidersResponse,
     ListDirectoryResponse,
     MachineListDirectoryResponse,
     MachinePathsExistsResponse,
     OpencodeModelsResponse,
     OpencodeReasoningEffortResponse,
+    QueryCcSwitchUsageResponse,
     ReopenSessionResponse,
+    SwitchCcSwitchProviderResponse,
     UploadFileResponse
 } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor } from '@hapi/protocol'
@@ -672,6 +675,26 @@ export class ApiClient {
     async getMachineCodexModels(machineId: string): Promise<CodexModelsResponse> {
         return await this.request<CodexModelsResponse>(
             `/api/machines/${encodeURIComponent(machineId)}/codex-models`
+        )
+    }
+
+    async getMachineCcSwitchProviders(machineId: string): Promise<ListCcSwitchProvidersResponse> {
+        return await this.request<ListCcSwitchProvidersResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/cc-switch/providers`
+        )
+    }
+
+    async switchMachineCcSwitchProvider(machineId: string, providerId: string): Promise<SwitchCcSwitchProviderResponse> {
+        return await this.request<SwitchCcSwitchProviderResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/cc-switch/switch`,
+            { method: 'POST', body: JSON.stringify({ providerId }) }
+        )
+    }
+
+    async getMachineCcSwitchUsage(machineId: string, providerId?: string): Promise<QueryCcSwitchUsageResponse> {
+        const params = providerId ? `?providerId=${encodeURIComponent(providerId)}` : ''
+        return await this.request<QueryCcSwitchUsageResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/cc-switch/usage${params}`
         )
     }
 

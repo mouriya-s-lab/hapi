@@ -418,6 +418,46 @@ export type CursorModelsResponse = OpencodeModelsResponse
 
 export type ListCursorModelsResponse = CursorModelsResponse
 
+export type CcSwitchProviderSummary = {
+    id: string
+    name: string
+    category: string | null
+    websiteUrl: string | null
+    isCurrent: boolean
+    hasUsageScript: boolean
+}
+
+export type ListCcSwitchProvidersResponse = {
+    success: boolean
+    providers?: CcSwitchProviderSummary[]
+    available?: boolean
+    error?: string
+}
+
+export type SwitchCcSwitchProviderRequest = { providerId: string }
+
+export type SwitchCcSwitchProviderResponse = {
+    success: boolean
+    currentProviderName?: string
+    error?: string
+}
+
+export type CcSwitchUsageResult = {
+    planName: string | null
+    total: number | null
+    remaining: number | null
+    unit: string | null
+    isValid: boolean
+    invalidMessage: string | null
+}
+
+export type QueryCcSwitchUsageResponse = {
+    success: boolean
+    providerName?: string
+    usage?: CcSwitchUsageResult
+    error?: string
+}
+
 /** Maps thinking levels to provider-specific values. null = unsupported. */
 export type PiThinkingLevelMap = Partial<Record<string, string | null>>
 

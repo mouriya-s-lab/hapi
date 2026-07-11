@@ -8,7 +8,7 @@
  */
 
 import { isKnownFlavor, type LocalResumeTarget, type ResumableSession } from '@hapi/protocol'
-import type { CursorMigrateOutcome, CursorMigrateToAcpRequest, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
+import type { CursorMigrateOutcome, CursorMigrateToAcpRequest, ListCcSwitchProvidersResponse, QueryCcSwitchUsageResponse, SlashCommandsResponse, SwitchCcSwitchProviderResponse } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor, ClaudeLaunch, CodexCollaborationMode, DecryptedMessage, PermissionMode, Session, SyncEvent } from '@hapi/protocol/types'
 import { unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
 import type { Server } from 'socket.io'
@@ -1659,6 +1659,18 @@ export class SyncEngine {
 
     async listCursorModelsForMachine(machineId: string): Promise<RpcListCursorModelsResponse> {
         return await this.rpcGateway.listCursorModelsForMachine(machineId)
+    }
+
+    async listCcSwitchProvidersForMachine(machineId: string): Promise<ListCcSwitchProvidersResponse> {
+        return await this.rpcGateway.listCcSwitchProvidersForMachine(machineId)
+    }
+
+    async switchCcSwitchProviderForMachine(machineId: string, providerId: string): Promise<SwitchCcSwitchProviderResponse> {
+        return await this.rpcGateway.switchCcSwitchProviderForMachine(machineId, providerId)
+    }
+
+    async queryCcSwitchUsageForMachine(machineId: string, providerId?: string): Promise<QueryCcSwitchUsageResponse> {
+        return await this.rpcGateway.queryCcSwitchUsageForMachine(machineId, providerId)
     }
 
     async listOpencodeModelsForSession(sessionId: string): Promise<RpcListOpencodeModelsResponse> {

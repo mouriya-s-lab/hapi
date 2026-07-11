@@ -4,13 +4,15 @@ import type { ApiClient } from '@/api/client'
 import { isTelegramApp } from '@/hooks/useTelegram'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
 import { useFlavorCapabilities, getFlavorForkCapability } from '@/hooks/queries/useFlavorCapabilities'
+import { useCcSwitchProviders } from '@/hooks/queries/useCcSwitchProviders'
+import { useCcSwitchUsage } from '@/hooks/queries/useCcSwitchUsage'
 import { SessionActionMenu } from '@/components/SessionActionMenu'
 import { SessionExportDialog } from '@/components/SessionExportDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
 import { SessionIdDialog } from '@/components/SessionIdDialog'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { formatReopenError } from '@/lib/reopenError'
-import { getSessionModelLabel } from '@/lib/sessionModelLabel'
+import { formatCcSwitchSourceLabel, getSessionModelLabel } from '@/lib/sessionModelLabel'
 import { useTranslation } from '@/lib/use-translation'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 
@@ -114,6 +116,21 @@ export function SessionHeader(props: {
     const title = useMemo(() => getSessionTitle(session), [session])
     const worktreeBranch = session.metadata?.worktree?.branch
     const modelLabel = getSessionModelLabel(session)
+    const sessionMachineId = session.metadata?.machineId ?? null
+    const ccSwitchEnabled = session.metadata?.flavor === 'claude' && Boolean(sessionMachineId)
+    const ccSwitchProviders = useCcSwitchProviders({ api, machineId: sessionMachineId, enabled: ccSwitchEnabled })
+    const ccSwitchUsage = useCcSwitchUsage({
+        api,
+        machineId: sessionMachineId,
+        enabled: ccSwitchEnabled && ccSwitchProviders.available && Boolean(ccSwitchProviders.currentProviderId)
+    })
+    const ccSwitchSourceLabel = ccSwitchProviders.available
+        ? formatCcSwitchSourceLabel(
+            ccSwitchUsage.providerName ?? ccSwitchProviders.providers.find((provider) => provider.isCurrent)?.name,
+            ccSwitchUsage.usage,
+            t('session.item.remaining')
+        )
+        : null
 
     const [menuOpen, setMenuOpen] = useState(false)
     const [menuAnchorPoint, setMenuAnchorPoint] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
@@ -213,7 +230,9 @@ export function SessionHeader(props: {
                                 <AgentFlavorIcon flavor={session.metadata?.flavor} className="h-3.5 w-3.5 shrink-0" />
                                 {session.metadata?.flavor?.trim() || 'unknown'}
                             </span>
-                            {modelLabel ? (
+                            {ccSwitchSourceLabel ? (
+                                <span>{ccSwitchSourceLabel}</span>
+                            ) : modelLabel ? (
                                 <span>
                                     {t(modelLabel.key)}: {modelLabel.value}
                                 </span>
