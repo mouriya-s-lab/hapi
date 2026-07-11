@@ -12,6 +12,7 @@ import { getConversationMessageAnchorId } from '@/chat/outline'
 import { MessageMetadata } from '@/components/AssistantChat/messages/MessageMetadata'
 import { CodexReviewCard } from '@/components/AssistantChat/messages/CodexReviewCard'
 import { MessageTimestamp } from '@/components/AssistantChat/messages/MessageTimestamp'
+import { SpeakSummaryButton } from '@/components/AssistantChat/messages/SpeakSummaryButton'
 
 const TOOL_COMPONENTS = {
     Fallback: HappyToolMessage
@@ -134,6 +135,7 @@ export function HappyAssistantMessage() {
                     </div>
                     {copyText ? (
                         <div className="happy-message-actions-first-line hidden sm:flex shrink-0 opacity-0 group-hover/msg:opacity-100 transition-opacity">
+                            <SpeakSummaryButton messageId={messageId} text={copyText} />
                             <button
                                 type="button"
                                 title="Copy"
@@ -218,7 +220,8 @@ export function HappyAssistantMessage() {
                     )}
                 </div>
                 {copyText ? (
-                    <div className="happy-message-actions-first-line hidden sm:flex shrink-0 opacity-0 group-hover/msg:opacity-100 transition-opacity">
+                    <div className="happy-message-actions-first-line flex shrink-0 items-center gap-0.5 opacity-60 sm:opacity-0 sm:group-hover/msg:opacity-100 transition-opacity">
+                        <SpeakSummaryButton messageId={messageId} text={copyText} />
                         <button
                             type="button"
                             title="Copy"

@@ -500,6 +500,8 @@ export default {
   'composer.codexSlashUnsupported.body': 'HAPI remote mode does not yet run built-in Codex slash commands like {command}. Use natural language instead, or run it in the local Codex TUI.',
 
   // Voice assistant
+  'voice.readAloud': 'Read summary aloud',
+  'voice.readAloudStop': 'Stop reading',
   'voice.connecting': 'Connecting...',
   'voice.active': 'Active',
   'voice.muted': 'Muted',
