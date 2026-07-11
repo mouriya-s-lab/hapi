@@ -398,6 +398,10 @@ export class SyncEngine {
         return this.machineCache.getOrCreateMachine(id, metadata, runnerState, namespace, ownerAccountId)
     }
 
+    assignSessionOwner(sessionId: string, ownerAccountId: number): boolean {
+        return this.sessionCache.assignOwner(sessionId, ownerAccountId)
+    }
+
     async sendMessage(
         sessionId: string,
         payload: {

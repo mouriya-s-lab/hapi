@@ -175,6 +175,21 @@ export class SessionCache {
         }
     }
 
+    assignOwner(sessionId: string, ownerAccountId: number): boolean {
+        const stored = this.store.sessions.getSession(sessionId)
+        if (!stored) {
+            return false
+        }
+        if (stored.ownerAccountId === ownerAccountId) {
+            return true
+        }
+        if (!this.store.sessions.setSessionOwner(sessionId, ownerAccountId)) {
+            return false
+        }
+        this.refreshSession(sessionId)
+        return true
+    }
+
     handleSessionAlive(payload: {
         sid: string
         time: number
@@ -845,6 +860,30 @@ export class SessionCache {
         const newStored = this.store.sessions.getSessionByNamespace(newSessionId, namespace)
         if (!oldStored || !newStored) {
             throw new Error('Session not found for merge')
+        }
+
+        const preferredOwner = (oldStored.createdAt <= newStored.createdAt
+            ? oldStored.ownerAccountId
+            : newStored.ownerAccountId)
+            ?? oldStored.ownerAccountId
+            ?? newStored.ownerAccountId
+        if (preferredOwner !== null && newStored.ownerAccountId !== preferredOwner) {
+            this.store.sessions.setSessionOwner(newSessionId, preferredOwner)
+        }
+
+        for (const grant of this.store.grants.listForResource('session', oldSessionId)) {
+            if (grant.granteeAccountId !== preferredOwner
+                && !this.store.grants.get('session', newSessionId, grant.granteeAccountId)) {
+                this.store.grants.upsert({
+                    resourceType: 'session',
+                    resourceId: newSessionId,
+                    granteeAccountId: grant.granteeAccountId,
+                    role: grant.role
+                })
+            }
+            if (options.deleteOldSession) {
+                this.store.grants.remove('session', oldSessionId, grant.granteeAccountId)
+            }
         }
 
         const movedMessages = this.store.messages.mergeSessionMessages(oldSessionId, newSessionId)

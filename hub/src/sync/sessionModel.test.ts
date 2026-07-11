@@ -2933,3 +2933,107 @@ describe('session model', () => {
         })
     })
 })
+describe('session ownership', () => {
+    function makeAccounts(store: Store): { admin: number; peter: number } {
+        const admin = store.accounts.create({ username: 'admin', passwordHash: null, role: 'admin', defaultNamespace: 'default' })
+        const peter = store.accounts.create({ username: 'peter', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+        return { admin: admin.id, peter: peter.id }
+    }
+
+    it('assignOwner reassigns the stored owner and emits an update', () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+        const { admin, peter } = makeAccounts(store)
+
+        const session = cache.getOrCreateSession(
+            'owner-assign',
+            { path: '/tmp/project', host: 'localhost', flavor: 'claude' },
+            null,
+            'default',
+            undefined,
+            undefined,
+            undefined,
+            admin
+        )
+        events.length = 0
+
+        expect(cache.assignOwner(session.id, peter)).toBe(true)
+        expect(store.sessions.getSession(session.id)?.ownerAccountId).toBe(peter)
+        expect(events.some((e) => e.type === 'session-updated' && e.sessionId === session.id)).toBe(true)
+
+        // Idempotent when the owner already matches; missing sessions fail.
+        expect(cache.assignOwner(session.id, peter)).toBe(true)
+        expect(cache.assignOwner('missing', peter)).toBe(false)
+    })
+
+    it('merge keeps the original owner on the surviving session (resume path)', async () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+        const { admin, peter } = makeAccounts(store)
+
+        // Original conversation owned by peter; resume spawns a fresh row
+        // registered under the machine daemon's (admin's) token.
+        const original = cache.getOrCreateSession(
+            'owner-merge-old',
+            { path: '/tmp/project', host: 'localhost', flavor: 'claude' },
+            null,
+            'default',
+            undefined,
+            undefined,
+            undefined,
+            peter
+        )
+        const resumed = cache.getOrCreateSession(
+            'owner-merge-new',
+            { path: '/tmp/project', host: 'localhost', flavor: 'claude' },
+            null,
+            'default',
+            undefined,
+            undefined,
+            undefined,
+            admin
+        )
+
+        await cache.mergeSessions(original.id, resumed.id, 'default')
+
+        expect(store.sessions.getSession(resumed.id)?.ownerAccountId).toBe(peter)
+        expect(store.sessions.getSession(original.id)).toBeNull()
+    })
+
+    it('merge moves grants onto the surviving session', async () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+        const { admin, peter } = makeAccounts(store)
+        const viewer = store.accounts.create({ username: 'viewer', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+
+        const original = cache.getOrCreateSession(
+            'grant-merge-old',
+            { path: '/tmp/project', host: 'localhost', flavor: 'claude' },
+            null,
+            'default',
+            undefined,
+            undefined,
+            undefined,
+            peter
+        )
+        const resumed = cache.getOrCreateSession(
+            'grant-merge-new',
+            { path: '/tmp/project', host: 'localhost', flavor: 'claude' },
+            null,
+            'default',
+            undefined,
+            undefined,
+            undefined,
+            admin
+        )
+        store.grants.upsert({ resourceType: 'session', resourceId: original.id, granteeAccountId: viewer.id, role: 'viewer' })
+
+        await cache.mergeSessions(original.id, resumed.id, 'default')
+
+        expect(store.grants.get('session', resumed.id, viewer.id)?.role).toBe('viewer')
+        expect(store.grants.get('session', original.id, viewer.id)).toBeNull()
+    })
+})

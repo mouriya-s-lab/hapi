@@ -26,6 +26,36 @@ function createMachine(overrides?: Partial<Machine>): Machine {
 }
 
 describe('machines routes', () => {
+    it('assigns a successful remote spawn to the requesting account', async () => {
+        const machine = createMachine()
+        const assignments: Array<{ sessionId: string; accountId: number }> = []
+        const engine = {
+            getMachine: () => machine,
+            spawnSession: async () => ({ type: 'success' as const, sessionId: 'spawned-session' }),
+            assignSessionOwner: (sessionId: string, accountId: number) => {
+                assignments.push({ sessionId, accountId })
+                return true
+            }
+        } as Partial<SyncEngine>
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'default')
+            c.set('accountId', 42)
+            await next()
+        })
+        app.route('/api', createMachinesRoutes(() => engine as SyncEngine))
+
+        const response = await app.request('/api/machines/machine-1/spawn', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ directory: '/workspace' })
+        })
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ type: 'success', sessionId: 'spawned-session' })
+        expect(assignments).toEqual([{ sessionId: 'spawned-session', accountId: 42 }])
+    })
+
     it('forwards create-directory requests to the selected machine', async () => {
         const machine = createMachine()
         const calls: Array<{ machineId: string; parentPath: string; name: string }> = []

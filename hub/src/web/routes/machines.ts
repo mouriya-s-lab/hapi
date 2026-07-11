@@ -73,6 +73,9 @@ export function createMachinesRoutes(
             undefined,
             parsed.data.effort
         )
+        if (result.type === 'success') {
+            engine.assignSessionOwner(result.sessionId, c.get('accountId'))
+        }
         return c.json(result)
     })
 
