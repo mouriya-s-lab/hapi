@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
+import { stopSpeaking } from '@/realtime/messageSummarySpeaker'
 import { AssistantRuntimeProvider, useAssistantApi, useAssistantState } from '@assistant-ui/react'
 import { DragDropZone } from '@/components/AssistantChat/DragDropZone'
 import type { ApiClient } from '@/api/client'
@@ -411,6 +412,7 @@ function SessionChatInner(props: SessionChatProps) {
     const { t } = useTranslation()
     const navigate = useNavigate()
     const { addToast } = useToast()
+    useEffect(() => stopSpeaking, [])
     const sessionInactive = !props.session.active
     const inactiveCanResume = inactiveSessionCanResume(props.session, props.messages.length)
     const terminalSupported = isRemoteTerminalSupported(props.session.metadata)
