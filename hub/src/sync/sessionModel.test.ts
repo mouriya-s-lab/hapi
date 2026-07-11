@@ -97,6 +97,28 @@ describe('session model', () => {
         expect(merged?.model).toBe('gpt-5.4')
     })
 
+    it('preserves the session-scoped cc-switch provider when resume changes the HAPI id', async () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+        const oldSession = cache.getOrCreateSession(
+            'session-provider-old',
+            { path: '/tmp/project', host: 'localhost', flavor: 'claude', ccSwitchProviderId: 'provider-1' },
+            null,
+            'default'
+        )
+        const newSession = cache.getOrCreateSession(
+            'session-provider-new',
+            { path: '/tmp/project', host: 'localhost', flavor: 'claude' },
+            null,
+            'default'
+        )
+
+        await cache.mergeSessions(oldSession.id, newSession.id, 'default')
+
+        expect(cache.getSession(newSession.id)?.metadata?.ccSwitchProviderId).toBe('provider-1')
+    })
+
     it('preserves service tier from old session when merging into resumed session', async () => {
         const store = new Store(':memory:')
         const events: SyncEvent[] = []

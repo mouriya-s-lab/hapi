@@ -11,7 +11,7 @@ export function useCcSwitchProvider(args: {
     machineId: string | null
     sessionId: string | null
 }): {
-    switchProvider: (providerId: string) => Promise<void>
+    switchProvider: (providerId: string) => Promise<string>
     isPending: boolean
 } {
     const { api, machineId, sessionId } = args
@@ -23,7 +23,7 @@ export function useCcSwitchProvider(args: {
                 throw new Error('cc-switch target unavailable')
             }
             if (!sessionId) throw new Error('cc-switch requires an active session')
-            await api.restartSession(sessionId, providerId)
+            return await api.restartSession(sessionId, providerId)
         },
         onSuccess: async () => {
             if (machineId) {

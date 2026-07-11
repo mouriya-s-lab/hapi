@@ -20,7 +20,7 @@ describe('useCcSwitchProvider', () => {
         const api = {
             restartSession: vi.fn(async () => {
                 calls.push('restart')
-                return 'session-1'
+                return 'session-2'
             }),
         } as unknown as ApiClient
 
@@ -30,11 +30,13 @@ describe('useCcSwitchProvider', () => {
             sessionId: 'session-1',
         }), { wrapper: createWrapper() })
 
+        let restartedSessionId: string | undefined
         await act(async () => {
-            await result.current.switchProvider('provider-1')
+            restartedSessionId = await result.current.switchProvider('provider-1')
         })
 
         expect(calls).toEqual(['restart'])
         expect(api.restartSession).toHaveBeenCalledWith('session-1', 'provider-1')
+        expect(restartedSessionId).toBe('session-2')
     })
 })
