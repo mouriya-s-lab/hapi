@@ -424,7 +424,6 @@ export type CcSwitchProviderSummary = {
     category: string | null
     websiteUrl: string | null
     isCurrent: boolean
-    hasUsageScript: boolean
 }
 
 export type ListCcSwitchProvidersResponse = {

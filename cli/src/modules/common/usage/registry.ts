@@ -1,10 +1,8 @@
-import { CcSwitchUsageProvider } from './ccSwitchUsageProvider'
 import { OpenUsageProvider } from './openUsageProvider'
 import type { UsageProvider } from './types'
 
 const providers: readonly UsageProvider[] = [
-    new OpenUsageProvider(),
-    new CcSwitchUsageProvider()
+    new OpenUsageProvider()
 ]
 
 export function listUsageProviderAdapters(): readonly UsageProvider[] {
