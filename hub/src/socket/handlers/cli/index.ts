@@ -5,6 +5,7 @@ import type { SyncEvent } from '../../../sync/syncEngine'
 import type { TerminalRegistry } from '../../terminalRegistry'
 import type { CliSocketWithData, SocketServer } from '../../socketTypes'
 import type { AccessErrorReason, AccessResult } from './types'
+import { canOperate, resolveAccessLevel } from '../../../auth/access'
 import { registerMachineHandlers } from './machineHandlers'
 import { registerRpcHandlers } from './rpcHandlers'
 import { registerSessionHandlers } from './sessionHandlers'
@@ -57,15 +58,25 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
     const { io, store, rpcRegistry, terminalRegistry, onSessionAlive, onSessionReady, onSessionEnd, onMachineAlive, onWebappEvent, onBackgroundTaskDelta, onSessionActivity, onSweepImmediateQueued, onMessagesConsumed } = deps
     const terminalNamespace = io.of('/terminal')
     const namespace = typeof socket.data.namespace === 'string' ? socket.data.namespace : null
+    const accountId = socket.data.accountId
+    const role = socket.data.role
+
+    const hasOperatorAccess = (resourceType: 'session' | 'machine', resourceId: string, ownerAccountId: number | null): boolean => {
+        if (typeof accountId !== 'number' || !role) {
+            return false
+        }
+        return canOperate(resolveAccessLevel({ store, accountId, role, resourceType, resourceId, ownerAccountId }))
+    }
 
     const resolveSessionAccess = (sessionId: string): AccessResult<StoredSession> => {
         if (!namespace) {
             return { ok: false, reason: 'namespace-missing' }
         }
         const session = store.sessions.getSessionByNamespace(sessionId, namespace)
-        if (session) {
+        if (session && hasOperatorAccess('session', sessionId, session.ownerAccountId)) {
             return { ok: true, value: session }
         }
+        if (session) return { ok: false, reason: 'access-denied' }
         if (store.sessions.getSession(sessionId)) {
             return { ok: false, reason: 'access-denied' }
         }
@@ -77,9 +88,10 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
             return { ok: false, reason: 'namespace-missing' }
         }
         const machine = store.machines.getMachineByNamespace(machineId, namespace)
-        if (machine) {
+        if (machine && hasOperatorAccess('machine', machineId, machine.ownerAccountId)) {
             return { ok: true, value: machine }
         }
+        if (machine) return { ok: false, reason: 'access-denied' }
         if (store.machines.getMachine(machineId)) {
             return { ok: false, reason: 'access-denied' }
         }

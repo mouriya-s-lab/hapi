@@ -12,10 +12,13 @@ import { SOCKET_MAX_HTTP_BUFFER_SIZE } from './socketLimits'
 import type { SyncEvent } from '../sync/syncEngine'
 import { TerminalRegistry } from './terminalRegistry'
 import type { CliSocketWithData, SocketData, SocketServer } from './socketTypes'
+import { canOperate, resolveAccessLevel } from '../auth/access'
 
 const jwtPayloadSchema = z.object({
     uid: z.number(),
-    ns: z.string()
+    ns: z.string(),
+    aid: z.number(),
+    role: z.enum(['admin', 'user'])
 })
 
 const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60_000
@@ -146,6 +149,8 @@ export function createSocketServer(deps: SocketServerDeps): {
             }
             socket.data.userId = parsed.data.uid
             socket.data.namespace = parsed.data.ns
+            socket.data.accountId = parsed.data.aid
+            socket.data.role = parsed.data.role
             next()
             return
         } catch {
@@ -156,6 +161,20 @@ export function createSocketServer(deps: SocketServerDeps): {
         io,
         getSession: (sessionId) => {
             return deps.getSession?.(sessionId) ?? deps.store.sessions.getSession(sessionId)
+        },
+        canOperateSession: (sessionId) => {
+            const session = deps.store.sessions.getSession(sessionId)
+            const accountId = socket.data.accountId
+            const role = socket.data.role
+            if (!session || typeof accountId !== 'number' || !role) return false
+            return canOperate(resolveAccessLevel({
+                store: deps.store,
+                accountId,
+                role,
+                resourceType: 'session',
+                resourceId: sessionId,
+                ownerAccountId: session.ownerAccountId
+            }))
         },
         terminalRegistry,
         maxTerminalsPerSocket,

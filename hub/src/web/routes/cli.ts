@@ -130,6 +130,7 @@ export function createCliRoutes(getSyncEngine: () => SyncEngine | null, store: S
 
         const namespace = c.get('namespace')
         const accountId = c.get('accountId')
+        const role = c.get('role')
         const session = engine.getOrCreateSession(
             parsed.data.tag,
             parsed.data.metadata,
@@ -140,6 +141,10 @@ export function createCliRoutes(getSyncEngine: () => SyncEngine | null, store: S
             parsed.data.modelReasoningEffort,
             accountId
         )
+        const access = resolveSessionForAccount(engine, store, session.id, namespace, accountId, role, true)
+        if (!access.ok) {
+            return c.json({ error: access.error }, access.status)
+        }
         return c.json({ session })
     })
 

@@ -590,11 +590,11 @@ export class Store {
 
     private migrateFromV12ToV13(): void {
         const userColumns = this.getTableColumnNames('users')
-        if (!userColumns.has('account_id')) {
+        if (userColumns.size > 0 && !userColumns.has('account_id')) {
             this.db.exec('ALTER TABLE users ADD COLUMN account_id INTEGER')
         }
         const pushColumns = this.getTableColumnNames('push_subscriptions')
-        if (!pushColumns.has('account_id')) {
+        if (pushColumns.size > 0 && !pushColumns.has('account_id')) {
             this.db.exec('ALTER TABLE push_subscriptions ADD COLUMN account_id INTEGER')
         }
     }

@@ -69,6 +69,7 @@ type Harness = {
 
 function createHarness(options?: {
     sessionActive?: boolean
+    canOperateSession?: boolean
     maxTerminalsPerSocket?: number
     maxTerminalsPerSession?: number
 }): Harness {
@@ -81,6 +82,7 @@ function createHarness(options?: {
     registerTerminalHandlers(terminalSocket as unknown as SocketWithData, {
         io: io as unknown as SocketServer,
         getSession: () => ({ active: options?.sessionActive ?? true, namespace: 'default' }),
+        canOperateSession: () => options?.canOperateSession ?? true,
         terminalRegistry,
         maxTerminalsPerSocket: options?.maxTerminalsPerSocket ?? 4,
         maxTerminalsPerSession: options?.maxTerminalsPerSession ?? 4
@@ -103,6 +105,19 @@ function lastEmit(socket: FakeSocket, event: string): EmittedEvent | undefined {
 }
 
 describe('terminal socket handlers', () => {
+    it('rejects terminal creation without operator access', () => {
+        const { terminalSocket, terminalRegistry } = createHarness({ canOperateSession: false })
+
+        terminalSocket.trigger('terminal:create', {
+            sessionId: 'session-1', terminalId: 'terminal-1', cols: 80, rows: 24
+        })
+
+        expect(lastEmit(terminalSocket, 'terminal:error')?.data).toEqual({
+            terminalId: 'terminal-1', message: 'Session is inactive or unavailable.'
+        })
+        expect(terminalRegistry.get('terminal-1')).toBeNull()
+    })
+
     it('rejects terminal creation when session is inactive', () => {
         const { terminalSocket, terminalRegistry } = createHarness({ sessionActive: false })
 

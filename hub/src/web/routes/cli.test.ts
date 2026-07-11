@@ -65,6 +65,22 @@ beforeAll(async () => {
 })
 
 describe('cli resume routes', () => {
+    it('rejects loading an existing same-namespace session owned by another account', async () => {
+        const existing = store.sessions.getSession(ownerSessionId)
+        if (!existing) throw new Error('owner session missing')
+        const app = createApp({
+            getOrCreateSession: () => ({ ...existing, id: ownerSessionId })
+        } as never)
+
+        const response = await app.request('/cli/sessions', {
+            method: 'POST',
+            headers: { ...tokenHeaders(strangerToken), 'content-type': 'application/json' },
+            body: JSON.stringify({ tag: 'owner-session', metadata: {} })
+        })
+
+        expect(response.status).toBe(403)
+    })
+
     it('filters resumable sessions by account ownership and grants', async () => {
         const app = createApp({
             listLocalResumableSessions: () => [ownerSessionId, strangerSessionId].map((id) => ({

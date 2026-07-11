@@ -60,6 +60,25 @@ describe('Store V11→current migration: multi-user', () => {
         }
     })
 
+    it('V12 partial DB without channel tables migrates to the current schema', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'hapi-migration-v12-partial-'))
+        const dbPath = join(dir, 'test.db')
+        let store: Store | undefined
+        try {
+            const db = new Database(dbPath, { create: true, readwrite: true, strict: true })
+            createV11Schema(db)
+            db.exec('DROP TABLE users; DROP TABLE push_subscriptions; PRAGMA user_version = 0')
+            db.close()
+
+            store = new Store(dbPath)
+            expect(getColumns(store, 'users')).toContain('account_id')
+            expect(getColumns(store, 'push_subscriptions')).toContain('account_id')
+        } finally {
+            store?.close()
+            rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
     it('backfill assigns ownership to pre-existing rows', () => {
         const store = new Store(':memory:')
         try {
