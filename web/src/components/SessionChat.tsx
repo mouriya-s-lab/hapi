@@ -947,9 +947,15 @@ function SessionChatInner(props: SessionChatProps) {
     }, [setPermissionMode, props.onRefresh, haptic])
 
     const handleCcSwitchProviderChange = useCallback(async (providerId: string) => {
-        await switchCcSwitchProvider(providerId)
-        props.onRefresh()
-    }, [switchCcSwitchProvider, props.onRefresh])
+        try {
+            await switchCcSwitchProvider(providerId)
+            haptic.notification('success')
+            props.onRefresh()
+        } catch (e) {
+            haptic.notification('error')
+            console.error('Failed to switch cc-switch provider:', e)
+        }
+    }, [switchCcSwitchProvider, props.onRefresh, haptic])
 
     const handleCollaborationModeChange = useCallback(async (mode: CodexCollaborationMode) => {
         try {

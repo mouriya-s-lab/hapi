@@ -49,7 +49,7 @@ export class OpenUsageProvider implements UsageProvider {
     async inspect(): Promise<UsageProviderInspection> {
         try {
             const response = await fetch(`${OPENUSAGE_BASE_URL}/v1/usage/claude`)
-            return { id: this.id, name: this.name, available: response.status === 200 }
+            return { id: this.id, name: this.name, available: response.status === 200 || response.status === 204 }
         } catch {
             return { id: this.id, name: this.name, available: false }
         }
