@@ -66,6 +66,7 @@ import { useCcSwitchProviders } from '@/hooks/queries/useCcSwitchProviders'
 import { useCcSwitchProvider } from '@/hooks/mutations/useCcSwitchProvider'
 import { useVoiceOptional } from '@/lib/voice-context'
 import { VoiceBackendSession, registerSessionStore, registerVoiceHooksStore, voiceHooks } from '@/realtime'
+import { stopSpeaking } from '@/realtime/messageSummarySpeaker'
 import { isRemoteTerminalSupported } from '@/utils/terminalSupport'
 
 /**
@@ -414,6 +415,9 @@ function SessionChatInner(props: SessionChatProps) {
     const { t } = useTranslation()
     const navigate = useNavigate()
     const { addToast } = useToast()
+    // Leaving the session (back to the list, or switching sessions — Inner is
+    // keyed by session.id) must stop any in-progress read-aloud playback.
+    useEffect(() => () => stopSpeaking(), [])
     const sessionInactive = !props.session.active
     const inactiveCanResume = inactiveSessionCanResume(props.session, props.messages.length)
     const terminalSupported = isRemoteTerminalSupported(props.session.metadata)
