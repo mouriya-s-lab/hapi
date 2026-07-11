@@ -65,14 +65,14 @@ export function HappyAssistantMessage() {
         || (typeof turnCount === 'number' && turnCount >= 2)
 
     const rootClass = toolOnly
-        ? 'py-1 min-w-0 max-w-full overflow-x-hidden'
-        : 'px-1 min-w-0 max-w-full overflow-x-hidden'
+        ? 'py-1 min-w-0 max-w-full overflow-x-clip'
+        : 'px-1 min-w-0 max-w-full overflow-x-clip'
 
     if (isCliOutput) {
         return (
             <MessagePrimitive.Root
                 id={getConversationMessageAnchorId(messageId)}
-                className="scroll-mt-4 px-1 min-w-0 max-w-full overflow-x-hidden"
+                className="scroll-mt-4 px-1 min-w-0 max-w-full overflow-x-clip"
             >
                 <CliOutputBlock text={cliText} />
                 <div className="mt-1 flex items-center gap-2">
