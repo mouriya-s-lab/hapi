@@ -33,6 +33,7 @@ import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePic
 import { AttachmentItem } from '@/components/AssistantChat/AttachmentItem'
 import { useTranslation } from '@/lib/use-translation'
 import { getModelOptionsForFlavor, getNextModelForFlavor } from './modelOptions'
+import { isListedClaudeModel, normalizeCustomClaudeModelId } from './claudeModelOptions'
 import { getClaudeComposerEffortOptions } from './claudeEffortOptions'
 import { getCodexComposerReasoningEffortOptions } from './codexReasoningEffortOptions'
 import { getDisplayedCodexServiceTier } from './codexFastMode'
@@ -294,6 +295,7 @@ export function HappyComposer(props: {
         selection: { start: 0, end: 0 }
     })
     const [showSettings, setShowSettings] = useState(false)
+    const [customModelDraft, setCustomModelDraft] = useState('')
     const [showPiModelPanel, setShowPiModelPanel] = useState(false)
     const [showPiThinkingPanel, setShowPiThinkingPanel] = useState(false)
     const [isAborting, setIsAborting] = useState(false)
@@ -715,9 +717,42 @@ export function HappyComposer(props: {
     const handleModelChange = useCallback((nextModel: { provider: string; modelId: string } | string | null) => {
         if (!onModelChange || controlsDisabled) return
         onModelChange(nextModel)
+        if (
+            agentFlavor === 'claude'
+            && !active
+            && nextModel !== null
+            && !resumeWithSessionModel
+            && onResumeWithSessionModelChange
+        ) {
+            onResumeWithSessionModelChange(true)
+        }
         setShowSettings(false)
         haptic('light')
-    }, [onModelChange, controlsDisabled, haptic])
+    }, [
+        onModelChange,
+        controlsDisabled,
+        agentFlavor,
+        active,
+        resumeWithSessionModel,
+        onResumeWithSessionModelChange,
+        haptic
+    ])
+
+    useEffect(() => {
+        if (showSettings) {
+            setCustomModelDraft(
+                agentFlavor === 'claude' && model && !isListedClaudeModel(model)
+                    ? model
+                    : ''
+            )
+        }
+    }, [showSettings, agentFlavor, model])
+
+    const handleCustomModelSubmit = useCallback(() => {
+        const modelId = normalizeCustomClaudeModelId(customModelDraft)
+        if (!modelId) return
+        handleModelChange(modelId)
+    }, [customModelDraft, handleModelChange])
 
     const handleResumeWithSessionModelChange = useCallback(() => {
         if (!onResumeWithSessionModelChange || controlsDisabled) return
@@ -765,6 +800,7 @@ export function HappyComposer(props: {
     const showCollaborationSettings = Boolean(onCollaborationModeChange && collaborationModeOptions.length > 0)
     const showPermissionSettings = Boolean(onPermissionModeChange && permissionModeOptions.length > 0)
     const showModelSettings = Boolean(onModelChange && supportsModelChange(agentFlavor) && (piModels && piModels.length > 0 || modelOptions.length > 0))
+    const showCustomModelInput = showModelSettings && agentFlavor === 'claude'
     const showResumeModelSettings = Boolean(agentFlavor === 'claude' && onResumeWithSessionModelChange)
     const showModelEffortSettings = Boolean(
         (onModelEffortChange ?? onModelChange)
@@ -1050,6 +1086,47 @@ export function HappyComposer(props: {
                                         )
                                     })
                                 )}
+                                {showCustomModelInput ? (
+                                    <div className="flex items-center gap-2 px-3 py-2">
+                                        <button
+                                            type="button"
+                                            role="radio"
+                                            aria-checked={Boolean(model && !isListedClaudeModel(model))}
+                                            aria-label={t('composer.customModel')}
+                                            disabled={controlsDisabled}
+                                            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${
+                                                model && !isListedClaudeModel(model)
+                                                    ? 'border-[var(--app-link)]'
+                                                    : 'border-[var(--app-hint)]'
+                                            }`}
+                                            onClick={handleCustomModelSubmit}
+                                            onMouseDown={(event) => event.preventDefault()}
+                                        >
+                                            {model && !isListedClaudeModel(model) ? (
+                                                <div className="h-2 w-2 rounded-full bg-[var(--app-link)]" />
+                                            ) : null}
+                                        </button>
+                                        <input
+                                            type="text"
+                                            value={customModelDraft}
+                                            disabled={controlsDisabled}
+                                            spellCheck={false}
+                                            autoCapitalize="off"
+                                            autoCorrect="off"
+                                            aria-label={t('composer.customModel')}
+                                            placeholder={t('composer.customModelPlaceholder')}
+                                            data-testid="custom-model-input"
+                                            className="min-w-0 flex-1 rounded-md border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-2 py-1.5 text-sm text-[var(--app-fg)] outline-none placeholder:text-[var(--app-hint)] focus:border-[var(--app-link)]"
+                                            onChange={(event) => setCustomModelDraft(event.target.value)}
+                                            onKeyDown={(event) => {
+                                                if (event.key === 'Enter') {
+                                                    event.preventDefault()
+                                                    handleCustomModelSubmit()
+                                                }
+                                            }}
+                                        />
+                                    </div>
+                                ) : null}
                             </div>
                         ) : null}
 
@@ -1261,6 +1338,8 @@ export function HappyComposer(props: {
         showCollaborationSettings,
         showPermissionSettings,
         showModelSettings,
+        showCustomModelInput,
+        customModelDraft,
         showResumeModelSettings,
         showModelEffortSettings,
         modelEffortOptions,
@@ -1288,6 +1367,7 @@ export function HappyComposer(props: {
         handleCollaborationChange,
         handlePermissionChange,
         handleModelChange,
+        handleCustomModelSubmit,
         handleResumeWithSessionModelChange,
         handleModelReasoningEffortChange,
         handleEffortChange,

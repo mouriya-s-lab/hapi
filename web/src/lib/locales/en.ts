@@ -450,6 +450,8 @@ export default {
 
   // Composer buttons
   'composer.settings': 'Settings',
+  'composer.customModel': 'Custom model ID…',
+  'composer.customModelPlaceholder': 'e.g. claude-opus-4-7, press Enter',
   'composer.terminal': 'Terminal',
   'composer.abort': 'Abort',
   'composer.switchRemote': 'Switch to remote mode',
