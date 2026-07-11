@@ -5,7 +5,6 @@ import { memo, useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent
 import { isObject, safeStringify } from '@hapi/protocol'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { CodeBlock } from '@/components/CodeBlock'
-import { CollapsibleContent } from '@/components/CollapsibleContent'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { PermissionFooter } from '@/components/ToolCard/PermissionFooter'
@@ -124,12 +123,7 @@ function renderToolInput(block: ToolCallBlock, surface: 'inline' | 'dialog' = 'i
     const input = block.tool.input
 
     if (isSubagentToolName(toolName) && isObject(input) && typeof input.prompt === 'string') {
-        if (!collapseLongContent) return <MarkdownRenderer content={input.prompt} />
-        return (
-            <CollapsibleContent text={input.prompt} surfaceVar="--app-tool-card-bg">
-                <MarkdownRenderer content={input.prompt} />
-            </CollapsibleContent>
-        )
+        return <MarkdownRenderer content={input.prompt} />
     }
 
     const commandArray = isObject(input) && Array.isArray(input.command) ? input.command : null
