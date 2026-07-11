@@ -33,6 +33,7 @@ import type {
     CursorModelsResponse,
     DeleteUploadResponse,
     FileReadResponse,
+    FileWriteResponse,
     GitCommandResponse,
     ImportableSessionSummary,
     ImportSessionsResult,
@@ -407,9 +408,11 @@ export class ApiClient {
         if (authToken) {
             headers.set('authorization', `Bearer ${authToken}`)
         }
-        const res = await fetch(this.buildUrl(`/api/sessions/${encodeURIComponent(sessionId)}/generated-images/${encodeURIComponent(imageId)}`), {
-            headers
-        })
+        const url = this.buildUrl(`/api/sessions/${encodeURIComponent(sessionId)}/generated-images/${encodeURIComponent(imageId)}`)
+        let res = await fetch(url, { headers })
+        if (res.status === 304) {
+            res = await fetch(url, { headers, cache: 'force-cache' })
+        }
         if (res.status === 401 && attempt === 0 && this.onUnauthorized) {
             const refreshed = await this.onUnauthorized()
             if (refreshed) {
@@ -452,6 +455,13 @@ export class ApiClient {
         const params = new URLSearchParams()
         params.set('path', path)
         return await this.request<FileReadResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/file?${params.toString()}`)
+    }
+
+    async writeSessionFile(sessionId: string, path: string, content: string, expectedHash: string): Promise<FileWriteResponse> {
+        return await this.request<FileWriteResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/file`, {
+            method: 'PUT',
+            body: JSON.stringify({ path, content, expectedHash })
+        })
     }
 
     async listSessionDirectory(sessionId: string, path?: string): Promise<ListDirectoryResponse> {
@@ -538,16 +548,34 @@ export class ApiClient {
      * Session fork (fork-features/session-fork). Returns the new hapi session
      * id for the forked copy.
      */
-    async forkSession(sessionId: string): Promise<{ newSessionId: string }> {
+    /**
+     * Fork a session. Absent `forkPoint` = HEAD fork (session-level menu
+     * entry). With `forkPoint.messageId` = per-message fork (UserMessage
+     * trailing-row rewind button, capability-gated to at-message flavors).
+     * Hub computes `tailOffset` from the source session's messages table;
+     * clients don't send it.
+     */
+    async forkSession(
+        sessionId: string,
+        opts?: { forkPoint?: { messageId: string } }
+    ): Promise<{ newSessionId: string }> {
+        const body: Record<string, unknown> = {}
+        if (opts?.forkPoint) body.forkPoint = opts.forkPoint
         return await this.request<{ newSessionId: string }>(
             `/api/sessions/${encodeURIComponent(sessionId)}/fork`,
-            { method: 'POST', body: JSON.stringify({}) }
+            { method: 'POST', body: JSON.stringify(body) }
         )
     }
 
-    /** Lists flavors that support fork. Used to capability-gate the Fork menu item. */
-    async getFlavorCapabilities(): Promise<{ fork: string[] }> {
-        return await this.request<{ fork: string[] }>('/api/flavors/capabilities')
+    /**
+     * Returns per-flavor fork capability shape (see
+     * `useFlavorCapabilities`). Web uses it to capability-gate the
+     * session-level Fork menu and the per-message rewind button.
+     */
+    async getFlavorCapabilities(): Promise<{
+        capabilities: Record<string, { fork: 'none' | 'head-only' | 'at-message'; files: 'none' }>
+    }> {
+        return await this.request('/api/flavors/capabilities')
     }
 
     /**
@@ -699,6 +727,20 @@ export class ApiClient {
             {
                 method: 'POST',
                 body: JSON.stringify({ path })
+            }
+        )
+    }
+
+    async createMachineDirectory(
+        machineId: string,
+        parentPath: string,
+        name: string
+    ): Promise<import('@hapi/protocol/apiTypes').MachineCreateDirectoryResponse> {
+        return await this.request(
+            `/api/machines/${encodeURIComponent(machineId)}/create-directory`,
+            {
+                method: 'POST',
+                body: JSON.stringify({ parentPath, name })
             }
         )
     }

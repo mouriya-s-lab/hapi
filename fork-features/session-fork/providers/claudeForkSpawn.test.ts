@@ -36,4 +36,38 @@ describe('buildClaudeForkCliArgs', () => {
         })
         expect(args.indexOf('--model')).toBe(-1)
     })
+
+    it('appends --resume-session-at <uuid> when providerMessageId is set', () => {
+        const args = buildClaudeForkCliArgs({
+            sourceSessionId: 'src',
+            cwd: '/t',
+            providerMessageId: '1c2445d0-d4aa-4507-915b-2667fbd32144'
+        })
+        const idx = args.indexOf('--resume-session-at')
+        expect(idx).toBeGreaterThanOrEqual(0)
+        expect(args[idx + 1]).toBe('1c2445d0-d4aa-4507-915b-2667fbd32144')
+    })
+
+    it('omits --resume-session-at when providerMessageId is absent (HEAD fork)', () => {
+        const args = buildClaudeForkCliArgs({
+            sourceSessionId: 'src',
+            cwd: '/t'
+        })
+        expect(args.indexOf('--resume-session-at')).toBe(-1)
+    })
+
+    it('combines --model + --resume-session-at (order-independent)', () => {
+        const args = buildClaudeForkCliArgs({
+            sourceSessionId: 'src',
+            cwd: '/t',
+            model: 'claude-opus-4-8',
+            providerMessageId: 'asst-uuid'
+        })
+        const modelIdx = args.indexOf('--model')
+        const resumeAtIdx = args.indexOf('--resume-session-at')
+        expect(modelIdx).toBeGreaterThanOrEqual(0)
+        expect(resumeAtIdx).toBeGreaterThanOrEqual(0)
+        expect(args[modelIdx + 1]).toBe('claude-opus-4-8')
+        expect(args[resumeAtIdx + 1]).toBe('asst-uuid')
+    })
 })

@@ -515,8 +515,11 @@ function SessionChatInner(props: SessionChatProps) {
     const codexCollaborationModeSupported = agentFlavor === 'codex' && !controlledByUser
     const codexModelsState = useCodexModels({
         api: props.api,
-        sessionId: props.session.id,
-        enabled: agentFlavor === 'codex' && props.session.active && !controlledByUser
+        machineId: props.session.metadata?.machineId,
+        enabled: agentFlavor === 'codex'
+            && props.session.active
+            && !controlledByUser
+            && Boolean(props.session.metadata?.machineId)
     })
     const codexModelOptions = useMemo(() => {
         if (agentFlavor !== 'codex') {

@@ -6,6 +6,7 @@
  */
 
 import { trimIdent } from '@/utils/trimIdent';
+import { DISPLAY_IMAGE_PROMPT_CODEX, DISPLAY_VIDEO_PROMPT_CODEX, SEND_FILE_PROMPT_CODEX } from '@/modules/common/displayImagePrompt';
 
 /**
  * Title instruction for Codex to call the hapi MCP tool.
@@ -18,8 +19,9 @@ export const TITLE_INSTRUCTION = trimIdent(`
     If that exact tool name is unavailable, call an equivalent alias such as hapi__change_title, mcp__hapi__change_title, or hapi_change_title.
     Do not rename the chat for routine progress, substeps, implementation details, or a slightly better wording.
     Rename only when the user's primary objective changes substantially and the existing title would be misleading.
-    When you create or find a local image file that the user should see, call functions.hapi__display_image with the image path. If that exact tool name is unavailable, use an equivalent alias such as hapi__display_image, mcp__hapi__display_image, or hapi_display_image.
-    When you produce a deliverable file the user asked for (a report, document, archive, spreadsheet, etc.), call functions.hapi__send_file with the file path so HAPI can share it in the chat for the user to download. If that exact tool name is unavailable, use an equivalent alias such as hapi__send_file, mcp__hapi__send_file, or hapi_send_file.
+    ${DISPLAY_IMAGE_PROMPT_CODEX}
+    ${DISPLAY_VIDEO_PROMPT_CODEX}
+    ${SEND_FILE_PROMPT_CODEX}
 `);
 
 /**

@@ -268,6 +268,13 @@ export const MachineListDirectoryRequestSchema = z.object({
 
 export type MachineListDirectoryRequest = z.infer<typeof MachineListDirectoryRequestSchema>
 
+export const MachineCreateDirectoryRequestSchema = z.object({
+    parentPath: z.string().min(1),
+    name: z.string().min(1)
+})
+
+export type MachineCreateDirectoryRequest = z.infer<typeof MachineCreateDirectoryRequestSchema>
+
 export const MachinePathsExistsRequestSchema = z.object({
     paths: z.array(z.string().min(1)).max(1000)
 })
@@ -377,6 +384,13 @@ export type GitCommandResponse = CommandResponse
 export type FileReadResponse = {
     success: boolean
     content?: string
+    hash?: string
+    error?: string
+}
+
+export type FileWriteResponse = {
+    success: boolean
+    hash?: string
     error?: string
 }
 
@@ -430,6 +444,12 @@ export type MachineDirectoryEntry = DirectoryEntry & {
 export type MachineListDirectoryResponse = {
     success: boolean
     entries?: MachineDirectoryEntry[]
+    error?: string
+}
+
+export type MachineCreateDirectoryResponse = {
+    success: boolean
+    path?: string
     error?: string
 }
 

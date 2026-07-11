@@ -3,7 +3,7 @@ import type { Session } from '@/types/api'
 import type { ApiClient } from '@/api/client'
 import { isTelegramApp } from '@/hooks/useTelegram'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
-import { useFlavorCapabilities } from '@/hooks/queries/useFlavorCapabilities'
+import { useFlavorCapabilities, getFlavorForkCapability } from '@/hooks/queries/useFlavorCapabilities'
 import { SessionActionMenu } from '@/components/SessionActionMenu'
 import { SessionExportDialog } from '@/components/SessionExportDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
@@ -160,7 +160,8 @@ export function SessionHeader(props: {
     const { data: capabilities } = useFlavorCapabilities(api)
     const sessionFlavor = session.metadata?.flavor ?? null
     const forkSupported =
-        Boolean(sessionFlavor) && (capabilities?.fork?.includes(sessionFlavor as string) ?? false)
+        Boolean(sessionFlavor) &&
+        getFlavorForkCapability(capabilities, sessionFlavor).fork !== 'none'
     const [reopenError, setReopenError] = useState<string | null>(null)
     const [forkError, setForkError] = useState<string | null>(null)
 

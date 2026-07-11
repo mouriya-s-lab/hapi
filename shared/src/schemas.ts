@@ -81,7 +81,8 @@ export const MetadataSchema = z.object({
     // share a modelId.
     piSelectedModel: z.object({ provider: z.string(), modelId: z.string() }).nullable().optional(),
     forkedFrom: z.string().optional(),
-    forkedAt: z.number().optional()
+    forkedAt: z.number().optional(),
+    forkedFromMessageId: z.string().optional()
 })
 
 export type Metadata = z.infer<typeof MetadataSchema>

@@ -28,8 +28,10 @@ function fakeStore() {
             },
             messages: {
                 getAllMessages: (_id: string) => [
-                    { content: { hello: 1 }, createdAt: 100, invokedAt: 110, scheduledAt: null },
-                    { content: { hello: 2 }, createdAt: 200, invokedAt: 220, scheduledAt: null }
+                    { id: 'a', seq: 1, content: { role: 'user', hello: 1 }, createdAt: 100, invokedAt: 110, scheduledAt: null },
+                    { id: 'b', seq: 2, content: { role: 'agent', hello: 2 }, createdAt: 200, invokedAt: 220, scheduledAt: null },
+                    { id: 'c', seq: 3, content: { role: 'user', hello: 3 }, createdAt: 300, invokedAt: 330, scheduledAt: null },
+                    { id: 'd', seq: 4, content: { role: 'agent', hello: 4 }, createdAt: 400, invokedAt: 440, scheduledAt: null }
                 ],
                 copyMessageToSession: (dstId: string, payload: any) => {
                     messageCopies.push({ dstId, payload })
@@ -105,6 +107,22 @@ describe('buildForkDeps', () => {
         await expect(deps.forkProvider('mac-1', { flavor: 'x', payload: {} })).rejects.toThrow(/providerSessionId/)
     })
 
+    it('forkProvider rejects malformed deferred Claude launch metadata', async () => {
+        const { store } = fakeStore()
+        const syncEngine = {
+            async forkProviderSession() {
+                return {
+                    providerSessionId: 'new-prov',
+                    metadataPatch: { claudeSessionId: 'new-prov' },
+                    claudeLaunch: { type: 'resume-at', sourceSessionId: 'src' }
+                }
+            }
+        }
+        const deps = buildForkDeps({ store, syncEngine: syncEngine as any, namespace: 'default' })
+        await expect(deps.forkProvider('mac-1', { flavor: 'claude', payload: {} }))
+            .rejects.toThrow(/providerMessageId/)
+    })
+
     it('spawnSession positional args to SyncEngine.spawnSession', async () => {
         const { store } = fakeStore()
         const calls: any[] = []
@@ -136,10 +154,197 @@ describe('buildForkDeps', () => {
         const fake = fakeStore()
         const deps = buildForkDeps({ store: fake.store, syncEngine: {} as any, namespace: 'default' })
         const res = deps.copyMessages('src', 'dst')
-        expect(res.copied).toBe(2)
-        expect(fake.captures.messageCopies.length).toBe(2)
+        expect(res.copied).toBe(4)
+        expect(fake.captures.messageCopies.length).toBe(4)
         expect(fake.captures.messageCopies[0].dstId).toBe('dst')
-        expect(fake.captures.messageCopies[0].payload.content).toEqual({ hello: 1 })
+        expect(fake.captures.messageCopies[0].payload.content).toEqual({ role: 'user', hello: 1 })
+    })
+
+    it('copyMessages with beforeSeq restricts to messages seq < beforeSeq (STRICT — target excluded)', () => {
+        const fake = fakeStore()
+        const deps = buildForkDeps({ store: fake.store, syncEngine: {} as any, namespace: 'default' })
+        const res = deps.copyMessages('src', 'dst', { beforeSeq: 3 })
+        // seq 1 and 2 copied; seq 3 (the target) excluded.
+        expect(res.copied).toBe(2)
+        expect(fake.captures.messageCopies.map((c) => c.payload.content.hello)).toEqual([1, 2])
+    })
+
+    it('copyMessages with beforeSeq=1 copies nothing (rewind to first turn)', () => {
+        const fake = fakeStore()
+        const deps = buildForkDeps({ store: fake.store, syncEngine: {} as any, namespace: 'default' })
+        const res = deps.copyMessages('src', 'dst', { beforeSeq: 1 })
+        expect(res.copied).toBe(0)
+        expect(fake.captures.messageCopies).toEqual([])
+    })
+
+    it('resolveProviderMessageId (claude) returns last assistant uuid strictly before targetSeq', () => {
+        const store = {
+            sessions: { getSession: () => null },
+            messages: {
+                getAllMessages: () => [
+                    { id: 'h1', seq: 1, content: { role: 'user', content: { type: 'text', text: 'hi' } } },
+                    { id: 'h2', seq: 2, content: { role: 'agent', content: { type: 'event', data: { type: 'ready' } } } },
+                    {
+                        id: 'h3',
+                        seq: 3,
+                        content: {
+                            role: 'agent',
+                            content: {
+                                type: 'output',
+                                data: { type: 'assistant', uuid: 'display-a', providerMessageId: 'asst-uuid-a', sessionId: 'src' }
+                            }
+                        }
+                    },
+                    {
+                        id: 'h4',
+                        seq: 4,
+                        content: {
+                            role: 'agent',
+                            content: {
+                                type: 'output',
+                                data: { type: 'assistant', uuid: 'display-b', providerMessageId: 'asst-uuid-b', sessionId: 'src' }
+                            }
+                        }
+                    },
+                    { id: 'h5', seq: 5, content: { role: 'user', content: { type: 'text', text: 'rewind here' } } },
+                    {
+                        id: 'h6',
+                        seq: 6,
+                        content: {
+                            role: 'agent',
+                            content: {
+                                type: 'output',
+                                data: { type: 'assistant', uuid: 'display-after', providerMessageId: 'asst-uuid-after', sessionId: 'src' }
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+        const deps = buildForkDeps({ store: store as any, syncEngine: {} as any, namespace: 'default' })
+        // Target user message is at seq=5. Last assistant before it = seq=4 (asst-uuid-b).
+        expect(deps.resolveProviderMessageId('src', 5, 'claude')).toEqual({
+            type: 'message-uuid',
+            messageUuid: 'asst-uuid-b'
+        })
+    })
+
+    it('resolveProviderMessageId returns undefined when target is the first user turn', () => {
+        const store = {
+            sessions: { getSession: () => null },
+            messages: {
+                getAllMessages: () => [
+                    { id: 'h1', seq: 1, content: { role: 'user', content: { type: 'text', text: 'first ever' } } }
+                ]
+            }
+        }
+        const deps = buildForkDeps({ store: store as any, syncEngine: {} as any, namespace: 'default' })
+        expect(deps.resolveProviderMessageId('src', 1, 'claude')).toBeUndefined()
+    })
+
+    it('falls back to the stable assistant API message id for legacy Claude rows', () => {
+        const { store } = fakeStore()
+        ;(store.messages as any).getAllMessages = () => [{
+            id: 'agent',
+            seq: 2,
+            content: {
+                role: 'agent',
+                content: {
+                    type: 'output',
+                    data: { type: 'assistant', uuid: 'display-only', message: { id: 'msg_legacy' } }
+                }
+            }
+        }]
+        const deps = buildForkDeps({ store, syncEngine: {} as any, namespace: 'default' })
+        expect(deps.resolveProviderMessageId('src', 3, 'claude')).toEqual({
+            type: 'assistant-api-message-id',
+            assistantMessageId: 'msg_legacy'
+        })
+    })
+
+    it('resolveProviderMessageId returns undefined for non-claude flavors', () => {
+        const store = {
+            sessions: { getSession: () => null },
+            messages: {
+                getAllMessages: () => [
+                    {
+                        id: 'h1',
+                        seq: 1,
+                        content: {
+                            role: 'agent',
+                            content: {
+                                type: 'output',
+                                data: { type: 'assistant', uuid: 'asst-x' }
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+        const deps = buildForkDeps({ store: store as any, syncEngine: {} as any, namespace: 'default' })
+        expect(deps.resolveProviderMessageId('src', 5, 'codex')).toBeUndefined()
+        expect(deps.resolveProviderMessageId('src', 5, 'omp')).toBeUndefined()
+        expect(deps.resolveProviderMessageId('src', 5, 'opencode')).toBeUndefined()
+    })
+
+    it('resolveProviderMessageId (claude) skips non-assistant agent lines (ready events, tool_result carriers)', () => {
+        const store = {
+            sessions: { getSession: () => null },
+            messages: {
+                getAllMessages: () => [
+                    {
+                        id: 'h1',
+                        seq: 1,
+                        content: {
+                            role: 'agent',
+                            content: { id: 'evt-1', type: 'event', data: { type: 'ready' } }
+                        }
+                    },
+                    {
+                        id: 'h2',
+                        seq: 2,
+                        content: {
+                            role: 'agent',
+                            content: {
+                                type: 'output',
+                                data: { type: 'user', uuid: 'nope-uuid' }
+                            }
+                        }
+                    },
+                    { id: 'h3', seq: 3, content: { role: 'user', content: { type: 'text' } } }
+                ]
+            }
+        }
+        const deps = buildForkDeps({ store: store as any, syncEngine: {} as any, namespace: 'default' })
+        expect(deps.resolveProviderMessageId('src', 3, 'claude')).toBeUndefined()
+    })
+
+    it('listMessages returns id/seq/role tuples ordered by seq', () => {
+        const fake = fakeStore()
+        const deps = buildForkDeps({ store: fake.store, syncEngine: {} as any, namespace: 'default' })
+        const msgs = deps.listMessages('src')
+        expect(msgs).toEqual([
+            { id: 'a', seq: 1, role: 'user' },
+            { id: 'b', seq: 2, role: 'agent' },
+            { id: 'c', seq: 3, role: 'user' },
+            { id: 'd', seq: 4, role: 'agent' }
+        ])
+    })
+
+    it('listMessages returns role=unknown when content lacks role field', () => {
+        const store = {
+            sessions: { getSession: () => null },
+            messages: {
+                getAllMessages: () => [
+                    { id: 'x', seq: 1, content: null },
+                    { id: 'y', seq: 2, content: { type: 'raw' } },
+                    { id: 'z', seq: 3, content: { role: 42 } as any }
+                ],
+                copyMessageToSession: () => ({ id: 'ok' })
+            }
+        }
+        const deps = buildForkDeps({ store: store as any, syncEngine: {} as any, namespace: 'default' })
+        expect(deps.listMessages('any').every((m) => m.role === 'unknown')).toBe(true)
     })
 
     it('updateMetadata passes current metadataVersion + namespace', () => {

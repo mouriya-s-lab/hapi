@@ -26,7 +26,7 @@ export function useSessionActions(
     setServiceTier: (serviceTier: string | null) => Promise<void>
     renameSession: (name: string) => Promise<void>
     deleteSession: () => Promise<void>
-    forkSession: () => Promise<{ newSessionId: string }>
+    forkSession: (opts?: { forkPoint?: { messageId: string } }) => Promise<{ newSessionId: string }>
     isPending: boolean
 } {
     const queryClient = useQueryClient()
@@ -207,10 +207,18 @@ export function useSessionActions(
         },
     })
 
-    const forkMutation = useMutation<{ newSessionId: string }, Error, void>({
-        mutationFn: async () => {
+    const forkMutation = useMutation<
+        { newSessionId: string },
+        Error,
+        { forkPoint?: { messageId: string } } | void
+    >({
+        mutationFn: async (args) => {
             if (!api || !sessionId) {
                 throw new Error('Session unavailable')
+            }
+            const forkPoint = args && 'forkPoint' in args ? args.forkPoint : undefined
+            if (forkPoint) {
+                return await api.forkSession(sessionId, { forkPoint })
             }
             return await api.forkSession(sessionId)
         },

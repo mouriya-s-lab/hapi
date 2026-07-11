@@ -26,6 +26,35 @@ function createMachine(overrides?: Partial<Machine>): Machine {
 }
 
 describe('machines routes', () => {
+    it('forwards create-directory requests to the selected machine', async () => {
+        const machine = createMachine()
+        const calls: Array<{ machineId: string; parentPath: string; name: string }> = []
+        const engine = {
+            getMachine: () => machine,
+            getMachineByNamespace: () => machine,
+            createMachineDirectory: async (machineId: string, parentPath: string, name: string) => {
+                calls.push({ machineId, parentPath, name })
+                return { success: true, path: `${parentPath}/${name}` }
+            }
+        } as Partial<SyncEngine>
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'default')
+            await next()
+        })
+        app.route('/api', createMachinesRoutes(() => engine as SyncEngine))
+
+        const response = await app.request('/api/machines/machine-1/create-directory', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ parentPath: '/workspace', name: 'new-project' })
+        })
+
+        expect(response.status).toBe(200)
+        expect(calls).toEqual([{ machineId: 'machine-1', parentPath: '/workspace', name: 'new-project' }])
+        expect(await response.json()).toEqual({ success: true, path: '/workspace/new-project' })
+    })
+
     it('returns Codex models for an online machine', async () => {
         const machine = createMachine()
         const engine = {

@@ -39,6 +39,16 @@ export type HappyChatMessageMetadata = {
     model?: string | null
     review?: CodexReview
     /**
+     * Raw hub-DB message id (unprefixed) for user-text blocks. The
+     * assistant-ui `message.id` is the composed threadMessageId
+     * `${kind}:${block.id}` (see `assignThreadMessageIdsWithStableWrappers`),
+     * which cannot be used against hub's `/api/sessions/:id/fork`
+     * because that endpoint matches on the raw hub messageId. Callers
+     * that need to talk to hub about a specific stored message (rewind
+     * / fork-at-message) MUST read this field, not `message.id`.
+     */
+    hubMessageId?: string
+    /**
      * Distinct turn count when this block carries an aggregated response
      * group footer. Single-turn blocks omit this field so the existing
      * per-message footer is rendered unchanged.
@@ -332,7 +342,8 @@ function toThreadMessageLike(block: VisibleChatBlock, threadMessageId: string): 
                     localId: block.localId,
                     originalText: block.originalText,
                     attachments: block.attachments,
-                    invokedAt: block.invokedAt
+                    invokedAt: block.invokedAt,
+                    hubMessageId: block.id
                 } satisfies HappyChatMessageMetadata
             }
         }

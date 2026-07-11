@@ -1,19 +1,21 @@
 /**
- * OpenCode-specific system prompt for change_title tool.
+ * OpenCode-specific system prompt for hapi MCP tools (change_title, display_image, display_video).
  *
  * OpenCode exposes MCP tools with the naming pattern: <server-name>_<tool-name>
- * The hapi MCP server exposes `change_title`, so it's called as `hapi_change_title`.
+ * The hapi MCP server exposes `change_title`, `display_image`, and `display_video`.
  */
 
 import { trimIdent } from '@/utils/trimIdent';
+import { DISPLAY_IMAGE_PROMPT_HAPI_MCP, DISPLAY_VIDEO_PROMPT_HAPI_MCP, SEND_FILE_PROMPT_HAPI_MCP } from '@/modules/common/displayImagePrompt';
 
 /**
- * Title instruction for OpenCode to call the hapi MCP tool.
+ * Title and display_image instructions for OpenCode to call the hapi MCP tools.
  */
 export const TITLE_INSTRUCTION = trimIdent(`
     Use the title tool sparingly. For a new chat, call the tool "hapi_change_title" once after the user's initial request is clear, and set a concise task title. Do not rename the chat for routine progress, substeps, implementation details, or a slightly better wording. Rename only when the user's primary objective changes substantially and the existing title would be misleading.
-    When you create or find a local image file that the user should see, call the tool "hapi_display_image" with the image path so HAPI can show it inline.
-    When you produce a deliverable file the user asked for (a report, document, archive, spreadsheet, etc.), call the tool "hapi_send_file" with the file path so HAPI can share it in the chat for the user to download.
+    ${DISPLAY_IMAGE_PROMPT_HAPI_MCP}
+    ${DISPLAY_VIDEO_PROMPT_HAPI_MCP}
+    ${SEND_FILE_PROMPT_HAPI_MCP}
 `);
 
 /**

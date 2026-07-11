@@ -1,4 +1,4 @@
-import type { AgentFlavor, CodexCollaborationMode, PermissionMode } from '@hapi/protocol/types'
+import type { AgentFlavor, ClaudeLaunch, CodexCollaborationMode, PermissionMode } from '@hapi/protocol/types'
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import type {
     CodexModelSummary,
@@ -6,9 +6,11 @@ import type {
     CommandResponse,
     CursorModelSummary,
     CursorModelsResponse,
+    MachineCreateDirectoryResponse,
     DeleteUploadResponse,
     DirectoryEntry,
     FileReadResponse,
+    FileWriteResponse,
     GeneratedFileResponse,
     GeneratedImageResponse,
     ListCcSwitchProvidersResponse,
@@ -56,6 +58,7 @@ export class RpcTargetMissingError extends Error {
 
 export type RpcCommandResponse = CommandResponse
 export type RpcReadFileResponse = FileReadResponse
+export type RpcWriteFileResponse = FileWriteResponse
 export type RpcGeneratedImageResponse = GeneratedImageResponse
 export type RpcGeneratedFileResponse = GeneratedFileResponse
 export type RpcUploadFileResponse = UploadFileResponse
@@ -149,13 +152,14 @@ export class RpcGateway {
         resumeSessionId?: string,
         effort?: string,
         permissionMode?: PermissionMode,
-        serviceTier?: string
+        serviceTier?: string,
+        claudeLaunch?: ClaudeLaunch
     ): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }> {
         try {
             const result = await this.machineRpc(
                 machineId,
                 RPC_METHODS.SpawnHappySession,
-                { type: 'spawn-in-directory', directory, agent, model, modelReasoningEffort, yolo, sessionType, worktreeName, resumeSessionId, effort, permissionMode, serviceTier }
+                { type: 'spawn-in-directory', directory, agent, model, modelReasoningEffort, yolo, sessionType, worktreeName, resumeSessionId, effort, permissionMode, serviceTier, claudeLaunch }
             )
             if (result && typeof result === 'object') {
                 const obj = result as Record<string, unknown>
@@ -211,6 +215,18 @@ export class RpcGateway {
         return result as RpcListDirectoryResponse
     }
 
+    async createMachineDirectory(machineId: string, parentPath: string, name: string): Promise<MachineCreateDirectoryResponse> {
+        const result = await this.machineRpc(
+            machineId,
+            RPC_METHODS.CreateMachineDirectory,
+            { parentPath, name }
+        ) as MachineCreateDirectoryResponse | unknown
+        if (!result || typeof result !== 'object') {
+            return { success: false, error: 'Unexpected create-directory result' }
+        }
+        return result as MachineCreateDirectoryResponse
+    }
+
     async checkPathsExist(machineId: string, paths: string[]): Promise<Record<string, boolean>> {
         const result = await this.machineRpc(machineId, RPC_METHODS.PathExists, { paths }) as RpcPathExistsResponse | unknown
         if (!result || typeof result !== 'object') {
@@ -243,6 +259,10 @@ export class RpcGateway {
 
     async readSessionFile(sessionId: string, path: string): Promise<RpcReadFileResponse> {
         return await this.sessionRpc(sessionId, RPC_METHODS.ReadFile, { path }) as RpcReadFileResponse
+    }
+
+    async writeSessionFile(sessionId: string, path: string, content: string, expectedHash: string): Promise<RpcWriteFileResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.WriteFile, { path, content, expectedHash }) as RpcWriteFileResponse
     }
 
     async readGeneratedImage(sessionId: string, imageId: string): Promise<RpcGeneratedImageResponse> {
@@ -283,10 +303,6 @@ export class RpcGateway {
             skills?: Array<{ name: string; description?: string }>
             error?: string
         }
-    }
-
-    async listCodexModelsForSession(sessionId: string): Promise<RpcListCodexModelsResponse> {
-        return await this.sessionRpc(sessionId, RPC_METHODS.ListCodexModels, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListCodexModelsResponse
     }
 
     async listCodexModelsForMachine(machineId: string): Promise<RpcListCodexModelsResponse> {

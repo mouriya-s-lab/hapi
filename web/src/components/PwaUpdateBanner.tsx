@@ -53,7 +53,9 @@ export function PwaUpdateBanner({ topClassName }: { topClassName?: string } = {}
         return null
     }
 
-    const topClass = topClassName ?? (isOnline ? 'top-2' : 'top-10')
+    const topClass = topClassName ?? (isOnline
+        ? 'top-[calc(env(safe-area-inset-top)+0.5rem)]'
+        : 'top-[calc(env(safe-area-inset-top)+2.5rem)]')
     const hiddenCount = changes ? Math.max(0, changes.length - MAX_VISIBLE_CHANGES) : 0
 
     return (
@@ -129,6 +131,10 @@ export function PwaUpdateBannerWithStatusOffset({
         Boolean(voice && voice.status === 'error' && voice.errorMessage)
 
     return (
-        <PwaUpdateBanner topClassName={hasTopStatusBanner ? 'top-12' : undefined} />
+        <PwaUpdateBanner
+            topClassName={hasTopStatusBanner
+                ? 'top-[calc(env(safe-area-inset-top)+3rem)]'
+                : undefined}
+        />
     )
 }

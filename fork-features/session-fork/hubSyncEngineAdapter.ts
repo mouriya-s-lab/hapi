@@ -1,4 +1,58 @@
-import type { ForkDeps, ForkSourceSession, ForkSpawnResultLike } from './hubForkController'
+import type { ForkDeps, ForkMessage, ForkSourceSession, ForkSpawnResultLike } from './hubForkController'
+import { ForkSpawnResultSchema } from './rpcPayloads'
+
+/**
+ * Read `role` out of a `StoredMessage.content` JSON blob. hapi's message
+ * content is `unknown` at the type layer, but conventionally `{role, content}`
+ * (see hub/src/sync/messageService*.ts, hub/src/web/routes/*.ts). Anything
+ * that doesn't fit falls through to 'unknown' so callers don't mistake
+ * missing-role for user-role.
+ */
+function extractRole(content: unknown): string {
+    if (content !== null && typeof content === 'object' && 'role' in content) {
+        const role = (content as { role?: unknown }).role
+        return typeof role === 'string' ? role : 'unknown'
+    }
+    return 'unknown'
+}
+
+/**
+ * Extract the Claude native jsonl uuid from a `role: 'agent'` hub message
+ * that wraps a Claude stream-json `type: 'output'` line, iff the wrapped
+ * line is an `assistant` message. Hub stores the raw jsonl line at
+ * `content.data`. Returns undefined for `agent` events that aren't
+ * assistant output (ready events, tool_use lines nested inside data,
+ * etc.) or for non-agent role messages.
+ *
+ * Used by `resolveProviderMessageId` to find the fork anchor to pass to
+ * `claude --resume-session-at <uuid>`.
+ */
+function extractClaudeAssistantUuid(content: unknown): string | undefined {
+    if (content === null || typeof content !== 'object') return undefined
+    const role = (content as { role?: unknown }).role
+    if (role !== 'agent') return undefined
+    const cc = (content as { content?: unknown }).content
+    if (cc === null || typeof cc !== 'object') return undefined
+    if ((cc as { type?: unknown }).type !== 'output') return undefined
+    const data = (cc as { data?: unknown }).data
+    if (data === null || typeof data !== 'object') return undefined
+    if ((data as { type?: unknown }).type !== 'assistant') return undefined
+    const providerMessageId = (data as { providerMessageId?: unknown }).providerMessageId
+    return typeof providerMessageId === 'string' && providerMessageId.length > 0 ? providerMessageId : undefined
+}
+
+function extractClaudeAssistantApiMessageId(content: unknown): string | undefined {
+    if (content === null || typeof content !== 'object') return undefined
+    if ((content as { role?: unknown }).role !== 'agent') return undefined
+    const cc = (content as { content?: unknown }).content
+    if (cc === null || typeof cc !== 'object' || (cc as { type?: unknown }).type !== 'output') return undefined
+    const data = (cc as { data?: unknown }).data
+    if (data === null || typeof data !== 'object' || (data as { type?: unknown }).type !== 'assistant') return undefined
+    const message = (data as { message?: unknown }).message
+    if (message === null || typeof message !== 'object') return undefined
+    const id = (message as { id?: unknown }).id
+    return typeof id === 'string' && id.length > 0 ? id : undefined
+}
 
 /**
  * Adapts hub's Store + SyncEngine into the ForkDeps shape that forkController
@@ -46,17 +100,7 @@ export function buildForkDeps(args: {
 
         async forkProvider(machineId, request): Promise<ForkSpawnResultLike> {
             const raw = await syncEngine.forkProviderSession(machineId, request)
-            if (!raw || typeof raw !== 'object') {
-                throw new Error('fork provider RPC returned non-object response')
-            }
-            const obj = raw as Record<string, unknown>
-            if (typeof obj.providerSessionId !== 'string' || obj.providerSessionId.length === 0) {
-                throw new Error('fork provider RPC response missing providerSessionId')
-            }
-            const metadataPatch = (typeof obj.metadataPatch === 'object' && obj.metadataPatch !== null)
-                ? (obj.metadataPatch as Record<string, any>)
-                : {}
-            return { providerSessionId: obj.providerSessionId, metadataPatch }
+            return ForkSpawnResultSchema.parse(raw)
         },
 
         async spawnSession(opts) {
@@ -76,13 +120,26 @@ export function buildForkDeps(args: {
                 opts.resumeSessionId,
                 undefined,
                 opts.permissionMode,
-                undefined
+                undefined,
+                opts.claudeLaunch
             )
         },
 
-        copyMessages(srcId, dstId) {
+        listMessages(sessionId: string): ForkMessage[] {
+            const msgs = store.messages.getAllMessages(sessionId)
+            return msgs.map((m: any) => ({
+                id: m.id,
+                seq: m.seq,
+                role: extractRole(m.content)
+            }))
+        },
+
+        copyMessages(srcId, dstId, opts) {
             const msgs = store.messages.getAllMessages(srcId)
-            for (const m of msgs) {
+            const beforeSeq = opts?.beforeSeq
+            const selected =
+                beforeSeq !== undefined ? msgs.filter((m: any) => m.seq < beforeSeq) : msgs
+            for (const m of selected) {
                 store.messages.copyMessageToSession(dstId, {
                     content: m.content,
                     createdAt: m.createdAt,
@@ -91,7 +148,31 @@ export function buildForkDeps(args: {
                     scheduledAt: m.scheduledAt ?? null
                 })
             }
-            return { copied: msgs.length }
+            return { copied: selected.length }
+        },
+
+        resolveProviderMessageId(sessionId, targetSeq, flavor) {
+            // Only Claude uses an id-based fork anchor today. Other flavors
+            // are either count-based (Codex → tailOffset) or have no fork
+            // primitive. Return undefined for them so controller omits the
+            // field entirely.
+            if (flavor !== 'claude') return undefined
+            const msgs = store.messages.getAllMessages(sessionId)
+            // Walk backward from the message immediately before target.
+            for (let i = msgs.length - 1; i >= 0; i--) {
+                const m = msgs[i]
+                if (typeof m?.seq !== 'number' || m.seq >= targetSeq) continue
+                const uuid = extractClaudeAssistantUuid(m.content)
+                if (uuid !== undefined) return { type: 'message-uuid', messageUuid: uuid }
+                const assistantMessageId = extractClaudeAssistantApiMessageId(m.content)
+                if (assistantMessageId !== undefined) {
+                    return { type: 'assistant-api-message-id', assistantMessageId }
+                }
+            }
+            // No preceding provider anchor. The controller rejects this before
+            // any provider RPC so the provider cannot silently turn an
+            // at-message rewind into a HEAD fork.
+            return undefined
         },
 
         updateMetadata(sessionId, patch) {

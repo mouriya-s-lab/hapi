@@ -9,7 +9,7 @@
 
 import { isKnownFlavor, type LocalResumeTarget, type ResumableSession } from '@hapi/protocol'
 import type { CursorMigrateOutcome, CursorMigrateToAcpRequest, SlashCommandsResponse, ListCcSwitchProvidersResponse, SwitchCcSwitchProviderResponse, QueryCcSwitchUsageResponse, ListImportableSessionsResponse, ReadImportableSessionRequest, ReadImportableSessionResponse } from '@hapi/protocol/apiTypes'
-import type { AgentFlavor, CodexCollaborationMode, DecryptedMessage, PermissionMode, Session, SyncEvent } from '@hapi/protocol/types'
+import type { AgentFlavor, ClaudeLaunch, CodexCollaborationMode, DecryptedMessage, PermissionMode, Session, SyncEvent } from '@hapi/protocol/types'
 import { unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
 import type { Server } from 'socket.io'
 import type { Store, CancelQueuedMessageResult } from '../store'
@@ -38,6 +38,7 @@ import {
     type RpcOpencodeModel,
     type RpcPathExistsResponse,
     type RpcReadFileResponse,
+    type RpcWriteFileResponse,
     type RpcUploadFileResponse
 } from './rpcGateway'
 import { SessionCache } from './sessionCache'
@@ -791,7 +792,8 @@ export class SyncEngine {
         resumeSessionId?: string,
         effort?: string,
         permissionMode?: PermissionMode,
-        serviceTier?: string
+        serviceTier?: string,
+        claudeLaunch?: ClaudeLaunch
     ): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }> {
         return await this.rpcGateway.spawnSession(
             machineId,
@@ -805,7 +807,8 @@ export class SyncEngine {
             resumeSessionId,
             effort,
             permissionMode,
-            serviceTier
+            serviceTier,
+            claudeLaunch
         )
     }
 
@@ -1621,6 +1624,10 @@ export class SyncEngine {
         return await this.rpcGateway.listMachineDirectory(machineId, path)
     }
 
+    async createMachineDirectory(machineId: string, parentPath: string, name: string) {
+        return await this.rpcGateway.createMachineDirectory(machineId, parentPath, name)
+    }
+
     async getGitStatus(sessionId: string, cwd?: string): Promise<RpcCommandResponse> {
         return await this.rpcGateway.getGitStatus(sessionId, cwd)
     }
@@ -1635,6 +1642,10 @@ export class SyncEngine {
 
     async readSessionFile(sessionId: string, path: string): Promise<RpcReadFileResponse> {
         return await this.rpcGateway.readSessionFile(sessionId, path)
+    }
+
+    async writeSessionFile(sessionId: string, path: string, content: string, expectedHash: string): Promise<RpcWriteFileResponse> {
+        return await this.rpcGateway.writeSessionFile(sessionId, path, content, expectedHash)
     }
 
     async readGeneratedImage(sessionId: string, imageId: string): Promise<RpcGeneratedImageResponse> {
@@ -1671,10 +1682,6 @@ export class SyncEngine {
         error?: string
     }> {
         return await this.rpcGateway.listSkills(sessionId, flavor)
-    }
-
-    async listCodexModelsForSession(sessionId: string): Promise<RpcListCodexModelsResponse> {
-        return await this.rpcGateway.listCodexModelsForSession(sessionId)
     }
 
     async listCodexModelsForMachine(machineId: string): Promise<RpcListCodexModelsResponse> {
