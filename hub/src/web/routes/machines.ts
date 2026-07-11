@@ -5,14 +5,9 @@ import {
     SpawnSessionRequestSchema
 } from '@hapi/protocol'
 import { Hono } from 'hono'
-import { z } from 'zod'
 import type { SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import { requireMachine } from './guards'
-
-const SwitchCcSwitchProviderBodySchema = z.object({
-    providerId: z.string().trim().min(1)
-}).strict()
 
 export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
@@ -231,21 +226,6 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json(await engine.listCcSwitchProvidersForMachine(machineId))
         } catch (error) {
             return c.json({ success: false, error: error instanceof Error ? error.message : 'Failed to list cc-switch providers' }, 500)
-        }
-    })
-
-    app.post('/machines/:id/cc-switch/switch', async (c) => {
-        const engine = getSyncEngine()
-        if (!engine) return c.json({ success: false, error: 'Not connected' }, 503)
-        const machineId = c.req.param('id')
-        const machine = requireMachine(c, engine, machineId)
-        if (machine instanceof Response) return machine
-        const parsed = SwitchCcSwitchProviderBodySchema.safeParse(await c.req.json().catch(() => null))
-        if (!parsed.success) return c.json({ success: false, error: 'Invalid request body' }, 400)
-        try {
-            return c.json(await engine.switchCcSwitchProviderForMachine(machineId, parsed.data.providerId))
-        } catch (error) {
-            return c.json({ success: false, error: error instanceof Error ? error.message : 'Failed to switch cc-switch provider' }, 500)
         }
     })
 

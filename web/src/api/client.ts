@@ -39,7 +39,6 @@ import type {
     OpencodeModelsResponse,
     OpencodeReasoningEffortResponse,
     ReopenSessionResponse,
-    SwitchCcSwitchProviderResponse,
     UploadFileResponse
 } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor } from '@hapi/protocol'
@@ -399,10 +398,10 @@ export class ApiClient {
         return response.sessionId
     }
 
-    async restartSession(sessionId: string): Promise<string> {
+    async restartSession(sessionId: string, ccSwitchProviderId?: string): Promise<string> {
         const response = await this.request<{ sessionId: string }>(
             `/api/sessions/${encodeURIComponent(sessionId)}/restart`,
-            { method: 'POST', body: JSON.stringify({}) }
+            { method: 'POST', body: JSON.stringify({ ccSwitchProviderId }) }
         )
         return response.sessionId
     }
@@ -688,13 +687,6 @@ export class ApiClient {
     async getMachineCcSwitchProviders(machineId: string): Promise<ListCcSwitchProvidersResponse> {
         return await this.request<ListCcSwitchProvidersResponse>(
             `/api/machines/${encodeURIComponent(machineId)}/cc-switch/providers`
-        )
-    }
-
-    async switchMachineCcSwitchProvider(machineId: string, providerId: string): Promise<SwitchCcSwitchProviderResponse> {
-        return await this.request<SwitchCcSwitchProviderResponse>(
-            `/api/machines/${encodeURIComponent(machineId)}/cc-switch/switch`,
-            { method: 'POST', body: JSON.stringify({ providerId }) }
         )
     }
 

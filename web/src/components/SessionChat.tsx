@@ -1337,7 +1337,7 @@ function SessionChatInner(props: SessionChatProps) {
                         ccSwitchProviders={agentFlavor === 'claude' && ccSwitchProvidersState.available
                             ? ccSwitchProvidersState.providers
                             : undefined}
-                        currentCcSwitchProviderId={ccSwitchProvidersState.currentProviderId}
+                        currentCcSwitchProviderId={props.session.metadata?.ccSwitchProviderId ?? ccSwitchProvidersState.currentProviderId}
                         onCcSwitchProviderChange={agentFlavor === 'claude' && ccSwitchProvidersState.available && props.session.active && !controlledByUser
                             ? (providerId) => { void handleCcSwitchProviderChange(providerId) }
                             : undefined}

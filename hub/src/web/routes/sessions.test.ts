@@ -1099,20 +1099,24 @@ describe('sessions routes', () => {
     })
 
     it('restarts an active session through the ordered engine operation', async () => {
-        const calls: Array<[string, string]> = []
+        const calls: Array<[string, string, string | undefined]> = []
         const session = createSession({ active: true })
         const { app } = createApp(session, {
-            restartSession: async (sessionId, namespace) => {
-                calls.push([sessionId, namespace])
+            restartSession: async (sessionId, namespace, ccSwitchProviderId) => {
+                calls.push([sessionId, namespace, ccSwitchProviderId])
                 return { type: 'success', sessionId }
             }
         })
 
-        const response = await app.request('/api/sessions/session-1/restart', { method: 'POST' })
+        const response = await app.request('/api/sessions/session-1/restart', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ ccSwitchProviderId: 'provider-1' })
+        })
 
         expect(response.status).toBe(200)
         expect(await response.json()).toEqual({ type: 'success', sessionId: 'session-1' })
-        expect(calls).toEqual([['session-1', 'default']])
+        expect(calls).toEqual([['session-1', 'default', 'provider-1']])
     })
 
     it('merges RPC and metadata slash commands without hiding built-ins', async () => {

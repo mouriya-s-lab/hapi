@@ -221,7 +221,11 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
         if (sessionResult instanceof Response) return sessionResult
 
-        const result = await engine.restartSession(sessionResult.sessionId, c.get('namespace'))
+        const body = await c.req.json().catch(() => ({})) as { ccSwitchProviderId?: unknown }
+        if (body.ccSwitchProviderId !== undefined && typeof body.ccSwitchProviderId !== 'string') {
+            return c.json({ error: 'Invalid ccSwitchProviderId' }, 400)
+        }
+        const result = await engine.restartSession(sessionResult.sessionId, c.get('namespace'), body.ccSwitchProviderId)
         if (result.type === 'error') {
             const status = result.code === 'no_machine_online' ? 503
                 : result.code === 'access_denied' ? 403

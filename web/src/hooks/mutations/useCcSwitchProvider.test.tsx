@@ -18,10 +18,6 @@ describe('useCcSwitchProvider', () => {
     it('restarts an active session through the ordered restart endpoint after switching', async () => {
         const calls: string[] = []
         const api = {
-            switchMachineCcSwitchProvider: vi.fn(async () => {
-                calls.push('switch')
-                return { success: true }
-            }),
             restartSession: vi.fn(async () => {
                 calls.push('restart')
                 return 'session-1'
@@ -38,8 +34,7 @@ describe('useCcSwitchProvider', () => {
             await result.current.switchProvider('provider-1')
         })
 
-        expect(calls).toEqual(['switch', 'restart'])
-        expect(api.switchMachineCcSwitchProvider).toHaveBeenCalledWith('machine-1', 'provider-1')
-        expect(api.restartSession).toHaveBeenCalledWith('session-1')
+        expect(calls).toEqual(['restart'])
+        expect(api.restartSession).toHaveBeenCalledWith('session-1', 'provider-1')
     })
 })

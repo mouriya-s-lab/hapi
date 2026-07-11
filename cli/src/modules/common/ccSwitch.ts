@@ -2,19 +2,15 @@ import type { Database } from 'bun:sqlite';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { logger } from '@/ui/logger';
-import type {
-    CcSwitchProviderSummary,
-    SwitchCcSwitchProviderResponse
-} from '@hapi/protocol/apiTypes';
+import type { CcSwitchProviderSummary } from '@hapi/protocol/apiTypes';
 
 /**
- * cc-switch 集成:读取/切换本机 cc-switch 管理的 Claude Code 供应商。
+ * cc-switch 集成:只读本机 cc-switch provider 配置，为单个 Claude session 生成启动环境。
  *
  * cc-switch 在 ~/.cc-switch/cc-switch.db 维护供应商(gaccode/glm/deepseek 等)。
- * 切换供应商 = 改 ANTHROPIC_BASE_URL/AUTH_TOKEN(写入 ~/.claude/settings.json),是进程级动作,
- * 因此切换后需要重启会话进程才能让新供应商生效(由调用方负责重启)。
+ * HAPI 不修改 cc-switch DB 或 ~/.claude/settings.json；provider env 只注入目标子进程。
  *
  * 安全:token / settings_config 等敏感信息只在本机处理,绝不经 RPC 上传。
  */
@@ -30,11 +26,6 @@ function loadDatabase(): typeof Database {
 
 function getCcSwitchDbPath(): string {
     return join(homedir(), '.cc-switch', 'cc-switch.db');
-}
-
-function getClaudeSettingsPath(): string {
-    const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
-    return join(configDir, 'settings.json');
 }
 
 type ProviderRow = {
@@ -91,18 +82,17 @@ export function listCcSwitchProviders(): { available: boolean; providers: CcSwit
 }
 
 /**
- * 切换当前供应商:
- * 1. db 中目标 is_current=1,同 app_type 其余=0
- * 2. 把目标 settings_config 的 env/model/effortLevel/hooks 合并写入 ~/.claude/settings.json
+ * 读取目标 provider 的 env，供 Runner 合并到单个 Claude 子进程的启动环境。
+ * 不执行脚本，不修改任何 cc-switch/Claude 全局状态。
  */
-export function switchCcSwitchProvider(providerId: string): SwitchCcSwitchProviderResponse {
+export function getCcSwitchProviderLaunchEnv(providerId: string): Record<string, string> {
     const dbPath = getCcSwitchDbPath();
     if (!existsSync(dbPath)) {
-        return { success: false, error: 'cc-switch 数据库不存在' };
+        throw new Error('cc-switch 数据库不存在');
     }
     let db: Database | null = null;
     try {
-        db = new (loadDatabase())(dbPath);
+        db = new (loadDatabase())(dbPath, { readonly: true });
         const row = db
             .query("SELECT id, name, settings_config FROM providers WHERE app_type = ? AND id = ?")
             .get(CLAUDE_APP_TYPE, providerId) as { id: string; name: string; settings_config: string } | null;
@@ -110,44 +100,13 @@ export function switchCcSwitchProvider(providerId: string): SwitchCcSwitchProvid
             throw new Error(`供应商不存在: ${providerId}`);
         }
 
-        const tx = db.transaction(() => {
-            db!.query("UPDATE providers SET is_current = 0 WHERE app_type = ?").run(CLAUDE_APP_TYPE);
-            db!.query("UPDATE providers SET is_current = 1 WHERE app_type = ? AND id = ?").run(CLAUDE_APP_TYPE, providerId);
-            // settings 写入属于同一次切换；失败时让 sqlite transaction 回滚 current flag。
-            applyProviderToClaudeSettings(row.settings_config);
-        });
-        tx();
-
-        return { success: true, currentProviderName: row.name };
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.debug('[ccSwitch] Failed to switch provider:', error);
-        return { success: false, error: message };
+        const config = parseJsonObject(row.settings_config);
+        const env = config.env && typeof config.env === 'object' ? config.env as Record<string, unknown> : {};
+        return Object.fromEntries(Object.entries(env).map(([key, value]) => {
+            if (typeof value !== 'string') throw new Error(`cc-switch env ${key} 必须是字符串`);
+            return [key, value];
+        }));
     } finally {
         db?.close();
     }
-}
-
-/** 把供应商的 settings_config 合并写入 Claude settings.json,保留 cc-switch 不管的其它键。 */
-function applyProviderToClaudeSettings(settingsConfigJson: string): void {
-    const settingsConfig = parseJsonObject(settingsConfigJson);
-    const settingsPath = getClaudeSettingsPath();
-
-    let current: Record<string, unknown> = {};
-    if (existsSync(settingsPath)) {
-        try {
-            current = parseJsonObject(readFileSync(settingsPath, 'utf-8'));
-        } catch (error) {
-            logger.debug('[ccSwitch] Failed to read existing settings.json, overwriting:', error);
-        }
-    }
-
-    // 只覆盖 cc-switch 负责的键,保留其它键(如 includeCoAuthoredBy)
-    for (const key of ['env', 'model', 'effortLevel', 'hooks', 'language'] as const) {
-        if (key in settingsConfig) {
-            current[key] = settingsConfig[key];
-        }
-    }
-
-    writeFileSync(settingsPath, JSON.stringify(current, null, 2), 'utf-8');
 }

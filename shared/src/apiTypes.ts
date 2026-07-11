@@ -433,14 +433,6 @@ export type ListCcSwitchProvidersResponse = {
     error?: string
 }
 
-export type SwitchCcSwitchProviderRequest = { providerId: string }
-
-export type SwitchCcSwitchProviderResponse = {
-    success: boolean
-    currentProviderName?: string
-    error?: string
-}
-
 /** Maps thinking levels to provider-specific values. null = unsupported. */
 export type PiThinkingLevelMap = Partial<Record<string, string | null>>
 

@@ -8,7 +8,7 @@
  */
 
 import { isKnownFlavor, type LocalResumeTarget, type ResumableSession } from '@hapi/protocol'
-import type { CursorMigrateOutcome, CursorMigrateToAcpRequest, ListCcSwitchProvidersResponse, SlashCommandsResponse, SwitchCcSwitchProviderResponse } from '@hapi/protocol/apiTypes'
+import type { CursorMigrateOutcome, CursorMigrateToAcpRequest, ListCcSwitchProvidersResponse, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor, ClaudeLaunch, CodexCollaborationMode, DecryptedMessage, PermissionMode, Session, SyncEvent } from '@hapi/protocol/types'
 import { unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
 import type { Server } from 'socket.io'
@@ -453,7 +453,7 @@ export class SyncEngine {
         await this.rpcGateway.abortSession(sessionId)
     }
 
-    async restartSession(sessionId: string, namespace: string): Promise<ResumeSessionResult> {
+    async restartSession(sessionId: string, namespace: string, ccSwitchProviderId?: string): Promise<ResumeSessionResult> {
         const access = this.sessionCache.resolveSessionAccess(sessionId, namespace)
         if (!access.ok) {
             return {
@@ -467,12 +467,30 @@ export class SyncEngine {
             return { type: 'error', message: 'Session machine is unavailable', code: 'resume_unavailable' }
         }
 
+        if (ccSwitchProviderId) {
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+                const latest = this.sessionCache.getSessionByNamespace(access.sessionId, namespace)
+                    ?? this.sessionCache.refreshSession(access.sessionId)
+                if (!latest?.metadata) break
+                const result = this.store.sessions.updateSessionMetadata(
+                    access.sessionId,
+                    { ...latest.metadata, ccSwitchProviderId },
+                    latest.metadataVersion,
+                    namespace,
+                    { touchUpdatedAt: false }
+                )
+                if (result.result === 'success') { this.sessionCache.refreshSession(access.sessionId); break }
+                if (result.result !== 'version-mismatch') break
+                this.sessionCache.refreshSession(access.sessionId)
+            }
+        }
+
         // Runner 的 stop-session handler 等待整个进程树退出后才应答；之后才允许重新 spawn。
         await this.rpcGateway.stopSessionOnMachine(machineId, access.sessionId)
         if (this.getSession(access.sessionId)?.active) {
             this.handleSessionEnd({ sid: access.sessionId, time: Date.now(), reason: 'terminated' })
         }
-        return await this.resumeSession(access.sessionId, namespace)
+        return await this.resumeSession(access.sessionId, namespace, { ccSwitchProviderId })
     }
 
     async archiveSession(sessionId: string): Promise<void> {
@@ -1188,7 +1206,7 @@ export class SyncEngine {
         return this.store.messages.getFirstMessages(sessionId, 1).length === 0
     }
 
-    async resumeSession(sessionId: string, namespace: string, opts?: { permissionMode?: PermissionMode }): Promise<ResumeSessionResult> {
+    async resumeSession(sessionId: string, namespace: string, opts?: { permissionMode?: PermissionMode; ccSwitchProviderId?: string }): Promise<ResumeSessionResult> {
         const access = this.sessionCache.resolveSessionAccess(sessionId, namespace)
         if (!access.ok) {
             return {
@@ -1271,7 +1289,9 @@ export class SyncEngine {
             resumeToken,
             includeStoredModelParameters ? session.effort ?? undefined : undefined,
             preferredPermissionMode,
-            includeStoredModelParameters ? session.serviceTier ?? undefined : undefined
+            includeStoredModelParameters ? session.serviceTier ?? undefined : undefined,
+            undefined,
+            opts?.ccSwitchProviderId ?? metadata.ccSwitchProviderId
         )
 
         if (spawnResult.type !== 'success') {
@@ -1685,10 +1705,6 @@ export class SyncEngine {
 
     async listCcSwitchProvidersForMachine(machineId: string): Promise<ListCcSwitchProvidersResponse> {
         return await this.rpcGateway.listCcSwitchProvidersForMachine(machineId)
-    }
-
-    async switchCcSwitchProviderForMachine(machineId: string, providerId: string): Promise<SwitchCcSwitchProviderResponse> {
-        return await this.rpcGateway.switchCcSwitchProviderForMachine(machineId, providerId)
     }
 
     async listOpencodeModelsForSession(sessionId: string): Promise<RpcListOpencodeModelsResponse> {
