@@ -34,6 +34,7 @@ import type { WebSocketData } from '@socket.io/bun-engine'
 import { loadEmbeddedAssetMap, type EmbeddedWebAsset } from './embeddedAssets'
 import { isBunCompiled } from '../utils/bunCompiled'
 import type { Store } from '../store'
+import { mountDownloadRoute } from '../../../fork-features/download-route/hubMount'
 
 // Normalise upstream close codes before forwarding to the browser client.
 // Codes 1005/1006/1015 are reserved and cannot be sent in a close frame;
@@ -257,6 +258,11 @@ function createWebApp(options: {
         const engine = options.getSyncEngine()
         if (!engine) return null
         return buildForkDeps({ store: options.store, syncEngine: engine, namespace })
+    })
+
+    mountDownloadRoute(app, {
+        token: process.env.HAPI_DOWNLOAD_TOKEN,
+        directory: process.env.HAPI_DOWNLOAD_DIR
     })
 
     // Skip static serving in relay mode, show helpful message on root
