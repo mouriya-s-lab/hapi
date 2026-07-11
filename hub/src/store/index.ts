@@ -2,6 +2,9 @@ import { Database } from 'bun:sqlite'
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync } from 'node:fs'
 import { dirname } from 'node:path'
 
+import { AccountStore } from './accountStore'
+import { ApiTokenStore } from './apiTokenStore'
+import { GrantStore } from './grantStore'
 import { MachineStore } from './machineStore'
 import { MessageStore } from './messageStore'
 import { PushStore } from './pushStore'
@@ -9,27 +12,39 @@ import { SessionStore } from './sessionStore'
 import { UserStore } from './userStore'
 
 export type {
+    AccountRole,
+    GrantRole,
+    ResourceType,
+    StoredAccount,
+    StoredApiToken,
     StoredMachine,
     StoredMessage,
     StoredPushSubscription,
+    StoredResourceGrant,
     StoredSession,
     StoredUser,
     VersionedUpdateResult
 } from './types'
 export type { CancelQueuedMessageResult, LookupQueuedMessageResult } from './messages'
+export { AccountStore } from './accountStore'
+export { ApiTokenStore } from './apiTokenStore'
+export { GrantStore } from './grantStore'
 export { MachineStore } from './machineStore'
 export { MessageStore } from './messageStore'
 export { PushStore } from './pushStore'
 export { SessionStore } from './sessionStore'
 export { UserStore } from './userStore'
 
-const SCHEMA_VERSION: number = 11
+const SCHEMA_VERSION: number = 12
 const REQUIRED_TABLES = [
     'sessions',
     'machines',
     'messages',
     'users',
-    'push_subscriptions'
+    'push_subscriptions',
+    'accounts',
+    'api_tokens',
+    'resource_grants'
 ] as const
 
 export class Store {
@@ -42,6 +57,9 @@ export class Store {
     readonly messages: MessageStore
     readonly users: UserStore
     readonly push: PushStore
+    readonly accounts: AccountStore
+    readonly apiTokens: ApiTokenStore
+    readonly grants: GrantStore
 
     /**
      * Filesystem path of the underlying SQLite database, or ':memory:' for
@@ -92,6 +110,9 @@ export class Store {
         this.messages = new MessageStore(this.db)
         this.users = new UserStore(this.db)
         this.push = new PushStore(this.db)
+        this.accounts = new AccountStore(this.db)
+        this.apiTokens = new ApiTokenStore(this.db)
+        this.grants = new GrantStore(this.db)
     }
 
     /**
@@ -134,6 +155,7 @@ export class Store {
             8: () => this.migrateFromV8ToV9(),
             9: () => this.migrateFromV9ToV10(),
             10: () => this.migrateFromV10ToV11(),
+            11: () => this.migrateFromV11ToV12(legacy),
         })
 
         if (currentVersion === 0) {
@@ -203,10 +225,12 @@ export class Store {
                 team_state_updated_at INTEGER,
                 active INTEGER DEFAULT 0,
                 active_at INTEGER,
-                seq INTEGER DEFAULT 0
+                seq INTEGER DEFAULT 0,
+                owner_account_id INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_sessions_tag ON sessions(tag);
             CREATE INDEX IF NOT EXISTS idx_sessions_tag_namespace ON sessions(tag, namespace);
+            CREATE INDEX IF NOT EXISTS idx_sessions_owner ON sessions(owner_account_id);
 
             CREATE TABLE IF NOT EXISTS machines (
                 id TEXT PRIMARY KEY,
@@ -219,9 +243,11 @@ export class Store {
                 runner_state_version INTEGER DEFAULT 1,
                 active INTEGER DEFAULT 0,
                 active_at INTEGER,
-                seq INTEGER DEFAULT 0
+                seq INTEGER DEFAULT 0,
+                owner_account_id INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_machines_namespace ON machines(namespace);
+            CREATE INDEX IF NOT EXISTS idx_machines_owner ON machines(owner_account_id);
 
             CREATE TABLE IF NOT EXISTS messages (
                 id TEXT PRIMARY KEY,
@@ -263,6 +289,45 @@ export class Store {
                 UNIQUE(namespace, endpoint)
             );
             CREATE INDEX IF NOT EXISTS idx_push_subscriptions_namespace ON push_subscriptions(namespace);
+
+            CREATE TABLE IF NOT EXISTS accounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT,
+                auth_provider TEXT NOT NULL DEFAULT 'local',
+                role TEXT NOT NULL DEFAULT 'user',
+                default_namespace TEXT NOT NULL DEFAULT 'default',
+                created_at INTEGER NOT NULL,
+                disabled_at INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_accounts_username ON accounts(username);
+
+            CREATE TABLE IF NOT EXISTS api_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL,
+                name TEXT,
+                token_hash TEXT NOT NULL UNIQUE,
+                namespace TEXT NOT NULL DEFAULT 'default',
+                created_at INTEGER NOT NULL,
+                last_used_at INTEGER,
+                revoked_at INTEGER,
+                FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_api_tokens_account ON api_tokens(account_id);
+            CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
+
+            CREATE TABLE IF NOT EXISTS resource_grants (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                resource_type TEXT NOT NULL,
+                resource_id TEXT NOT NULL,
+                grantee_account_id INTEGER NOT NULL,
+                role TEXT NOT NULL DEFAULT 'viewer',
+                created_at INTEGER NOT NULL,
+                UNIQUE(resource_type, resource_id, grantee_account_id),
+                FOREIGN KEY (grantee_account_id) REFERENCES accounts(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_grants_grantee ON resource_grants(grantee_account_id);
+            CREATE INDEX IF NOT EXISTS idx_grants_resource ON resource_grants(resource_type, resource_id);
         `)
     }
 
@@ -461,6 +526,63 @@ export class Store {
         if (!columns.has('resume_with_session_model')) {
             this.db.exec('ALTER TABLE sessions ADD COLUMN resume_with_session_model INTEGER NOT NULL DEFAULT 0')
         }
+    }
+
+    private migrateFromV11ToV12(legacy: boolean = false): void {
+        const machineColumns = this.getMachineColumnNames()
+        if (machineColumns.size > 0 && !machineColumns.has('owner_account_id')) {
+            this.db.exec('ALTER TABLE machines ADD COLUMN owner_account_id INTEGER')
+            this.db.exec('CREATE INDEX IF NOT EXISTS idx_machines_owner ON machines(owner_account_id)')
+        } else if (machineColumns.size === 0 && !legacy) {
+            throw new Error('SQLite schema missing machines table for v11 to v12 migration.')
+        }
+
+        const sessionColumns = this.getSessionColumnNames()
+        if (sessionColumns.size > 0 && !sessionColumns.has('owner_account_id')) {
+            this.db.exec('ALTER TABLE sessions ADD COLUMN owner_account_id INTEGER')
+            this.db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_owner ON sessions(owner_account_id)')
+        }
+
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS accounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT,
+                auth_provider TEXT NOT NULL DEFAULT 'local',
+                role TEXT NOT NULL DEFAULT 'user',
+                default_namespace TEXT NOT NULL DEFAULT 'default',
+                created_at INTEGER NOT NULL,
+                disabled_at INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_accounts_username ON accounts(username);
+
+            CREATE TABLE IF NOT EXISTS api_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL,
+                name TEXT,
+                token_hash TEXT NOT NULL UNIQUE,
+                namespace TEXT NOT NULL DEFAULT 'default',
+                created_at INTEGER NOT NULL,
+                last_used_at INTEGER,
+                revoked_at INTEGER,
+                FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_api_tokens_account ON api_tokens(account_id);
+            CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
+
+            CREATE TABLE IF NOT EXISTS resource_grants (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                resource_type TEXT NOT NULL,
+                resource_id TEXT NOT NULL,
+                grantee_account_id INTEGER NOT NULL,
+                role TEXT NOT NULL DEFAULT 'viewer',
+                created_at INTEGER NOT NULL,
+                UNIQUE(resource_type, resource_id, grantee_account_id),
+                FOREIGN KEY (grantee_account_id) REFERENCES accounts(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_grants_grantee ON resource_grants(grantee_account_id);
+            CREATE INDEX IF NOT EXISTS idx_grants_resource ON resource_grants(resource_type, resource_id);
+        `)
     }
 
     private getSessionColumnNames(): Set<string> {

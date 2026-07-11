@@ -7,10 +7,19 @@ import {
 import { Hono } from 'hono'
 import type { SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
+import type { Store } from '../../store'
 import { requireMachine } from './guards'
 
-export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Hono<WebAppEnv> {
+export function createMachinesRoutes(
+    getSyncEngine: () => SyncEngine | null,
+    getStore?: () => Store | null
+): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
+
+    // Bind the live store into requireMachine so ownership/grant authorization
+    // runs on top of the namespace check. requireOperate gates write/spawn.
+    const guardMachine = (c: Parameters<typeof requireMachine>[0], engine: SyncEngine, machineId: string, requireOperate = false) =>
+        requireMachine(c, engine, machineId, { store: getStore?.() ?? null, requireOperate })
 
     app.get('/machines', (c) => {
         const engine = getSyncEngine()
@@ -19,7 +28,18 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
 
         const namespace = c.get('namespace')
-        const machines = engine.getOnlineMachinesByNamespace(namespace)
+        const role = c.get('role') ?? 'user'
+        const accountId = c.get('accountId')
+        const store = getStore?.() ?? null
+
+        let machines = engine.getOnlineMachinesByNamespace(namespace)
+        // Non-admins only see machines they own or have been granted.
+        if (store && role !== 'admin') {
+            const allowed = new Set<string>([
+                ...store.machines.getMachinesForAccount(namespace, accountId).map((m) => m.id)
+            ])
+            machines = machines.filter((m) => allowed.has(m.id))
+        }
         return c.json({ machines })
     })
 
@@ -30,7 +50,7 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
 
         const machineId = c.req.param('id')
-        const machine = requireMachine(c, engine, machineId)
+        const machine = guardMachine(c, engine, machineId, true)
         if (machine instanceof Response) {
             return machine
         }
@@ -63,7 +83,7 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
 
         const machineId = c.req.param('id')
-        const machine = requireMachine(c, engine, machineId)
+        const machine = guardMachine(c, engine, machineId)
         if (machine instanceof Response) {
             return machine
         }
@@ -89,7 +109,7 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
 
         const machineId = c.req.param('id')
-        const machine = requireMachine(c, engine, machineId)
+        const machine = guardMachine(c, engine, machineId)
         if (machine instanceof Response) {
             return machine
         }
@@ -118,7 +138,7 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
 
         const machineId = c.req.param('id')
-        const machine = requireMachine(c, engine, machineId)
+        const machine = guardMachine(c, engine, machineId)
         if (machine instanceof Response) {
             return machine
         }
@@ -149,7 +169,7 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
 
         const machineId = c.req.param('id')
-        const machine = requireMachine(c, engine, machineId)
+        const machine = guardMachine(c, engine, machineId)
         if (machine instanceof Response) {
             return machine
         }
@@ -172,7 +192,7 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
 
         const machineId = c.req.param('id')
-        const machine = requireMachine(c, engine, machineId)
+        const machine = guardMachine(c, engine, machineId)
         if (machine instanceof Response) {
             return machine
         }
@@ -200,7 +220,7 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
 
         const machineId = c.req.param('id')
-        const machine = requireMachine(c, engine, machineId)
+        const machine = guardMachine(c, engine, machineId)
         if (machine instanceof Response) {
             return machine
         }

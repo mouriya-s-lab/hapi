@@ -6,12 +6,16 @@ export type WebAppEnv = {
     Variables: {
         userId: number
         namespace: string
+        accountId: number
+        role: 'admin' | 'user'
     }
 }
 
 const jwtPayloadSchema = z.object({
     uid: z.number(),
-    ns: z.string()
+    ns: z.string(),
+    aid: z.number().optional(),
+    role: z.enum(['admin', 'user']).optional()
 })
 
 export function createAuthMiddleware(jwtSecret: Uint8Array): MiddlewareHandler<WebAppEnv> {
@@ -40,6 +44,12 @@ export function createAuthMiddleware(jwtSecret: Uint8Array): MiddlewareHandler<W
 
             c.set('userId', parsed.data.uid)
             c.set('namespace', parsed.data.ns)
+            // aid/role are present on tokens issued after the multi-user
+            // upgrade. Legacy tokens (pre-upgrade, still within their 4h TTL)
+            // lack them; fall back to uid as the account id and the least
+            // privileged role so an old token can't silently act as admin.
+            c.set('accountId', parsed.data.aid ?? parsed.data.uid)
+            c.set('role', parsed.data.role ?? 'user')
             await next()
             return
         } catch {

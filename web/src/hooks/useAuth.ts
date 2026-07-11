@@ -5,6 +5,7 @@ import type { AuthResponse } from '@/types/api'
 export type AuthSource =
     | { type: 'telegram'; initData: string }
     | { type: 'accessToken'; token: string }
+    | { type: 'password'; token: string }
 
 function decodeJwtExpMs(token: string): number | null {
     const parts = token.split('.')
@@ -26,7 +27,7 @@ function decodeJwtExpMs(token: string): number | null {
     }
 }
 
-function getAuthPayload(source: AuthSource): { initData: string } | { accessToken: string } {
+function getAuthPayload(source: Extract<AuthSource, { type: 'telegram' | 'accessToken' }>): { initData: string } | { accessToken: string } {
     if (source.type === 'telegram') {
         return { initData: source.initData }
     }
@@ -90,8 +91,14 @@ export function useAuth(authSource: AuthSource | null, baseUrl: string): {
             lastRefreshAttemptRef.current = now
 
             try {
-                const client = new ApiClient('', { baseUrl })
-                const auth = await client.authenticate(getAuthPayload(currentSource))
+                let auth: AuthResponse
+                if (currentSource.type === 'password') {
+                    const client = new ApiClient(currentToken ?? currentSource.token, { baseUrl })
+                    auth = await client.refreshAuth()
+                } else {
+                    const client = new ApiClient('', { baseUrl })
+                    auth = await client.authenticate(getAuthPayload(currentSource))
+                }
                 tokenRef.current = auth.token
                 setToken(auth.token)
                 setUser(auth.user)
@@ -187,10 +194,19 @@ export function useAuth(authSource: AuthSource | null, baseUrl: string): {
             setError(null)
             setNeedsBinding(false)
             try {
-                const client = new ApiClient('', { baseUrl }) // temporary for auth call
-                const auth = await client.authenticate(getAuthPayload(authSource))
+                let auth: AuthResponse
+                if (authSource.type === 'password') {
+                    tokenRef.current = authSource.token
+                    setToken(authSource.token)
+                    const client = new ApiClient(authSource.token, { baseUrl })
+                    auth = await client.refreshAuth()
+                } else {
+                    const client = new ApiClient('', { baseUrl }) // temporary for auth call
+                    auth = await client.authenticate(getAuthPayload(authSource))
+                }
                 if (isCancelled) return
                 setToken(auth.token)
+                tokenRef.current = auth.token
                 setUser(auth.user)
                 setNeedsBinding(false)
             } catch (e) {

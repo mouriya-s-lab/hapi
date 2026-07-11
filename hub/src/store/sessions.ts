@@ -152,6 +152,7 @@ type DbSessionRow = {
     active: number
     active_at: number | null
     seq: number
+    owner_account_id: number | null
 }
 
 function toStoredSession(row: DbSessionRow): StoredSession {
@@ -177,7 +178,8 @@ function toStoredSession(row: DbSessionRow): StoredSession {
         teamStateUpdatedAt: row.team_state_updated_at,
         active: row.active === 1,
         activeAt: row.active_at,
-        seq: row.seq
+        seq: row.seq,
+        ownerAccountId: row.owner_account_id ?? null
     }
 }
 
@@ -189,14 +191,20 @@ export function getOrCreateSession(
     namespace: string,
     model?: string,
     effort?: string,
-    modelReasoningEffort?: string
+    modelReasoningEffort?: string,
+    ownerAccountId?: number | null
 ): StoredSession {
     const existing = db.prepare(
         'SELECT * FROM sessions WHERE tag = ? AND namespace = ? ORDER BY created_at DESC LIMIT 1'
     ).get(tag, namespace) as DbSessionRow | undefined
 
     if (existing) {
-        return toStoredSession(existing)
+        const stored = toStoredSession(existing)
+        if (stored.ownerAccountId === null && ownerAccountId != null) {
+            db.prepare('UPDATE sessions SET owner_account_id = ? WHERE id = ?').run(ownerAccountId, stored.id)
+            stored.ownerAccountId = ownerAccountId
+        }
+        return stored
     }
 
     const now = Date.now()
@@ -215,7 +223,7 @@ export function getOrCreateSession(
             effort,
             resume_with_session_model,
             todos, todos_updated_at,
-            active, active_at, seq
+            active, active_at, seq, owner_account_id
         ) VALUES (
             @id, @tag, @namespace, NULL, @created_at, @updated_at,
             @metadata, 1,
@@ -225,7 +233,7 @@ export function getOrCreateSession(
             @effort,
             0,
             NULL, NULL,
-            0, NULL, 0
+            0, NULL, 0, @owner_account_id
         )
     `).run({
         id,
@@ -237,7 +245,8 @@ export function getOrCreateSession(
         agent_state: agentStateJson,
         model: model ?? null,
         model_reasoning_effort: modelReasoningEffort ?? null,
-        effort: effort ?? null
+        effort: effort ?? null,
+        owner_account_id: ownerAccountId ?? null
     })
 
     const row = getSession(db, id)
@@ -245,6 +254,21 @@ export function getOrCreateSession(
         throw new Error('Failed to create session')
     }
     return row
+}
+
+export function setSessionOwner(db: Database, id: string, ownerAccountId: number): boolean {
+    const result = db.prepare(
+        'UPDATE sessions SET owner_account_id = ? WHERE id = ?'
+    ).run(ownerAccountId, id)
+    return result.changes > 0
+}
+
+/** Backfill ownership for all sessions that have no owner yet. Returns count updated. */
+export function backfillSessionOwners(db: Database, ownerAccountId: number): number {
+    const result = db.prepare(
+        'UPDATE sessions SET owner_account_id = ? WHERE owner_account_id IS NULL'
+    ).run(ownerAccountId)
+    return result.changes
 }
 
 export function updateSessionMetadata(
@@ -603,6 +627,29 @@ export function getSessionsByNamespace(db: Database, namespace: string): StoredS
     const rows = db.prepare(
         'SELECT * FROM sessions WHERE namespace = ? ORDER BY updated_at DESC'
     ).all(namespace) as DbSessionRow[]
+    return rows.map(toStoredSession)
+}
+
+/**
+ * Sessions visible to an account within a namespace: those it owns plus any
+ * explicitly granted to it. Admins should bypass this and use
+ * getSessionsByNamespace instead.
+ */
+export function getSessionsForAccount(
+    db: Database,
+    namespace: string,
+    accountId: number
+): StoredSession[] {
+    const rows = db.prepare(`
+        SELECT DISTINCT s.* FROM sessions s
+        LEFT JOIN resource_grants g
+            ON g.resource_type = 'session'
+            AND g.resource_id = s.id
+            AND g.grantee_account_id = @accountId
+        WHERE s.namespace = @namespace
+          AND (s.owner_account_id = @accountId OR g.id IS NOT NULL)
+        ORDER BY s.updated_at DESC
+    `).all({ namespace, accountId }) as DbSessionRow[]
     return rows.map(toStoredSession)
 }
 

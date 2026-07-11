@@ -10,6 +10,7 @@ import type { ServerUrlResult } from '@/hooks/useServerUrl'
 type LoginPromptProps = {
     mode?: 'login' | 'bind'
     onLogin?: (token: string) => void
+    onPasswordLogin?: (jwt: string) => void
     onBind?: (token: string) => Promise<void>
     baseUrl: string
     serverUrl: string | null
@@ -23,6 +24,9 @@ export function LoginPrompt(props: LoginPromptProps) {
     const { t } = useTranslation()
     const isBindMode = props.mode === 'bind'
     const [accessToken, setAccessToken] = useState('')
+    const [username, setUsername] = useState('')
+    const [password, setPassword] = useState('')
+    const [loginMode, setLoginMode] = useState<'password' | 'token'>('password')
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [isServerDialogOpen, setIsServerDialogOpen] = useState(false)
@@ -32,9 +36,17 @@ export function LoginPrompt(props: LoginPromptProps) {
     const handleSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault()
 
+        const useToken = isBindMode || loginMode === 'token'
         const trimmedToken = accessToken.trim()
-        if (!trimmedToken) {
-            setError(t('login.error.enterToken'))
+        const trimmedUsername = username.trim()
+        const trimmedPassword = password.trim()
+        if (useToken) {
+            if (!trimmedToken) {
+                setError(t('login.error.enterToken'))
+                return
+            }
+        } else if (!trimmedUsername || !trimmedPassword) {
+            setError('Enter username and password')
             return
         }
 
@@ -54,7 +66,7 @@ export function LoginPrompt(props: LoginPromptProps) {
                     return
                 }
                 await props.onBind(trimmedToken)
-            } else {
+            } else if (useToken) {
                 // Validate token by attempting to authenticate
                 const client = new ApiClient('', { baseUrl: props.baseUrl })
                 await client.authenticate({ accessToken: trimmedToken })
@@ -64,6 +76,14 @@ export function LoginPrompt(props: LoginPromptProps) {
                     return
                 }
                 props.onLogin(trimmedToken)
+            } else {
+                const client = new ApiClient('', { baseUrl: props.baseUrl })
+                const auth = await client.authenticate({ username: trimmedUsername, password: trimmedPassword })
+                if (!props.onPasswordLogin) {
+                    setError(t('login.error.loginUnavailable'))
+                    return
+                }
+                props.onPasswordLogin(auth.token)
             }
         } catch (e) {
             const fallbackMessage = isBindMode ? t('login.error.bindFailed') : t('login.error.authFailed')
@@ -71,7 +91,7 @@ export function LoginPrompt(props: LoginPromptProps) {
         } finally {
             setIsLoading(false)
         }
-    }, [accessToken, props, t, isBindMode])
+    }, [accessToken, username, password, loginMode, props, t, isBindMode])
 
     useEffect(() => {
         if (!isServerDialogOpen) {
@@ -130,17 +150,59 @@ export function LoginPrompt(props: LoginPromptProps) {
 
                 {/* Form */}
                 <form onSubmit={handleSubmit} className="space-y-4">
-                    <div>
-                        <input
-                            type="password"
-                            value={accessToken}
-                            onChange={(e) => setAccessToken(e.target.value)}
-                            placeholder={t('login.placeholder')}
-                            autoComplete="current-password"
-                            disabled={isLoading}
-                            className="w-full px-3 py-2.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"
-                        />
-                    </div>
+                    {!isBindMode && (
+                        <div className="grid grid-cols-2 gap-2 rounded-lg bg-[var(--app-subtle-bg)] p-1 text-sm">
+                            <button
+                                type="button"
+                                onClick={() => setLoginMode('password')}
+                                className={`rounded-md px-3 py-1.5 transition-colors ${loginMode === 'password' ? 'bg-[var(--app-bg)] text-[var(--app-fg)] shadow-sm' : 'text-[var(--app-hint)]'}`}
+                            >
+                                Password
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setLoginMode('token')}
+                                className={`rounded-md px-3 py-1.5 transition-colors ${loginMode === 'token' ? 'bg-[var(--app-bg)] text-[var(--app-fg)] shadow-sm' : 'text-[var(--app-hint)]'}`}
+                            >
+                                API token
+                            </button>
+                        </div>
+                    )}
+
+                    {(!isBindMode && loginMode === 'password') ? (
+                        <div className="space-y-3">
+                            <input
+                                type="text"
+                                value={username}
+                                onChange={(e) => setUsername(e.target.value)}
+                                placeholder="Username"
+                                autoComplete="username"
+                                disabled={isLoading}
+                                className="w-full px-3 py-2.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"
+                            />
+                            <input
+                                type="password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                placeholder="Password"
+                                autoComplete="current-password"
+                                disabled={isLoading}
+                                className="w-full px-3 py-2.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"
+                            />
+                        </div>
+                    ) : (
+                        <div>
+                            <input
+                                type="password"
+                                value={accessToken}
+                                onChange={(e) => setAccessToken(e.target.value)}
+                                placeholder={t('login.placeholder')}
+                                autoComplete="current-password"
+                                disabled={isLoading}
+                                className="w-full px-3 py-2.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"
+                            />
+                        </div>
+                    )}
 
                     {displayError && (
                         <div className="text-sm text-red-500 text-center">
@@ -150,7 +212,7 @@ export function LoginPrompt(props: LoginPromptProps) {
 
                     <button
                         type="submit"
-                        disabled={isLoading || !accessToken.trim()}
+                        disabled={isLoading || ((isBindMode || loginMode === 'token') ? !accessToken.trim() : (!username.trim() || !password.trim()))}
                         aria-busy={isLoading}
                         className="w-full py-2.5 rounded-lg bg-[var(--app-button)] text-[var(--app-button-text)] font-medium disabled:opacity-50 hover:opacity-90 transition-opacity inline-flex items-center justify-center gap-2"
                     >

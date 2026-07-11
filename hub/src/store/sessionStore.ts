@@ -2,15 +2,18 @@ import type { Database } from 'bun:sqlite'
 
 import type { StoredSession, VersionedUpdateResult } from './types'
 import {
+    backfillSessionOwners,
     deleteSession,
     getOrCreateSession,
     getSession,
     getSessionByNamespace,
     getSessions,
     getSessionsByNamespace,
+    getSessionsForAccount,
     setSessionEffort,
     setSessionModel,
     setSessionModelReasoningEffort,
+    setSessionOwner,
     setSessionServiceTier,
     setSessionResumeWithSessionModel,
     setSessionTeamState,
@@ -34,9 +37,20 @@ export class SessionStore {
         namespace: string,
         model?: string,
         effort?: string,
-        modelReasoningEffort?: string
+        modelReasoningEffort?: string,
+        ownerAccountId?: number | null
     ): StoredSession {
-        return getOrCreateSession(this.db, tag, metadata, agentState, namespace, model, effort, modelReasoningEffort)
+        return getOrCreateSession(
+            this.db,
+            tag,
+            metadata,
+            agentState,
+            namespace,
+            model,
+            effort,
+            modelReasoningEffort,
+            ownerAccountId
+        )
     }
 
     updateSessionMetadata(
@@ -114,6 +128,18 @@ export class SessionStore {
 
     getSessionsByNamespace(namespace: string): StoredSession[] {
         return getSessionsByNamespace(this.db, namespace)
+    }
+
+    getSessionsForAccount(namespace: string, accountId: number): StoredSession[] {
+        return getSessionsForAccount(this.db, namespace, accountId)
+    }
+
+    setSessionOwner(id: string, ownerAccountId: number): boolean {
+        return setSessionOwner(this.db, id, ownerAccountId)
+    }
+
+    backfillSessionOwners(ownerAccountId: number): number {
+        return backfillSessionOwners(this.db, ownerAccountId)
     }
 
     deleteSession(id: string, namespace: string): boolean {

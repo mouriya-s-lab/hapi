@@ -68,6 +68,7 @@ export type AuthResponse = {
         username?: string
         firstName?: string
         lastName?: string
+        role?: 'admin' | 'user'
     }
 }
 
@@ -282,10 +283,85 @@ export type MachinePathsExistsRequest = z.infer<typeof MachinePathsExistsRequest
 
 export const AuthRequestSchema = z.union([
     z.object({ initData: z.string() }),
-    z.object({ accessToken: z.string() })
+    z.object({ accessToken: z.string() }),
+    z.object({ username: z.string().min(1), password: z.string().min(1) })
 ])
 
 export type AuthRequest = z.infer<typeof AuthRequestSchema>
+
+export type AuthUser = {
+    id: number
+    username?: string
+    firstName?: string
+    lastName?: string
+    role?: 'admin' | 'user'
+}
+
+// ---- Multi-user: accounts, API tokens, resource grants ----
+
+export type AccountRole = 'admin' | 'user'
+
+export type AccountSummary = {
+    id: number
+    username: string
+    role: AccountRole
+    defaultNamespace: string
+    authProvider: string
+    hasPassword: boolean
+    disabled: boolean
+    createdAt: number
+}
+
+export type ApiTokenSummary = {
+    id: number
+    name: string | null
+    namespace: string
+    createdAt: number
+    lastUsedAt: number | null
+    // Plaintext is only present in the create response, shown once.
+    token?: string
+}
+
+export type ResourceGrantSummary = {
+    id: number
+    resourceType: 'machine' | 'session'
+    resourceId: string
+    granteeAccountId: number
+    granteeUsername?: string
+    role: 'viewer' | 'operator'
+    createdAt: number
+}
+
+export const CreateAccountRequestSchema = z.object({
+    username: z.string().min(1).max(64),
+    password: z.string().min(8).max(256).optional(),
+    role: z.enum(['admin', 'user']).optional(),
+    defaultNamespace: z.string().min(1).max(64).optional()
+})
+export type CreateAccountRequest = z.infer<typeof CreateAccountRequestSchema>
+
+export const UpdateAccountRequestSchema = z.object({
+    role: z.enum(['admin', 'user']).optional(),
+    password: z.string().min(8).max(256).optional(),
+    disabled: z.boolean().optional(),
+    defaultNamespace: z.string().min(1).max(64).optional()
+})
+export type UpdateAccountRequest = z.infer<typeof UpdateAccountRequestSchema>
+
+export const CreateApiTokenRequestSchema = z.object({
+    name: z.string().max(128).optional(),
+    namespace: z.string().min(1).max(64).optional()
+})
+export type CreateApiTokenRequest = z.infer<typeof CreateApiTokenRequestSchema>
+
+export const CreateGrantRequestSchema = z.object({
+    resourceType: z.enum(['machine', 'session']),
+    resourceId: z.string().min(1),
+    granteeUsername: z.string().min(1),
+    role: z.enum(['viewer', 'operator'])
+})
+export type CreateGrantRequest = z.infer<typeof CreateGrantRequestSchema>
+
 
 export type CommandResponse = {
     success: boolean

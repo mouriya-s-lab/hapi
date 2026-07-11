@@ -3,6 +3,9 @@ import { Hono } from 'hono'
 import type { SyncEngine } from '../../sync/syncEngine'
 import { createConfiguration } from '../../configuration'
 import { createCliRoutes } from './cli'
+import { Store } from '../../store'
+import { bootstrapMultiUser } from '../../auth/bootstrap'
+import { initAuthContext } from '../../auth/authContext'
 
 function createApp(engine: Partial<SyncEngine>) {
     const app = new Hono()
@@ -19,6 +22,11 @@ function authHeaders() {
 beforeAll(async () => {
     const config = await createConfiguration()
     config._setCliApiToken('test-token', 'env', false)
+    // Initialize the multi-user auth context so the shared token resolves to
+    // the bootstrap admin (resolveAuth returns null without this).
+    const store = new Store(':memory:')
+    const boot = bootstrapMultiUser(store, 'test-token')
+    initAuthContext(store, boot.legacyAdminAccountId)
 })
 
 describe('cli resume routes', () => {

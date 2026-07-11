@@ -2,11 +2,14 @@ import type { Database } from 'bun:sqlite'
 
 import type { StoredMachine, VersionedUpdateResult } from './types'
 import {
+    backfillMachineOwners,
     getMachine,
     getMachineByNamespace,
     getMachines,
     getMachinesByNamespace,
+    getMachinesForAccount,
     getOrCreateMachine,
+    setMachineOwner,
     updateMachineRunnerState,
     updateMachineMetadata
 } from './machines'
@@ -18,8 +21,14 @@ export class MachineStore {
         this.db = db
     }
 
-    getOrCreateMachine(id: string, metadata: unknown, runnerState: unknown, namespace: string): StoredMachine {
-        return getOrCreateMachine(this.db, id, metadata, runnerState, namespace)
+    getOrCreateMachine(
+        id: string,
+        metadata: unknown,
+        runnerState: unknown,
+        namespace: string,
+        ownerAccountId?: number | null
+    ): StoredMachine {
+        return getOrCreateMachine(this.db, id, metadata, runnerState, namespace, ownerAccountId)
     }
 
     updateMachineMetadata(
@@ -54,5 +63,17 @@ export class MachineStore {
 
     getMachinesByNamespace(namespace: string): StoredMachine[] {
         return getMachinesByNamespace(this.db, namespace)
+    }
+
+    getMachinesForAccount(namespace: string, accountId: number): StoredMachine[] {
+        return getMachinesForAccount(this.db, namespace, accountId)
+    }
+
+    setMachineOwner(id: string, ownerAccountId: number): boolean {
+        return setMachineOwner(this.db, id, ownerAccountId)
+    }
+
+    backfillMachineOwners(ownerAccountId: number): number {
+        return backfillMachineOwners(this.db, ownerAccountId)
     }
 }

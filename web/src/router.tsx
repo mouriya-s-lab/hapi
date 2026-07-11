@@ -50,6 +50,7 @@ import FilesPage from '@/routes/sessions/files'
 import FilePage from '@/routes/sessions/file'
 import TerminalPage from '@/routes/sessions/terminal'
 import SettingsPage from '@/routes/settings'
+import AdminPage from '@/routes/admin'
 import SharePage from '@/routes/share'
 import { setSharePendingTransfer } from '@/lib/sharePendingState'
 import { deleteShareTransfer } from '@/lib/shareTransfer'
@@ -160,7 +161,7 @@ function getMachineTitle(machine: Machine): string {
 }
 
 function SessionsPage() {
-    const { api } = useAppContext()
+    const { api, user } = useAppContext()
     const navigate = useNavigate()
     const queryClient = useQueryClient()
     const pathname = useLocation({ select: location => location.pathname })
@@ -512,6 +513,16 @@ function SessionsPage() {
                             >
                                 <FolderOpenIcon className="h-5 w-5" />
                             </button>
+                            {user.role === 'admin' && (
+                                <button
+                                    type="button"
+                                    onClick={() => navigate({ to: '/admin' })}
+                                    className="p-1.5 rounded-full text-[var(--app-hint)] hover:text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)] transition-colors"
+                                    title="管理面板"
+                                >
+                                    <SettingsIcon className="h-5 w-5" />
+                                </button>
+                            )}
                             <button
                                 type="button"
                                 onClick={() => navigate({ to: '/settings' })}
@@ -1263,6 +1274,12 @@ const shareRoute = createRoute({
     component: SharePage,
 })
 
+const adminRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/admin',
+    component: AdminPage,
+})
+
 export const routeTree = rootRoute.addChildren([
     indexRoute,
     sessionsRoute.addChildren([
@@ -1277,6 +1294,7 @@ export const routeTree = rootRoute.addChildren([
     browseRoute,
     settingsRoute,
     shareRoute,
+    adminRoute,
 ])
 
 type RouterHistory = Parameters<typeof createRouter>[0]['history']

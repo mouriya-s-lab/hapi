@@ -22,6 +22,7 @@ import type { SlashCommand } from '@hapi/protocol/apiTypes'
 import { Hono, type Context } from 'hono'
 import type { SyncEngine, Session } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
+import type { Store } from '../../store'
 import { requireSessionFromParam, requireSyncEngine } from './guards'
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
@@ -57,8 +58,24 @@ function estimateBase64Bytes(base64: string): number {
     return Math.floor((len * 3) / 4) - padding
 }
 
-export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Hono<WebAppEnv> {
+export function createSessionsRoutes(
+    getSyncEngine: () => SyncEngine | null,
+    getStore?: () => Store | null
+): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
+
+    // Wrap session resolution so ownership/grant authorization runs on top of
+    // the namespace check. Read routes use the default; mutating routes pass
+    // requireOperate.
+    const guardSession = (
+        c: Parameters<typeof requireSessionFromParam>[0],
+        engine: SyncEngine,
+        opts?: { requireActive?: boolean; requireOperate?: boolean }
+    ) => requireSessionFromParam(c, engine, {
+        requireActive: opts?.requireActive,
+        requireOperate: opts?.requireOperate,
+        store: getStore?.() ?? null
+    })
 
     app.get('/sessions', (c) => {
         const engine = requireSyncEngine(c, getSyncEngine)
@@ -69,7 +86,11 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         const getPendingCount = (s: Session) => s.agentState?.requests ? Object.keys(s.agentState.requests).length : 0
 
         const namespace = c.get('namespace')
-        const sessionRecords = engine.getSessionsByNamespace(namespace)
+        const role = c.get('role') ?? 'user'
+        const accountId = c.get('accountId')
+        const store = getStore?.() ?? null
+
+        let sessionRecords = engine.getSessionsByNamespace(namespace)
             .sort((a, b) => {
                 // Active sessions first
                 if (a.active !== b.active) {
@@ -84,6 +105,11 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
                 // Then by updatedAt
                 return b.updatedAt - a.updatedAt
             })
+        if (store && role !== 'admin') {
+            const allowed = new Set(store.sessions.getSessionsForAccount(namespace, accountId).map((session) => session.id))
+            sessionRecords = sessionRecords.filter((session) => allowed.has(session.id))
+        }
+
         const scheduledCounts = engine.getFutureScheduledMessageCounts(sessionRecords.map((session) => session.id))
         const nextScheduledAt = engine.getNextScheduledAtBySessionIds(sessionRecords.map((session) => session.id))
         const sessions = sessionRecords.map((session) => {
@@ -104,7 +130,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = guardSession(c, engine)
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -127,7 +153,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = guardSession(c, engine)
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -141,7 +167,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = guardSession(c, engine, { requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -184,7 +210,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: false })
+        const sessionResult = guardSession(c, engine, { requireActive: false, requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -220,7 +246,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = guardSession(c, engine, { requireActive: true, requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -258,7 +284,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = guardSession(c, engine, { requireActive: true, requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -286,7 +312,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = guardSession(c, engine, { requireActive: true, requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -331,7 +357,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = guardSession(c, engine, { requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -379,7 +405,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = guardSession(c, engine, { requireActive: true, requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -394,7 +420,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = guardSession(c, engine, { requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -435,7 +461,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = guardSession(c, engine, { requireActive: true, requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -545,7 +571,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = guardSession(c, engine, { requireActive: true, requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -581,7 +607,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = guardSession(c, engine, { requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -616,7 +642,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = guardSession(c, engine, { requireActive: true, requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -652,7 +678,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = guardSession(c, engine, { requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -711,7 +737,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
 
         // Session must exist but doesn't need to be active
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = guardSession(c, engine)
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -756,7 +782,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
 
         // Session must exist but doesn't need to be active
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = guardSession(c, engine)
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -781,7 +807,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = guardSession(c, engine, { requireActive: true, requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -811,7 +837,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = guardSession(c, engine, { requireActive: true, requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -841,7 +867,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = guardSession(c, engine, { requireActive: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -873,7 +899,7 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         const engine = requireSyncEngine(c, getSyncEngine)
         if (engine instanceof Response) return engine
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = guardSession(c, engine, { requireActive: true })
         if (sessionResult instanceof Response) return sessionResult
 
         const flavor = sessionResult.session.metadata?.flavor ?? 'claude'

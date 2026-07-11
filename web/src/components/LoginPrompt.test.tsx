@@ -37,6 +37,7 @@ describe('LoginPrompt', () => {
             />
         )
 
+        fireEvent.click(screen.getByRole('button', { name: 'API token' }))
         fireEvent.change(screen.getByPlaceholderText('Access token'), { target: { value: 'token' } })
         fireEvent.click(screen.getByRole('button', { name: 'Sign In' }))
 

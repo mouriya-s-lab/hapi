@@ -22,4 +22,7 @@ export const queryKeys = {
     sessionOpencodeReasoningEffortOptions: (sessionId: string) => ['session-opencode-reasoning-effort-options', sessionId] as const,
     machineOpencodeModelsForCwd: (machineId: string, cwd: string) => ['machine-opencode-models', machineId, cwd] as const,
     skills: (sessionId: string) => ['skills', sessionId] as const,
+    accounts: ['accounts'] as const,
+    apiTokens: ['api-tokens'] as const,
+    resourceGrants: (resourceType: 'machine' | 'session', resourceId: string) => ['resource-grants', resourceType, resourceId] as const,
 }
