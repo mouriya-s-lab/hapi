@@ -7,6 +7,8 @@ import {
     PROTOCOL_VERSION
 } from '@hapi/protocol'
 import { resolveAuth } from '../../auth/authContext'
+import { canOperate, canRead, resolveAccessLevel } from '../../auth/access'
+import type { Store } from '../../store'
 import type { Machine, Session, SyncEngine } from '../../sync/syncEngine'
 
 const bearerSchema = z.string().regex(/^Bearer\s+(.+)$/i)
@@ -24,13 +26,29 @@ type CliEnv = {
     }
 }
 
-function resolveSessionForNamespace(
+function resolveSessionForAccount(
     engine: SyncEngine,
+    store: Store,
     sessionId: string,
-    namespace: string
+    namespace: string,
+    accountId: number,
+    role: 'admin' | 'user',
+    requireOperate: boolean
 ): { ok: true; session: Session; sessionId: string } | { ok: false; status: 403 | 404; error: string } {
     const access = engine.resolveSessionAccess(sessionId, namespace)
     if (access.ok) {
+        const stored = store.sessions.getSession(access.sessionId)
+        const level = resolveAccessLevel({
+            store,
+            accountId,
+            role,
+            resourceType: 'session',
+            resourceId: access.sessionId,
+            ownerAccountId: stored?.ownerAccountId ?? null
+        })
+        if (!canRead(level) || (requireOperate && !canOperate(level))) {
+            return { ok: false, status: 403, error: requireOperate ? 'Insufficient permissions' : 'Session access denied' }
+        }
         return { ok: true, session: access.session, sessionId: access.sessionId }
     }
     return {
@@ -40,13 +58,29 @@ function resolveSessionForNamespace(
     }
 }
 
-function resolveMachineForNamespace(
+function resolveMachineForAccount(
     engine: SyncEngine,
+    store: Store,
     machineId: string,
-    namespace: string
+    namespace: string,
+    accountId: number,
+    role: 'admin' | 'user',
+    requireOperate: boolean
 ): { ok: true; machine: Machine } | { ok: false; status: 403 | 404; error: string } {
     const machine = engine.getMachineByNamespace(machineId, namespace)
     if (machine) {
+        const stored = store.machines.getMachine(machineId)
+        const level = resolveAccessLevel({
+            store,
+            accountId,
+            role,
+            resourceType: 'machine',
+            resourceId: machineId,
+            ownerAccountId: stored?.ownerAccountId ?? null
+        })
+        if (!canRead(level) || (requireOperate && !canOperate(level))) {
+            return { ok: false, status: 403, error: requireOperate ? 'Insufficient permissions' : 'Machine access denied' }
+        }
         return { ok: true, machine }
     }
     if (engine.getMachine(machineId)) {
@@ -55,7 +89,7 @@ function resolveMachineForNamespace(
     return { ok: false, status: 404, error: 'Machine not found' }
 }
 
-export function createCliRoutes(getSyncEngine: () => SyncEngine | null): Hono<CliEnv> {
+export function createCliRoutes(getSyncEngine: () => SyncEngine | null, store: Store): Hono<CliEnv> {
     const app = new Hono<CliEnv>()
 
     app.use('*', async (c, next) => {
@@ -116,8 +150,14 @@ export function createCliRoutes(getSyncEngine: () => SyncEngine | null): Hono<Cl
         }
 
         const namespace = c.get('namespace')
+        const accountId = c.get('accountId')
+        const role = c.get('role')
         const machineId = c.req.query('machineId') || undefined
-        const sessions = engine.listLocalResumableSessions(namespace, { machineId })
+        let sessions = engine.listLocalResumableSessions(namespace, { machineId })
+        if (role !== 'admin') {
+            const visible = new Set(store.sessions.getSessionsForAccount(namespace, accountId).map((session) => session.id))
+            sessions = sessions.filter((session) => visible.has(session.sessionId))
+        }
         return c.json({ sessions })
     })
 
@@ -128,6 +168,12 @@ export function createCliRoutes(getSyncEngine: () => SyncEngine | null): Hono<Cl
         }
 
         const namespace = c.get('namespace')
+        const authorized = resolveSessionForAccount(
+            engine, store, c.req.param('id'), namespace, c.get('accountId'), c.get('role'), true
+        )
+        if (!authorized.ok) {
+            return c.json({ error: authorized.error }, authorized.status)
+        }
         const result = engine.resolveLocalResumeTarget(c.req.param('id'), namespace)
         if (result.type === 'error') {
             const status = result.code === 'access_denied' ? 403
@@ -146,6 +192,12 @@ export function createCliRoutes(getSyncEngine: () => SyncEngine | null): Hono<Cl
         }
 
         const namespace = c.get('namespace')
+        const authorized = resolveSessionForAccount(
+            engine, store, c.req.param('id'), namespace, c.get('accountId'), c.get('role'), true
+        )
+        if (!authorized.ok) {
+            return c.json({ error: authorized.error }, authorized.status)
+        }
         const result = await engine.handoffSessionToLocal(c.req.param('id'), namespace)
         if (result.type === 'error') {
             const status = result.code === 'access_denied' ? 403
@@ -165,7 +217,9 @@ export function createCliRoutes(getSyncEngine: () => SyncEngine | null): Hono<Cl
         }
         const sessionId = c.req.param('id')
         const namespace = c.get('namespace')
-        const resolved = resolveSessionForNamespace(engine, sessionId, namespace)
+        const resolved = resolveSessionForAccount(
+            engine, store, sessionId, namespace, c.get('accountId'), c.get('role'), false
+        )
         if (!resolved.ok) {
             return c.json({ error: resolved.error }, resolved.status)
         }
@@ -179,7 +233,9 @@ export function createCliRoutes(getSyncEngine: () => SyncEngine | null): Hono<Cl
         }
         const sessionId = c.req.param('id')
         const namespace = c.get('namespace')
-        const resolved = resolveSessionForNamespace(engine, sessionId, namespace)
+        const resolved = resolveSessionForAccount(
+            engine, store, sessionId, namespace, c.get('accountId'), c.get('role'), false
+        )
         if (!resolved.ok) {
             return c.json({ error: resolved.error }, resolved.status)
         }
@@ -209,7 +265,9 @@ export function createCliRoutes(getSyncEngine: () => SyncEngine | null): Hono<Cl
         }
         const sessionId = c.req.param('id')
         const namespace = c.get('namespace')
-        const resolved = resolveSessionForNamespace(engine, sessionId, namespace)
+        const resolved = resolveSessionForAccount(
+            engine, store, sessionId, namespace, c.get('accountId'), c.get('role'), true
+        )
         if (!resolved.ok) {
             return c.json({ error: resolved.error }, resolved.status)
         }
@@ -257,6 +315,14 @@ export function createCliRoutes(getSyncEngine: () => SyncEngine | null): Hono<Cl
         if (existing && existing.namespace !== namespace) {
             return c.json({ error: 'Machine access denied' }, 403)
         }
+        if (existing) {
+            const authorized = resolveMachineForAccount(
+                engine, store, existing.id, namespace, accountId, c.get('role'), true
+            )
+            if (!authorized.ok) {
+                return c.json({ error: authorized.error }, authorized.status)
+            }
+        }
         const machine = engine.getOrCreateMachine(parsed.data.id, parsed.data.metadata, parsed.data.runnerState ?? null, namespace, accountId)
         return c.json({ machine })
     })
@@ -268,7 +334,9 @@ export function createCliRoutes(getSyncEngine: () => SyncEngine | null): Hono<Cl
         }
         const machineId = c.req.param('id')
         const namespace = c.get('namespace')
-        const resolved = resolveMachineForNamespace(engine, machineId, namespace)
+        const resolved = resolveMachineForAccount(
+            engine, store, machineId, namespace, c.get('accountId'), c.get('role'), false
+        )
         if (!resolved.ok) {
             return c.json({ error: resolved.error }, resolved.status)
         }

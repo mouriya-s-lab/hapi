@@ -16,7 +16,7 @@ function makeDeps(store: Store, legacyAdminId: number | null): AuthResolverDeps 
 }
 
 describe('bootstrapMultiUser', () => {
-    it('creates an admin, registers the legacy token, backfills ownership', () => {
+    it('creates an admin, keeps the legacy token out of api_tokens, and backfills ownership', () => {
         const store = new Store(':memory:')
         try {
             // Pre-existing data created before multi-user.
@@ -28,9 +28,7 @@ describe('bootstrapMultiUser', () => {
 
             const admin = store.accounts.getById(result.legacyAdminAccountId)
             expect(admin?.role).toBe('admin')
-            // Legacy token registered as the admin's api token.
-            const tokenRow = store.apiTokens.getActiveByHash(hashApiToken(LEGACY_TOKEN))
-            expect(tokenRow?.accountId).toBe(admin!.id)
+            expect(store.apiTokens.getActiveByHash(hashApiToken(LEGACY_TOKEN))).toBeNull()
             // Ownership backfilled (look up the session by its real id, not its tag).
             expect(store.machines.getMachine('m1')?.ownerAccountId).toBe(admin!.id)
             expect(store.sessions.getSession(sess.id)?.ownerAccountId).toBe(admin!.id)
@@ -82,13 +80,12 @@ describe('resolveAuthToken', () => {
         const store = new Store(':memory:')
         try {
             const boot = bootstrapMultiUser(store, LEGACY_TOKEN)
-            // The legacy token is also registered as an api_token by bootstrap,
-            // so it resolves via the per-user path to the admin. Its namespace
-            // is the token record's ('default').
             const deps = makeDeps(store, boot.legacyAdminAccountId)
-            const resolved = resolveAuthToken(deps, LEGACY_TOKEN)
+            const resolved = resolveAuthToken(deps, `${LEGACY_TOKEN}:team-a`)
             expect(resolved?.accountId).toBe(boot.legacyAdminAccountId)
             expect(resolved?.role).toBe('admin')
+            expect(resolved?.namespace).toBe('team-a')
+            expect(resolved?.tokenId).toBeNull()
         } finally {
             store.close()
         }

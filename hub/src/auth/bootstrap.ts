@@ -1,6 +1,4 @@
 import type { Store } from '../store'
-import { hashApiToken } from '../utils/apiToken'
-import { parseAccessToken } from '../utils/accessToken'
 
 export type BootstrapResult = {
     /** Account id the legacy shared token resolves to. */
@@ -18,9 +16,9 @@ const BOOTSTRAP_ADMIN_USERNAME = 'admin'
  *   - Guarantee exactly one "legacy admin" account that the existing shared
  *     cliApiToken maps to, so all current runners and the web login keep
  *     working with zero reconfiguration.
- *   - Register the shared cliApiToken as that admin's api_tokens row (hashed),
- *     so the normal per-user resolution path handles it too — the legacy
- *     fallback in resolveAuth is then just defense in depth.
+ *   - Keep the shared cliApiToken on the legacy resolver path. It must not be
+ *     inserted into api_tokens: a normal token row would shadow the legacy
+ *     resolver and discard existing client-supplied namespace suffixes.
  *   - Backfill owner_account_id on every pre-existing machine/session to the
  *     admin, so ownership-scoped queries return the historical data instead of
  *     hiding it.
@@ -54,29 +52,6 @@ export function bootstrapMultiUser(store: Store, legacyToken: string): Bootstrap
         })
         adminId = created.id
         createdAdmin = true
-    }
-
-    // Register the shared token as the admin's API token (hashed), if set and
-    // not already present. parseAccessToken strips any namespace suffix; the
-    // hub's own token must be a bare base token (validateCliApiToken enforces
-    // that), so the parse should yield namespace 'default'.
-    if (legacyToken) {
-        const parsed = parseAccessToken(legacyToken)
-        const baseToken = parsed?.baseToken ?? legacyToken
-        const tokenHash = hashApiToken(baseToken)
-        if (!store.apiTokens.getActiveByHash(tokenHash)) {
-            try {
-                store.apiTokens.create({
-                    accountId: adminId,
-                    name: 'Legacy shared token',
-                    tokenHash,
-                    namespace: 'default'
-                })
-            } catch {
-                // UNIQUE(token_hash) race or pre-existing revoked row — the
-                // legacy fallback in resolveAuth still covers this token.
-            }
-        }
     }
 
     // Backfill ownership of all pre-existing resources to the admin.

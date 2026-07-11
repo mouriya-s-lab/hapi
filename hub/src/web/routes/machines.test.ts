@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import type { Machine, SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import { createMachinesRoutes } from './machines'
+import { Store } from '../../store'
 
 function createMachine(overrides?: Partial<Machine>): Machine {
     return {
@@ -26,6 +27,34 @@ function createMachine(overrides?: Partial<Machine>): Machine {
 }
 
 describe('machines routes', () => {
+    it('rejects directory creation for a viewer grant', async () => {
+        const store = new Store(':memory:')
+        const owner = store.accounts.create({ username: 'owner', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+        const viewer = store.accounts.create({ username: 'viewer', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+        store.machines.getOrCreateMachine('machine-1', {}, null, 'default', owner.id)
+        store.grants.upsert({ resourceType: 'machine', resourceId: 'machine-1', granteeAccountId: viewer.id, role: 'viewer' })
+        const machine = createMachine()
+        const engine = { getMachine: () => machine } as Partial<SyncEngine>
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'default')
+            c.set('accountId', viewer.id)
+            c.set('role', 'user')
+            await next()
+        })
+        app.route('/api', createMachinesRoutes(() => engine as SyncEngine, () => store))
+
+        const response = await app.request('/api/machines/machine-1/create-directory', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ parentPath: '/workspace', name: 'blocked' })
+        })
+
+        expect(response.status).toBe(403)
+        expect(await response.json()).toEqual({ error: 'Insufficient permissions' })
+        store.close()
+    })
+
     it('assigns a successful remote spawn to the requesting account', async () => {
         const machine = createMachine()
         const assignments: Array<{ sessionId: string; accountId: number }> = []

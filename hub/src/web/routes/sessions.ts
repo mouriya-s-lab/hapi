@@ -333,7 +333,7 @@ export function createSessionsRoutes(
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = guardSession(c, engine, { requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -495,7 +495,7 @@ export function createSessionsRoutes(
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = guardSession(c, engine, { requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -538,7 +538,7 @@ export function createSessionsRoutes(
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = guardSession(c, engine, { requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -708,7 +708,7 @@ export function createSessionsRoutes(
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = guardSession(c, engine, { requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }

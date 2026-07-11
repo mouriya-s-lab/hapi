@@ -6,10 +6,26 @@ import { createCliRoutes } from './cli'
 import { Store } from '../../store'
 import { bootstrapMultiUser } from '../../auth/bootstrap'
 import { initAuthContext } from '../../auth/authContext'
+import { generateApiToken, hashApiToken } from '../../utils/apiToken'
+
+let store: Store
+let sessionId: string
+let ownerSessionId: string
+let strangerSessionId: string
+let ownerToken: string
+let strangerToken: string
 
 function createApp(engine: Partial<SyncEngine>) {
     const app = new Hono()
-    app.route('/cli', createCliRoutes(() => engine as SyncEngine))
+    const fullEngine = {
+        resolveSessionAccess: (sessionId: string, namespace: string) => ({
+            ok: true as const,
+            sessionId,
+            session: { id: sessionId, namespace }
+        }),
+        ...engine
+    } as SyncEngine
+    app.route('/cli', createCliRoutes(() => fullEngine, store))
     return app
 }
 
@@ -19,21 +35,88 @@ function authHeaders() {
     }
 }
 
+function tokenHeaders(token: string) {
+    return { authorization: `Bearer ${token}` }
+}
+
 beforeAll(async () => {
     const config = await createConfiguration()
     config._setCliApiToken('test-token', 'env', false)
     // Initialize the multi-user auth context so the shared token resolves to
     // the bootstrap admin (resolveAuth returns null without this).
-    const store = new Store(':memory:')
+    store = new Store(':memory:')
     const boot = bootstrapMultiUser(store, 'test-token')
     initAuthContext(store, boot.legacyAdminAccountId)
+    sessionId = store.sessions.getOrCreateSession(
+        'session-1', {}, null, 'default', undefined, undefined, undefined, boot.legacyAdminAccountId
+    ).id
+    const owner = store.accounts.create({ username: 'owner', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+    const stranger = store.accounts.create({ username: 'stranger', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+    ownerToken = generateApiToken()
+    strangerToken = generateApiToken()
+    store.apiTokens.create({ accountId: owner.id, name: 'owner', tokenHash: hashApiToken(ownerToken), namespace: 'default' })
+    store.apiTokens.create({ accountId: stranger.id, name: 'stranger', tokenHash: hashApiToken(strangerToken), namespace: 'default' })
+    ownerSessionId = store.sessions.getOrCreateSession(
+        'owner-session', {}, null, 'default', undefined, undefined, undefined, owner.id
+    ).id
+    strangerSessionId = store.sessions.getOrCreateSession(
+        'stranger-session', {}, null, 'default', undefined, undefined, undefined, stranger.id
+    ).id
 })
 
 describe('cli resume routes', () => {
+    it('filters resumable sessions by account ownership and grants', async () => {
+        const app = createApp({
+            listLocalResumableSessions: () => [ownerSessionId, strangerSessionId].map((id) => ({
+                sessionId: id,
+                flavor: 'codex' as const,
+                directory: '/tmp/project',
+                active: false,
+                thinking: false,
+                controlledByUser: false,
+                agentSessionId: `thread-${id}`,
+                updatedAt: 123
+            }))
+        })
+
+        const response = await app.request('/cli/sessions/resumable', { headers: tokenHeaders(ownerToken) })
+
+        expect(response.status).toBe(200)
+        const body = await response.json() as { sessions: Array<{ sessionId: string }> }
+        expect(body.sessions.map((session) => session.sessionId)).toEqual([ownerSessionId])
+    })
+
+    it('rejects same-namespace CLI reads and resume operations without resource access', async () => {
+        const app = createApp({
+            resolveLocalResumeTarget: () => ({
+                type: 'success' as const,
+                target: {
+                    sessionId: ownerSessionId,
+                    flavor: 'codex' as const,
+                    directory: '/tmp/project',
+                    active: false,
+                    thinking: false,
+                    controlledByUser: false,
+                    agentSessionId: 'owner-thread'
+                }
+            })
+        })
+
+        const readResponse = await app.request(`/cli/sessions/${ownerSessionId}`, {
+            headers: tokenHeaders(strangerToken)
+        })
+        const resumeResponse = await app.request(`/cli/sessions/${ownerSessionId}/resume-target`, {
+            headers: tokenHeaders(strangerToken)
+        })
+
+        expect(readResponse.status).toBe(403)
+        expect(resumeResponse.status).toBe(403)
+    })
+
     it('returns local resumable sessions', async () => {
         const app = createApp({
             listLocalResumableSessions: () => [{
-                sessionId: 'session-1',
+                sessionId,
                 flavor: 'codex',
                 directory: '/tmp/project',
                 machineId: 'machine-1',
@@ -52,7 +135,7 @@ describe('cli resume routes', () => {
         expect(response.status).toBe(200)
         expect(await response.json()).toEqual({
             sessions: [{
-                sessionId: 'session-1',
+                sessionId,
                 flavor: 'codex',
                 directory: '/tmp/project',
                 machineId: 'machine-1',
@@ -70,7 +153,7 @@ describe('cli resume routes', () => {
             resolveLocalResumeTarget: () => ({
                 type: 'success',
                 target: {
-                    sessionId: 'session-1',
+                    sessionId,
                     flavor: 'claude',
                     directory: '/tmp/project',
                     machineId: 'machine-1',
@@ -82,14 +165,14 @@ describe('cli resume routes', () => {
             })
         } as never)
 
-        const response = await app.request('/cli/sessions/session-1/resume-target', {
+        const response = await app.request(`/cli/sessions/${sessionId}/resume-target`, {
             headers: authHeaders()
         })
 
         expect(response.status).toBe(200)
         expect(await response.json()).toEqual({
             target: {
-                sessionId: 'session-1',
+                sessionId,
                 flavor: 'claude',
                 directory: '/tmp/project',
                 machineId: 'machine-1',
@@ -110,7 +193,7 @@ describe('cli resume routes', () => {
             })
         } as never)
 
-        const response = await app.request('/cli/sessions/session-1/handoff-local', {
+        const response = await app.request(`/cli/sessions/${sessionId}/handoff-local`, {
             method: 'POST',
             headers: authHeaders()
         })

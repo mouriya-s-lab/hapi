@@ -232,7 +232,7 @@ function createWebApp(options: {
     app.use('/api/*', corsMiddleware)
     app.use('/cli/*', corsMiddleware)
 
-    app.route('/cli', createCliRoutes(options.getSyncEngine))
+    app.route('/cli', createCliRoutes(options.getSyncEngine, options.store))
 
     app.route('/api', createAuthRoutes(options.jwtSecret, options.store))
     app.route('/api', createBindRoutes(options.jwtSecret, options.store))

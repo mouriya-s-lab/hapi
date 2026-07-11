@@ -10,6 +10,7 @@ import type { WebAppEnv } from '../middleware/auth'
 import { createMessagesRoutes } from './messages'
 import { createGitRoutes } from './git'
 import { createPermissionsRoutes } from './permissions'
+import { createSessionsRoutes } from './sessions'
 
 function createFixture() {
     const store = new Store(':memory:')
@@ -41,6 +42,7 @@ function createMessagesApp(
     app.route('/api', createMessagesRoutes(() => fixture.engine, fixture.store))
     app.route('/api', createGitRoutes(() => fixture.engine, fixture.store))
     app.route('/api', createPermissionsRoutes(() => fixture.engine, fixture.store))
+    app.route('/api', createSessionsRoutes(() => fixture.engine, () => fixture.store))
     return app
 }
 
@@ -59,6 +61,18 @@ describe('multi-user HTTP isolation', () => {
             headers: { 'content-type': 'application/json' },
             body: '{}'
         })).status).toBe(403)
+        expect((await strangerApp.request(`/api/sessions/${fixture.session.id}/archive`, { method: 'POST' })).status).toBe(403)
+        expect((await strangerApp.request(`/api/sessions/${fixture.session.id}/model`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ model: 'claude-opus-4' })
+        })).status).toBe(403)
+        expect((await strangerApp.request(`/api/sessions/${fixture.session.id}/resume-model`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ resumeWithSessionModel: true })
+        })).status).toBe(403)
+        expect((await strangerApp.request(`/api/sessions/${fixture.session.id}`, { method: 'DELETE' })).status).toBe(403)
 
         fixture.store.grants.upsert({
             resourceType: 'session',

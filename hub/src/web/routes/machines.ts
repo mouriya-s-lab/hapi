@@ -112,7 +112,7 @@ export function createMachinesRoutes(
         }
 
         const machineId = c.req.param('id')
-        const machine = guardMachine(c, engine, machineId)
+        const machine = guardMachine(c, engine, machineId, true)
         if (machine instanceof Response) {
             return machine
         }
