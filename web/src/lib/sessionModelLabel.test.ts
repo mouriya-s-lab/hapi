@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getSessionModelLabel } from './sessionModelLabel'
+import { formatUsageSnapshotLabel, getSessionModelLabel } from './sessionModelLabel'
 
 describe('getSessionModelLabel', () => {
     it('prefers the explicit session model', () => {
@@ -22,5 +22,14 @@ describe('getSessionModelLabel', () => {
 
     it('returns null when no model is available', () => {
         expect(getSessionModelLabel({})).toBeNull()
+    })
+})
+
+describe('formatUsageSnapshotLabel', () => {
+    it('renders the first normalized progress metric', () => {
+        expect(formatUsageSnapshotLabel({
+            providerId: 'openusage', displayName: 'Claude', plan: 'Max 20x', fetchedAt: '2026-07-12T00:00:00Z',
+            metrics: [{ type: 'progress', label: 'Session', used: 24, limit: 100, unit: 'percent', resetsAt: null }]
+        }, '余 ')).toBe('Claude · Session 余 76%')
     })
 })

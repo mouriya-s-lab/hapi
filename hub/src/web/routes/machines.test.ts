@@ -26,6 +26,20 @@ function createMachine(overrides?: Partial<Machine>): Machine {
 }
 
 describe('machines routes', () => {
+    it('forwards the read-only cc-switch provider list', async () => {
+        const machine = createMachine()
+        const engine = {
+            getMachine: () => machine,
+            getMachineByNamespace: () => machine,
+            listCcSwitchProvidersForMachine: async () => ({ success: true, available: true, providers: [] })
+        } as Partial<SyncEngine>
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => { c.set('namespace', 'default'); await next() })
+        app.route('/api', createMachinesRoutes(() => engine as SyncEngine))
+
+        expect(await (await app.request('/api/machines/machine-1/cc-switch/providers')).json())
+            .toEqual({ success: true, available: true, providers: [] })
+    })
     it('forwards create-directory requests to the selected machine', async () => {
         const machine = createMachine()
         const calls: Array<{ machineId: string; parentPath: string; name: string }> = []

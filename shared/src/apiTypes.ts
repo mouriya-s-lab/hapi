@@ -427,6 +427,23 @@ export type CursorModelsResponse = OpencodeModelsResponse
 
 export type ListCursorModelsResponse = CursorModelsResponse
 
+export type CcSwitchProviderSummary = {
+    id: string
+    name: string
+    category: string | null
+    websiteUrl: string | null
+    isCurrent: boolean
+}
+
+export type ListCcSwitchProvidersResponse = {
+    success: boolean
+    providers?: CcSwitchProviderSummary[]
+    available?: boolean
+    error?: string
+}
+
+export type ValidateCcSwitchProviderResponse = { success: boolean; error?: string }
+
 /** Maps thinking levels to provider-specific values. null = unsupported. */
 export type PiThinkingLevelMap = Partial<Record<string, string | null>>
 

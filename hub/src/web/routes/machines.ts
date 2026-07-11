@@ -216,5 +216,18 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
     })
 
+    app.get('/machines/:id/cc-switch/providers', async (c) => {
+        const engine = getSyncEngine()
+        if (!engine) return c.json({ success: false, error: 'Not connected' }, 503)
+        const machineId = c.req.param('id')
+        const machine = requireMachine(c, engine, machineId)
+        if (machine instanceof Response) return machine
+        try {
+            return c.json(await engine.listCcSwitchProvidersForMachine(machineId))
+        } catch (error) {
+            return c.json({ success: false, error: error instanceof Error ? error.message : 'Failed to list cc-switch providers' }, 500)
+        }
+    })
+
     return app
 }

@@ -27,10 +27,11 @@ import { applyVersionedAck } from './versionedUpdate'
 import { buildSocketIoExtraHeaderOptions } from './hubExtraHeaders'
 import { collectMachineHealth } from '@/utils/machineHealth'
 import { handleForkSpawnSession } from '../../../fork-features/session-fork/cliHandler'
+import { RunnerUsageMonitor } from '../modules/common/usage/runnerUsageMonitor'
 
 type MachineRpcHandlers = {
     spawnSession: (options: SpawnSessionOptions) => Promise<SpawnSessionResult>
-    stopSession: (sessionId: string) => boolean
+    stopSession: (sessionId: string) => Promise<boolean>
     requestShutdown: () => void
 }
 
@@ -90,6 +91,7 @@ export class ApiMachineClient {
     private keepAliveInterval: NodeJS.Timeout | null = null
     private keepAliveStartTimeout: ReturnType<typeof setTimeout> | null = null
     private rpcHandlerManager: RpcHandlerManager
+    private readonly usageMonitor = new RunnerUsageMonitor()
 
     private readonly normalizedWorkspaceRoots: string[] | undefined
 
@@ -297,7 +299,7 @@ export class ApiMachineClient {
 
     setRPCHandlers({ spawnSession, stopSession, requestShutdown }: MachineRpcHandlers): void {
         this.rpcHandlerManager.registerHandler(RPC_METHODS.SpawnHappySession, async (params: any) => {
-            const { directory, sessionId, resumeSessionId, machineId, approvedNewDirectoryCreation, agent, model, effort, modelReasoningEffort, yolo, permissionMode, serviceTier, token, sessionType, worktreeName, claudeLaunch } = params || {}
+            const { directory, sessionId, resumeSessionId, machineId, approvedNewDirectoryCreation, agent, model, effort, modelReasoningEffort, yolo, permissionMode, serviceTier, token, sessionType, worktreeName, claudeLaunch, ccSwitchProviderId } = params || {}
 
             if (!directory) {
                 throw new Error('Directory is required')
@@ -324,7 +326,8 @@ export class ApiMachineClient {
                 token,
                 sessionType,
                 worktreeName,
-                claudeLaunch
+                claudeLaunch,
+                ccSwitchProviderId
             })
 
             switch (result.type) {
@@ -337,13 +340,13 @@ export class ApiMachineClient {
             }
         })
 
-        this.rpcHandlerManager.registerHandler(RPC_METHODS.StopSession, (params: any) => {
+        this.rpcHandlerManager.registerHandler(RPC_METHODS.StopSession, async (params: any) => {
             const { sessionId } = params || {}
             if (!sessionId) {
                 throw new Error('Session ID is required')
             }
 
-            const success = stopSession(sessionId)
+            const success = await stopSession(sessionId)
             if (!success) {
                 throw new Error('Session not found or failed to stop')
             }
@@ -483,12 +486,22 @@ export class ApiMachineClient {
             }
 
             this.startKeepAlive()
+            void this.usageMonitor.connect(async (usage) => {
+                await this.updateMachineMetadata((current) => {
+                    const base = current ?? this.machine.metadata
+                    if (!base) throw new Error('Machine metadata unavailable for usage sync')
+                    return { ...base, usage }
+                })
+            }).catch((error) => {
+                logger.debug('[API MACHINE] Failed to start usage monitor', error)
+            })
         })
 
         this.socket.on('disconnect', () => {
             logger.debug('[API MACHINE] Disconnected from bot')
             this.rpcHandlerManager.onSocketDisconnect()
             this.stopKeepAlive()
+            this.usageMonitor.disconnect()
         })
 
         this.socket.on('rpc-request', async (data: { method: string; params: string }, callback: (response: string) => void) => {

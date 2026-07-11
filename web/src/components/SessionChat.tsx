@@ -43,7 +43,9 @@ import { CursorMigrationBanner } from '@/components/CursorMigrationBanner'
 import { TeamPanel } from '@/components/TeamPanel'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
+import { useCcSwitchProvider } from '@/hooks/mutations/useCcSwitchProvider'
 import { useCodexModels } from '@/hooks/queries/useCodexModels'
+import { useCcSwitchProviders } from '@/hooks/queries/useCcSwitchProviders'
 import { useCursorModels } from '@/hooks/queries/useCursorModels'
 import { useCursorModelsForMachine } from '@/hooks/queries/useCursorModelsForMachine'
 import {
@@ -557,6 +559,16 @@ function SessionChatInner(props: SessionChatProps) {
         enabled: agentFlavor === 'cursor' && props.session.active
     })
     const sessionMachineId = props.session.metadata?.machineId ?? null
+    const ccSwitchProvidersState = useCcSwitchProviders({
+        api: props.api,
+        machineId: sessionMachineId,
+        enabled: agentFlavor === 'claude' && Boolean(sessionMachineId)
+    })
+    const { switchProvider: switchCcSwitchProvider } = useCcSwitchProvider({
+        api: props.api,
+        machineId: sessionMachineId,
+        sessionId: props.session.id
+    })
     const machineCursorModelsState = useCursorModelsForMachine({
         api: props.api,
         machineId: sessionMachineId,
@@ -937,6 +949,25 @@ function SessionChatInner(props: SessionChatProps) {
         }
     }, [setPermissionMode, props.onRefresh, haptic])
 
+    const handleCcSwitchProviderChange = useCallback(async (providerId: string) => {
+        try {
+            const restartedSessionId = await switchCcSwitchProvider(providerId)
+            haptic.notification('success')
+            if (restartedSessionId !== props.session.id) {
+                navigate({
+                    to: '/sessions/$sessionId',
+                    params: { sessionId: restartedSessionId },
+                    replace: true
+                })
+            } else {
+                props.onRefresh()
+            }
+        } catch (e) {
+            haptic.notification('error')
+            console.error('Failed to switch cc-switch provider:', e)
+        }
+    }, [switchCcSwitchProvider, props.onRefresh, props.session.id, haptic, navigate])
+
     const handleCollaborationModeChange = useCallback(async (mode: CodexCollaborationMode) => {
         try {
             await setCollaborationMode(mode)
@@ -1315,6 +1346,13 @@ function SessionChatInner(props: SessionChatProps) {
                                 : undefined
                         }
                         onPermissionModeChange={handlePermissionModeChange}
+                        ccSwitchProviders={agentFlavor === 'claude' && ccSwitchProvidersState.available
+                            ? ccSwitchProvidersState.providers
+                            : undefined}
+                        currentCcSwitchProviderId={props.session.metadata?.ccSwitchProviderId ?? ccSwitchProvidersState.currentProviderId}
+                        onCcSwitchProviderChange={agentFlavor === 'claude' && ccSwitchProvidersState.available && props.session.active && !controlledByUser
+                            ? (providerId) => { void handleCcSwitchProviderChange(providerId) }
+                            : undefined}
                         selectedModelBase={
                             agentFlavor === 'cursor' && cursorPicker?.mode === 'dual'
                                 ? cursorSelectedBaseValue

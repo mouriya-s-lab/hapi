@@ -1025,6 +1025,10 @@ export class SessionCache {
             merged.preferredPermissionMode = oldObj.preferredPermissionMode
             changed = true
         }
+        if (typeof oldObj.ccSwitchProviderId === 'string' && typeof newObj.ccSwitchProviderId !== 'string') {
+            merged.ccSwitchProviderId = oldObj.ccSwitchProviderId
+            changed = true
+        }
 
         return changed ? merged : newMetadata
     }
