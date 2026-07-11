@@ -29,10 +29,12 @@ export function useCcSwitchProvider(args: {
             if (!result.success) {
                 throw new Error(result.error ?? 'Failed to switch cc-switch provider')
             }
-            // 切换成功后重启当前会话,让新进程带上新供应商的 env。
-            // 仅在有活动会话时 resume;无会话(如新建页)只切换配置,下次启动自然生效。
+            // 切换成功后终止并重新打开当前会话,让新进程带上新供应商的 env。
+            // resume 对 active session 是 no-op，必须走完整的 archive/reopen 生命周期。
+            // 无会话(如新建页)只切换配置,下次启动自然生效。
             if (sessionId) {
-                await api.resumeSession(sessionId)
+                await api.archiveSession(sessionId)
+                await api.reopenSession(sessionId)
             }
         },
         onSuccess: async () => {

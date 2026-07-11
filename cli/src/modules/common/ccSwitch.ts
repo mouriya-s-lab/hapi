@@ -237,7 +237,7 @@ type UsageScriptSpec = {
 };
 
 /** 在受限 vm 沙箱里求值脚本,vm 外用 fetch 发请求,再用 extractor 提取结果。 */
-async function runUsageScript(usageScript: UsageScript, apiKey: string): Promise<CcSwitchUsageData> {
+export async function runUsageScript(usageScript: UsageScript, apiKey: string): Promise<CcSwitchUsageData> {
     const code = (usageScript.code ?? '').replace(/\{\{apiKey\}\}/g, apiKey);
     const timeoutMs = Math.max(1, Math.floor(usageScript.timeout ?? DEFAULT_USAGE_TIMEOUT_SECONDS)) * 1000;
 
@@ -266,8 +266,14 @@ async function runUsageScript(usageScript: UsageScript, apiKey: string): Promise
         clearTimeout(timer);
     }
 
-    // extractor 在 vm 上下文里调用,避免它访问外部作用域
-    const result = spec.extractor(json);
+    // extractor 必须继续通过 vm 执行；直接调用从 context 取出的函数不会受 timeout 约束。
+    sandbox.__hapiUsageSpec = spec;
+    sandbox.__hapiUsageResponse = json;
+    const result = vm.runInContext(
+        '__hapiUsageSpec.extractor(__hapiUsageResponse)',
+        context,
+        { timeout: timeoutMs }
+    ) as unknown;
     return normalizeUsageResult(result);
 }
 
