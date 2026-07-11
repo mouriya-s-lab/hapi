@@ -813,7 +813,9 @@ export class SyncEngine {
         if (flavor === 'pi') return metadata.piSessionId ?? null
         if (flavor === 'omp') return metadata.ompSessionId ?? null
 
-        return metadata.claudeSessionId ?? this.recoverClaudeSessionIdFromMessages(session.id, namespace)
+        return metadata.claudeSessionId
+            ?? metadata.pendingClaudeLaunch?.resumeSessionId
+            ?? this.recoverClaudeSessionIdFromMessages(session.id, namespace)
     }
 
     resolveLocalResumeTarget(sessionId: string, namespace: string): LocalResumeTargetResult {
@@ -1193,11 +1195,15 @@ export class SyncEngine {
         let flavor: AgentFlavor
         let resumeToken: string | undefined
         let directory: string
+        let claudeLaunch: ClaudeLaunch | undefined
 
         if (targetResult.type === 'success') {
             flavor = targetResult.target.flavor
             resumeToken = targetResult.target.agentSessionId
             directory = targetResult.target.directory
+            claudeLaunch = session.metadata?.claudeSessionId
+                ? undefined
+                : session.metadata?.pendingClaudeLaunch?.launch
         } else if (
             targetResult.code === 'resume_unavailable'
             && this.canFreshSpawnNeverStartedSession(session, access.sessionId, namespace)
@@ -1249,7 +1255,8 @@ export class SyncEngine {
             resumeToken,
             includeStoredModelParameters ? session.effort ?? undefined : undefined,
             preferredPermissionMode,
-            includeStoredModelParameters ? session.serviceTier ?? undefined : undefined
+            includeStoredModelParameters ? session.serviceTier ?? undefined : undefined,
+            claudeLaunch
         )
 
         if (spawnResult.type !== 'success') {

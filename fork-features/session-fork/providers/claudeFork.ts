@@ -65,7 +65,7 @@ export const claudeForkProvider: ForkProvider = {
             }
             return {
                 providerSessionId: newClaudeSessionId,
-                metadataPatch: { claudeSessionId: newClaudeSessionId },
+                metadataPatch: {},
                 claudeLaunch: { type: 'fresh' }
             }
         }
@@ -78,7 +78,7 @@ export const claudeForkProvider: ForkProvider = {
               })
         return {
             providerSessionId: newClaudeSessionId,
-            metadataPatch: { claudeSessionId: newClaudeSessionId },
+            metadataPatch: {},
             claudeLaunch: { type: 'resume-at', sourceSessionId, providerMessageId }
         }
     }

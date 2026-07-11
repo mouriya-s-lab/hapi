@@ -61,6 +61,7 @@ describe('claudeForkProvider', () => {
             }
         } as any)
         expect(result.providerSessionId).toBeString()
+        expect(result.metadataPatch).toEqual({})
         expect(result.claudeLaunch).toEqual({ type: 'resume-at', sourceSessionId: 'src', providerMessageId: 'provider-42' })
     })
 
@@ -70,6 +71,7 @@ describe('claudeForkProvider', () => {
             sourceCwd: '/w',
             forkPoint: { messageId: 'm-1', tailOffset: 2, isFirstUserTurn: true }
         } as any)
+        expect(result.metadataPatch).toEqual({})
         expect(result.claudeLaunch).toEqual({ type: 'fresh' })
     })
 
