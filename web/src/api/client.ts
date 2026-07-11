@@ -345,6 +345,31 @@ export class ApiClient {
         return await res.blob()
     }
 
+    async getGeneratedFileBlob(sessionId: string, fileId: string, attempt: number = 0, overrideToken?: string | null): Promise<Blob> {
+        const headers = new Headers()
+        const liveToken = this.getToken ? this.getToken() : null
+        const authToken = overrideToken !== undefined
+            ? (overrideToken ?? (liveToken ?? this.token))
+            : (liveToken ?? this.token)
+        if (authToken) {
+            headers.set('authorization', `Bearer ${authToken}`)
+        }
+        const res = await fetch(this.buildUrl(`/api/sessions/${encodeURIComponent(sessionId)}/generated-files/${encodeURIComponent(fileId)}`), {
+            headers
+        })
+        if (res.status === 401 && attempt === 0 && this.onUnauthorized) {
+            const refreshed = await this.onUnauthorized()
+            if (refreshed) {
+                this.token = refreshed
+                return await this.getGeneratedFileBlob(sessionId, fileId, attempt + 1, refreshed)
+            }
+        }
+        if (!res.ok) {
+            throw new ApiError(`HTTP ${res.status}`, res.status, undefined, await res.text().catch(() => undefined))
+        }
+        return await res.blob()
+    }
+
     async readSessionFile(sessionId: string, path: string): Promise<FileReadResponse> {
         const params = new URLSearchParams()
         params.set('path', path)

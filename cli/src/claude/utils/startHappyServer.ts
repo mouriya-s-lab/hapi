@@ -12,6 +12,7 @@ import { logger } from "@/ui/logger";
 import { ApiSessionClient } from "@/api/apiSession";
 import { randomUUID } from "node:crypto";
 import { registerGeneratedMediaFromPath } from "@/modules/common/generatedImages";
+import { registerGeneratedFile } from "@/modules/common/generatedFiles";
 
 type StartHappyServerOptions = {
     emitTitleSummary?: boolean;
@@ -52,6 +53,11 @@ function createHapiMcpServer(client: ApiSessionClient, emitTitleSummary: boolean
     const displayVideoInputSchema: z.ZodTypeAny = z.object({
         path: z.string().describe('Local filesystem path of the video to display inline (mp4 or webm)'),
         title: z.string().optional().describe('Optional display title or filename for the video'),
+    });
+
+    const sendFileInputSchema: z.ZodTypeAny = z.object({
+        path: z.string().describe('Local filesystem path of the file to send to the user'),
+        title: z.string().optional().describe('Optional display filename for the file'),
     });
 
     async function displayInlineMedia(
@@ -176,6 +182,53 @@ function createHapiMcpServer(client: ApiSessionClient, emitTitleSummary: boolean
         }
     });
 
+    mcp.registerTool<any, any>('send_file', {
+        description: 'Send a local file to the current HAPI chat session so the user can download it, like sending a file in an IM app',
+        title: 'Send File',
+        inputSchema: sendFileInputSchema,
+    }, async (args: { path: string; title?: string }) => {
+        logger.debug('[hapiMCP] Send file:', args.path);
+
+        try {
+            const file = await registerGeneratedFile({
+                id: randomUUID(),
+                path: args.path,
+                fileName: args.title
+            });
+
+            client.sendAgentMessage({
+                type: 'generated-file',
+                fileId: file.id,
+                fileName: file.fileName,
+                mimeType: file.mimeType,
+                size: file.size,
+                id: randomUUID()
+            });
+
+            return {
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: `Sent file: ${file.fileName} (${file.size} bytes)`,
+                    },
+                ],
+                isError: false,
+            };
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            logger.debug('[hapiMCP] Failed to send file:', message);
+            return {
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: `Failed to send file: ${message}`,
+                    },
+                ],
+                isError: true,
+            };
+        }
+    });
+
     return mcp;
 }
 
@@ -252,7 +305,7 @@ export async function startHappyServer(client: ApiSessionClient, options: StartH
 
     return {
         url: mcpUrl,
-        toolNames: ['change_title', 'display_image', 'display_video'],
+        toolNames: ['change_title', 'display_image', 'display_video', 'send_file'],
         stop: () => {
             logger.debug('[hapiMCP] Stopping server');
             for (const mcp of mcps.values()) {
