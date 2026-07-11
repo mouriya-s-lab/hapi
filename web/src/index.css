@@ -300,6 +300,21 @@ html:not([data-telegram-app="true"]) body {
     overflow-y: auto;
 }
 
+/*
+ * Desktop: the app is a fixed-viewport flex layout — every route scrolls
+ * inside its own `.app-scroll-y` container, so the document itself must
+ * never grow a scrollbar. Document-level `overflow-y: auto` above exists
+ * only for mobile browsers (#358); on desktop it turns any stray 1px of
+ * body overflow (browser-zoom rounding, extension-injected nodes) into a
+ * second page-level scrollbar next to the chat one.
+ */
+@media (hover: hover) and (pointer: fine) {
+    html:not([data-telegram-app="true"]),
+    html:not([data-telegram-app="true"]) body {
+        overflow-y: hidden;
+    }
+}
+
 body {
     font-size: 1rem;
     background: var(--app-bg);
