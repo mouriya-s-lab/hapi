@@ -15,6 +15,7 @@ export function resolveAgentSessionIdFromMetadata(
     switch (flavor) {
         case 'codex': return metadata.codexSessionId ?? undefined
         case 'gemini': return metadata.geminiSessionId ?? undefined
+        case 'grok': return metadata.grokSessionId ?? undefined
         case 'opencode': return metadata.opencodeSessionId ?? undefined
         case 'cursor': return metadata.cursorSessionId ?? undefined
         case 'kimi': return metadata.kimiSessionId ?? undefined

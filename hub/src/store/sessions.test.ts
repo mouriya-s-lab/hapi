@@ -200,6 +200,7 @@ describe('updateSessionMetadata: protocol resume token preservation', () => {
         ['claudeSessionId', 'claude-thread-x'],
         ['codexSessionId', 'codex-thread-x'],
         ['geminiSessionId', 'gemini-thread-x'],
+        ['grokSessionId', 'grok-thread-x'],
         ['opencodeSessionId', 'opencode-thread-x'],
         ['cursorSessionId', 'cursor-thread-x'],
         ['kimiSessionId', 'kimi-thread-x']

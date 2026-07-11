@@ -113,6 +113,9 @@ export function getModelOptionsForFlavor(
     if (flavor === 'gemini') {
         return getGeminiModelOptions(currentModel)
     }
+    if (flavor === 'grok') {
+        return withCurrentModelOption([], currentModel)
+    }
     // OpenCode discovers models dynamically via the listOpencodeModels RPC. Until
     // those options arrive, render an empty list rather than the Claude fallback —
     // the latter would surface unrelated Claude models in an OpenCode session.
@@ -166,6 +169,9 @@ export function getNextModelForFlavor(
     }
     if (flavor === 'gemini') {
         return getNextGeminiModel(currentModel)
+    }
+    if (flavor === 'grok') {
+        return normalizeCurrentModel(currentModel)
     }
     // OpenCode discovers models dynamically via the listOpencodeModels RPC. Until
     // those options arrive, pressing the Ctrl/Cmd+M shortcut must not fall through

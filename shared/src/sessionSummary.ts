@@ -124,6 +124,7 @@ export function toSessionSummary(session: Session): SessionSummary {
         agentSessionId: session.metadata.codexSessionId
             ?? session.metadata.claudeSessionId
             ?? session.metadata.geminiSessionId
+            ?? session.metadata.grokSessionId
             ?? session.metadata.opencodeSessionId
             ?? session.metadata.cursorSessionId
             ?? session.metadata.kimiSessionId

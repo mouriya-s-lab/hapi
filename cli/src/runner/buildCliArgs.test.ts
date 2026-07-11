@@ -64,6 +64,19 @@ describe('buildCliArgs', () => {
         expect(args).toContain('ollama/exaone:4.5-33b-q8')
     })
 
+    it('maps Grok runner sessions to the grok command with model and effort', () => {
+        const args = buildCliArgs('grok', {
+            directory: '/tmp',
+            model: 'grok-4.5',
+            modelReasoningEffort: 'medium',
+            permissionMode: 'default',
+        })
+        expect(args[0]).toBe('grok')
+        expect(args).toContain('grok-4.5')
+        expect(args).toContain('medium')
+        expect(args).toContain('default')
+    })
+
 
 
     it('passes --model-reasoning-effort through for opencode', () => {

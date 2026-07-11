@@ -7,6 +7,7 @@ import type {
     ClaudePermissionMode,
     CodexPermissionMode,
     CursorPermissionMode,
+    GrokPermissionMode,
     KimiPermissionMode,
     OmpPermissionMode,
     OpencodePermissionMode
@@ -115,6 +116,20 @@ async function dispatchLocalResume(target: LocalResumeTarget): Promise<void> {
             resumeSessionId: base.resumeSessionId,
             startedBy: base.startedBy,
             permissionMode: base.permissionMode as OpencodePermissionMode | undefined,
+            startingMode: 'local',
+            model: target.model ?? undefined
+        })
+        return
+    }
+
+    if (target.flavor === 'grok') {
+        const { runGrok } = await import('@/grok/runGrok')
+        await runGrok({
+            existingSessionId: base.existingSessionId,
+            workingDirectory: base.workingDirectory,
+            resumeSessionId: base.resumeSessionId,
+            startedBy: base.startedBy,
+            permissionMode: base.permissionMode as GrokPermissionMode | undefined,
             startingMode: 'local',
             model: target.model ?? undefined
         })

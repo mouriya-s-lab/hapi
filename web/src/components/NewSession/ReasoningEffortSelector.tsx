@@ -4,15 +4,17 @@ import { useTranslation } from '@/lib/use-translation'
 
 export function ReasoningEffortSelector(props: {
     agent: AgentType
+    model?: string
     value: CodexReasoningEffort
     isDisabled: boolean
     onChange: (value: CodexReasoningEffort) => void
 }) {
     const { t } = useTranslation()
 
-    if (props.agent !== 'codex' && props.agent !== 'opencode') {
+    if (props.agent !== 'codex' && props.agent !== 'grok' && props.agent !== 'opencode') {
         return null
     }
+    if (props.agent === 'grok' && props.model !== 'grok-4.5') return null
 
     return (
         <div className="flex flex-col gap-1.5 px-3 py-3">
@@ -26,7 +28,10 @@ export function ReasoningEffortSelector(props: {
                 disabled={props.isDisabled}
                 className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--app-divider)] bg-[var(--app-bg)] text-[var(--app-text)] focus:outline-none focus:ring-2 focus:ring-[var(--app-link)] disabled:opacity-50"
             >
-                {CODEX_REASONING_EFFORT_OPTIONS.filter((option) => props.agent === 'opencode' ? option.value !== 'xhigh' : option.value !== 'max').map((option) => (
+                {CODEX_REASONING_EFFORT_OPTIONS.filter((option) => {
+                    if (props.agent === 'grok') return ['default', 'low', 'medium', 'high'].includes(option.value)
+                    return props.agent === 'opencode' ? option.value !== 'xhigh' : option.value !== 'max'
+                }).map((option) => (
                     <option key={option.value} value={option.value}>
                         {option.label}
                     </option>

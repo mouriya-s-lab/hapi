@@ -356,6 +356,9 @@ export function NewSession(props: {
         }
     }, [agent, opencodeSelectedModel, opencodeModelsState.currentModelId, opencodeModelsState.availableModels])
     useEffect(() => {
+        if (agent === 'grok' && model !== 'grok-4.5') setModelReasoningEffort('default')
+    }, [agent, model])
+    useEffect(() => {
         // Reset selection when agent / machine / directory changes; new probe = new defaults.
         setOpencodeSelectedModel(null)
     }, [agent, machineId, deferredDirectory])
@@ -560,7 +563,7 @@ export function NewSession(props: {
                 ? (opencodeSelectedModel ?? undefined)
                 : (model !== 'auto' ? model : undefined)
             const resolvedEffort = agent === 'claude' && effort !== 'auto' ? effort : undefined
-            const resolvedModelReasoningEffort = (agent === 'codex' || agent === 'opencode') && modelReasoningEffort !== 'default'
+            const resolvedModelReasoningEffort = (agent === 'codex' || agent === 'grok' || agent === 'opencode') && modelReasoningEffort !== 'default'
                 ? modelReasoningEffort
                 : undefined
             const result = await spawnSession({
@@ -718,6 +721,7 @@ export function NewSession(props: {
             />
             <ReasoningEffortSelector
                 agent={agent}
+                model={model}
                 value={modelReasoningEffort}
                 isDisabled={isFormDisabled}
                 onChange={setModelReasoningEffort}

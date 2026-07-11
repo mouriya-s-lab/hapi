@@ -858,6 +858,7 @@ export class SyncEngine {
         const flavor = this.resolveFlavor(session)
         if (flavor === 'codex') return metadata.codexSessionId ?? null
         if (flavor === 'gemini') return metadata.geminiSessionId ?? null
+        if (flavor === 'grok') return metadata.grokSessionId ?? null
         if (flavor === 'opencode') return metadata.opencodeSessionId ?? null
         if (flavor === 'cursor') return metadata.cursorSessionId ?? null
         if (flavor === 'kimi') return metadata.kimiSessionId ?? null
@@ -1577,6 +1578,7 @@ export class SyncEngine {
         return (prev?.codexSessionId ?? null) === (next.codexSessionId ?? null)
             && (prev?.claudeSessionId ?? null) === (next.claudeSessionId ?? null)
             && (prev?.geminiSessionId ?? null) === (next.geminiSessionId ?? null)
+            && (prev?.grokSessionId ?? null) === (next.grokSessionId ?? null)
             && (prev?.opencodeSessionId ?? null) === (next.opencodeSessionId ?? null)
             && (prev?.cursorSessionId ?? null) === (next.cursorSessionId ?? null)
             && (prev?.piSessionId ?? null) === (next.piSessionId ?? null)

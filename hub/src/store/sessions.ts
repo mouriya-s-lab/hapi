@@ -56,6 +56,7 @@ const ROUTING_FIELDS = ['flavor', 'machineId'] as const
 const SIMPLE_RESUME_TOKENS = [
     'codexSessionId',
     'geminiSessionId',
+    'grokSessionId',
     'opencodeSessionId',
     'cursorSessionId',
     'kimiSessionId'

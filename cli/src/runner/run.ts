@@ -1092,6 +1092,8 @@ export function buildCliArgs(
       ? 'cursor'
       : agent === 'kimi'
         ? 'kimi'
+        : agent === 'grok'
+          ? 'grok'
         : agent === 'opencode'
           ? 'opencode'
           : agent === 'pi'
@@ -1126,7 +1128,7 @@ export function buildCliArgs(
   if (options.effort && (agent === 'claude' || agent === 'pi')) {
     args.push('--effort', options.effort);
   }
-  if (options.modelReasoningEffort && (agent === 'codex' || agent === 'opencode')) {
+  if (options.modelReasoningEffort && (agent === 'codex' || agent === 'grok' || agent === 'opencode')) {
     args.push('--model-reasoning-effort', options.modelReasoningEffort);
   }
   if (options.serviceTier && agent === 'codex') {
