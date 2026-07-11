@@ -126,6 +126,19 @@ function forkTitle(sourceTitle: string): string {
     return `f${randomInt(1, 10)}: ${sourceTitle}`
 }
 
+function sourceSessionTitle(source: ForkSourceSession): string {
+    const name = source.metadata?.name
+    if (typeof name === 'string' && name.length > 0) return name
+
+    const summary = source.metadata?.summary
+    if (summary !== null && typeof summary === 'object' && 'text' in summary) {
+        const text = (summary as { text?: unknown }).text
+        if (typeof text === 'string' && text.length > 0) return text
+    }
+
+    return 'Untitled'
+}
+
 /**
  * Resolve REST-body `forkPoint.messageId` against the source session:
  *   - message id belongs to session AND role === 'user'   → resolved
@@ -267,15 +280,11 @@ export async function forkSession(args: {
     // PATCH /sessions/:id rename), not `title` — write `name` so the UI
     // inherits the source title and adds a short random fork prefix so sibling
     // forks stay visually distinct without replacing the source context.
-    const sourceName =
-        typeof src.metadata?.name === 'string' && src.metadata.name.length > 0
-            ? src.metadata.name
-            : 'Untitled'
     deps.updateMetadata(newSessionId, {
         ...forkResult.metadataPatch,
         forkedFrom: srcSessionId,
         forkedAt: Date.now(),
-        name: forkTitle(sourceName),
+        name: forkTitle(sourceSessionTitle(src)),
         ...(resolvedForkPoint ? { forkedFromMessageId: resolvedForkPoint.messageId } : {})
     })
 

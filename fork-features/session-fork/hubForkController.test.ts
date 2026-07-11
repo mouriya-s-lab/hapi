@@ -149,7 +149,24 @@ describe('forkSession', () => {
         await expect(forkSession({ srcSessionId: 'src', deps })).rejects.toThrow('write fail')
     })
 
-    it('prefixes the inherited fallback title when source name is missing', async () => {
+    it('inherits the generated summary when the source has no explicit name', async () => {
+        const captured: any[] = []
+        const deps = makeDeps({
+            captured,
+            source: {
+                metadata: {
+                    flavor: 'claude',
+                    claudeSessionId: 'c',
+                    summary: { text: 'Generated title', updatedAt: 1 }
+                } as any
+            }
+        })
+        await forkSession({ srcSessionId: 'src', deps })
+        const updateCall = captured.find(c => c[0] === 'updateMetadata')!
+        expect(updateCall[2].name).toMatch(/^f[1-9]: Generated title$/)
+    })
+
+    it('uses Untitled only when the source has neither a name nor a summary', async () => {
         const captured: any[] = []
         const deps = makeDeps({
             captured,
