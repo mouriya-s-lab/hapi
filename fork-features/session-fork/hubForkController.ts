@@ -1,6 +1,7 @@
 import { getForkCapability, isForkCapableFlavor } from './forkCapabilities'
 import type { ClaudeLaunch } from '../../shared/src/types'
 import type { ForkPoint } from './rpcPayloads'
+import { randomInt } from 'node:crypto'
 
 export class HttpError extends Error {
     constructor(public status: number, message: string) {
@@ -119,6 +120,10 @@ export interface ResolvedForkPoint {
     /** Target message seq — hub-DB `copyMessages` uses this as `upToSeq`. */
     targetSeq: number
     isFirstUserTurn: boolean
+}
+
+function forkTitle(sourceTitle: string): string {
+    return `f${randomInt(1, 10)}: ${sourceTitle}`
 }
 
 /**
@@ -260,7 +265,8 @@ export async function forkSession(args: {
     // spawn flow hasn't populated it yet from the cli session-add event.
     // hapi's user-facing session title lives in MetadataSchema.name (set by
     // PATCH /sessions/:id rename), not `title` — write `name` so the UI
-    // surfaces "<source> (fork)" in the list.
+    // inherits the source title and adds a short random fork prefix so sibling
+    // forks stay visually distinct without replacing the source context.
     const sourceName =
         typeof src.metadata?.name === 'string' && src.metadata.name.length > 0
             ? src.metadata.name
@@ -269,7 +275,7 @@ export async function forkSession(args: {
         ...forkResult.metadataPatch,
         forkedFrom: srcSessionId,
         forkedAt: Date.now(),
-        name: `${sourceName} (fork)`,
+        name: forkTitle(sourceName),
         ...(resolvedForkPoint ? { forkedFromMessageId: resolvedForkPoint.messageId } : {})
     })
 

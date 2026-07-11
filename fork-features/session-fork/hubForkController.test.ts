@@ -99,7 +99,7 @@ describe('forkSession', () => {
         expect(updateCall[2].forkedFrom).toBe('src')
         expect(typeof updateCall[2].forkedAt).toBe('number')
         expect(updateCall[2].claudeSessionId).toBe('new-prov-id')
-        expect(updateCall[2].name).toBe('Hello (fork)')
+        expect(updateCall[2].name).toMatch(/^f[1-9]: Hello$/)
     })
 
     it('returns 404 when source missing', async () => {
@@ -149,7 +149,7 @@ describe('forkSession', () => {
         await expect(forkSession({ srcSessionId: 'src', deps })).rejects.toThrow('write fail')
     })
 
-    it('uses "Untitled" suffix when source name missing', async () => {
+    it('prefixes the inherited fallback title when source name is missing', async () => {
         const captured: any[] = []
         const deps = makeDeps({
             captured,
@@ -157,7 +157,18 @@ describe('forkSession', () => {
         })
         await forkSession({ srcSessionId: 'src', deps })
         const updateCall = captured.find(c => c[0] === 'updateMetadata')!
-        expect(updateCall[2].name).toBe('Untitled (fork)')
+        expect(updateCall[2].name).toMatch(/^f[1-9]: Untitled$/)
+    })
+
+    it('inherits an existing fork title instead of replacing it', async () => {
+        const captured: any[] = []
+        const deps = makeDeps({
+            captured,
+            source: { metadata: { flavor: 'claude', claudeSessionId: 'c', name: 'f4: Hello' } as any }
+        })
+        await forkSession({ srcSessionId: 'src', deps })
+        const updateCall = captured.find(c => c[0] === 'updateMetadata')!
+        expect(updateCall[2].name).toMatch(/^f[1-9]: f4: Hello$/)
     })
 
     it('rejects with HttpError instances', async () => {
