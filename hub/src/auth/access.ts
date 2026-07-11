@@ -55,4 +55,24 @@ export function canOperate(level: AccessLevel): boolean {
     return meetsAccess(level, 'operator')
 }
 
+export function listReadableAccountIds(store: Store, resourceType: ResourceType, resourceId: string): Set<number> {
+    const ownerAccountId = resourceType === 'machine'
+        ? store.machines.getMachine(resourceId)?.ownerAccountId ?? null
+        : store.sessions.getSession(resourceId)?.ownerAccountId ?? null
+    const accountIds = new Set<number>()
+    if (ownerAccountId !== null) {
+        accountIds.add(ownerAccountId)
+    }
+    for (const grant of store.grants.listForResource(resourceType, resourceId)) {
+        accountIds.add(grant.granteeAccountId)
+    }
+    return accountIds
+}
+
+export function listActiveAdminAccountIds(store: Store): number[] {
+    return store.accounts.list()
+        .filter((account) => account.role === 'admin' && account.disabledAt === null)
+        .map((account) => account.id)
+}
+
 export type { GrantRole }

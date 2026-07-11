@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import type { Session } from '../sync/syncEngine'
 import { PushNotificationChannel } from './pushNotificationChannel'
 import type { PushPayload } from './pushService'
+import { Store } from '../store'
 
 function createSession(overrides: Partial<Session> = {}): Session {
     return {
@@ -16,6 +17,7 @@ function createSession(overrides: Partial<Session> = {}): Session {
 
 describe('PushNotificationChannel', () => {
     it('sends task notifications to visible web clients before falling back to push', async () => {
+        const store = new Store(':memory:')
         const pushed: Array<{ namespace: string; payload: PushPayload }> = []
         const toasts: unknown[] = []
         const channel = new PushNotificationChannel(
@@ -33,7 +35,8 @@ describe('PushNotificationChannel', () => {
             {
                 hasVisibleConnection: () => true
             } as never,
-            ''
+            '',
+            store
         )
 
         await channel.sendTaskNotification(createSession(), {
@@ -46,6 +49,7 @@ describe('PushNotificationChannel', () => {
     })
 
     it('does not reuse one replacement tag for all task notifications in a session', async () => {
+        const store = new Store(':memory:')
         const pushed: Array<{ namespace: string; payload: PushPayload }> = []
         const channel = new PushNotificationChannel(
             {
@@ -59,7 +63,8 @@ describe('PushNotificationChannel', () => {
             {
                 hasVisibleConnection: () => false
             } as never,
-            ''
+            '',
+            store
         )
 
         await channel.sendTaskNotification(createSession(), {

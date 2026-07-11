@@ -8,6 +8,7 @@ type DbUserRow = {
     platform_user_id: string
     namespace: string
     created_at: number
+    account_id: number | null
 }
 
 function toStoredUser(row: DbUserRow): StoredUser {
@@ -16,7 +17,8 @@ function toStoredUser(row: DbUserRow): StoredUser {
         platform: row.platform,
         platformUserId: row.platform_user_id,
         namespace: row.namespace,
-        createdAt: row.created_at
+        createdAt: row.created_at,
+        accountId: row.account_id
     }
 }
 
@@ -49,20 +51,24 @@ export function addUser(
     db: Database,
     platform: string,
     platformUserId: string,
-    namespace: string
+    namespace: string,
+    accountId: number | null
 ): StoredUser {
     const now = Date.now()
     db.prepare(`
-        INSERT OR IGNORE INTO users (
-            platform, platform_user_id, namespace, created_at
+        INSERT INTO users (
+            platform, platform_user_id, namespace, created_at, account_id
         ) VALUES (
-            @platform, @platform_user_id, @namespace, @created_at
+            @platform, @platform_user_id, @namespace, @created_at, @account_id
         )
+        ON CONFLICT(platform, platform_user_id)
+        DO UPDATE SET namespace = excluded.namespace, account_id = excluded.account_id
     `).run({
         platform,
         platform_user_id: platformUserId,
         namespace,
-        created_at: now
+        created_at: now,
+        account_id: accountId
     })
 
     const row = getUser(db, platform, platformUserId)

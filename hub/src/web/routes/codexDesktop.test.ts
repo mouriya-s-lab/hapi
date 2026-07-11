@@ -90,10 +90,12 @@ function createImportSyncEngine(store: Store, machines: Machine[]): SyncEngine {
     } as unknown as SyncEngine
 }
 
-function createRoutesApp(namespace: string): Hono<WebAppEnv> {
+function createRoutesApp(namespace: string, role: 'admin' | 'user' = 'admin'): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
     app.use('*', async (c, next) => {
         c.set('namespace', namespace)
+        c.set('accountId', 1)
+        c.set('role', role)
         await next()
     })
     app.route('/api', createCodexDesktopRoutes({
@@ -110,6 +112,15 @@ describe('Codex Desktop import routes', () => {
         } else {
             process.env.CODEX_HOME = originalCodexHome
         }
+    })
+
+    it('rejects local Codex Desktop management for non-admin accounts', async () => {
+        const response = await createRoutesApp('default', 'user').request('/api/codex/sessions')
+        expect(response.status).toBe(403)
+        expect(await response.json()).toEqual({
+            success: false,
+            error: 'Codex Desktop management requires admin access'
+        })
     })
 
     it('imports normal response_item chat messages', async () => {

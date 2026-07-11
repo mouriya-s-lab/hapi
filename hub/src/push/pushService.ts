@@ -36,8 +36,9 @@ export class PushService {
         webPush.setVapidDetails(this.subject, this.vapidKeys.publicKey, this.vapidKeys.privateKey)
     }
 
-    async sendToNamespace(namespace: string, payload: PushPayload): Promise<void> {
+    async sendToNamespace(namespace: string, payload: PushPayload, allowedAccountIds: ReadonlySet<number>): Promise<void> {
         const subscriptions = this.store.push.getPushSubscriptionsByNamespace(namespace)
+            .filter((subscription) => subscription.accountId !== null && allowedAccountIds.has(subscription.accountId))
         if (subscriptions.length === 0) {
             return
         }

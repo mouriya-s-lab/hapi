@@ -5,11 +5,12 @@ import type { Session, SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import { createAuthMiddleware } from '../middleware/auth'
 import { createGitRoutes } from './git'
+import { Store } from '../../store'
 
 const JWT_SECRET = new TextEncoder().encode('generated-media-route-test')
 
 async function authHeaders(namespace: string): Promise<{ authorization: string }> {
-    const token = await new SignJWT({ uid: 1, ns: namespace })
+    const token = await new SignJWT({ uid: 1, aid: 1, role: 'admin', ns: namespace })
         .setProtectedHeader({ alg: 'HS256' })
         .setIssuedAt()
         .setExpirationTime('1h')
@@ -18,19 +19,23 @@ async function authHeaders(namespace: string): Promise<{ authorization: string }
 }
 
 function buildApp(engine: Partial<SyncEngine>): Hono<WebAppEnv> {
+    const store = new Store(':memory:')
     const app = new Hono<WebAppEnv>()
     app.use('*', async (c, next) => {
         c.set('namespace', 'default')
+        c.set('accountId', 1)
+        c.set('role', 'admin')
         await next()
     })
-    app.route('/api', createGitRoutes(() => engine as SyncEngine))
+    app.route('/api', createGitRoutes(() => engine as SyncEngine, store))
     return app
 }
 
 function buildAuthenticatedApp(engine: Partial<SyncEngine>): Hono<WebAppEnv> {
+    const store = new Store(':memory:')
     const app = new Hono<WebAppEnv>()
     app.use('*', createAuthMiddleware(JWT_SECRET))
-    app.route('/api', createGitRoutes(() => engine as SyncEngine))
+    app.route('/api', createGitRoutes(() => engine as SyncEngine, store))
     return app
 }
 

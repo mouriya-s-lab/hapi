@@ -1,10 +1,11 @@
 import { Hono } from 'hono'
 import { MessagesQuerySchema, SendMessageRequestSchema } from '@hapi/protocol'
+import type { Store } from '../../store'
 import type { SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import { requireSessionFromParam, requireSyncEngine } from './guards'
 
-export function createMessagesRoutes(getSyncEngine: () => SyncEngine | null): Hono<WebAppEnv> {
+export function createMessagesRoutes(getSyncEngine: () => SyncEngine | null, store: Store): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
 
     app.get('/sessions/:id/messages', async (c) => {
@@ -13,7 +14,7 @@ export function createMessagesRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = requireSessionFromParam(c, engine, { store })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -37,7 +38,7 @@ export function createMessagesRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = requireSessionFromParam(c, engine, { store, requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -54,7 +55,7 @@ export function createMessagesRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true, store, requireOperate: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
