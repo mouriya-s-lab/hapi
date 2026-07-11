@@ -6,6 +6,7 @@ import { EventPublisher } from './eventPublisher'
 import { applyTodoMessageContent, TodosSchema } from './todos'
 import type { TodoItem } from './todos'
 import { extractBackgroundTaskDelta } from './backgroundTasks'
+import { listReadableAccountIds } from '../auth/access'
 
 const QUEUED_MESSAGE_THINKING_GRACE_MS = 15_000
 // tiann/hapi#919: metadata writers (renameSession, clearSessionArchiveMetadata,
@@ -817,6 +818,7 @@ export class SessionCache {
             throw new Error('Cannot delete active session')
         }
 
+        const audience = listReadableAccountIds(this.store, 'session', sessionId)
         const deleted = this.store.sessions.deleteSession(sessionId, session.namespace)
         if (!deleted) {
             throw new Error('Failed to delete session')
@@ -826,8 +828,7 @@ export class SessionCache {
         this.lastBroadcastAtBySessionId.delete(sessionId)
         this.todoBackfillAttemptedSessionIds.delete(sessionId)
         this.pendingThinkingUntilBySessionId.delete(sessionId)
-
-        this.publisher.emit({ type: 'session-removed', sessionId, namespace: session.namespace })
+        this.publisher.emit({ type: 'session-removed', sessionId, namespace: session.namespace }, audience)
     }
 
     async mergeSessions(oldSessionId: string, newSessionId: string, namespace: string): Promise<void> {
@@ -1000,14 +1001,16 @@ export class SessionCache {
         }
 
         if (options.deleteOldSession) {
+            const existed = this.sessions.has(oldSessionId)
+            const audience = listReadableAccountIds(this.store, 'session', oldSessionId)
             const deleted = this.store.sessions.deleteSession(oldSessionId, namespace)
             if (!deleted) {
                 throw new Error('Failed to delete old session during merge')
             }
 
-            const existed = this.sessions.delete(oldSessionId)
+            this.sessions.delete(oldSessionId)
             if (existed) {
-                this.publisher.emit({ type: 'session-removed', sessionId: oldSessionId, namespace })
+                this.publisher.emit({ type: 'session-removed', sessionId: oldSessionId, namespace }, audience)
             }
             this.lastBroadcastAtBySessionId.delete(oldSessionId)
             this.todoBackfillAttemptedSessionIds.delete(oldSessionId)

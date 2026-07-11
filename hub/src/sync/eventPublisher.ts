@@ -17,7 +17,7 @@ export class EventPublisher {
         return () => this.listeners.delete(listener)
     }
 
-    emit(event: SyncEvent): void {
+    emit(event: SyncEvent, audienceOverride?: Set<number>): void {
         const namespace = this.resolveNamespace(event)
         const enrichedEvent = namespace ? { ...event, namespace } : event
 
@@ -29,6 +29,6 @@ export class EventPublisher {
             }
         }
 
-        this.sseManager.broadcast(enrichedEvent)
+        this.sseManager.broadcast(enrichedEvent, audienceOverride)
     }
 }

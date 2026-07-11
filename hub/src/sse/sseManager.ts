@@ -27,8 +27,9 @@ function resolveEventResource(event: SyncEvent): EventResource {
     switch (event.type) {
         case 'heartbeat':
         case 'connection-changed':
-        case 'session-removed':
             return null
+        case 'session-removed':
+            return { type: 'session', id: event.sessionId }
         case 'machine-updated':
             return { type: 'machine', id: event.machineId }
         case 'toast':
@@ -139,8 +140,8 @@ export class SSEManager {
         return successCount
     }
 
-    broadcast(event: SyncEvent): void {
-        const canAccess = this.buildAccessCheck(event)
+    broadcast(event: SyncEvent, audienceOverride?: Set<number>): void {
+        const canAccess = this.buildAccessCheck(event, audienceOverride)
         for (const connection of this.connections.values()) {
             if (!this.shouldSend(connection, event)) {
                 continue
@@ -163,12 +164,12 @@ export class SSEManager {
         this.connections.clear()
     }
 
-    private buildAccessCheck(event: SyncEvent): (connection: SSEConnection) => boolean {
+    private buildAccessCheck(event: SyncEvent, audienceOverride?: Set<number>): (connection: SSEConnection) => boolean {
         const resource = resolveEventResource(event)
         if (!resource) {
             return () => true
         }
-        let audience: Set<number> | null = null
+        let audience: Set<number> | null = audienceOverride ?? null
         return (connection) => {
             if (connection.role === 'admin') {
                 return true

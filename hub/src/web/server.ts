@@ -11,6 +11,7 @@ import { createQwenProxyWebSocketHandler } from './qwenProxyHandler'
 import { decodeVoiceSystemPromptParam } from '../voiceSystemPromptParam'
 import type { SyncEngine } from '../sync/syncEngine'
 import { createAuthMiddleware, type WebAppEnv } from './middleware/auth'
+import { canOperate, resolveAccessLevel } from '../auth/access'
 import { createAuthRoutes } from './routes/auth'
 import { createBindRoutes } from './routes/bind'
 import { createAccountRoutes } from './routes/accounts'
@@ -261,6 +262,17 @@ function createWebApp(options: {
         const engine = options.getSyncEngine()
         if (!engine) return null
         return buildForkDeps({ store: options.store, syncEngine: engine, namespace })
+    }, (sessionId, accountId, role) => {
+        const session = options.store.sessions.getSession(sessionId)
+        if (!session) return false
+        return canOperate(resolveAccessLevel({
+            store: options.store,
+            accountId,
+            role,
+            resourceType: 'session',
+            resourceId: sessionId,
+            ownerAccountId: session.ownerAccountId
+        }))
     })
 
     // Skip static serving in relay mode, show helpful message on root

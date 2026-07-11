@@ -5,7 +5,7 @@ import { getAllForkCapabilities } from './forkCapabilities'
 
 export type ForkSyncEngineLike = ForkDeps
 
-type StatusCode = 200 | 400 | 404 | 409 | 500 | 502 | 503
+type StatusCode = 200 | 400 | 403 | 404 | 409 | 500 | 502 | 503
 
 const ForkRequestBodySchema = z.object({
     forkPoint: z.object({
@@ -21,7 +21,8 @@ const ForkRequestBodySchema = z.object({
  */
 export function mountForkRoutes(
     app: Hono<any>,
-    getDeps: (namespace: string) => ForkSyncEngineLike | null
+    getDeps: (namespace: string) => ForkSyncEngineLike | null,
+    canOperateSession: (sessionId: string, accountId: number, role: 'admin' | 'user') => boolean
 ): void {
     app.get('/api/flavors/capabilities', (c) => {
         return c.json({ capabilities: getAllForkCapabilities() })
@@ -34,6 +35,11 @@ export function mountForkRoutes(
             return c.json({ error: 'sync engine unavailable' }, 503 as StatusCode)
         }
         const srcSessionId = c.req.param('id')
+        const accountId = c.get('accountId' as never) as number
+        const role = c.get('role' as never) as 'admin' | 'user'
+        if (!canOperateSession(srcSessionId, accountId, role)) {
+            return c.json({ error: 'Insufficient permissions' }, 403 as StatusCode)
+        }
 
         // Empty body means the existing HEAD-fork operation. Any non-empty
         // body is an explicit contract boundary: malformed JSON or an invalid

@@ -75,6 +75,28 @@ describe('SSEManager namespace filtering', () => {
         expect(received.map((entry) => entry.id).sort()).toEqual(['alpha', 'beta'])
     })
 
+    it('sends session removal only to admins and accounts that could read the session', () => {
+        const manager = new SSEManager(0, new VisibilityTracker(), {
+            listReadableAccountIds: () => new Set([1])
+        })
+        const received: string[] = []
+        for (const [id, accountId, role] of [
+            ['owner', 1, 'user'],
+            ['stranger', 2, 'user'],
+            ['admin', 3, 'admin']
+        ] as const) {
+            manager.subscribe({
+                id, namespace: 'alpha', accountId, role, all: true,
+                send: () => { received.push(id) },
+                sendHeartbeat: () => {}
+            })
+        }
+
+        manager.broadcast({ type: 'session-removed', sessionId: 's1', namespace: 'alpha' })
+
+        expect(received.sort()).toEqual(['admin', 'owner'])
+    })
+
     it('sends toast only to visible connections in a namespace', async () => {
         const manager = new SSEManager(0, new VisibilityTracker(), accessDeps)
         const received: Array<{ id: string; event: SyncEvent }> = []
