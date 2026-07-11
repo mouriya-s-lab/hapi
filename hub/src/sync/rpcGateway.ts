@@ -128,6 +128,10 @@ export class RpcGateway {
         await this.sessionRpc(sessionId, RPC_METHODS.KillSession, {})
     }
 
+    async stopSessionOnMachine(machineId: string, sessionId: string): Promise<void> {
+        await this.machineRpc(machineId, RPC_METHODS.StopSession, { sessionId })
+    }
+
     async handoffSessionToLocal(sessionId: string): Promise<void> {
         await this.sessionRpc(sessionId, RPC_METHODS.HandoffLocal, {})
     }

@@ -15,19 +15,16 @@ function createWrapper() {
 }
 
 describe('useCcSwitchProvider', () => {
-    it('restarts an active session through archive then reopen after switching', async () => {
+    it('restarts an active session through the ordered restart endpoint after switching', async () => {
         const calls: string[] = []
         const api = {
             switchMachineCcSwitchProvider: vi.fn(async () => {
                 calls.push('switch')
                 return { success: true }
             }),
-            archiveSession: vi.fn(async () => {
-                calls.push('archive')
-            }),
-            reopenSession: vi.fn(async () => {
-                calls.push('reopen')
-                return { ok: true, sessionId: 'session-1', resumed: true }
+            restartSession: vi.fn(async () => {
+                calls.push('restart')
+                return 'session-1'
             }),
         } as unknown as ApiClient
 
@@ -41,9 +38,8 @@ describe('useCcSwitchProvider', () => {
             await result.current.switchProvider('provider-1')
         })
 
-        expect(calls).toEqual(['switch', 'archive', 'reopen'])
+        expect(calls).toEqual(['switch', 'restart'])
         expect(api.switchMachineCcSwitchProvider).toHaveBeenCalledWith('machine-1', 'provider-1')
-        expect(api.archiveSession).toHaveBeenCalledWith('session-1')
-        expect(api.reopenSession).toHaveBeenCalledWith('session-1')
+        expect(api.restartSession).toHaveBeenCalledWith('session-1')
     })
 })

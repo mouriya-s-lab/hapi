@@ -145,10 +145,11 @@ export function switchCcSwitchProvider(providerId: string): SwitchCcSwitchProvid
         const tx = db.transaction(() => {
             db!.query("UPDATE providers SET is_current = 0 WHERE app_type = ?").run(CLAUDE_APP_TYPE);
             db!.query("UPDATE providers SET is_current = 1 WHERE app_type = ? AND id = ?").run(CLAUDE_APP_TYPE, providerId);
+            // settings 写入属于同一次切换；失败时让 sqlite transaction 回滚 current flag。
+            applyProviderToClaudeSettings(row.settings_config);
         });
         tx();
 
-        applyProviderToClaudeSettings(row.settings_config);
         return { success: true, currentProviderName: row.name };
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

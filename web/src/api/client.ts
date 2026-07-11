@@ -399,6 +399,14 @@ export class ApiClient {
         return response.sessionId
     }
 
+    async restartSession(sessionId: string): Promise<string> {
+        const response = await this.request<{ sessionId: string }>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/restart`,
+            { method: 'POST', body: JSON.stringify({}) }
+        )
+        return response.sessionId
+    }
+
     async sendMessage(sessionId: string, text: string, localId?: string | null, attachments?: AttachmentMetadata[], scheduledAt?: number | null): Promise<void> {
         await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
             method: 'POST',

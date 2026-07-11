@@ -453,6 +453,28 @@ export class SyncEngine {
         await this.rpcGateway.abortSession(sessionId)
     }
 
+    async restartSession(sessionId: string, namespace: string): Promise<ResumeSessionResult> {
+        const access = this.sessionCache.resolveSessionAccess(sessionId, namespace)
+        if (!access.ok) {
+            return {
+                type: 'error',
+                message: access.reason === 'access-denied' ? 'Session access denied' : 'Session not found',
+                code: access.reason === 'access-denied' ? 'access_denied' : 'session_not_found'
+            }
+        }
+        const machineId = access.session.metadata?.machineId
+        if (!machineId) {
+            return { type: 'error', message: 'Session machine is unavailable', code: 'resume_unavailable' }
+        }
+
+        // Runner 的 stop-session handler 等待整个进程树退出后才应答；之后才允许重新 spawn。
+        await this.rpcGateway.stopSessionOnMachine(machineId, access.sessionId)
+        if (this.getSession(access.sessionId)?.active) {
+            this.handleSessionEnd({ sid: access.sessionId, time: Date.now(), reason: 'terminated' })
+        }
+        return await this.resumeSession(access.sessionId, namespace)
+    }
+
     async archiveSession(sessionId: string): Promise<void> {
         // tiann/hapi#916: when the CLI is already gone (e.g. after a
         // hub-restart cascade SIGTERMed the runner but the in-memory

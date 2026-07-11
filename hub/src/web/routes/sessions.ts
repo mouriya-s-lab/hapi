@@ -214,6 +214,25 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         })
     })
 
+    app.post('/sessions/:id/restart', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) return sessionResult
+
+        const result = await engine.restartSession(sessionResult.sessionId, c.get('namespace'))
+        if (result.type === 'error') {
+            const status = result.code === 'no_machine_online' ? 503
+                : result.code === 'access_denied' ? 403
+                    : result.code === 'session_not_found' ? 404
+                        : result.code === 'resume_unavailable' ? 409
+                            : 500
+            return c.json({ error: result.message, code: result.code }, status)
+        }
+        return c.json({ type: 'success', sessionId: result.sessionId })
+    })
+
     app.post('/sessions/:id/upload', async (c) => {
         const engine = requireSyncEngine(c, getSyncEngine)
         if (engine instanceof Response) {
