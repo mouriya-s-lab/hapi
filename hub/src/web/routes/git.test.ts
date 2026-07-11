@@ -1,8 +1,21 @@
 import { describe, expect, it } from 'bun:test'
 import { Hono } from 'hono'
+import { SignJWT } from 'jose'
 import type { Session, SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
+import { createAuthMiddleware } from '../middleware/auth'
 import { createGitRoutes } from './git'
+
+const JWT_SECRET = new TextEncoder().encode('generated-media-route-test')
+
+async function authHeaders(namespace: string): Promise<{ authorization: string }> {
+    const token = await new SignJWT({ uid: 1, ns: namespace })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuedAt()
+        .setExpirationTime('1h')
+        .sign(JWT_SECRET)
+    return { authorization: `Bearer ${token}` }
+}
 
 function buildApp(engine: Partial<SyncEngine>): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
@@ -10,6 +23,13 @@ function buildApp(engine: Partial<SyncEngine>): Hono<WebAppEnv> {
         c.set('namespace', 'default')
         await next()
     })
+    app.route('/api', createGitRoutes(() => engine as SyncEngine))
+    return app
+}
+
+function buildAuthenticatedApp(engine: Partial<SyncEngine>): Hono<WebAppEnv> {
+    const app = new Hono<WebAppEnv>()
+    app.use('*', createAuthMiddleware(JWT_SECRET))
     app.route('/api', createGitRoutes(() => engine as SyncEngine))
     return app
 }
@@ -57,5 +77,46 @@ describe('generated images route', () => {
         expect(response.status).toBe(304)
         // The whole point: a cache hit must not touch the CLI over the socket.
         expect(rpcCalls).toBe(0)
+    })
+
+    it('serves registered MP4 bytes with their video MIME type', async () => {
+        const mp4Bytes = Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d])
+        const session = { id: 'session-1', namespace: 'default', active: true } as unknown as Session
+        const engine = {
+            resolveSessionAccess: () => ({ ok: true as const, sessionId: 'session-1', session }),
+            readGeneratedImage: async () => ({
+                success: true,
+                content: mp4Bytes.toString('base64'),
+                mimeType: 'video/mp4',
+                fileName: 'recording.mp4'
+            })
+        } as unknown as Partial<SyncEngine>
+
+        const response = await buildApp(engine).request('/api/sessions/session-1/generated-images/video-1')
+
+        expect(response.status).toBe(200)
+        expect(response.headers.get('content-type')).toBe('video/mp4')
+        expect(Buffer.from(await response.arrayBuffer())).toEqual(mp4Bytes)
+    })
+
+    it('requires JWT auth and enforces namespace-scoped session access', async () => {
+        const engine = {
+            resolveSessionAccess: (_sessionId: string, namespace: string) => namespace === 'owner'
+                ? {
+                    ok: true as const,
+                    sessionId: 'session-1',
+                    session: { id: 'session-1', namespace: 'owner', active: true } as unknown as Session
+                }
+                : { ok: false as const, reason: 'access-denied' as const }
+        } as unknown as Partial<SyncEngine>
+        const app = buildAuthenticatedApp(engine)
+
+        const missingAuth = await app.request('/api/sessions/session-1/generated-images/img-1')
+        const wrongNamespace = await app.request('/api/sessions/session-1/generated-images/img-1', {
+            headers: await authHeaders('other')
+        })
+
+        expect(missingAuth.status).toBe(401)
+        expect(wrongNamespace.status).toBe(403)
     })
 })
