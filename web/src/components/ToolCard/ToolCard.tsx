@@ -14,7 +14,7 @@ import { isAskUserQuestionToolName } from '@/components/ToolCard/askUserQuestion
 import { isRequestUserInputToolName } from '@/components/ToolCard/requestUserInput'
 import { getToolPresentation } from '@/components/ToolCard/knownTools'
 import { getToolFullViewComponent, getToolViewComponent } from '@/components/ToolCard/views/_all'
-import { getToolResultViewComponent } from '@/components/ToolCard/views/_results'
+import { extractImagesFromResult, getToolResultViewComponent, ToolResultImages } from '@/components/ToolCard/views/_results'
 import { formatTaskChildLabel, TaskStateIcon } from '@/components/ToolCard/helpers'
 import type { TerminalToolDisplayMode } from '@/hooks/useTerminalToolDisplayMode'
 import { usePointerFocusRing } from '@/hooks/usePointerFocusRing'
@@ -284,7 +284,11 @@ function ToolCardInner(props: ToolCardProps) {
         permission.status === 'pending'
         || ((permission.status === 'denied' || permission.status === 'canceled') && Boolean(permission.reason))
     ))
-    const hasBody = showInline || taskSummary !== null || showsPermissionFooter
+    const hasInlineResultImages = useMemo(
+        () => !showInline && extractImagesFromResult(props.block.tool.result).length > 0,
+        [props.block.tool.result, showInline]
+    )
+    const hasBody = showInline || taskSummary !== null || showsPermissionFooter || hasInlineResultImages
     const stateColor = toolStatusColorClass(props.block.tool.state)
     const { suppressFocusRing, onTriggerPointerDown, onTriggerKeyDown, onTriggerBlur } = usePointerFocusRing()
     const openDetails = () => setDetailsOpen(true)
@@ -372,6 +376,12 @@ function ToolCardInner(props: ToolCardProps) {
                     {taskSummary ? (
                         <div className="mt-2">
                             {taskSummary}
+                        </div>
+                    ) : null}
+
+                    {hasInlineResultImages ? (
+                        <div className="mt-3">
+                            <ToolResultImages result={props.block.tool.result} input={props.block.tool.input} />
                         </div>
                     ) : null}
 
