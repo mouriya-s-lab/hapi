@@ -468,6 +468,13 @@ export class SyncEngine {
         }
 
         if (ccSwitchProviderId) {
+            const validation = await this.rpcGateway.validateCcSwitchProviderForMachine(machineId, ccSwitchProviderId)
+            if (!validation.success) {
+                return { type: 'error', message: validation.error ?? 'Invalid cc-switch provider', code: 'resume_unavailable' }
+            }
+        }
+
+        if (ccSwitchProviderId) {
             for (let attempt = 0; attempt < 2; attempt += 1) {
                 const latest = this.sessionCache.getSessionByNamespace(access.sessionId, namespace)
                     ?? this.sessionCache.refreshSession(access.sessionId)

@@ -433,6 +433,8 @@ export type ListCcSwitchProvidersResponse = {
     error?: string
 }
 
+export type ValidateCcSwitchProviderResponse = { success: boolean; error?: string }
+
 /** Maps thinking levels to provider-specific values. null = unsupported. */
 export type PiThinkingLevelMap = Partial<Record<string, string | null>>
 

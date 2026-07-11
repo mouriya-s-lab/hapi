@@ -13,6 +13,7 @@ import type {
     FileWriteResponse,
     GeneratedImageResponse,
     ListCcSwitchProvidersResponse,
+    ValidateCcSwitchProviderResponse,
     ListDirectoryResponse,
     OpencodeModelsResponse,
     OpencodeModelSummary,
@@ -311,6 +312,10 @@ export class RpcGateway {
 
     async listCcSwitchProvidersForMachine(machineId: string): Promise<ListCcSwitchProvidersResponse> {
         return await this.machineRpc(machineId, RPC_METHODS.ListCcSwitchProviders, {}, MODEL_LIST_RPC_TIMEOUT_MS) as ListCcSwitchProvidersResponse
+    }
+
+    async validateCcSwitchProviderForMachine(machineId: string, providerId: string): Promise<ValidateCcSwitchProviderResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ValidateCcSwitchProvider, { providerId }) as ValidateCcSwitchProviderResponse
     }
 
     async listOpencodeModelsForSession(sessionId: string): Promise<RpcListOpencodeModelsResponse> {

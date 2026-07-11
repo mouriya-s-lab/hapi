@@ -2,9 +2,10 @@ import { logger } from '@/ui/logger';
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 import type { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager';
 import type {
-    ListCcSwitchProvidersResponse
+    ListCcSwitchProvidersResponse,
+    ValidateCcSwitchProviderResponse
 } from '@hapi/protocol/apiTypes';
-import { listCcSwitchProviders } from '../ccSwitch';
+import { getCcSwitchProviderLaunchEnv, listCcSwitchProviders } from '../ccSwitch';
 import { getErrorMessage, rpcError } from '../rpcResponses';
 
 export function registerCcSwitchHandlers(rpcHandlerManager: RpcHandlerManager): void {
@@ -17,6 +18,18 @@ export function registerCcSwitchHandlers(rpcHandlerManager: RpcHandlerManager): 
             } catch (error) {
                 logger.debug('Failed to list cc-switch providers:', error);
                 return rpcError(getErrorMessage(error, 'Failed to list cc-switch providers'));
+            }
+        }
+    );
+
+    rpcHandlerManager.registerHandler<{ providerId: string }, ValidateCcSwitchProviderResponse>(
+        RPC_METHODS.ValidateCcSwitchProvider,
+        async ({ providerId }) => {
+            try {
+                getCcSwitchProviderLaunchEnv(providerId);
+                return { success: true };
+            } catch (error) {
+                return rpcError(getErrorMessage(error, 'Invalid cc-switch provider'));
             }
         }
     );
