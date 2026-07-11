@@ -47,6 +47,8 @@ export const codexCommand: CommandDefinition = {
                 model?: string
                 modelReasoningEffort?: ReasoningEffort
                 serviceTier?: string
+                importHistory?: boolean
+                importTranscriptPath?: string
             } = {}
             const unknownArgs: string[] = []
             let hasExplicitPermissionMode = false
@@ -93,6 +95,12 @@ export const codexCommand: CommandDefinition = {
                         throw new Error('Missing --service-tier value')
                     }
                     options.serviceTier = parseServiceTier(tier)
+                } else if (arg === '--hapi-import-history') {
+                    options.importHistory = true
+                } else if (arg === '--hapi-import-transcript') {
+                    const transcriptPath = commandArgs[++i]
+                    if (!transcriptPath) throw new Error('Missing --hapi-import-transcript value')
+                    options.importTranscriptPath = transcriptPath
                 } else {
                     unknownArgs.push(arg)
                 }

@@ -13,6 +13,10 @@ import type {
     FileWriteResponse,
     GeneratedImageResponse,
     ListDirectoryResponse,
+    ListImportableSessionsRequest,
+    ListImportableSessionsResponse,
+    ResolveImportableSessionRequest,
+    ResolveImportableSessionResponse,
     OpencodeModelsResponse,
     OpencodeModelSummary,
     OpencodeReasoningEffortResponse,
@@ -143,13 +147,15 @@ export class RpcGateway {
         effort?: string,
         permissionMode?: PermissionMode,
         serviceTier?: string,
-        claudeLaunch?: ClaudeLaunch
+        claudeLaunch?: ClaudeLaunch,
+        importHistory?: boolean,
+        importTranscriptPath?: string
     ): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }> {
         try {
             const result = await this.machineRpc(
                 machineId,
                 RPC_METHODS.SpawnHappySession,
-                { type: 'spawn-in-directory', directory, agent, model, modelReasoningEffort, yolo, sessionType, worktreeName, resumeSessionId, effort, permissionMode, serviceTier, claudeLaunch }
+                { type: 'spawn-in-directory', directory, agent, model, modelReasoningEffort, yolo, sessionType, worktreeName, resumeSessionId, effort, permissionMode, serviceTier, claudeLaunch, importHistory, importTranscriptPath }
             )
             if (result && typeof result === 'object') {
                 const obj = result as Record<string, unknown>
@@ -301,6 +307,14 @@ export class RpcGateway {
 
     async listCursorModelsForMachine(machineId: string): Promise<RpcListCursorModelsResponse> {
         return await this.machineRpc(machineId, RPC_METHODS.ListCursorModels, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListCursorModelsResponse
+    }
+
+    async listImportableSessions(machineId: string, request: ListImportableSessionsRequest): Promise<ListImportableSessionsResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ListImportableSessions, request) as ListImportableSessionsResponse
+    }
+
+    async resolveImportableSession(machineId: string, request: ResolveImportableSessionRequest): Promise<ResolveImportableSessionResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ResolveImportableSession, request) as ResolveImportableSessionResponse
     }
 
     async listOpencodeModelsForSession(sessionId: string): Promise<RpcListOpencodeModelsResponse> {

@@ -1113,6 +1113,8 @@ export function buildCliArgs(
     }
   }
   args.push('--hapi-starting-mode', 'remote', '--started-by', 'runner');
+  if (options.importHistory) args.push('--hapi-import-history');
+  if (options.importTranscriptPath) args.push('--hapi-import-transcript', options.importTranscriptPath);
   if (options.model) {
     args.push('--model', options.model);
   }

@@ -67,6 +67,17 @@ export const claudeCommand: CommandDefinition = {
                 unknownArgs.push('--effort', effort)
             } else if (arg === '--started-by') {
                 options.startedBy = args[++i] as 'runner' | 'terminal'
+            } else if (arg === '--resume') {
+                const resumeSessionId = args[++i]
+                if (!resumeSessionId) throw new Error('Missing --resume value')
+                options.resumeSessionId = resumeSessionId
+                unknownArgs.push('--resume', resumeSessionId)
+            } else if (arg === '--hapi-import-history') {
+                options.importHistory = true
+            } else if (arg === '--hapi-import-transcript') {
+                const transcriptPath = args[++i]
+                if (!transcriptPath) throw new Error('Missing --hapi-import-transcript value')
+                options.importTranscriptPath = transcriptPath
             } else {
                 unknownArgs.push(arg)
                 if (i + 1 < args.length && !args[i + 1].startsWith('-')) {

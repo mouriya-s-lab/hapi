@@ -34,6 +34,7 @@ import { ActionButtons } from './ActionButtons'
 import { AgentSelector } from './AgentSelector'
 import { DirectorySection } from './DirectorySection'
 import { MachineSelector } from './MachineSelector'
+import { ImportExistingSessionsDialog } from './ImportExistingSessionsDialog'
 import { ModelSelector } from './ModelSelector'
 import { OpencodeModelSelector } from './OpencodeModelSelector'
 import { ClaudeEffortSelector } from './ClaudeEffortSelector'
@@ -67,6 +68,7 @@ export function NewSession(props: {
     const { getRecentPaths, addRecentPath, getLastUsedMachineId, setLastUsedMachineId } = useRecentPaths()
 
     const [machineId, setMachineId] = useState<string | null>(props.initialMachineId ?? null)
+    const [showImportDialog, setShowImportDialog] = useState(false)
     const [directory, setDirectory] = useState(props.initialDirectory ?? '')
     const [suppressSuggestions, setSuppressSuggestions] = useState(false)
     const [isDirectoryFocused, setIsDirectoryFocused] = useState(false)
@@ -603,6 +605,11 @@ export function NewSession(props: {
                 isDisabled={isFormDisabled}
                 onChange={handleMachineChange}
             />
+            {machineId ? (
+                <button type="button" disabled={isFormDisabled} onClick={() => setShowImportDialog(true)} className="px-3 py-2 text-left text-xs text-[var(--app-link)] hover:bg-[var(--app-secondary-bg)] disabled:opacity-50">
+                    {t('import.entry')}
+                </button>
+            ) : null}
             {runnerSpawnError ? (
                 <div className="px-3 py-2 text-xs text-red-600">
                     Runner last spawn error: {runnerSpawnError}
@@ -742,6 +749,14 @@ export function NewSession(props: {
                 onCancel={props.onCancel}
                 onCreate={handleCreate}
             />
+            {showImportDialog && machineId ? (
+                <ImportExistingSessionsDialog
+                    api={props.api}
+                    machineId={machineId}
+                    onClose={() => setShowImportDialog(false)}
+                    onImported={props.onSuccess}
+                />
+            ) : null}
         </div>
     )
 }

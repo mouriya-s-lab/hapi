@@ -1,0 +1,55 @@
+import { afterEach, describe, expect, it } from 'bun:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { ApiSessionClient } from '@/api/apiSession'
+import { replayImportedTranscript } from './replayImportedTranscript'
+
+const roots: string[] = []
+afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })))
+
+function file(rows: unknown[]): string {
+    const root = mkdtempSync(join(tmpdir(), 'hapi-replay-'))
+    roots.push(root)
+    const path = join(root, 'session.jsonl')
+    writeFileSync(path, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`)
+    return path
+}
+
+describe('replayImportedTranscript', () => {
+    it('replays modern Codex response items once and ignores duplicate event messages', async () => {
+        const users: string[] = []
+        const agents: unknown[] = []
+        const session = {
+            sendUserMessage: (value: string) => users.push(value),
+            sendAgentMessage: (value: unknown) => agents.push(value),
+            updateMetadata: () => {}
+        } as unknown as ApiSessionClient
+        const imported = await replayImportedTranscript({
+            agent: 'codex', session,
+            transcriptPath: file([
+                { type: 'event_msg', payload: { type: 'user_message', message: 'duplicate' } },
+                { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'question' }] } },
+                { type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'answer' }] } }
+            ])
+        })
+        expect(imported).toBe(2)
+        expect(users).toEqual(['question'])
+        expect(agents).toHaveLength(1)
+    })
+
+    it('replays visible Claude messages and skips sidecar records', async () => {
+        const messages: unknown[] = []
+        const session = { sendClaudeSessionMessage: (value: unknown) => messages.push(value) } as unknown as ApiSessionClient
+        const imported = await replayImportedTranscript({
+            agent: 'claude', session,
+            transcriptPath: file([
+                { type: 'file-history-snapshot', snapshot: {} },
+                { type: 'user', uuid: 'u1', parentUuid: null, sessionId: 's1', timestamp: new Date().toISOString(), message: { role: 'user', content: 'question' } },
+                { type: 'assistant', uuid: 'a1', parentUuid: 'u1', sessionId: 's1', timestamp: new Date().toISOString(), message: { role: 'assistant', content: [{ type: 'text', text: 'answer' }] } }
+            ])
+        })
+        expect(imported).toBe(2)
+        expect(messages).toHaveLength(2)
+    })
+})

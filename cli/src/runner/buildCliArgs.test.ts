@@ -138,6 +138,20 @@ describe('buildCliArgs', () => {
         expect(args).toContain('some-claude-session-id')
     })
 
+    it('passes the private transcript replay contract only for an import spawn', () => {
+        const args = buildCliArgs('codex', {
+            directory: '/work',
+            resumeSessionId: 'external-session',
+            importHistory: true,
+            importTranscriptPath: '/home/user/.codex/sessions/session.jsonl'
+        })
+        expect(args).toContain('--hapi-import-history')
+        expect(args.slice(args.indexOf('--hapi-import-transcript'), args.indexOf('--hapi-import-transcript') + 2)).toEqual([
+            '--hapi-import-transcript',
+            '/home/user/.codex/sessions/session.jsonl'
+        ])
+    })
+
     it('passes --effort for pi agent', () => {
         const args = buildCliArgs('pi', {
             directory: '/tmp',

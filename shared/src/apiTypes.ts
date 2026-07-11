@@ -466,3 +466,28 @@ export type SlashCommandsResponse = {
     commands?: SlashCommand[]
     error?: string
 }
+
+export type ImportableSessionAgent = 'claude' | 'codex'
+export type ImportableSessionSummary = {
+    agent: ImportableSessionAgent
+    externalSessionId: string
+    cwd: string | null
+    timestamp: number
+    previewTitle: string
+    previewPrompt: string | null
+    messageCount: number
+    cliVersion: string | null
+}
+export type ListImportableSessionsRequest = { agent: ImportableSessionAgent; cursor?: string }
+export type ListImportableSessionsResponse = { sessions: ImportableSessionSummary[]; nextCursor: string | null }
+export type ResolveImportableSessionRequest = { agent: ImportableSessionAgent; externalSessionId: string }
+export type ResolveImportableSessionResponse =
+    | { type: 'success'; session: ImportableSessionSummary; transcriptPath: string }
+    | { type: 'error'; error: string }
+export type ImportableSessionsResponse = {
+    sessions: Array<ImportableSessionSummary & { alreadyImported: boolean; importedHapiSessionId: string | null }>
+    nextCursor: string | null
+}
+export type ImportExistingSessionResponse =
+    | { type: 'success'; sessionId: string; alreadyImported: boolean }
+    | { type: 'error'; error: string }

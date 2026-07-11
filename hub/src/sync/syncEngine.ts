@@ -8,7 +8,7 @@
  */
 
 import { isKnownFlavor, type LocalResumeTarget, type ResumableSession } from '@hapi/protocol'
-import type { CursorMigrateOutcome, CursorMigrateToAcpRequest, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
+import type { CursorMigrateOutcome, CursorMigrateToAcpRequest, ImportableSessionAgent, ListImportableSessionsResponse, ResolveImportableSessionResponse, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor, ClaudeLaunch, CodexCollaborationMode, DecryptedMessage, PermissionMode, Session, SyncEvent } from '@hapi/protocol/types'
 import { unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
 import type { Server } from 'socket.io'
@@ -762,7 +762,9 @@ export class SyncEngine {
         effort?: string,
         permissionMode?: PermissionMode,
         serviceTier?: string,
-        claudeLaunch?: ClaudeLaunch
+        claudeLaunch?: ClaudeLaunch,
+        importHistory?: boolean,
+        importTranscriptPath?: string
     ): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }> {
         return await this.rpcGateway.spawnSession(
             machineId,
@@ -777,7 +779,9 @@ export class SyncEngine {
             effort,
             permissionMode,
             serviceTier,
-            claudeLaunch
+            claudeLaunch,
+            importHistory,
+            importTranscriptPath
         )
     }
 
@@ -1647,6 +1651,14 @@ export class SyncEngine {
         error?: string
     }> {
         return await this.rpcGateway.listSkills(sessionId, flavor)
+    }
+
+    async listImportableSessionsForMachine(machineId: string, agent: ImportableSessionAgent, cursor?: string): Promise<ListImportableSessionsResponse> {
+        return await this.rpcGateway.listImportableSessions(machineId, { agent, cursor })
+    }
+
+    async resolveImportableSessionForMachine(machineId: string, agent: ImportableSessionAgent, externalSessionId: string): Promise<ResolveImportableSessionResponse> {
+        return await this.rpcGateway.resolveImportableSession(machineId, { agent, externalSessionId })
     }
 
     async listCodexModelsForMachine(machineId: string): Promise<RpcListCodexModelsResponse> {

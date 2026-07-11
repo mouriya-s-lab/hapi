@@ -22,6 +22,7 @@ import { formatMessageWithAttachments } from '@/utils/attachmentFormatter';
 import { normalizeClaudeSessionModel } from './model';
 import { normalizeClaudeSessionEffort } from './effort';
 import { getInvokedCwd } from '@/utils/invokedCwd';
+import { replayImportedTranscript } from '@/modules/common/replayImportedTranscript';
 
 export interface StartOptions {
     model?: string
@@ -35,6 +36,8 @@ export interface StartOptions {
     existingSessionId?: string
     workingDirectory?: string
     resumeSessionId?: string
+    importHistory?: boolean
+    importTranscriptPath?: string
 }
 
 export async function runClaude(options: StartOptions = {}): Promise<void> {
@@ -73,6 +76,13 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
         });
     const { api, session, sessionInfo } = bootstrap;
     logger.debug(`Session created: ${sessionInfo.id}`);
+
+    if (options.importHistory) {
+        if (!options.importTranscriptPath) throw new Error('Import history requires a transcript path')
+        if (!options.resumeSessionId) throw new Error('Import history requires a Claude session ID')
+        session.updateMetadata((metadata) => ({ ...metadata, claudeSessionId: options.resumeSessionId }))
+        await replayImportedTranscript({ agent: 'claude', transcriptPath: options.importTranscriptPath, session })
+    }
 
     // Extract SDK metadata in background and update session when ready
     extractSDKMetadataAsync(async (sdkMetadata) => {

@@ -17,6 +17,8 @@ export interface SpawnSessionOptions {
     sessionType?: 'simple' | 'worktree'
     worktreeName?: string
     claudeLaunch?: ClaudeLaunch
+    importHistory?: boolean
+    importTranscriptPath?: string
 }
 
 export type SpawnSessionResult =

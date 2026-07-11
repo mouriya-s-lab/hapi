@@ -32,6 +32,9 @@ import type {
     FileReadResponse,
     FileWriteResponse,
     GitCommandResponse,
+    ImportableSessionAgent,
+    ImportableSessionsResponse,
+    ImportExistingSessionResponse,
     ListDirectoryResponse,
     MachineListDirectoryResponse,
     MachinePathsExistsResponse,
@@ -610,6 +613,16 @@ export class ApiClient {
 
     async getMachines(): Promise<MachinesResponse> {
         return await this.request<MachinesResponse>('/api/machines')
+    }
+
+    async listImportableSessions(machineId: string, agent: ImportableSessionAgent, cursor?: string): Promise<ImportableSessionsResponse> {
+        const query = new URLSearchParams({ agent })
+        if (cursor !== undefined) query.set('cursor', cursor)
+        return await this.request(`/api/machines/${encodeURIComponent(machineId)}/importable-sessions?${query}`)
+    }
+
+    async importExistingSession(machineId: string, agent: ImportableSessionAgent, externalSessionId: string): Promise<ImportExistingSessionResponse> {
+        return await this.request(`/api/machines/${encodeURIComponent(machineId)}/importable-sessions/${agent}/${encodeURIComponent(externalSessionId)}/import`, { method: 'POST' })
     }
 
     async listMachineDirectory(

@@ -19,6 +19,7 @@ import type { ReasoningEffort } from './appServerTypes';
 import { parseCodexSpecialCommand } from './codexSpecialCommands';
 import { listSlashCommands } from '@/modules/common/slashCommands';
 import { resolveCodexSlashCommand } from './utils/slashCommands';
+import { replayImportedTranscript } from '@/modules/common/replayImportedTranscript';
 
 export { emitReadyIfIdle } from './utils/emitReadyIfIdle';
 
@@ -35,6 +36,8 @@ export async function runCodex(opts: {
     collaborationMode?: EnhancedMode['collaborationMode'];
     existingSessionId?: string;
     workingDirectory?: string;
+    importHistory?: boolean;
+    importTranscriptPath?: string;
 }): Promise<void> {
     const workingDirectory = opts.workingDirectory ?? getInvokedCwd();
     const startedBy = opts.startedBy ?? 'terminal';
@@ -100,6 +103,13 @@ export async function runCodex(opts: {
     lifecycle.registerProcessHandlers();
     registerKillSessionHandler(session.rpcHandlerManager, lifecycle);
     registerLocalHandoffHandler(session.rpcHandlerManager, lifecycle);
+
+    if (opts.importHistory) {
+        if (!opts.importTranscriptPath) throw new Error('Import history requires a transcript path')
+        if (!opts.resumeSessionId) throw new Error('Import history requires a Codex session ID')
+        session.updateMetadata((metadata) => ({ ...metadata, codexSessionId: opts.resumeSessionId }))
+        await replayImportedTranscript({ agent: 'codex', transcriptPath: opts.importTranscriptPath, session })
+    }
 
     const applyCurrentConfigToSession = (options?: { syncModel?: boolean }) => {
         const sessionInstance = sessionWrapperRef.current;
