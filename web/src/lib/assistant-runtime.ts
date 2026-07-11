@@ -389,6 +389,28 @@ function toThreadMessageLike(block: VisibleChatBlock, threadMessageId: string): 
         }
     }
 
+    if (block.kind === 'generated-file') {
+        return {
+            role: 'assistant',
+            id: threadMessageId,
+            createdAt: new Date(block.createdAt),
+            content: [{
+                type: 'tool-call',
+                toolCallId: block.id,
+                toolName: 'GeneratedFile',
+                argsText: '',
+                artifact: block
+            }],
+            metadata: {
+                custom: {
+                    kind: 'tool',
+                    toolCallId: block.id,
+                    invokedAt: block.invokedAt ?? null
+                } satisfies HappyChatMessageMetadata
+            }
+        }
+    }
+
     if (block.kind === 'agent-reasoning') {
         return {
             role: 'assistant',

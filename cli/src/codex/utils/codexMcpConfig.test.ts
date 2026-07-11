@@ -37,6 +37,9 @@ describe('codexMcpConfig', () => {
                         },
                         display_video: {
                             approval_mode: 'approve' as const
+                        },
+                        send_file: {
+                            approval_mode: 'approve' as const
                         }
                     }
                 }
@@ -47,6 +50,7 @@ describe('codexMcpConfig', () => {
             expect(args).toContain('mcp_servers.hapi.tools.change_title.approval_mode="approve"');
             expect(args).toContain('mcp_servers.hapi.tools.display_image.approval_mode="approve"');
             expect(args).toContain('mcp_servers.hapi.tools.display_video.approval_mode="approve"');
+            expect(args).toContain('mcp_servers.hapi.tools.send_file.approval_mode="approve"');
         });
 
         it('builds config args for multiple MCP servers', () => {

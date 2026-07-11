@@ -762,6 +762,22 @@ export function reduceTimeline(
                     continue
                 }
 
+                if (c.type === 'generated-file') {
+                    blocks.push({
+                        kind: 'generated-file',
+                        id: `${msg.id}:${idx}`,
+                        localId: msg.localId,
+                        createdAt: msg.createdAt,
+                        invokedAt: msg.invokedAt,
+                        fileId: c.fileId,
+                        fileName: c.fileName,
+                        mimeType: c.mimeType,
+                        size: c.size,
+                        meta: msg.meta
+                    })
+                    continue
+                }
+
                 if (c.type === 'reasoning') {
                     const streamId = asString(c.streamId)
                     if (streamId) {

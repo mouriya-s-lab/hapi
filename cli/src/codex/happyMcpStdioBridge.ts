@@ -151,6 +151,34 @@ export async function runHappyMcpStdioBridge(argv: string[]): Promise<void> {
       }
     );
 
+    const sendFileInputSchema: z.ZodTypeAny = z.object({
+      path: z.string().describe('Local filesystem path of the file to send to the user'),
+      title: z.string().optional().describe('Optional display filename for the file'),
+    });
+
+    server.registerTool<any, any>(
+      'send_file',
+      {
+        description: 'Send a local file to the current HAPI chat session so the user can download it, like sending a file in an IM app',
+        title: 'Send File',
+        inputSchema: sendFileInputSchema,
+      },
+      async (args: Record<string, unknown>) => {
+        try {
+          const client = await ensureHttpClient();
+          const response = await client.callTool({ name: 'send_file', arguments: args });
+          return response as any;
+        } catch (error) {
+          return {
+            content: [
+              { type: 'text' as const, text: `Failed to send file: ${error instanceof Error ? error.message : String(error)}` },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
     // Start STDIO transport
     const stdio = new StdioServerTransport();
     await server.connect(stdio);

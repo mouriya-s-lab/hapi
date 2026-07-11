@@ -30,7 +30,7 @@ const AUTO_APPROVE_TOOL_NAME_HINTS = [
     'think',
     'save_memory'
 ];
-const AUTO_APPROVE_TOOL_ID_HINTS = ['change_title', 'display_image', 'display_video', 'save_memory'];
+const AUTO_APPROVE_TOOL_ID_HINTS = ['change_title', 'display_image', 'display_video', 'send_file', 'save_memory'];
 const AUTO_APPROVE_WRITE_TOOL_HINTS = ['write', 'edit', 'create', 'delete', 'patch', 'fs-edit'];
 
 export function resolveToolAutoApprovalDecision(

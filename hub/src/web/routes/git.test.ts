@@ -168,3 +168,61 @@ describe('generated images route', () => {
         expect(wrongNamespace.status).toBe(403)
     })
 })
+describe('generated files route', () => {
+    it('serves sent files as attachments with immutable caching', async () => {
+        const fileBytes = Buffer.from('hello report')
+        const session = { id: 'session-1', namespace: 'default', active: true } as unknown as Session
+        const engine = {
+            resolveSessionAccess: () => ({ ok: true as const, sessionId: 'session-1', session }),
+            readGeneratedFile: async () => ({
+                success: true,
+                content: fileBytes.toString('base64'),
+                mimeType: 'application/pdf',
+                fileName: 'report.pdf',
+                size: fileBytes.byteLength
+            })
+        } as unknown as Partial<SyncEngine>
+
+        const response = await buildApp(engine).request('/api/sessions/session-1/generated-files/file-1')
+
+        expect(response.status).toBe(200)
+        expect(response.headers.get('content-type')).toContain('application/pdf')
+        expect(response.headers.get('content-disposition') ?? '').toContain('attachment')
+        expect(response.headers.get('content-disposition') ?? '').toContain('report.pdf')
+        const cacheControl = response.headers.get('cache-control') ?? ''
+        expect(cacheControl).toContain('immutable')
+        expect(response.headers.get('etag')).toBe('"file-1"')
+        expect(Buffer.from(await response.arrayBuffer()).toString()).toBe('hello report')
+    })
+
+    it('returns 304 without an RPC round-trip when If-None-Match matches', async () => {
+        const session = { id: 'session-1', namespace: 'default', active: true } as unknown as Session
+        let rpcCalls = 0
+        const engine = {
+            resolveSessionAccess: () => ({ ok: true as const, sessionId: 'session-1', session }),
+            readGeneratedFile: async () => {
+                rpcCalls += 1
+                return { success: true, content: '', mimeType: 'application/pdf', fileName: 'report.pdf' }
+            }
+        } as unknown as Partial<SyncEngine>
+
+        const response = await buildApp(engine).request('/api/sessions/session-1/generated-files/file-1', {
+            headers: { 'if-none-match': '"file-1"' }
+        })
+
+        expect(response.status).toBe(304)
+        expect(rpcCalls).toBe(0)
+    })
+
+    it('returns 404 when the sent file is gone from the CLI', async () => {
+        const session = { id: 'session-1', namespace: 'default', active: true } as unknown as Session
+        const engine = {
+            resolveSessionAccess: () => ({ ok: true as const, sessionId: 'session-1', session }),
+            readGeneratedFile: async () => ({ success: false, error: 'Sent file not found' })
+        } as unknown as Partial<SyncEngine>
+
+        const response = await buildApp(engine).request('/api/sessions/session-1/generated-files/file-1')
+
+        expect(response.status).toBe(404)
+    })
+})

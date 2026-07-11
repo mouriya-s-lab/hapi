@@ -6,7 +6,7 @@
  */
 
 import { trimIdent } from '@/utils/trimIdent';
-import { DISPLAY_IMAGE_PROMPT_CODEX, DISPLAY_VIDEO_PROMPT_CODEX } from '@/modules/common/displayImagePrompt';
+import { DISPLAY_IMAGE_PROMPT_CODEX, DISPLAY_VIDEO_PROMPT_CODEX, SEND_FILE_PROMPT_CODEX } from '@/modules/common/displayImagePrompt';
 
 /**
  * Title instruction for Codex to call the hapi MCP tool.
@@ -21,6 +21,7 @@ export const TITLE_INSTRUCTION = trimIdent(`
     Rename only when the user's primary objective changes substantially and the existing title would be misleading.
     ${DISPLAY_IMAGE_PROMPT_CODEX}
     ${DISPLAY_VIDEO_PROMPT_CODEX}
+    ${SEND_FILE_PROMPT_CODEX}
 `);
 
 /**

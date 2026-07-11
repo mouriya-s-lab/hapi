@@ -80,6 +80,9 @@ export async function buildHapiMcpBridge(
                     },
                     display_video: {
                         approval_mode: 'approve'
+                    },
+                    send_file: {
+                        approval_mode: 'approve'
                     }
                 }
             }
