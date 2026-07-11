@@ -75,6 +75,16 @@ export type GeneratedImageContent = {
     parentUUID: string | null
 }
 
+export type GeneratedFileContent = {
+    type: 'generated-file'
+    fileId: string
+    fileName: string
+    mimeType: string | null
+    size: number | null
+    uuid: string
+    parentUUID: string | null
+}
+
 export type CodexReviewFinding = {
     title: string
     body: string
@@ -109,6 +119,7 @@ export type NormalizedAgentContent =
     | ToolUse
     | ToolResult
     | GeneratedImageContent
+    | GeneratedFileContent
     | {
         type: 'codex-review'
         review: CodexReview
@@ -244,6 +255,19 @@ export type GeneratedImageBlock = {
     meta?: unknown
 }
 
+export type GeneratedFileBlock = {
+    kind: 'generated-file'
+    id: string
+    localId: string | null
+    createdAt: number
+    invokedAt?: number | null
+    fileId: string
+    fileName: string
+    mimeType: string | null
+    size: number | null
+    meta?: unknown
+}
+
 export type AgentEventBlock = {
     kind: 'agent-event'
     id: string
@@ -268,4 +292,4 @@ export type ToolCallBlock = {
     meta?: unknown
 }
 
-export type ChatBlock = UserTextBlock | AgentTextBlock | AgentReasoningBlock | CodexReviewBlock | CliOutputBlock | ToolCallBlock | GeneratedImageBlock | AgentEventBlock
+export type ChatBlock = UserTextBlock | AgentTextBlock | AgentReasoningBlock | CodexReviewBlock | CliOutputBlock | ToolCallBlock | GeneratedImageBlock | GeneratedFileBlock | AgentEventBlock

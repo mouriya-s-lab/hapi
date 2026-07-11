@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { ToolCallMessagePartProps } from '@assistant-ui/react'
 import type { ChatBlock } from '@/chat/types'
-import type { GeneratedImageBlock, ToolCallBlock } from '@/chat/types'
+import type { GeneratedFileBlock, GeneratedImageBlock, ToolCallBlock } from '@/chat/types'
+import { FileIcon } from '@/components/FileIcon'
+import { downloadBlob } from '@/lib/file-download'
+import { formatFileSize } from '@/components/AssistantChat/messages/MessageAttachments'
 import type { ToolGroupBlock } from '@/chat/toolGroups'
 import { isObject, safeStringify } from '@hapi/protocol'
 import { isSubagentToolName } from '@/chat/subagentTool'
@@ -103,6 +106,116 @@ function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
     )
 }
 
+function isGeneratedFileBlock(value: unknown): value is GeneratedFileBlock {
+    if (!isObject(value)) return false
+    if (value.kind !== 'generated-file') return false
+    if (typeof value.id !== 'string') return false
+    if (typeof value.fileId !== 'string') return false
+    if (typeof value.fileName !== 'string') return false
+    if (value.mimeType !== null && typeof value.mimeType !== 'string') return false
+    if (value.size !== null && typeof value.size !== 'number') return false
+    return true
+}
+
+// Browsers can render these inline in a new tab; everything else is download-only.
+function isPreviewableMimeType(mimeType: string | null): boolean {
+    if (!mimeType) return false
+    if (mimeType === 'application/pdf' || mimeType === 'application/json') return true
+    return mimeType.startsWith('image/')
+        || mimeType.startsWith('text/')
+        || mimeType.startsWith('video/')
+        || mimeType.startsWith('audio/')
+}
+
+function GeneratedFileCard(props: { block: GeneratedFileBlock }) {
+    const ctx = useHappyChatContext()
+    const [busy, setBusy] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+    const mimeType = props.block.mimeType ?? 'application/octet-stream'
+
+    const fetchBlob = async (): Promise<Blob> => {
+        setBusy(true)
+        setError(null)
+        try {
+            return await ctx.api.getGeneratedFileBlob(ctx.sessionId, props.block.fileId)
+        } finally {
+            setBusy(false)
+        }
+    }
+
+    const handleDownload = () => {
+        void fetchBlob()
+            .then(async (blob) => {
+                const bytes = new Uint8Array(await blob.arrayBuffer())
+                downloadBlob(props.block.fileName, bytes, blob.type || mimeType)
+            })
+            .catch((err: unknown) => {
+                setError(err instanceof Error ? err.message : 'Failed to download file')
+            })
+    }
+
+    const handleOpen = () => {
+        void fetchBlob()
+            .then((blob) => {
+                const typed = blob.type ? blob : new Blob([blob], { type: mimeType })
+                const url = URL.createObjectURL(typed)
+                window.open(url, '_blank', 'noopener')
+                window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+            })
+            .catch((err: unknown) => {
+                setError(err instanceof Error ? err.message : 'Failed to open file')
+            })
+    }
+
+    return (
+        <div className="max-w-[92%] rounded-2xl border border-[var(--app-border)] bg-[var(--app-tool-card-bg)] p-3">
+            <button
+                type="button"
+                onClick={handleDownload}
+                disabled={busy}
+                className="flex w-full items-center gap-3 rounded-xl text-left transition-opacity hover:opacity-80 disabled:cursor-wait disabled:opacity-60"
+                aria-label={`Download ${props.block.fileName}`}
+            >
+                <FileIcon fileName={props.block.fileName} size={36} />
+                <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium text-[var(--app-fg)]">
+                        {props.block.fileName}
+                    </div>
+                    <div className="text-xs text-[var(--app-hint)]">
+                        {props.block.size !== null ? formatFileSize(props.block.size) : 'File'}
+                        {busy ? ' · Downloading…' : ''}
+                    </div>
+                </div>
+            </button>
+            <div className="mt-2 flex items-center gap-3 text-xs">
+                <button
+                    type="button"
+                    onClick={handleDownload}
+                    disabled={busy}
+                    className="font-medium text-[var(--app-link)] hover:underline disabled:opacity-60"
+                >
+                    Download
+                </button>
+                {isPreviewableMimeType(props.block.mimeType) ? (
+                    <button
+                        type="button"
+                        onClick={handleOpen}
+                        disabled={busy}
+                        className="font-medium text-[var(--app-link)] hover:underline disabled:opacity-60"
+                    >
+                        Open
+                    </button>
+                ) : null}
+            </div>
+            {error ? (
+                <div className="mt-2 text-xs text-red-500">
+                    File is unavailable. {error}
+                </div>
+            ) : null}
+        </div>
+    )
+}
+
 function isPendingPermissionBlock(block: ChatBlock): boolean {
     return block.kind === 'tool-call' && block.tool.permission?.status === 'pending'
 }
@@ -175,6 +288,14 @@ function HappyNestedBlockList(props: {
                     return (
                         <div key={`generated-image:${block.id}`} className="px-1">
                             <GeneratedImageCard block={block} />
+                        </div>
+                    )
+                }
+
+                if (block.kind === 'generated-file') {
+                    return (
+                        <div key={`generated-file:${block.id}`} className="px-1">
+                            <GeneratedFileCard block={block} />
                         </div>
                     )
                 }
@@ -263,6 +384,14 @@ export function HappyToolMessage(props: ToolCallMessagePartProps) {
         return (
             <div className="py-1 min-w-0 max-w-full overflow-x-clip">
                 <GeneratedImageCard block={artifact} />
+            </div>
+        )
+    }
+
+    if (isGeneratedFileBlock(artifact)) {
+        return (
+            <div className="py-1 min-w-0 max-w-full overflow-x-clip">
+                <GeneratedFileCard block={artifact} />
             </div>
         )
     }

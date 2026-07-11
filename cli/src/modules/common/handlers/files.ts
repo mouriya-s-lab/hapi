@@ -3,11 +3,12 @@ import { readFile, stat, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { createHash } from 'crypto'
 import { resolve } from 'path'
-import type { FileReadResponse, GeneratedImageResponse } from '@hapi/protocol/apiTypes'
+import type { FileReadResponse, GeneratedFileResponse, GeneratedImageResponse } from '@hapi/protocol/apiTypes'
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import type { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager'
 import { validatePath } from '../pathSecurity'
 import { getGeneratedImage } from '../generatedImages'
+import { getGeneratedFile } from '../generatedFiles'
 import { getErrorMessage, rpcError } from '../rpcResponses'
 
 interface ReadFileRequest {
@@ -21,6 +22,12 @@ interface ReadGeneratedImageRequest {
 }
 
 type ReadGeneratedImageResponse = GeneratedImageResponse
+
+interface ReadGeneratedFileRequest {
+    id: string
+}
+
+type ReadGeneratedFileResponse = GeneratedFileResponse
 
 interface WriteFileRequest {
     path: string
@@ -95,6 +102,29 @@ export function registerFileHandlers(rpcHandlerManager: RpcHandlerManager, worki
         } catch (error) {
             logger.debug('Failed to read generated image:', error)
             return rpcError(getErrorMessage(error, 'Failed to read generated image'))
+        }
+    })
+
+    rpcHandlerManager.registerHandler<ReadGeneratedFileRequest, ReadGeneratedFileResponse>(RPC_METHODS.ReadGeneratedFile, async (data) => {
+        logger.debug('Read generated file request:', data.id)
+
+        const file = getGeneratedFile(data.id)
+        if (!file) {
+            return rpcError('Sent file not found')
+        }
+
+        try {
+            const buffer = await readFile(file.snapshotPath)
+            return {
+                success: true,
+                content: buffer.toString('base64'),
+                mimeType: file.mimeType,
+                fileName: file.fileName,
+                size: file.size
+            }
+        } catch (error) {
+            logger.debug('Failed to read generated file:', error)
+            return rpcError(getErrorMessage(error, 'Failed to read sent file'))
         }
     })
 

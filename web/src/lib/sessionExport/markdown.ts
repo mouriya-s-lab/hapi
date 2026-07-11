@@ -76,6 +76,8 @@ function formatAgentContentBlock(block: NormalizedAgentContent): string | null {
         }
         case 'generated-image':
             return `- Generated image: ${block.fileName}`
+        case 'generated-file':
+            return `- Sent file: ${block.fileName}${block.size !== null ? ` (${block.size} bytes)` : ''}`
         case 'codex-review':
             return `- Codex review: ${block.review.overallCorrectness ?? 'review'} (${block.review.findings.length} findings)`
         case 'summary':
