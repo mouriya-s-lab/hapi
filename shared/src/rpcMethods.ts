@@ -10,6 +10,7 @@ export const RPC_METHODS = {
     StopSession: 'stop-session',
     StopRunner: 'stop-runner',
     ListMachineDirectory: 'list-directory',
+    CreateMachineDirectory: 'create-directory',
     PathExists: 'path-exists',
     GitStatus: 'git-status',
     GitDiffNumstat: 'git-diff-numstat',

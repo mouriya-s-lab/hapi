@@ -615,6 +615,20 @@ export class ApiClient {
         )
     }
 
+    async createMachineDirectory(
+        machineId: string,
+        parentPath: string,
+        name: string
+    ): Promise<import('@hapi/protocol/apiTypes').MachineCreateDirectoryResponse> {
+        return await this.request(
+            `/api/machines/${encodeURIComponent(machineId)}/create-directory`,
+            {
+                method: 'POST',
+                body: JSON.stringify({ parentPath, name })
+            }
+        )
+    }
+
     async checkMachinePathsExists(
         machineId: string,
         paths: string[]

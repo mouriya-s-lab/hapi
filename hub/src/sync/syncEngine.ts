@@ -1592,6 +1592,10 @@ export class SyncEngine {
         return await this.rpcGateway.listMachineDirectory(machineId, path)
     }
 
+    async createMachineDirectory(machineId: string, parentPath: string, name: string) {
+        return await this.rpcGateway.createMachineDirectory(machineId, parentPath, name)
+    }
+
     async getGitStatus(sessionId: string, cwd?: string): Promise<RpcCommandResponse> {
         return await this.rpcGateway.getGitStatus(sessionId, cwd)
     }

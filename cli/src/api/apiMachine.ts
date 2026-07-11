@@ -3,13 +3,13 @@
  */
 
 import { io, type Socket } from 'socket.io-client'
-import { readdir, realpath, stat } from 'node:fs/promises'
+import { mkdir, readdir, realpath, stat } from 'node:fs/promises'
 import { realpathSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { logger } from '@/ui/logger'
 import { configuration } from '@/configuration'
 import type { ClientToServerEvents, ServerToClientEvents, Update, UpdateMachineBody } from '@hapi/protocol'
-import type { MachineDirectoryEntry, MachineListDirectoryResponse, PathExistsResponse } from '@hapi/protocol/apiTypes'
+import type { MachineCreateDirectoryResponse, MachineDirectoryEntry, MachineListDirectoryResponse, PathExistsResponse } from '@hapi/protocol/apiTypes'
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import type { RunnerState, Machine, MachineMetadata } from './types'
 import { RunnerStateSchema, MachineMetadataSchema } from './types'
@@ -40,6 +40,11 @@ interface PathExistsRequest {
 
 interface ListMachineDirectoryRequest {
     path: string
+}
+
+interface CreateMachineDirectoryRequest {
+    parentPath: string
+    name: string
 }
 
 function normalizeWorkspaceRoots(paths?: string[]): string[] | undefined {
@@ -183,6 +188,38 @@ export class ApiMachineClient {
                 return { success: true, entries }
             } catch (error) {
                 return { success: false, error: error instanceof Error ? error.message : 'Failed to list directory' }
+            }
+        })
+
+        this.rpcHandlerManager.registerHandler<CreateMachineDirectoryRequest, MachineCreateDirectoryResponse>(RPC_METHODS.CreateMachineDirectory, async (params) => {
+            if (!this.normalizedWorkspaceRoots?.length) {
+                return { success: false, error: 'Workspace browsing is not enabled for this machine' }
+            }
+
+            const rawParentPath = typeof params?.parentPath === 'string' ? params.parentPath.trim() : ''
+            const name = typeof params?.name === 'string' ? params.name.trim() : ''
+            if (!rawParentPath || !name) {
+                return { success: false, error: 'Parent path and directory name are required' }
+            }
+            if (name === '.' || name === '..' || name.includes('/') || name.includes('\\')) {
+                return { success: false, error: 'Directory name must be a single path segment' }
+            }
+
+            const parentPath = await this.resolveForWorkspaceCheck(rawParentPath)
+            if (!this.isWithinWorkspaceRoots(parentPath)) {
+                return { success: false, error: 'Path is outside workspace roots' }
+            }
+
+            const targetPath = join(parentPath, name)
+            if (!this.isWithinWorkspaceRoots(targetPath)) {
+                return { success: false, error: 'Path is outside workspace roots' }
+            }
+
+            try {
+                await mkdir(targetPath)
+                return { success: true, path: targetPath }
+            } catch (error) {
+                return { success: false, error: error instanceof Error ? error.message : 'Failed to create directory' }
             }
         })
 

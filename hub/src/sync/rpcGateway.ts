@@ -6,6 +6,7 @@ import type {
     CommandResponse,
     CursorModelSummary,
     CursorModelsResponse,
+    MachineCreateDirectoryResponse,
     DeleteUploadResponse,
     DirectoryEntry,
     FileReadResponse,
@@ -200,6 +201,18 @@ export class RpcGateway {
             return { success: false, error: 'Unexpected list-directory result' }
         }
         return result as RpcListDirectoryResponse
+    }
+
+    async createMachineDirectory(machineId: string, parentPath: string, name: string): Promise<MachineCreateDirectoryResponse> {
+        const result = await this.machineRpc(
+            machineId,
+            RPC_METHODS.CreateMachineDirectory,
+            { parentPath, name }
+        ) as MachineCreateDirectoryResponse | unknown
+        if (!result || typeof result !== 'object') {
+            return { success: false, error: 'Unexpected create-directory result' }
+        }
+        return result as MachineCreateDirectoryResponse
     }
 
     async checkPathsExist(machineId: string, paths: string[]): Promise<Record<string, boolean>> {
