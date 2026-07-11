@@ -300,6 +300,13 @@ export type GitCommandResponse = CommandResponse
 export type FileReadResponse = {
     success: boolean
     content?: string
+    hash?: string
+    error?: string
+}
+
+export type FileWriteResponse = {
+    success: boolean
+    hash?: string
     error?: string
 }
 

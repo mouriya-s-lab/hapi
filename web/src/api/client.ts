@@ -30,6 +30,7 @@ import type {
     CursorModelsResponse,
     DeleteUploadResponse,
     FileReadResponse,
+    FileWriteResponse,
     GitCommandResponse,
     ListDirectoryResponse,
     MachineListDirectoryResponse,
@@ -348,6 +349,13 @@ export class ApiClient {
         const params = new URLSearchParams()
         params.set('path', path)
         return await this.request<FileReadResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/file?${params.toString()}`)
+    }
+
+    async writeSessionFile(sessionId: string, path: string, content: string, expectedHash: string): Promise<FileWriteResponse> {
+        return await this.request<FileWriteResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/file`, {
+            method: 'PUT',
+            body: JSON.stringify({ path, content, expectedHash })
+        })
     }
 
     async listSessionDirectory(sessionId: string, path?: string): Promise<ListDirectoryResponse> {

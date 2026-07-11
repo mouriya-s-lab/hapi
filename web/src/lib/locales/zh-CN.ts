@@ -347,6 +347,13 @@ export default {
   'file.page.copyPath': '复制路径',
   'file.page.copyContent': '复制文件内容',
   'file.page.download': '下载文件',
+  'file.page.edit': '编辑',
+  'file.page.save': '保存',
+  'file.page.saving': '保存中…',
+  'file.page.saved': '文件已保存',
+  'file.page.cancel': '取消',
+  'file.page.editorLabel': '文件编辑器',
+  'file.page.discardChanges': '放弃未保存的更改？',
   'file.page.tab.diff': 'Diff',
   'file.page.tab.file': '文件',
   'file.page.tab.preview': '预览',
@@ -361,6 +368,8 @@ export default {
   'file.error.readFailedWithDetail': '读取文件失败：{error}',
   'file.error.diffUnavailable': 'Diff 不可用。',
   'file.error.diffUnavailableWithDetail': 'Diff 不可用：{error}',
+  'file.error.saveFailedWithDetail': '保存文件失败：{error}',
+  'file.error.conflict': '文件在打开后已被修改，请重新加载后再编辑。',
 
   // Tool card
   'tool.askQuestion': '其他',

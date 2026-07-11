@@ -10,6 +10,7 @@ import type {
     DeleteUploadResponse,
     DirectoryEntry,
     FileReadResponse,
+    FileWriteResponse,
     GeneratedImageResponse,
     ListDirectoryResponse,
     OpencodeModelsResponse,
@@ -48,6 +49,7 @@ export class RpcTargetMissingError extends Error {
 
 export type RpcCommandResponse = CommandResponse
 export type RpcReadFileResponse = FileReadResponse
+export type RpcWriteFileResponse = FileWriteResponse
 export type RpcGeneratedImageResponse = GeneratedImageResponse
 export type RpcUploadFileResponse = UploadFileResponse
 export type RpcDeleteUploadResponse = DeleteUploadResponse
@@ -247,6 +249,10 @@ export class RpcGateway {
 
     async readSessionFile(sessionId: string, path: string): Promise<RpcReadFileResponse> {
         return await this.sessionRpc(sessionId, RPC_METHODS.ReadFile, { path }) as RpcReadFileResponse
+    }
+
+    async writeSessionFile(sessionId: string, path: string, content: string, expectedHash: string): Promise<RpcWriteFileResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.WriteFile, { path, content, expectedHash }) as RpcWriteFileResponse
     }
 
     async readGeneratedImage(sessionId: string, imageId: string): Promise<RpcGeneratedImageResponse> {

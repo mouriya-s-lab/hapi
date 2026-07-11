@@ -343,6 +343,13 @@ export default {
   'file.page.copyPath': 'Copy path',
   'file.page.copyContent': 'Copy file content',
   'file.page.download': 'Download file',
+  'file.page.edit': 'Edit',
+  'file.page.save': 'Save',
+  'file.page.saving': 'Saving…',
+  'file.page.saved': 'File saved',
+  'file.page.cancel': 'Cancel',
+  'file.page.editorLabel': 'File editor',
+  'file.page.discardChanges': 'Discard unsaved changes?',
   'file.page.tab.diff': 'Diff',
   'file.page.tab.file': 'File',
   'file.page.tab.preview': 'Preview',
@@ -357,6 +364,8 @@ export default {
   'file.error.readFailedWithDetail': 'Failed to read file: {error}',
   'file.error.diffUnavailable': 'Diff unavailable.',
   'file.error.diffUnavailableWithDetail': 'Diff unavailable: {error}',
+  'file.error.saveFailedWithDetail': 'Failed to save file: {error}',
+  'file.error.conflict': 'This file changed after you opened it. Reload it before editing again.',
 
   // Tool card
   'tool.askQuestion': 'Other',

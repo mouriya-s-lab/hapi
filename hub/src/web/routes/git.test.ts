@@ -34,6 +34,54 @@ function buildAuthenticatedApp(engine: Partial<SyncEngine>): Hono<WebAppEnv> {
     return app
 }
 
+describe('session file route', () => {
+    it('forwards an optimistic file write to the session RPC', async () => {
+        const session = { id: 'session-1', namespace: 'default', active: true } as unknown as Session
+        const calls: unknown[][] = []
+        const engine = {
+            resolveSessionAccess: () => ({ ok: true as const, sessionId: 'session-1', session }),
+            writeSessionFile: async (...args: unknown[]) => {
+                calls.push(args)
+                return { success: true, hash: 'b'.repeat(64) }
+            }
+        } as unknown as Partial<SyncEngine>
+
+        const response = await buildApp(engine).request('/api/sessions/session-1/file', {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+                path: 'README.md',
+                content: Buffer.from('# updated').toString('base64'),
+                expectedHash: 'a'.repeat(64)
+            })
+        })
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ success: true, hash: 'b'.repeat(64) })
+        expect(calls).toEqual([[
+            'session-1',
+            'README.md',
+            Buffer.from('# updated').toString('base64'),
+            'a'.repeat(64)
+        ]])
+    })
+
+    it('rejects a write without a content hash', async () => {
+        const session = { id: 'session-1', namespace: 'default', active: true } as unknown as Session
+        const engine = {
+            resolveSessionAccess: () => ({ ok: true as const, sessionId: 'session-1', session })
+        } as unknown as Partial<SyncEngine>
+
+        const response = await buildApp(engine).request('/api/sessions/session-1/file', {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path: 'README.md', content: 'dGVzdA==' })
+        })
+
+        expect(response.status).toBe(400)
+    })
+})
+
 describe('generated images route', () => {
     it('serves generated images with an immutable cache header instead of no-store', async () => {
         const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])

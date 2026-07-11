@@ -37,6 +37,7 @@ import {
     type RpcOpencodeModel,
     type RpcPathExistsResponse,
     type RpcReadFileResponse,
+    type RpcWriteFileResponse,
     type RpcUploadFileResponse
 } from './rpcGateway'
 import { SessionCache } from './sessionCache'
@@ -1610,6 +1611,10 @@ export class SyncEngine {
 
     async readSessionFile(sessionId: string, path: string): Promise<RpcReadFileResponse> {
         return await this.rpcGateway.readSessionFile(sessionId, path)
+    }
+
+    async writeSessionFile(sessionId: string, path: string, content: string, expectedHash: string): Promise<RpcWriteFileResponse> {
+        return await this.rpcGateway.writeSessionFile(sessionId, path, content, expectedHash)
     }
 
     async readGeneratedImage(sessionId: string, imageId: string): Promise<RpcGeneratedImageResponse> {
