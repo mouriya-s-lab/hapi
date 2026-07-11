@@ -473,6 +473,7 @@ export default {
 
   // Scratchlist (per-session workbench, issue #11)
   'scratchlist.title': 'Scratchlist',
+  'todoPanel.title': 'Tasks',
   'scratchlist.heldLabel': 'held — not sent',
   'scratchlist.empty': 'empty',
   'scratchlist.count.one': '1 item',
