@@ -17,6 +17,7 @@ const harness = vi.hoisted(() => ({
     session: {
         onUserMessage: vi.fn(),
         onCancelQueuedMessage: vi.fn(),
+        updateMetadata: vi.fn(),
         rpcHandlerManager: {
             registerHandler: vi.fn()
         }
@@ -88,6 +89,10 @@ vi.mock('@/modules/common/slashCommands', () => ({
     listSlashCommands: vi.fn(async () => [])
 }))
 
+vi.mock('@/modules/common/replayImportedTranscript', () => ({
+    replayImportedTranscript: vi.fn(async () => 2)
+}))
+
 vi.mock('./utils/slashCommands', () => ({
     resolveCodexSlashCommand: vi.fn(() => ({
         kind: 'passthrough'
@@ -111,6 +116,7 @@ describe('runCodex', () => {
         harness.sessionInfo = { serviceTier: null }
         harness.session.onUserMessage.mockReset()
         harness.session.onCancelQueuedMessage.mockReset()
+        harness.session.updateMetadata.mockReset()
         harness.session.rpcHandlerManager.registerHandler.mockReset()
         mockCodexSession.setPermissionMode.mockReset()
         mockCodexSession.setModel.mockReset()
@@ -211,6 +217,20 @@ describe('runCodex', () => {
         expect(harness.loopArgs[0]).toEqual(expect.objectContaining({
             resumeSessionId: 'codex-thread-2',
             replayTranscriptHistoryOnStart: true
+        }))
+    })
+
+    it('does not ask the local launcher to replay history after an import replay', async () => {
+        await runCodexImpl({
+            workingDirectory: '/tmp/project',
+            resumeSessionId: 'codex-thread-3',
+            importHistory: true,
+            importTranscriptPath: '/tmp/codex-thread-3.jsonl'
+        })
+
+        expect(harness.loopArgs[0]).toEqual(expect.objectContaining({
+            resumeSessionId: 'codex-thread-3',
+            replayTranscriptHistoryOnStart: false
         }))
     })
 })

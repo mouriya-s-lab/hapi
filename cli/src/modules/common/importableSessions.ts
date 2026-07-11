@@ -65,7 +65,9 @@ async function forEachJsonLine(path: string, visit: (value: JsonRecord) => void)
     }
 }
 
-function realClaudeUserText(value: JsonRecord): string | null {
+export function realClaudeUserText(input: unknown): string | null {
+    const value = record(input)
+    if (!value) return null
     if (value.type !== 'user' || value.isMeta === true || value.isSidechain === true || value.isCompactSummary === true) return null
     const message = record(value.message)
     const valueText = text(message?.content).trim()

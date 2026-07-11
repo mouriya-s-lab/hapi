@@ -5,6 +5,7 @@ import { RawJSONLinesSchema } from '@/claude/types'
 import { isClaudeChatVisibleMessage } from '@/claude/utils/chatVisibility'
 import { convertCodexEvent, type CodexSessionEvent } from '@/codex/utils/codexEventConverter'
 import type { ImportableSessionAgent } from '@hapi/protocol/apiTypes'
+import { realClaudeUserText } from './importableSessions'
 
 export async function replayImportedTranscript(options: {
     agent: ImportableSessionAgent
@@ -27,6 +28,7 @@ export async function replayImportedTranscript(options: {
                 }
                 const message = result.data
                 if (!isClaudeChatVisibleMessage(message)) continue
+                if (message.type === 'user' && realClaudeUserText(message) === null) continue
                 options.session.sendClaudeSessionMessage(message)
                 imported += 1
                 continue
