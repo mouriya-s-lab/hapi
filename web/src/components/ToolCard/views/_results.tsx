@@ -2,6 +2,7 @@ import type { ToolViewComponent, ToolViewProps } from '@/components/ToolCard/vie
 import type { ReactNode } from 'react'
 import { isObject, safeStringify } from '@hapi/protocol'
 import { CodeBlock } from '@/components/CodeBlock'
+import { CollapsibleContent } from '@/components/CollapsibleContent'
 import { FileContentToggleView } from '@/components/FileContentToggleView'
 import { ImagePreview } from '@/components/ImagePreview'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
@@ -37,6 +38,69 @@ function extractTextFromContentBlock(block: unknown): string | null {
     if (block.type === 'text' && typeof block.text === 'string') return block.text
     if (typeof block.text === 'string') return block.text
     return null
+}
+
+type ToolResultImage =
+    | { kind: 'base64'; data: string; mediaType: string }
+    | { kind: 'url'; url: string }
+
+function inferImageMediaType(data: string): string | null {
+    if (data.startsWith('iVBORw0KGgo')) return 'image/png'
+    if (data.startsWith('/9j/')) return 'image/jpeg'
+    if (data.startsWith('R0lGOD')) return 'image/gif'
+    if (data.startsWith('UklGR')) return 'image/webp'
+    if (data.startsWith('Qk')) return 'image/bmp'
+    return null
+}
+
+function parseToolResultImage(value: unknown): ToolResultImage | null {
+    if (!isObject(value) || value.type !== 'image') return null
+
+    if (isObject(value.source)) {
+        if (value.source.type === 'url' && typeof value.source.url === 'string' && value.source.url.length > 0) {
+            return { kind: 'url', url: value.source.url }
+        }
+        if (value.source.type === 'base64' && typeof value.source.data === 'string' && value.source.data.length > 0) {
+            const declaredMediaType = typeof value.source.media_type === 'string' && value.source.media_type.startsWith('image/')
+                ? value.source.media_type
+                : null
+            const mediaType = declaredMediaType ?? inferImageMediaType(value.source.data)
+            return mediaType ? { kind: 'base64', data: value.source.data, mediaType } : null
+        }
+    }
+
+    if (isObject(value.file) && typeof value.file.base64 === 'string' && value.file.base64.length > 0) {
+        const declaredMediaType = typeof value.file.type === 'string' && value.file.type.startsWith('image/')
+            ? value.file.type
+            : null
+        const mediaType = declaredMediaType ?? inferImageMediaType(value.file.base64)
+        return mediaType ? { kind: 'base64', data: value.file.base64, mediaType } : null
+    }
+
+    return null
+}
+
+function imageToSrc(image: ToolResultImage): string {
+    return image.kind === 'url'
+        ? image.url
+        : `data:${image.mediaType};base64,${image.data}`
+}
+
+export function extractImagesFromResult(result: unknown): string[] {
+    if (Array.isArray(result)) {
+        return result.flatMap((value) => {
+            const image = parseToolResultImage(value)
+            return image ? [imageToSrc(image)] : []
+        })
+    }
+    if (!isObject(result)) return []
+
+    const direct = parseToolResultImage(result)
+    if (direct) return [imageToSrc(direct)]
+
+    const nestedValues = [result.content, result.result, result.data, result.output]
+        .filter((value) => value !== undefined)
+    return nestedValues.flatMap(extractImagesFromResult)
 }
 
 export function extractTextFromResult(result: unknown, depth: number = 0): string | null {
@@ -252,11 +316,19 @@ function resultCodeBlockProps(surface: ToolViewProps['surface'], collapseLongCon
 function renderResultBody(
     content: ReactNode,
     surface: ToolViewProps['surface'],
-    opts: { forceQuote?: boolean } = {}
+    opts: { forceQuote?: boolean; collapseText?: string } = {}
 ) {
-    if (surface !== 'dialog' && !opts.forceQuote) return content
+    const wrapCollapse = (node: ReactNode) => surface === 'dialog' || opts.collapseText === undefined
+        ? node
+        : (
+            <CollapsibleContent text={opts.collapseText} surfaceVar="--app-tool-card-bg">
+                {node}
+            </CollapsibleContent>
+        )
 
-    return (
+    if (surface !== 'dialog' && !opts.forceQuote) return wrapCollapse(content)
+
+    return wrapCollapse(
         <div className="tool-result-quote rounded-r-2xl border-l-[3px] border-[var(--app-md-quote-border)] bg-[var(--app-md-quote-bg)] px-4 py-3 text-sm leading-6 text-[var(--app-md-quote-fg)]">
             {content}
         </div>
@@ -269,7 +341,7 @@ function renderPlainTextQuote(text: string, surface: ToolViewProps['surface']) {
             {text}
         </div>,
         surface,
-        { forceQuote: true }
+        { forceQuote: true, collapseText: text }
     )
 }
 
@@ -293,7 +365,7 @@ function renderText(text: string, opts: { mode: 'markdown' | 'code' | 'auto'; la
         const markdown = renderMarkdown(text, opts.surface)
         return standaloneCodeBlock
             ? <CodeBlock code={standaloneCodeBlock.code} language={standaloneCodeBlock.language} {...resultCodeBlockProps(opts.surface, opts.collapseLongContent)} />
-            : renderResultBody(markdown, opts.surface)
+            : renderResultBody(markdown, opts.surface, { collapseText: opts.collapseLongContent ? text : undefined })
     }
 
     if (looksLikeHtml(text) || looksLikeJson(text)) {
@@ -304,7 +376,7 @@ function renderText(text: string, opts: { mode: 'markdown' | 'code' | 'auto'; la
         return <CodeBlock code={standaloneCodeBlock.code} language={standaloneCodeBlock.language} {...resultCodeBlockProps(opts.surface, opts.collapseLongContent)} />
     }
 
-    return renderResultBody(renderMarkdown(text, opts.surface), opts.surface)
+    return renderResultBody(renderMarkdown(text, opts.surface), opts.surface, { collapseText: opts.collapseLongContent ? text : undefined })
 }
 
 function placeholderForState(state: ToolViewProps['block']['tool']['state']): string {
@@ -404,16 +476,7 @@ function renderReadTextResult(text: string, path: string | null, surface: ToolVi
     // has no useful CodeBlock / toggle view. See readImageDetection.ts.
     const imageDataUrl = detectImageDataUrl(text, path)
     if (imageDataUrl) {
-        const fileName = path ? basename(path) : 'image'
-        return (
-            <ImagePreview
-                src={imageDataUrl}
-                fileName={fileName}
-                label={fileName}
-                buttonClassName="block max-w-full cursor-zoom-in rounded-xl text-left"
-                imageClassName="max-h-[min(28rem,60vh)] max-w-full rounded-xl object-contain"
-            />
-        )
+        return renderImageResult(imageDataUrl, path)
     }
     // In the detail dialog (the "click a file → popup preview" surface) show the
     // full file with the fork's markdown-preview + word-wrap toggles, matching
@@ -426,6 +489,35 @@ function renderReadTextResult(text: string, path: string | null, surface: ToolVi
         return <CodeBlock code={text} language={language} title="File content" {...resultCodeBlockProps(surface, surface === 'inline')} />
     }
     return renderPlainTextQuote(text, surface)
+}
+
+function renderImageResult(src: string, path: string | null) {
+    const fileName = path ? basename(path) : 'image'
+    return (
+        <ImagePreview
+            src={src}
+            fileName={fileName}
+            label={fileName}
+            buttonClassName="block max-w-full cursor-zoom-in rounded-xl text-left"
+            imageClassName="max-h-[min(28rem,60vh)] max-w-full rounded-xl object-contain"
+        />
+    )
+}
+
+function renderResultImages(images: string[], path: string | null) {
+    return (
+        <div className="flex flex-col gap-2">
+            {images.map((src, index) => (
+                <div key={`${index}:${src}`}>{renderImageResult(src, path)}</div>
+            ))}
+        </div>
+    )
+}
+
+export function ToolResultImages(props: { result: unknown; input: unknown }) {
+    const images = extractImagesFromResult(props.result)
+    if (images.length === 0) return null
+    return renderResultImages(images, extractReadPathFromInput(props.input))
 }
 
 function ResultMetaPill(props: { children: ReactNode }) {
@@ -552,11 +644,13 @@ const MarkdownResultView: ToolViewComponent = (props: ToolViewProps) => {
         return <ResultStatusPill text={placeholderForState(props.block.tool.state)} />
     }
 
+    const images = extractImagesFromResult(result)
     const text = extractTextFromResult(result)
-    if (text) {
+    if (images.length > 0 || text) {
         return (
             <>
-                {renderText(text, { mode: 'auto', collapseLongContent: props.surface === 'inline', surface: props.surface })}
+                {images.length > 0 ? renderResultImages(images, null) : null}
+                {text ? renderText(text, { mode: 'auto', collapseLongContent: props.surface === 'inline', surface: props.surface }) : null}
                 <RawJsonDevOnly value={result} surface={props.surface} />
             </>
         )
@@ -590,7 +684,7 @@ const LineListResultView: ToolViewComponent = (props: ToolViewProps) => {
     if (isProbablyMarkdownList(text)) {
         return (
             <>
-                {renderResultBody(renderMarkdown(text, props.surface), props.surface)}
+                {renderResultBody(renderMarkdown(text, props.surface), props.surface, { collapseText: text })}
                 <RawJsonDevOnly value={result} surface={props.surface} />
             </>
         )
@@ -616,7 +710,8 @@ const LineListResultView: ToolViewComponent = (props: ToolViewProps) => {
                         </div>
                     ))}
                 </div>,
-                props.surface
+                props.surface,
+                { collapseText: text }
             )}
             <RawJsonDevOnly value={result} surface={props.surface} />
         </>
@@ -646,10 +741,20 @@ const ReadResultView: ToolViewComponent = (props: ToolViewProps) => {
         )
     }
 
+    const path = extractReadPathFromInput(props.block.tool.input)
+    const displayPath = path ? resolveDisplayPath(path, props.metadata) : null
+    const images = extractImagesFromResult(result)
+    if (images.length > 0) {
+        return (
+            <>
+                {renderResultImages(images, displayPath)}
+                <RawJsonDevOnly value={result} surface={props.surface} />
+            </>
+        )
+    }
+
     const text = extractTextFromResult(result)
     if (text) {
-        const path = extractReadPathFromInput(props.block.tool.input)
-        const displayPath = path ? resolveDisplayPath(path, props.metadata) : null
         return (
             <>
                 {renderReadTextResult(text, displayPath, props.surface)}
@@ -961,6 +1066,18 @@ const GenericResultView: ToolViewComponent = (props: ToolViewProps) => {
                 </>
             )
         }
+    }
+
+    const images = extractImagesFromResult(result)
+    if (images.length > 0) {
+        const text = extractTextFromResult(result)
+        return (
+            <>
+                {renderResultImages(images, extractReadPathFromInput(props.block.tool.input))}
+                {text ? renderText(text, { mode: 'auto', collapseLongContent: props.surface === 'inline', surface: props.surface }) : null}
+                {typeof result === 'object' ? <RawJsonDevOnly value={result} surface={props.surface} /> : null}
+            </>
+        )
     }
 
     const text = extractTextFromResult(result)

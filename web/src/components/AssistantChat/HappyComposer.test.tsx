@@ -134,6 +134,7 @@ describe('HappyComposer resume model setting', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
         fireEvent.click(screen.getByRole('button', { name: 'Fable' }))
         expect(onModelChange).toHaveBeenCalledWith('fable')
+        expect(onResumeWithSessionModelChange).toHaveBeenCalledWith(true)
 
         fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
         fireEvent.click(screen.getByRole('button', { name: 'Max' }))
@@ -141,6 +142,34 @@ describe('HappyComposer resume model setting', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
         fireEvent.click(screen.getByRole('checkbox', { name: /Use session model on resume/i }))
+        expect(onResumeWithSessionModelChange).toHaveBeenCalledWith(true)
+    })
+
+    it('renders custom model as a radio row and enables resume when an inactive session selects it', () => {
+        const onModelChange = vi.fn()
+        const onResumeWithSessionModelChange = vi.fn()
+
+        renderInProviders(
+            <HappyComposer
+                agentFlavor="claude"
+                active={false}
+                allowSendWhenInactive
+                model="vendor-existing-model"
+                resumeWithSessionModel={false}
+                onModelChange={onModelChange}
+                onResumeWithSessionModelChange={onResumeWithSessionModelChange}
+            />
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+        expect(screen.getByRole('radio', { name: /Custom model ID/i })).toHaveAttribute('aria-checked', 'true')
+
+        const input = screen.getByTestId('custom-model-input')
+        expect(input).toHaveValue('vendor-existing-model')
+        fireEvent.change(input, { target: { value: '  vendor-next-model  ' } })
+        fireEvent.keyDown(input, { key: 'Enter' })
+
+        expect(onModelChange).toHaveBeenCalledWith('vendor-next-model')
         expect(onResumeWithSessionModelChange).toHaveBeenCalledWith(true)
     })
 })
