@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import type { UsageMetric, UsageProviderSummary, UsageSnapshot } from '@hapi/protocol/apiTypes'
-import type { UsageProvider, UsageQuery } from './types'
+import type { UsageMetric, UsageSnapshot } from '@hapi/protocol/schemas'
+import type { UsageProvider, UsageProviderInspection, UsageQuery } from './types'
 
 const OPENUSAGE_BASE_URL = 'http://127.0.0.1:6736'
 
@@ -46,7 +46,7 @@ export class OpenUsageProvider implements UsageProvider {
     readonly id = 'openusage'
     readonly name = 'OpenUsage'
 
-    async inspect(): Promise<UsageProviderSummary> {
+    async inspect(): Promise<UsageProviderInspection> {
         try {
             const response = await fetch(`${OPENUSAGE_BASE_URL}/v1/usage/claude`)
             return { id: this.id, name: this.name, available: response.status === 200 }

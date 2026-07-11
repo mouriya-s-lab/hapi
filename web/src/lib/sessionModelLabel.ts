@@ -1,5 +1,5 @@
 import { getClaudeModelLabel } from '@hapi/protocol'
-import type { UsageSnapshot } from '@hapi/protocol'
+import type { UsageSnapshot } from '@hapi/protocol/schemas'
 
 type SessionModelSource = {
     model?: string | null

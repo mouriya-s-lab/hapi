@@ -1,12 +1,12 @@
-import type { UsageMetric, UsageProviderSummary, UsageSnapshot } from '@hapi/protocol/apiTypes'
+import type { UsageMetric, UsageSnapshot } from '@hapi/protocol/schemas'
 import { listCcSwitchProviders, queryCcSwitchUsage } from '../ccSwitch'
-import type { UsageProvider, UsageQuery } from './types'
+import type { UsageProvider, UsageProviderInspection, UsageQuery } from './types'
 
 export class CcSwitchUsageProvider implements UsageProvider {
     readonly id = 'cc-switch'
     readonly name = 'cc-switch'
 
-    async inspect(): Promise<UsageProviderSummary> {
+    async inspect(): Promise<UsageProviderInspection> {
         const result = listCcSwitchProviders()
         const current = result.providers.find((provider) => provider.isCurrent)
         return { id: this.id, name: this.name, available: result.available && current?.hasUsageScript === true }

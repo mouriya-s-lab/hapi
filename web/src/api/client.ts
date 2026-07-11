@@ -38,8 +38,6 @@ import type {
     MachinePathsExistsResponse,
     OpencodeModelsResponse,
     OpencodeReasoningEffortResponse,
-    ListUsageProvidersResponse,
-    QueryUsageResponse,
     ReopenSessionResponse,
     SwitchCcSwitchProviderResponse,
     UploadFileResponse
@@ -689,20 +687,6 @@ export class ApiClient {
         return await this.request<SwitchCcSwitchProviderResponse>(
             `/api/machines/${encodeURIComponent(machineId)}/cc-switch/switch`,
             { method: 'POST', body: JSON.stringify({ providerId }) }
-        )
-    }
-
-    async getMachineUsageProviders(machineId: string): Promise<ListUsageProvidersResponse> {
-        return await this.request<ListUsageProvidersResponse>(
-            `/api/machines/${encodeURIComponent(machineId)}/usage/providers`
-        )
-    }
-
-    async getMachineUsage(machineId: string, providerId: string, subjectId?: string): Promise<QueryUsageResponse> {
-        const params = new URLSearchParams({ providerId })
-        if (subjectId) params.set('subjectId', subjectId)
-        return await this.request<QueryUsageResponse>(
-            `/api/machines/${encodeURIComponent(machineId)}/usage?${params.toString()}`
         )
     }
 

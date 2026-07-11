@@ -40,9 +40,6 @@ export function useCcSwitchProvider(args: {
                 await queryClient.invalidateQueries({
                     queryKey: queryKeys.machineCcSwitchProviders(machineId)
                 })
-                await queryClient.invalidateQueries({
-                    queryKey: ['machine-usage', machineId]
-                })
             }
             if (sessionId) {
                 await queryClient.invalidateQueries({ queryKey: queryKeys.session(sessionId) })

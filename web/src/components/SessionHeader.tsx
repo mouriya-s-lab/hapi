@@ -4,7 +4,7 @@ import type { ApiClient } from '@/api/client'
 import { isTelegramApp } from '@/hooks/useTelegram'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
 import { useFlavorCapabilities, getFlavorForkCapability } from '@/hooks/queries/useFlavorCapabilities'
-import { useMachineUsage } from '@/hooks/queries/useMachineUsage'
+import { useMachines } from '@/hooks/queries/useMachines'
 import { SessionActionMenu } from '@/components/SessionActionMenu'
 import { SessionExportDialog } from '@/components/SessionExportDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
@@ -116,14 +116,14 @@ export function SessionHeader(props: {
     const worktreeBranch = session.metadata?.worktree?.branch
     const modelLabel = getSessionModelLabel(session)
     const sessionMachineId = session.metadata?.machineId ?? null
-    const usageEnabled = session.metadata?.flavor === 'claude' && Boolean(sessionMachineId)
-    const machineUsage = useMachineUsage({
-        api,
-        machineId: sessionMachineId,
-        subjectId: 'claude',
-        enabled: usageEnabled
-    })
-    const usageLabel = formatUsageSnapshotLabel(machineUsage.snapshot, t('session.item.remaining'))
+    const { machines } = useMachines(api, Boolean(sessionMachineId))
+    const machineUsage = machines.find((machine) => machine.id === sessionMachineId)?.metadata?.usage
+    const usageSnapshot = ['openusage', 'cc-switch']
+        .flatMap((providerId) => machineUsage?.snapshots.find((snapshot) => snapshot.providerId === providerId) ?? [])
+        .at(0)
+    const usageLabel = session.metadata?.flavor === 'claude'
+        ? formatUsageSnapshotLabel(usageSnapshot, t('session.item.remaining'))
+        : null
 
     const [menuOpen, setMenuOpen] = useState(false)
     const [menuAnchorPoint, setMenuAnchorPoint] = useState<{ x: number; y: number }>({ x: 0, y: 0 })

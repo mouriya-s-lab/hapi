@@ -14,11 +14,6 @@ const SwitchCcSwitchProviderBodySchema = z.object({
     providerId: z.string().trim().min(1)
 }).strict()
 
-const UsageQuerySchema = z.object({
-    providerId: z.string().trim().min(1),
-    subjectId: z.string().trim().min(1).optional()
-}).strict()
-
 export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
 
@@ -251,34 +246,6 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json(await engine.switchCcSwitchProviderForMachine(machineId, parsed.data.providerId))
         } catch (error) {
             return c.json({ success: false, error: error instanceof Error ? error.message : 'Failed to switch cc-switch provider' }, 500)
-        }
-    })
-
-    app.get('/machines/:id/usage/providers', async (c) => {
-        const engine = getSyncEngine()
-        if (!engine) return c.json({ success: false, error: 'Not connected' }, 503)
-        const machineId = c.req.param('id')
-        const machine = requireMachine(c, engine, machineId)
-        if (machine instanceof Response) return machine
-        try {
-            return c.json(await engine.listUsageProvidersForMachine(machineId))
-        } catch (error) {
-            return c.json({ success: false, error: error instanceof Error ? error.message : 'Failed to list usage providers' }, 500)
-        }
-    })
-
-    app.get('/machines/:id/usage', async (c) => {
-        const engine = getSyncEngine()
-        if (!engine) return c.json({ success: false, error: 'Not connected' }, 503)
-        const machineId = c.req.param('id')
-        const machine = requireMachine(c, engine, machineId)
-        if (machine instanceof Response) return machine
-        const parsed = UsageQuerySchema.safeParse({ providerId: c.req.query('providerId'), subjectId: c.req.query('subjectId') })
-        if (!parsed.success) return c.json({ success: false, error: 'Invalid usage query' }, 400)
-        try {
-            return c.json(await engine.queryUsageForMachine(machineId, parsed.data.providerId, parsed.data.subjectId))
-        } catch (error) {
-            return c.json({ success: false, error: error instanceof Error ? error.message : 'Failed to query usage' }, 500)
         }
     })
 

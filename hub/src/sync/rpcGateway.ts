@@ -18,8 +18,6 @@ import type {
     OpencodeModelSummary,
     OpencodeReasoningEffortResponse,
     PathExistsResponse,
-    ListUsageProvidersResponse,
-    QueryUsageResponse,
     SlashCommandsResponse,
     SwitchCcSwitchProviderResponse,
     UploadFileResponse
@@ -313,14 +311,6 @@ export class RpcGateway {
 
     async switchCcSwitchProviderForMachine(machineId: string, providerId: string): Promise<SwitchCcSwitchProviderResponse> {
         return await this.machineRpc(machineId, RPC_METHODS.SwitchCcSwitchProvider, { providerId }, MODEL_LIST_RPC_TIMEOUT_MS) as SwitchCcSwitchProviderResponse
-    }
-
-    async listUsageProvidersForMachine(machineId: string): Promise<ListUsageProvidersResponse> {
-        return await this.machineRpc(machineId, RPC_METHODS.ListUsageProviders, {}, MODEL_LIST_RPC_TIMEOUT_MS) as ListUsageProvidersResponse
-    }
-
-    async queryUsageForMachine(machineId: string, providerId: string, subjectId?: string): Promise<QueryUsageResponse> {
-        return await this.machineRpc(machineId, RPC_METHODS.QueryUsage, { providerId, subjectId }, MODEL_LIST_RPC_TIMEOUT_MS) as QueryUsageResponse
     }
 
     async listOpencodeModelsForSession(sessionId: string): Promise<RpcListOpencodeModelsResponse> {

@@ -22,7 +22,5 @@ export const queryKeys = {
     sessionOpencodeReasoningEffortOptions: (sessionId: string) => ['session-opencode-reasoning-effort-options', sessionId] as const,
     machineOpencodeModelsForCwd: (machineId: string, cwd: string) => ['machine-opencode-models', machineId, cwd] as const,
     machineCcSwitchProviders: (machineId: string) => ['machine-cc-switch-providers', machineId] as const,
-    machineUsageProviders: (machineId: string) => ['machine-usage-providers', machineId] as const,
-    machineUsage: (machineId: string, providerId: string, subjectId: string) => ['machine-usage', machineId, providerId, subjectId] as const,
     skills: (sessionId: string) => ['skills', sessionId] as const,
 }

@@ -442,63 +442,6 @@ export type SwitchCcSwitchProviderResponse = {
     error?: string
 }
 
-export type UsageMetric =
-    | {
-        type: 'progress'
-        label: string
-        used: number
-        limit: number
-        unit: 'percent' | 'count'
-        resetsAt: string | null
-    }
-    | {
-        type: 'text'
-        label: string
-        value: string
-    }
-    | {
-        type: 'badge'
-        label: string
-        text: string
-    }
-    | {
-        type: 'barChart'
-        label: string
-        points: Array<{ label: string; value: number; valueLabel: string | null }>
-        note: string | null
-    }
-
-export type UsageSnapshot = {
-    providerId: string
-    displayName: string
-    plan: string | null
-    metrics: UsageMetric[]
-    fetchedAt: string
-}
-
-export type UsageProviderSummary = {
-    id: string
-    name: string
-    available: boolean
-}
-
-export type ListUsageProvidersResponse = {
-    success: boolean
-    providers?: UsageProviderSummary[]
-    error?: string
-}
-
-export type QueryUsageRequest = {
-    providerId: string
-    subjectId?: string
-}
-
-export type QueryUsageResponse = {
-    success: boolean
-    snapshot?: UsageSnapshot
-    error?: string
-}
-
 /** Maps thinking levels to provider-specific values. null = unsupported. */
 export type PiThinkingLevelMap = Partial<Record<string, string | null>>
 
