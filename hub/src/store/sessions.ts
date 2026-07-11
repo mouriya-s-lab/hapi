@@ -54,13 +54,33 @@ const PARSE_IDENTITY_FIELDS = ['path', 'host'] as const
 const ROUTING_FIELDS = ['flavor', 'machineId'] as const
 
 const SIMPLE_RESUME_TOKENS = [
-    'claudeSessionId',
     'codexSessionId',
     'geminiSessionId',
     'opencodeSessionId',
     'cursorSessionId',
     'kimiSessionId'
 ] as const
+
+function preservePendingClaudeLaunch(
+    prior: Record<string, unknown>,
+    next: Record<string, unknown>,
+    merged: Record<string, unknown> | null
+): Record<string, unknown> | null {
+    const pending = prior.pendingClaudeLaunch
+    if (!isPlainObject(pending) || typeof pending.resumeSessionId !== 'string') {
+        return carryForwardIfMissing(prior, next, merged, ['claudeSessionId'])
+    }
+
+    const result = merged ?? { ...next }
+    if (next.claudeSessionId === pending.resumeSessionId) {
+        delete result.pendingClaudeLaunch
+        return result
+    }
+
+    delete result.claudeSessionId
+    result.pendingClaudeLaunch = pending
+    return result
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -124,6 +144,7 @@ export function mergeSessionMetadata(prior: unknown, next: unknown): unknown {
     let merged: Record<string, unknown> | null = null
     merged = carryForwardIfMissing(prior, next, merged, PARSE_IDENTITY_FIELDS)
     merged = carryForwardIfMissing(prior, next, merged, ROUTING_FIELDS)
+    merged = preservePendingClaudeLaunch(prior, next, merged)
     merged = carryForwardIfMissing(prior, next, merged, SIMPLE_RESUME_TOKENS)
     merged = preserveCursorProtocolPair(prior, next, merged)
     return merged ?? next

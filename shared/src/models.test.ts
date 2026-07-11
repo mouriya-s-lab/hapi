@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
+    CLAUDE_MODEL_ID_LABELS,
+    CLAUDE_MODEL_IDS,
     CLAUDE_MODEL_PRESETS,
     CLAUDE_MODEL_LABELS,
     DEFAULT_GEMINI_MODEL,
@@ -40,7 +42,12 @@ describe('getClaudeModelLabel', () => {
     })
 
     test('returns null for unknown model', () => {
-        expect(getClaudeModelLabel('claude-fable-5')).toBeNull()
+        expect(getClaudeModelLabel('claude-nonexistent-9')).toBeNull()
+    })
+
+    test('returns labels for specific model ids', () => {
+        expect(getClaudeModelLabel('claude-opus-4-8')).toBe('Opus 4.8')
+        expect(getClaudeModelLabel('claude-fable-5')).toBe('Fable 5')
     })
 
     test('returns null for empty/whitespace-only string', () => {
@@ -59,6 +66,13 @@ describe('model constants consistency', () => {
     test('every GEMINI_MODEL_PRESET has a label', () => {
         for (const preset of GEMINI_MODEL_PRESETS) {
             expect(GEMINI_MODEL_LABELS[preset]).toBeDefined()
+        }
+    })
+
+    test('every CLAUDE_MODEL_ID has a label and is not a preset', () => {
+        for (const id of CLAUDE_MODEL_IDS) {
+            expect(CLAUDE_MODEL_ID_LABELS[id]).toBeDefined()
+            expect(isClaudeModelPreset(id)).toBe(false)
         }
     })
 

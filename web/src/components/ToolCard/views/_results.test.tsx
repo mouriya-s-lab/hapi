@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { ToolCallBlock } from '@/chat/types'
-import { extractCodexBashDisplay, extractTextFromResult, getMutationResultRenderMode, getToolResultViewComponent } from '@/components/ToolCard/views/_results'
+import { extractCodexBashDisplay, extractImagesFromResult, extractTextFromResult, getMutationResultRenderMode, getToolResultViewComponent, ToolResultImages } from '@/components/ToolCard/views/_results'
 import { I18nProvider } from '@/lib/i18n-context'
 
 vi.mock('@/components/MarkdownRenderer', () => ({
@@ -71,6 +71,59 @@ describe('extractTextFromResult', () => {
     it('strips tool_use_error tags', () => {
         const result = '<tool_use_error>Permission denied</tool_use_error>'
         expect(extractTextFromResult(result)).toBe('Permission denied')
+    })
+})
+
+describe('extractImagesFromResult', () => {
+    const pngData = `iVBORw0KGgo${'A'.repeat(40)}`
+
+    it('extracts Anthropic base64 and URL image content blocks', () => {
+        expect(extractImagesFromResult([
+            { type: 'image', source: { type: 'base64', data: pngData, media_type: 'image/png' } },
+            { type: 'image', source: { type: 'url', url: 'https://example.com/a.png' } }
+        ])).toEqual([
+            `data:image/png;base64,${pngData}`,
+            'https://example.com/a.png'
+        ])
+    })
+
+    it('extracts Claude Code file images and infers a missing JPEG media type', () => {
+        const jpegData = `/9j/${'A'.repeat(40)}`
+        expect(extractImagesFromResult({
+            result: { type: 'image', file: { base64: jpegData, originalSize: 123 } }
+        })).toEqual([`data:image/jpeg;base64,${jpegData}`])
+    })
+
+    it('extracts image blocks nested under MCP content', () => {
+        expect(extractImagesFromResult({
+            content: [{ type: 'image', source: { type: 'base64', data: pngData, media_type: 'image/png' } }]
+        })).toEqual([`data:image/png;base64,${pngData}`])
+    })
+
+    it('rejects text blocks, malformed image blocks, and unknown base64 payloads', () => {
+        expect(extractImagesFromResult([
+            { type: 'text', text: 'hello' },
+            { type: 'image', source: { type: 'base64', data: 'not-an-image' } },
+            { type: 'image', source: { type: 'url', url: '' } }
+        ])).toEqual([])
+        expect(extractImagesFromResult(null)).toEqual([])
+    })
+})
+
+describe('ToolResultImages', () => {
+    it('renders image results with the Read file name and omits text-only results', () => {
+        const pngData = `iVBORw0KGgo${'A'.repeat(40)}`
+        const image = render(
+            <ToolResultImages
+                result={[{ type: 'image', source: { type: 'base64', data: pngData, media_type: 'image/png' } }]}
+                input={{ file_path: '/workspace/pic.png' }}
+            />
+        )
+        expect(image.container.querySelector('img')).toHaveAttribute('src', `data:image/png;base64,${pngData}`)
+        expect(image.container.querySelector('img')).toHaveAttribute('alt', 'pic.png')
+
+        const text = render(<ToolResultImages result={[{ type: 'text', text: 'hello' }]} input={{}} />)
+        expect(text.container).toBeEmptyDOMElement()
     })
 })
 
@@ -414,6 +467,31 @@ describe('read file result formatting', () => {
         expect(view).toHaveAttribute('data-path', '/tmp/notes.txt')
         expect(view).toHaveTextContent('plain notes from the workspace')
         expect(screen.getAllByText('Raw JSON').length).toBeGreaterThan(0)
+    })
+
+    it('renders Read image content blocks instead of the no-output fallback', () => {
+        const base64 = `iVBORw0KGgo${'A'.repeat(120)}`
+        const { container } = renderToolResult(
+            'Read',
+            [{ type: 'image', source: { type: 'base64', data: base64, media_type: 'image/png' } }],
+            { file_path: '/workspace/pic.png' }
+        )
+
+        expect(container.querySelector('img')).toHaveAttribute('src', `data:image/png;base64,${base64}`)
+        expect(container).not.toHaveTextContent('(no output)')
+    })
+
+    it('renders MCP image and text content together in the generic result view', () => {
+        const base64 = `iVBORw0KGgo${'A'.repeat(120)}`
+        const { container } = renderToolResult('mcp__screenshot__capture', {
+            content: [
+                { type: 'image', source: { type: 'base64', data: base64, media_type: 'image/png' } },
+                { type: 'text', text: 'screenshot taken' }
+            ]
+        })
+
+        expect(container.querySelector('img')).toHaveAttribute('src', `data:image/png;base64,${base64}`)
+        expect(container).toHaveTextContent('screenshot taken')
     })
 
     it('renders parsed Codex read command output through the toggle view', () => {

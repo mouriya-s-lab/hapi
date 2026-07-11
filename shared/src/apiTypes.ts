@@ -318,6 +318,15 @@ export type GeneratedImageResponse = {
     error?: string
 }
 
+export type GeneratedFileResponse = {
+    success: boolean
+    content?: string
+    mimeType?: string
+    fileName?: string
+    size?: number
+    error?: string
+}
+
 export type UploadFileResponse = {
     success: boolean
     path?: string

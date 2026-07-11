@@ -307,7 +307,9 @@ export default {
 
   // Code block
   'code.copy': 'Copy',
-  'code.truncated': 'Preview truncated — open details for full output',
+  'collapse.expand': 'Expand',
+  'collapse.collapse': 'Collapse',
+  'collapse.expandLines': 'Show all ({n} lines)',
 
   // Diff view
   'diff.title': 'Diff',
@@ -451,6 +453,8 @@ export default {
 
   // Composer buttons
   'composer.settings': 'Settings',
+  'composer.customModel': 'Custom model ID…',
+  'composer.customModelPlaceholder': 'e.g. claude-opus-4-7, press Enter',
   'composer.terminal': 'Terminal',
   'composer.abort': 'Abort',
   'composer.switchRemote': 'Switch to remote mode',
@@ -470,6 +474,7 @@ export default {
 
   // Scratchlist (per-session workbench, issue #11)
   'scratchlist.title': 'Scratchlist',
+  'todoPanel.title': 'Tasks',
   'scratchlist.heldLabel': 'held — not sent',
   'scratchlist.empty': 'empty',
   'scratchlist.count.one': '1 item',
@@ -501,6 +506,8 @@ export default {
   'composer.codexSlashUnsupported.body': 'HAPI remote mode does not yet run built-in Codex slash commands like {command}. Use natural language instead, or run it in the local Codex TUI.',
 
   // Voice assistant
+  'voice.readAloud': 'Read summary aloud',
+  'voice.readAloudStop': 'Stop reading',
   'voice.connecting': 'Connecting...',
   'voice.active': 'Active',
   'voice.muted': 'Muted',
@@ -529,6 +536,9 @@ export default {
   'pwa.update.title': 'New version available',
   'pwa.update.body': 'Reload to get the latest HAPI',
   'pwa.update.reload': 'Reload',
+  'pwa.update.changes': "What's new",
+  'pwa.update.changesLoading': 'Loading version changes…',
+  'pwa.update.changesFailed': 'Version changes are unavailable. You can still reload to update.',
   'pwa.update.whyToggle': "Why can't I dismiss this?",
   'pwa.update.whyBody': 'HAPI will not reload your tab automatically while you may have an agent running, a permission waiting, or a message in progress. Running an old web build against the current server can cause sync bugs and failed actions. This banner stays visible until you reload so you are not stuck on a stale version by accident — but you choose when to tap Reload and finish what you are doing first.',
 
@@ -718,6 +728,7 @@ export default {
   'misc.resumeWithSessionModel': 'Use session model on resume',
   'misc.resumeWithSessionModelHint': 'Pass this session’s Claude model and effort when resuming.',
   'misc.reasoningEffort': 'Reasoning Effort',
+  'reasoning.collapseHint': 'click to collapse',
   'misc.effort': 'Effort',
   'misc.fastMode': 'Fast Mode',
   'misc.fastModeStandard': 'Standard',

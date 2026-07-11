@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
+import { stopSpeaking } from '@/realtime/messageSummarySpeaker'
 import { AssistantRuntimeProvider, useAssistantApi, useAssistantState } from '@assistant-ui/react'
 import { DragDropZone } from '@/components/AssistantChat/DragDropZone'
 import type { ApiClient } from '@/api/client'
@@ -27,6 +28,7 @@ import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePic
 import { resolvePendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import { HappyThread } from '@/components/AssistantChat/HappyThread'
 import { QueuedMessagesBar } from '@/components/AssistantChat/QueuedMessagesBar'
+import { TodoPanel } from '@/components/AssistantChat/TodoPanel'
 import { ScratchlistDrawer } from '@/components/AssistantChat/ScratchlistPanel'
 import { useScratchlist } from '@/lib/use-scratchlist'
 import { useToast } from '@/lib/toast-context'
@@ -413,6 +415,7 @@ function SessionChatInner(props: SessionChatProps) {
     const { t } = useTranslation()
     const navigate = useNavigate()
     const { addToast } = useToast()
+    useEffect(() => stopSpeaking, [])
     const sessionInactive = !props.session.active
     const inactiveCanResume = inactiveSessionCanResume(props.session, props.messages.length)
     const terminalSupported = isRemoteTerminalSupported(props.session.metadata)
@@ -1258,6 +1261,7 @@ function SessionChatInner(props: SessionChatProps) {
                     ) : null}
 
                     <div className="px-3">
+                        <TodoPanel sessionId={props.session.id} todos={props.session.todos} />
                         {/*
                          * Scratchlist drawer - composer-controlled. Only
                          * mounted when the operator clicks the notepad icon

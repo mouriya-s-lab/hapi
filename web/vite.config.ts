@@ -5,11 +5,21 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { shareTargetPathnameFromBase } from './src/lib/sharePath'
 import { execSync } from 'node:child_process'
+import { readHeadCommit, writeChangelog } from './changelog-build'
 
 const base = process.env.VITE_BASE_URL || '/'
 const shareAction = shareTargetPathnameFromBase(base)
 const hubTarget = process.env.VITE_HUB_PROXY || 'http://127.0.0.1:3006'
 const appVersion = readAppVersion()
+function tryReadHeadCommit(): string | null {
+    try {
+        return readHeadCommit(__dirname)
+    } catch {
+        return null
+    }
+}
+
+const appCommit = tryReadHeadCommit()
 
 function readBaseVersion(): string {
     const buildInfoPath = resolve(__dirname, '../shared/src/buildInfo.ts')
@@ -54,6 +64,24 @@ function readAppVersion(): string {
     return `${base}-dev`
 }
 
+function changelogJsonPlugin() {
+    return {
+        name: 'hapi-changelog-json',
+        apply: 'build' as const,
+        closeBundle() {
+            if (appCommit === null) {
+                console.warn('Unable to generate dist/changelog.json outside a git checkout; the update banner will show an unavailable state.')
+                return
+            }
+            try {
+                writeChangelog(__dirname, appVersion, resolve(__dirname, 'dist'))
+            } catch (error) {
+                console.warn('Unable to generate dist/changelog.json; the update banner will show an unavailable state.', error)
+            }
+        },
+    }
+}
+
 function getVendorChunkName(id: string): string | undefined {
     if (!id.includes('/node_modules/')) {
         return undefined
@@ -81,6 +109,7 @@ function getVendorChunkName(id: string): string | undefined {
 export default defineConfig({
     define: {
         __APP_VERSION__: JSON.stringify(appVersion),
+        __APP_COMMIT__: JSON.stringify(appCommit ?? 'unavailable'),
     },
     server: {
         host: true,
@@ -98,6 +127,7 @@ export default defineConfig({
     },
     plugins: [
         react(),
+        changelogJsonPlugin(),
         VitePWA({
             // User-controlled reload avoids mid-session surprise reloads (autoUpdate reloads all tabs).
             registerType: 'prompt',

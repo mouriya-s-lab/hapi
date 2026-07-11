@@ -3,7 +3,8 @@ import type { CodexCollaborationMode, PermissionMode, Session, SessionPatch } fr
 import type { Store } from '../store'
 import { clampAliveTime } from './aliveTime'
 import { EventPublisher } from './eventPublisher'
-import { extractTodoWriteTodosFromMessageContent, TodosSchema } from './todos'
+import { applyTodoMessageContent, TodosSchema } from './todos'
+import type { TodoItem } from './todos'
 import { extractBackgroundTaskDelta } from './backgroundTasks'
 
 const QUEUED_MESSAGE_THINKING_GRACE_MS = 15_000
@@ -98,16 +99,18 @@ export class SessionCache {
         if (stored.todos === null && !this.todoBackfillAttemptedSessionIds.has(sessionId)) {
             this.todoBackfillAttemptedSessionIds.add(sessionId)
             const messages = this.store.messages.getMessages(sessionId, 200)
-            for (let i = messages.length - 1; i >= 0; i -= 1) {
-                const message = messages[i]
-                const todos = extractTodoWriteTodosFromMessageContent(message.content)
-                if (todos) {
-                    const updated = this.store.sessions.setSessionTodos(sessionId, todos, message.createdAt, stored.namespace)
-                    if (updated) {
-                        stored = this.store.sessions.getSession(sessionId) ?? stored
-                    }
-                    break
+            let accumulated: TodoItem[] | null = null
+            let accumulatedAt: number | null = null
+            for (const message of messages) {
+                const nextTodos = applyTodoMessageContent(accumulated, message.content)
+                if (nextTodos) {
+                    accumulated = nextTodos
+                    accumulatedAt = message.createdAt
                 }
+            }
+            if (accumulated && accumulatedAt !== null) {
+                const updated = this.store.sessions.setSessionTodos(sessionId, accumulated, accumulatedAt, stored.namespace)
+                if (updated) stored = this.store.sessions.getSession(sessionId) ?? stored
             }
         }
 

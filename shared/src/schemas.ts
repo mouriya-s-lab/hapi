@@ -83,7 +83,18 @@ export const MetadataSchema = z.object({
     piSelectedModel: z.object({ provider: z.string(), modelId: z.string() }).nullable().optional(),
     forkedFrom: z.string().optional(),
     forkedAt: z.number().optional(),
-    forkedFromMessageId: z.string().optional()
+    forkedFromMessageId: z.string().optional(),
+    pendingClaudeLaunch: z.object({
+        resumeSessionId: z.string(),
+        launch: z.discriminatedUnion('type', [
+            z.object({ type: z.literal('fresh') }),
+            z.object({
+                type: z.literal('resume-at'),
+                sourceSessionId: z.string(),
+                providerMessageId: z.string()
+            })
+        ])
+    }).optional()
 })
 
 export type Metadata = z.infer<typeof MetadataSchema>

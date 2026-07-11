@@ -27,6 +27,7 @@ import {
     type RpcCodexModel,
     type RpcCommandResponse,
     type RpcDeleteUploadResponse,
+    type RpcGeneratedFileResponse,
     type RpcGeneratedImageResponse,
     type RpcListDirectoryResponse,
     type RpcListCodexModelsResponse,
@@ -49,6 +50,7 @@ export type {
     RpcCodexModel,
     RpcCommandResponse,
     RpcDeleteUploadResponse,
+    RpcGeneratedFileResponse,
     RpcGeneratedImageResponse,
     RpcListDirectoryResponse,
     RpcListCodexModelsResponse,
@@ -809,7 +811,8 @@ export class SyncEngine {
         effort?: string,
         permissionMode?: PermissionMode,
         serviceTier?: string,
-        claudeLaunch?: ClaudeLaunch
+        claudeLaunch?: ClaudeLaunch,
+        ccSwitchProviderId?: string
     ): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }> {
         return await this.rpcGateway.spawnSession(
             machineId,
@@ -824,7 +827,8 @@ export class SyncEngine {
             effort,
             permissionMode,
             serviceTier,
-            claudeLaunch
+            claudeLaunch,
+            ccSwitchProviderId
         )
     }
 
@@ -860,7 +864,9 @@ export class SyncEngine {
         if (flavor === 'pi') return metadata.piSessionId ?? null
         if (flavor === 'omp') return metadata.ompSessionId ?? null
 
-        return metadata.claudeSessionId ?? this.recoverClaudeSessionIdFromMessages(session.id, namespace)
+        return metadata.claudeSessionId
+            ?? metadata.pendingClaudeLaunch?.resumeSessionId
+            ?? this.recoverClaudeSessionIdFromMessages(session.id, namespace)
     }
 
     resolveLocalResumeTarget(sessionId: string, namespace: string): LocalResumeTargetResult {
@@ -1240,11 +1246,15 @@ export class SyncEngine {
         let flavor: AgentFlavor
         let resumeToken: string | undefined
         let directory: string
+        let claudeLaunch: ClaudeLaunch | undefined
 
         if (targetResult.type === 'success') {
             flavor = targetResult.target.flavor
             resumeToken = targetResult.target.agentSessionId
             directory = targetResult.target.directory
+            claudeLaunch = session.metadata?.claudeSessionId
+                ? undefined
+                : session.metadata?.pendingClaudeLaunch?.launch
         } else if (
             targetResult.code === 'resume_unavailable'
             && this.canFreshSpawnNeverStartedSession(session, access.sessionId, namespace)
@@ -1297,7 +1307,7 @@ export class SyncEngine {
             includeStoredModelParameters ? session.effort ?? undefined : undefined,
             preferredPermissionMode,
             includeStoredModelParameters ? session.serviceTier ?? undefined : undefined,
-            undefined,
+            claudeLaunch,
             opts?.ccSwitchProviderId ?? metadata.ccSwitchProviderId
         )
 
@@ -1668,6 +1678,10 @@ export class SyncEngine {
 
     async readGeneratedImage(sessionId: string, imageId: string): Promise<RpcGeneratedImageResponse> {
         return await this.rpcGateway.readGeneratedImage(sessionId, imageId)
+    }
+
+    async readGeneratedFile(sessionId: string, fileId: string): Promise<RpcGeneratedFileResponse> {
+        return await this.rpcGateway.readGeneratedFile(sessionId, fileId)
     }
 
     async listDirectory(sessionId: string, path: string): Promise<RpcListDirectoryResponse> {

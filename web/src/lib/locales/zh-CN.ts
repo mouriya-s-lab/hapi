@@ -311,7 +311,9 @@ export default {
 
   // Code block
   'code.copy': '复制',
-  'code.truncated': '预览已截断 — 打开详情查看完整输出',
+  'collapse.expand': '展开',
+  'collapse.collapse': '折叠',
+  'collapse.expandLines': '展开全部（{n} 行）',
 
   // Diff view
   'diff.title': '差异',
@@ -455,6 +457,8 @@ export default {
 
   // Composer buttons
   'composer.settings': '设置',
+  'composer.customModel': '自定义模型 ID…',
+  'composer.customModelPlaceholder': '如 claude-opus-4-7，回车确认',
   'composer.terminal': '终端',
   'composer.abort': '中止',
   'composer.switchRemote': '切换到远程模式',
@@ -474,6 +478,7 @@ export default {
 
   // Scratchlist (per-session workbench, issue #11)
   'scratchlist.title': '草稿夹',
+  'todoPanel.title': '任务清单',
   'scratchlist.heldLabel': '暂存 · 未发送',
   'scratchlist.empty': '空',
   'scratchlist.count.one': '1 条',
@@ -505,6 +510,8 @@ export default {
   'composer.codexSlashUnsupported.body': 'HAPI 远程模式暂不支持 {command} 这类 Codex 内建 slash command，请改用自然语言，或在本地 Codex TUI 中执行。',
 
   // Voice assistant
+  'voice.readAloud': '朗读摘要',
+  'voice.readAloudStop': '停止朗读',
   'voice.connecting': '连接中...',
   'voice.active': '活跃',
   'voice.muted': '已静音',
@@ -533,6 +540,9 @@ export default {
   'pwa.update.title': '新版本可用',
   'pwa.update.body': '重新加载以获取最新版 HAPI',
   'pwa.update.reload': '重新加载',
+  'pwa.update.changes': '本次更新内容',
+  'pwa.update.changesLoading': '正在加载版本变更…',
+  'pwa.update.changesFailed': '暂时无法获取版本变更，仍可重新加载完成更新。',
   'pwa.update.whyToggle': '为什么不能关闭此提示？',
   'pwa.update.whyBody': '当你可能有正在运行的智能体、待处理的权限请求或未发送的消息时，HAPI 不会自动重新加载标签页。旧版网页与当前服务器一起运行可能导致同步错误和操作失败。此横幅会一直保持显示，直到你重新加载，以免你在不知情的情况下停留在旧版本 — 但何时点击「重新加载」由你决定，可以先完成手头的工作。',
 
@@ -722,6 +732,7 @@ export default {
   'misc.resumeWithSessionModel': 'Resume 时使用本会话模型',
   'misc.resumeWithSessionModelHint': '下次 resume 传入本会话的模型和思考强度。',
   'misc.reasoningEffort': '推理强度',
+  'reasoning.collapseHint': '点击折叠',
   'misc.effort': '思考强度',
   'misc.fastMode': '快速模式',
   'misc.fastModeStandard': '标准',

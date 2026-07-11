@@ -999,6 +999,74 @@ describe('session model', () => {
         }
     })
 
+    it('retries a deferred Claude fork with its original launch recipe', async () => {
+        const store = new Store(':memory:')
+        const engine = new SyncEngine(
+            store,
+            {} as never,
+            new RpcRegistry(),
+            { broadcast() {} } as never
+        )
+
+        try {
+            const launch = {
+                type: 'resume-at' as const,
+                sourceSessionId: 'source-claude-session',
+                providerMessageId: 'provider-message-id'
+            }
+            const session = engine.getOrCreateSession(
+                'session-deferred-claude-fork',
+                {
+                    path: '/tmp/project',
+                    host: 'localhost',
+                    machineId: 'machine-1',
+                    flavor: 'claude',
+                    pendingClaudeLaunch: {
+                        resumeSessionId: 'new-claude-session',
+                        launch
+                    }
+                },
+                null,
+                'default',
+                'sonnet'
+            )
+            store.messages.addMessage(session.id, {
+                role: 'agent',
+                content: {
+                    type: 'output',
+                    data: { type: 'assistant', sessionId: 'source-claude-session' }
+                }
+            })
+            engine.getOrCreateMachine(
+                'machine-1',
+                { host: 'localhost', platform: 'linux', happyCliVersion: '0.1.0' },
+                null,
+                'default'
+            )
+            engine.handleMachineAlive({ machineId: 'machine-1', time: Date.now() })
+
+            let capturedResumeSessionId: string | undefined
+            let capturedClaudeLaunch: unknown
+            ;(engine as any).rpcGateway.spawnSession = async (...args: unknown[]) => {
+                capturedResumeSessionId = args[8] as string | undefined
+                capturedClaudeLaunch = args[12]
+                return { type: 'success', sessionId: session.id }
+            }
+            ;(engine as any).waitForSessionActive = async () => true
+
+            const result = await engine.resumeSession(session.id, 'default')
+
+            expect(result).toEqual({ type: 'success', sessionId: session.id })
+            expect(capturedResumeSessionId).toBe('new-claude-session')
+            expect(capturedClaudeLaunch).toEqual(launch)
+            expect(store.sessions.getSession(session.id)?.metadata).not.toMatchObject({
+                claudeSessionId: 'source-claude-session'
+            })
+        } finally {
+            engine.stop()
+        }
+    })
+
     it('recovers claude resume session ID from stored messages when metadata is missing it', async () => {
         const store = new Store(':memory:')
         const engine = new SyncEngine(

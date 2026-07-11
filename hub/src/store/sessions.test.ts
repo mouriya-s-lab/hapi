@@ -49,6 +49,78 @@ describe('session resume model setting', () => {
 })
 
 describe('updateSessionMetadata: protocol resume token preservation', () => {
+    it('keeps a deferred Claude launch when the source SessionStart hook reports the source id', () => {
+        const store = makeStore()
+        const session = store.sessions.getOrCreateSession(
+            'pending-claude-fork',
+            {
+                path: '/tmp/project',
+                host: 'example',
+                flavor: 'claude',
+                pendingClaudeLaunch: {
+                    resumeSessionId: 'new-session-id',
+                    launch: {
+                        type: 'resume-at',
+                        sourceSessionId: 'source-session-id',
+                        providerMessageId: 'provider-message-id'
+                    }
+                }
+            },
+            null,
+            'default'
+        )
+
+        const result = store.sessions.updateSessionMetadata(
+            session.id,
+            {
+                path: '/tmp/project',
+                host: 'example',
+                flavor: 'claude',
+                claudeSessionId: 'source-session-id'
+            },
+            session.metadataVersion,
+            'default'
+        )
+        expect(result.result).toBe('success')
+        expect(getMetadata(store, session.id)).toMatchObject({
+            pendingClaudeLaunch: { resumeSessionId: 'new-session-id' }
+        })
+        expect(getMetadata(store, session.id)?.claudeSessionId).toBeUndefined()
+    })
+
+    it('commits the deferred Claude id and clears its launch recipe after init', () => {
+        const store = makeStore()
+        const session = store.sessions.getOrCreateSession(
+            'initialized-claude-fork',
+            {
+                path: '/tmp/project',
+                host: 'example',
+                flavor: 'claude',
+                pendingClaudeLaunch: {
+                    resumeSessionId: 'new-session-id',
+                    launch: { type: 'fresh' }
+                }
+            },
+            null,
+            'default'
+        )
+
+        const result = store.sessions.updateSessionMetadata(
+            session.id,
+            {
+                path: '/tmp/project',
+                host: 'example',
+                flavor: 'claude',
+                claudeSessionId: 'new-session-id'
+            },
+            session.metadataVersion,
+            'default'
+        )
+        expect(result.result).toBe('success')
+        expect(getMetadata(store, session.id)?.claudeSessionId).toBe('new-session-id')
+        expect(getMetadata(store, session.id)?.pendingClaudeLaunch).toBeUndefined()
+    })
+
     it('preserves cursorSessionId when archive payload omits it (Cursor crash-archive)', () => {
         const store = makeStore()
         const session = store.sessions.getOrCreateSession(

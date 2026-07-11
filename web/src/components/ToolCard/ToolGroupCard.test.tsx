@@ -30,6 +30,19 @@ function makeToolBlock(id: string, name: string, input: unknown = {}): ToolCallB
     }
 }
 
+function makeImageToolBlock(): ToolCallBlock {
+    const block = makeToolBlock('read-image', 'Read', { file_path: 'repo/pixel.png' })
+    block.tool.result = [{
+        type: 'image',
+        source: {
+            type: 'base64',
+            media_type: 'image/png',
+            data: `iVBORw0KGgo${'A'.repeat(40)}`
+        }
+    }]
+    return block
+}
+
 function makeGroup(overrides: Partial<ToolGroupBlock> = {}): ToolGroupBlock {
     const tools = overrides.tools ?? [
         makeToolBlock('read-1', 'Read', { file_path: 'repo/src/a.ts' }),
@@ -105,6 +118,28 @@ describe('ToolGroupCard', () => {
         expect(screen.queryByText('bun test')).not.toBeInTheDocument()
 
         expect(view.container.innerHTML).toContain('bg-[var(--app-tool-group-bg)]')
+    })
+
+    it('keeps image tool results visible while the group rows are collapsed', () => {
+        const imageTool = makeImageToolBlock()
+        const view = renderCard(makeGroup({
+            tools: [imageTool],
+            summary: {
+                totalTools: 1,
+                countsByKind: { read: 1, search: 0, command: 0, mutation: 0, web: 0, other: 0 },
+                fileTargets: ['repo/pixel.png'],
+                commandTargets: [],
+                searchTargets: [],
+                urlTargets: [],
+                otherTargets: [],
+                errorCount: 0,
+                runningCount: 0,
+                pendingCount: 0,
+            }
+        }))
+
+        expect(screen.getByRole('button', { name: /inspect project files/i })).toHaveAttribute('aria-expanded', 'false')
+        expect(view.container.querySelector('img')).toHaveAttribute('alt', 'pixel.png')
     })
 
     it('expands to show compact rows and opens a detail dialog per row', async () => {
