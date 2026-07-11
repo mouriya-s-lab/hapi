@@ -31,6 +31,7 @@ const harness = vi.hoisted(() => ({
     nextThreadSystemErrorMessage: null as string | null,
     failNextCompact: false,
     deferThreadStatusNotifications: false,
+    staleTerminalAfterRecovery: null as null | 'retry' | 'compact',
     emitChildThreadEvents: false,
     emitChildUsageEvents: false,
     emitChildGoalEvent: false,
@@ -761,6 +762,31 @@ vi.mock('./codexAppServerClient', () => {
                 }
             }
 
+            if (harness.staleTerminalAfterRecovery && harness.startTurnThreadIds.length === 2) {
+                const assistantMessage = {
+                    item: {
+                        id: `stale-${harness.staleTerminalAfterRecovery}-message`,
+                        type: 'agentMessage',
+                        content: [{ type: 'text', text: `done after ${harness.staleTerminalAfterRecovery}` }]
+                    },
+                    threadId,
+                    turnId: 'turn-1'
+                };
+                harness.notifications.push({ method: 'item/completed', params: assistantMessage });
+                this.notificationHandler?.('item/completed', assistantMessage);
+
+                const staleCompleted = {
+                    msg: {
+                        type: 'task_complete',
+                        thread_id: threadId,
+                        turn_id: 'turn-1'
+                    }
+                };
+                harness.notifications.push({ method: 'codex/event/task_complete', params: staleCompleted });
+                this.notificationHandler?.('codex/event/task_complete', staleCompleted);
+                return { turn: { id: turnId } };
+            }
+
             const completed = { status: 'Completed', turn: { id: turnId } };
             harness.notifications.push({ method: 'turn/completed', params: completed });
             this.notificationHandler?.('turn/completed', completed);
@@ -963,6 +989,7 @@ describe('codexRemoteLauncher', () => {
         harness.nextThreadSystemErrorMessage = null;
         harness.failNextCompact = false;
         harness.deferThreadStatusNotifications = false;
+        harness.staleTerminalAfterRecovery = null;
         harness.emitChildThreadEvents = false;
         harness.emitChildUsageEvents = false;
         harness.emitChildGoalEvent = false;
@@ -1376,6 +1403,23 @@ describe('codexRemoteLauncher', () => {
         expect(session.thinking).toBe(false);
     });
 
+    it('emits ready when same-thread retry completes with a stale terminal turn id', async () => {
+        harness.remainingThreadSystemErrors = 1;
+        harness.staleTerminalAfterRecovery = 'retry';
+        const { session, sessionEvents, codexMessages } = createSessionStub(['first message']);
+
+        const exitReason = await codexRemoteLauncher(session as never);
+
+        expect(exitReason).toBe('exit');
+        expect(harness.startTurnThreadIds).toEqual(['thread-1', 'thread-1']);
+        expect(codexMessages).toContainEqual(expect.objectContaining({
+            type: 'message',
+            message: 'done after retry'
+        }));
+        expect(sessionEvents.filter((event) => event.type === 'ready').length).toBeGreaterThanOrEqual(1);
+        expect(session.thinking).toBe(false);
+    });
+
     it('compacts the same thread before retrying context-window overflow', async () => {
         harness.remainingThreadSystemErrors = 1;
         harness.nextThreadSystemErrorMessage = "Codex ran out of room in the model's context window. Start a new thread or clear earlier history before retrying.";
@@ -1393,6 +1437,25 @@ describe('codexRemoteLauncher', () => {
             type: 'message',
             message: "Task failed: Codex ran out of room in the model's context window. Start a new thread or clear earlier history before retrying."
         });
+        expect(session.thinking).toBe(false);
+    });
+
+    it('emits ready when same-thread compact recovery completes with a stale terminal turn id', async () => {
+        harness.remainingThreadSystemErrors = 1;
+        harness.nextThreadSystemErrorMessage = "Codex ran out of room in the model's context window. Start a new thread or clear earlier history before retrying.";
+        harness.staleTerminalAfterRecovery = 'compact';
+        const { session, sessionEvents, codexMessages } = createSessionStub(['first message']);
+
+        const exitReason = await codexRemoteLauncher(session as never);
+
+        expect(exitReason).toBe('exit');
+        expect(harness.compactThreadIds).toEqual(['thread-1']);
+        expect(harness.startTurnThreadIds).toEqual(['thread-1', 'thread-1']);
+        expect(codexMessages).toContainEqual(expect.objectContaining({
+            type: 'message',
+            message: 'done after compact'
+        }));
+        expect(sessionEvents.filter((event) => event.type === 'ready').length).toBeGreaterThanOrEqual(1);
         expect(session.thinking).toBe(false);
     });
 
