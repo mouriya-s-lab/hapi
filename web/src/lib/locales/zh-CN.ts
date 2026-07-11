@@ -473,6 +473,7 @@ export default {
 
   // Scratchlist (per-session workbench, issue #11)
   'scratchlist.title': '草稿夹',
+  'todoPanel.title': '任务清单',
   'scratchlist.heldLabel': '暂存 · 未发送',
   'scratchlist.empty': '空',
   'scratchlist.count.one': '1 条',
