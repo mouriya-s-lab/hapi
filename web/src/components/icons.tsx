@@ -114,3 +114,25 @@ export function ExpandIcon(props: IconProps) {
         props
     )
 }
+
+/** Speaker with sound waves — read aloud. */
+export function SpeakerIcon(props: IconProps) {
+    return createIcon(
+        <>
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+        </>,
+        props,
+        2
+    )
+}
+
+/** Filled square — stop playback. */
+export function StopIcon(props: IconProps) {
+    return createIcon(
+        <rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" stroke="none" />,
+        props,
+        2
+    )
+}
