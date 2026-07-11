@@ -85,7 +85,13 @@ function main(): void {
         const mimeType = resolveMimeType(filePath);
 
         imports.push(`import ${importName} from '${importPath}' assert { type: 'file' };`);
-        manifestLines.push(`    { path: '${requestPath}', sourcePath: ${importName}, mimeType: '${mimeType}' },`);
+        // tsc resolves .json imports as parsed objects (resolveJsonModule) even with
+        // the Bun file-type assertion, so force the manifest entry back to a path string.
+        const ext = extname(filePath).toLowerCase();
+        const sourceExpr = ext === '.json' || ext === '.webmanifest' || ext === '.map'
+            ? `${importName} as unknown as string`
+            : importName;
+        manifestLines.push(`    { path: '${requestPath}', sourcePath: ${sourceExpr}, mimeType: '${mimeType}' },`);
     });
 
     const output = [

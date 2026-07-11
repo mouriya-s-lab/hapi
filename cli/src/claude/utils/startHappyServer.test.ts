@@ -47,7 +47,7 @@ describe('startHappyServer inline media MCP', () => {
         const server = await startHappyServer(sessionClient)
         cleanups.push(server.stop)
         expect(metadata.hapiMcpUrl).toBe(server.url)
-        expect(server.toolNames).toEqual(['change_title', 'display_image', 'display_video'])
+        expect(server.toolNames).toEqual(['change_title', 'display_image', 'display_video', 'send_file'])
 
         const client = new Client({ name: 'inline-media-integration-test', version: '1.0.0' })
         await client.connect(new StreamableHTTPClientTransport(new URL(server.url)))
