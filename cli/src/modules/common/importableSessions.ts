@@ -115,6 +115,15 @@ function codexUserText(value: JsonRecord): string | null {
     return valueText
 }
 
+function legacyCodexUserText(value: JsonRecord): string | null {
+    if (value.type !== 'event_msg') return null
+    const payload = record(value.payload)
+    if (payload?.type !== 'user_message') return null
+    const valueText = text(payload.message ?? payload.text ?? payload.content).trim()
+    if (!valueText || /^<(user_instructions|environment_context|user_action)>/.test(valueText)) return null
+    return valueText
+}
+
 async function scanCodex(path: string): Promise<ImportableSessionSummary | null> {
     let externalSessionId: string | null = null
     let cwd: string | null = null
@@ -123,7 +132,10 @@ async function scanCodex(path: string): Promise<ImportableSessionSummary | null>
     let title: string | null = null
     let firstPrompt: string | null = null
     let lastPrompt: string | null = null
-    let visibleMessages = 0
+    let modernVisibleMessages = 0
+    let legacyVisibleMessages = 0
+    let legacyFirstPrompt: string | null = null
+    let legacyLastPrompt: string | null = null
     let child = false
     await forEachJsonLine(path, (value) => {
         const payload = record(value.payload)
@@ -136,14 +148,27 @@ async function scanCodex(path: string): Promise<ImportableSessionSummary | null>
             child ||= Boolean(source && 'subagent' in source)
         }
         if (value.type === 'session_title_change' && typeof value.title === 'string') title = preview(value.title)
-        if (value.type === 'response_item' && payload?.type === 'message' && payload.role === 'assistant') visibleMessages += 1
+        if (value.type === 'response_item' && payload?.type === 'message' && payload.role === 'assistant') modernVisibleMessages += 1
+        if (value.type === 'event_msg' && payload?.type === 'agent_message') legacyVisibleMessages += 1
         const userText = codexUserText(value)
         if (userText) {
-            visibleMessages += 1
+            modernVisibleMessages += 1
             firstPrompt ??= preview(userText)
             lastPrompt = preview(userText)
         }
+        const legacyUserText = legacyCodexUserText(value)
+        if (legacyUserText) {
+            legacyVisibleMessages += 1
+            legacyFirstPrompt ??= preview(legacyUserText)
+            legacyLastPrompt = preview(legacyUserText)
+        }
     })
+    const usesModernChat = modernVisibleMessages > 0
+    const visibleMessages = usesModernChat ? modernVisibleMessages : legacyVisibleMessages
+    if (!usesModernChat) {
+        firstPrompt = legacyFirstPrompt
+        lastPrompt = legacyLastPrompt
+    }
     if (!externalSessionId || child || visibleMessages === 0) return null
     const metadata = await stat(path)
     return {

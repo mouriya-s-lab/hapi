@@ -54,4 +54,24 @@ describe('replayImportedTranscript', () => {
         expect(imported).toBe(2)
         expect(messages).toHaveLength(2)
     })
+
+    it('replays legacy Codex event messages when no modern chat records exist', async () => {
+        const users: string[] = []
+        const agents: unknown[] = []
+        const session = {
+            sendUserMessage: (value: string) => users.push(value),
+            sendAgentMessage: (value: unknown) => agents.push(value),
+            updateMetadata: () => {}
+        } as unknown as ApiSessionClient
+        const imported = await replayImportedTranscript({
+            agent: 'codex', session,
+            transcriptPath: file([
+                { type: 'event_msg', payload: { type: 'user_message', message: 'legacy question' } },
+                { type: 'event_msg', payload: { type: 'agent_message', message: 'legacy answer' } }
+            ])
+        })
+        expect(imported).toBe(2)
+        expect(users).toEqual(['legacy question'])
+        expect(agents).toHaveLength(1)
+    })
 })

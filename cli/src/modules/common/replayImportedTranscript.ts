@@ -7,11 +7,32 @@ import { convertCodexEvent, type CodexSessionEvent } from '@/codex/utils/codexEv
 import type { ImportableSessionAgent } from '@hapi/protocol/apiTypes'
 import { realClaudeUserText } from './importableSessions'
 
+async function hasModernCodexChat(transcriptPath: string): Promise<boolean> {
+    const input = createReadStream(transcriptPath, { encoding: 'utf8' })
+    const lines = createInterface({ input, crlfDelay: Infinity })
+    try {
+        for await (const line of lines) {
+            if (!line.trim()) continue
+            const parsed = JSON.parse(line) as unknown
+            if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) continue
+            const record = parsed as Record<string, unknown>
+            if (record.type !== 'response_item' || record.payload === null || typeof record.payload !== 'object' || Array.isArray(record.payload)) continue
+            const payload = record.payload as Record<string, unknown>
+            if (payload.type === 'message' && (payload.role === 'user' || payload.role === 'assistant')) return true
+        }
+        return false
+    } finally {
+        lines.close()
+        input.destroy()
+    }
+}
+
 export async function replayImportedTranscript(options: {
     agent: ImportableSessionAgent
     transcriptPath: string
     session: ApiSessionClient
 }): Promise<number> {
+    const useLegacyCodexChat = options.agent === 'codex' && !await hasModernCodexChat(options.transcriptPath)
     const input = createReadStream(options.transcriptPath, { encoding: 'utf8' })
     const lines = createInterface({ input, crlfDelay: Infinity })
     let imported = 0
@@ -38,7 +59,7 @@ export async function replayImportedTranscript(options: {
             }
             const record = parsed as Record<string, unknown>
             if (typeof record.type !== 'string') throw new Error('Codex transcript line has no type')
-            if (record.type !== 'response_item') continue
+            if (record.type !== 'response_item' && !(useLegacyCodexChat && record.type === 'event_msg')) continue
             const event: CodexSessionEvent = {
                 timestamp: typeof record.timestamp === 'string' ? record.timestamp : undefined,
                 type: record.type,

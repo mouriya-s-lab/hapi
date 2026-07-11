@@ -15,6 +15,17 @@ import { withBunRuntimeEnv } from '@/utils/bunRuntime'
 import { extractErrorInfo } from '@/utils/errorUtils'
 import type { CommandDefinition } from './types'
 
+export function parseClaudeResumeArgument(args: string[], index: number): {
+    resumeSessionId?: string
+    forwarded: string[]
+    nextIndex: number
+} {
+    const resumeSessionId = args[index + 1]
+    return resumeSessionId && !resumeSessionId.startsWith('-')
+        ? { resumeSessionId, forwarded: ['--resume', resumeSessionId], nextIndex: index + 1 }
+        : { forwarded: ['--resume'], nextIndex: index }
+}
+
 export const claudeCommand: CommandDefinition = {
     name: 'default',
     requiresRuntimeAssets: true,
@@ -68,10 +79,10 @@ export const claudeCommand: CommandDefinition = {
             } else if (arg === '--started-by') {
                 options.startedBy = args[++i] as 'runner' | 'terminal'
             } else if (arg === '--resume') {
-                const resumeSessionId = args[++i]
-                if (!resumeSessionId) throw new Error('Missing --resume value')
-                options.resumeSessionId = resumeSessionId
-                unknownArgs.push('--resume', resumeSessionId)
+                const resume = parseClaudeResumeArgument(args, i)
+                i = resume.nextIndex
+                if (resume.resumeSessionId) options.resumeSessionId = resume.resumeSessionId
+                unknownArgs.push(...resume.forwarded)
             } else if (arg === '--hapi-import-history') {
                 options.importHistory = true
             } else if (arg === '--hapi-import-transcript') {

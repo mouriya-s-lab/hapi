@@ -60,4 +60,16 @@ describe('streaming importable session index', () => {
         ])
         expect((await listImportableSessions({ agent: 'codex' })).sessions).toEqual([])
     })
+
+    it('indexes legacy Codex transcripts that only contain event messages', async () => {
+        const root = setup()
+        transcript(join(root, 'codex/sessions/legacy.jsonl'), [
+            { type: 'session_meta', payload: { id: 'legacy', cwd: '/work/legacy' } },
+            { type: 'event_msg', payload: { type: 'user_message', message: 'legacy question' } },
+            { type: 'event_msg', payload: { type: 'agent_message', message: 'legacy answer' } }
+        ])
+        expect((await listImportableSessions({ agent: 'codex' })).sessions[0]).toMatchObject({
+            externalSessionId: 'legacy', previewPrompt: 'legacy question', messageCount: 2
+        })
+    })
 })
