@@ -33,6 +33,7 @@ import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePic
 import { AttachmentItem } from '@/components/AssistantChat/AttachmentItem'
 import { useTranslation } from '@/lib/use-translation'
 import { getModelOptionsForFlavor, getNextModelForFlavor } from './modelOptions'
+import { normalizeCustomClaudeModelId } from './claudeModelOptions'
 import { getClaudeComposerEffortOptions } from './claudeEffortOptions'
 import { getCodexComposerReasoningEffortOptions } from './codexReasoningEffortOptions'
 import { getDisplayedCodexServiceTier } from './codexFastMode'
@@ -294,6 +295,7 @@ export function HappyComposer(props: {
         selection: { start: 0, end: 0 }
     })
     const [showSettings, setShowSettings] = useState(false)
+    const [customModelDraft, setCustomModelDraft] = useState<string | null>(null)
     const [showPiModelPanel, setShowPiModelPanel] = useState(false)
     const [showPiThinkingPanel, setShowPiThinkingPanel] = useState(false)
     const [isAborting, setIsAborting] = useState(false)
@@ -719,6 +721,18 @@ export function HappyComposer(props: {
         haptic('light')
     }, [onModelChange, controlsDisabled, haptic])
 
+    useEffect(() => {
+        if (!showSettings) {
+            setCustomModelDraft(null)
+        }
+    }, [showSettings])
+
+    const handleCustomModelSubmit = useCallback(() => {
+        const modelId = customModelDraft === null ? null : normalizeCustomClaudeModelId(customModelDraft)
+        if (!modelId) return
+        handleModelChange(modelId)
+    }, [customModelDraft, handleModelChange])
+
     const handleResumeWithSessionModelChange = useCallback(() => {
         if (!onResumeWithSessionModelChange || controlsDisabled) return
         onResumeWithSessionModelChange(!resumeWithSessionModel)
@@ -765,6 +779,7 @@ export function HappyComposer(props: {
     const showCollaborationSettings = Boolean(onCollaborationModeChange && collaborationModeOptions.length > 0)
     const showPermissionSettings = Boolean(onPermissionModeChange && permissionModeOptions.length > 0)
     const showModelSettings = Boolean(onModelChange && supportsModelChange(agentFlavor) && (piModels && piModels.length > 0 || modelOptions.length > 0))
+    const showCustomModelInput = showModelSettings && agentFlavor === 'claude'
     const showResumeModelSettings = Boolean(agentFlavor === 'claude' && onResumeWithSessionModelChange)
     const showModelEffortSettings = Boolean(
         (onModelEffortChange ?? onModelChange)
@@ -1050,6 +1065,53 @@ export function HappyComposer(props: {
                                         )
                                     })
                                 )}
+                                {showCustomModelInput ? (
+                                    customModelDraft === null ? (
+                                        <button
+                                            type="button"
+                                            disabled={controlsDisabled}
+                                            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                                                controlsDisabled
+                                                    ? 'cursor-not-allowed opacity-50'
+                                                    : 'cursor-pointer hover:bg-[var(--app-secondary-bg)]'
+                                            }`}
+                                            onClick={() => setCustomModelDraft('')}
+                                            onMouseDown={(event) => event.preventDefault()}
+                                        >
+                                            <span className="flex h-4 w-4 items-center justify-center text-lg leading-none text-[var(--app-hint)]">
+                                                +
+                                            </span>
+                                            <span className="text-[var(--app-hint)]">
+                                                {t('composer.customModel')}
+                                            </span>
+                                        </button>
+                                    ) : (
+                                        <div className="px-3 py-2">
+                                            <input
+                                                autoFocus
+                                                type="text"
+                                                value={customModelDraft}
+                                                disabled={controlsDisabled}
+                                                spellCheck={false}
+                                                autoCapitalize="off"
+                                                autoCorrect="off"
+                                                placeholder={t('composer.customModelPlaceholder')}
+                                                data-testid="custom-model-input"
+                                                className="w-full rounded-md border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-2 py-1.5 text-sm text-[var(--app-fg)] outline-none placeholder:text-[var(--app-hint)] focus:border-[var(--app-link)]"
+                                                onChange={(event) => setCustomModelDraft(event.target.value)}
+                                                onKeyDown={(event) => {
+                                                    if (event.key === 'Enter') {
+                                                        event.preventDefault()
+                                                        handleCustomModelSubmit()
+                                                    } else if (event.key === 'Escape') {
+                                                        event.preventDefault()
+                                                        setCustomModelDraft(null)
+                                                    }
+                                                }}
+                                            />
+                                        </div>
+                                    )
+                                ) : null}
                             </div>
                         ) : null}
 
@@ -1261,6 +1323,8 @@ export function HappyComposer(props: {
         showCollaborationSettings,
         showPermissionSettings,
         showModelSettings,
+        showCustomModelInput,
+        customModelDraft,
         showResumeModelSettings,
         showModelEffortSettings,
         modelEffortOptions,
@@ -1288,6 +1352,7 @@ export function HappyComposer(props: {
         handleCollaborationChange,
         handlePermissionChange,
         handleModelChange,
+        handleCustomModelSubmit,
         handleResumeWithSessionModelChange,
         handleModelReasoningEffortChange,
         handleEffortChange,
