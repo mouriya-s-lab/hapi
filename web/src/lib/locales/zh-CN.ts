@@ -347,6 +347,7 @@ export default {
   'file.page.copyPath': '复制路径',
   'file.page.copyContent': '复制文件内容',
   'file.page.download': '下载文件',
+  'file.download.failed': '下载失败（文件不可用）',
   'file.page.edit': '编辑',
   'file.page.save': '保存',
   'file.page.saving': '保存中…',

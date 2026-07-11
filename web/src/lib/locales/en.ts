@@ -343,6 +343,7 @@ export default {
   'file.page.copyPath': 'Copy path',
   'file.page.copyContent': 'Copy file content',
   'file.page.download': 'Download file',
+  'file.download.failed': 'Download failed (file unavailable)',
   'file.page.edit': 'Edit',
   'file.page.save': 'Save',
   'file.page.saving': 'Saving…',
