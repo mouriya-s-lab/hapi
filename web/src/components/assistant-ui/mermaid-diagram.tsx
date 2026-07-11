@@ -67,6 +67,51 @@ async function ensureMermaid(theme: 'light' | 'dark') {
     return mermaid
 }
 
+export function getMermaidSvgLayoutSize(svg: string): { width: number; height: number } | null {
+    const viewBoxMatch = svg.match(/\bviewBox=(['"])([^'"]+)\1/i)
+    if (!viewBoxMatch) return null
+    const parts = viewBoxMatch[2].trim().split(/[\s,]+/).map(Number)
+    if (parts.length < 4 || parts.some(Number.isNaN) || parts[2] <= 0 || parts[3] <= 0) return null
+    return { width: parts[2], height: parts[3] }
+}
+
+export function normalizeMermaidSvgForStandaloneDisplay(svg: string): string {
+    let result = svg
+    const viewBoxSize = getMermaidSvgLayoutSize(result)
+    if (!viewBoxSize) return result
+
+    const { width, height } = viewBoxSize
+    result = result.replace(/\swidth="100%"/gi, '')
+    result = result.replace(/\sheight="100%"/gi, '')
+
+    if (/\sstyle="/i.test(result)) {
+        result = result.replace(
+            /(<svg[^>]*?\sstyle=")([^"]*)(")/i,
+            (_full, prefix: string, style: string, suffix: string) => {
+                const cleaned = style
+                    .replace(/(?:^|;)\s*max-width:\s*[^;]+/gi, '')
+                    .replace(/(?:^|;)\s*width:\s*[^;]+/gi, '')
+                    .replace(/(?:^|;)\s*height:\s*[^;]+/gi, '')
+                    .replace(/^;+|;+$/g, '')
+                    .replace(/;\s*;/g, ';')
+                    .trim()
+                const nextStyle = cleaned
+                    ? `${cleaned};width:${width}px;height:${height}px`
+                    : `width:${width}px;height:${height}px`
+                return `${prefix}${nextStyle}${suffix}`
+            },
+        )
+    } else {
+        result = result.replace(/<svg/i, `<svg width="${width}" height="${height}"`)
+    }
+
+    if (!/\bwidth="/i.test(result.split('>')[0] ?? '')) {
+        result = result.replace(/<svg/i, `<svg width="${width}" height="${height}"`)
+    }
+
+    return result
+}
+
 function MermaidFallback(props: ComponentPropsWithoutRef<'pre'> & { code: string }) {
     return (
         <pre
