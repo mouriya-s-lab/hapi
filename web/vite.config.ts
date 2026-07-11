@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { shareTargetPathnameFromBase } from './src/lib/sharePath'
 import { execSync } from 'node:child_process'
@@ -54,6 +54,51 @@ function readAppVersion(): string {
     return `${base}-dev`
 }
 
+function readHeadCommit(): string {
+    try {
+        return execSync('git rev-parse HEAD', {
+            cwd: __dirname,
+            stdio: ['ignore', 'pipe', 'ignore'],
+        }).toString().trim()
+    } catch {
+        return 'unknown'
+    }
+}
+
+// Emits dist/changelog.json with the recent commit list. The PWA update banner
+// fetches it (cache-busted) when a new version is detected, so the OLD page can
+// show what the NEW build contains. Not precached: injectManifest globPatterns
+// excludes .json on purpose.
+function changelogJsonPlugin() {
+    return {
+        name: 'hapi-changelog-json',
+        apply: 'build' as const,
+        closeBundle() {
+            try {
+                const raw = execSync(
+                    'git log --no-merges -30 --date=format:%Y-%m-%d --pretty=format:%H%x09%ad%x09%s',
+                    { cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore'] }
+                ).toString().trim()
+                const entries = raw.split('\n').filter(Boolean).map((line) => {
+                    const [hash, date, ...rest] = line.split('\t')
+                    return { hash, date, subject: rest.join('\t') }
+                })
+                const payload = {
+                    version: appVersion,
+                    commit: readHeadCommit(),
+                    builtAt: new Date().toISOString(),
+                    entries
+                }
+                const outDir = resolve(__dirname, 'dist')
+                mkdirSync(outDir, { recursive: true })
+                writeFileSync(resolve(outDir, 'changelog.json'), JSON.stringify(payload))
+            } catch {
+                // non-git build environments just skip the changelog
+            }
+        }
+    }
+}
+
 function getVendorChunkName(id: string): string | undefined {
     if (!id.includes('/node_modules/')) {
         return undefined
@@ -81,6 +126,7 @@ function getVendorChunkName(id: string): string | undefined {
 export default defineConfig({
     define: {
         __APP_VERSION__: JSON.stringify(appVersion),
+        __APP_COMMIT__: JSON.stringify(readHeadCommit()),
     },
     server: {
         host: true,
@@ -98,6 +144,7 @@ export default defineConfig({
     },
     plugins: [
         react(),
+        changelogJsonPlugin(),
         VitePWA({
             // User-controlled reload avoids mid-session surprise reloads (autoUpdate reloads all tabs).
             registerType: 'prompt',

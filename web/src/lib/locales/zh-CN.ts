@@ -559,6 +559,8 @@ export default {
   'pwa.update.title': '新版本可用',
   'pwa.update.body': '重新加载以获取最新版 HAPI',
   'pwa.update.reload': '重新加载',
+  'pwa.update.changes': '本次更新内容',
+  'pwa.update.changesMore': '……还有 {count} 项',
   'pwa.update.whyToggle': '为什么不能关闭此提示？',
   'pwa.update.whyBody': '当你可能有正在运行的智能体、待处理的权限请求或未发送的消息时，HAPI 不会自动重新加载标签页。旧版网页与当前服务器一起运行可能导致同步错误和操作失败。此横幅会一直保持显示，直到你重新加载，以免你在不知情的情况下停留在旧版本 — 但何时点击「重新加载」由你决定，可以先完成手头的工作。',
 
