@@ -80,6 +80,47 @@ function decryptedMessage(id: string, content: unknown, createdAt: number): Decr
 }
 
 describe('reduceChatBlocks', () => {
+    it('surfaces a pending permission when its tool call is trapped in an orphan sidechain', () => {
+        const createdAt = 1_700_000_000_000
+        const messages: NormalizedMessage[] = [{
+            id: 'orphan-sidechain-message',
+            localId: null,
+            createdAt,
+            role: 'agent',
+            isSidechain: true,
+            content: [{
+                type: 'tool-call',
+                id: 'pending-bash',
+                name: 'Bash',
+                input: { command: 'pwd' },
+                description: null,
+                uuid: 'orphan-tool-message-uuid',
+                parentUUID: 'missing-sidechain-parent'
+            }]
+        }]
+        const agentState: AgentState = {
+            requests: {
+                'pending-bash': {
+                    tool: 'Bash',
+                    arguments: { command: 'pwd' },
+                    createdAt
+                }
+            },
+            completedRequests: {}
+        }
+
+        const reduced = reduceChatBlocks(messages, agentState)
+
+        expect(reduced.blocks).toHaveLength(1)
+        expect(reduced.blocks[0]).toMatchObject({
+            kind: 'tool-call',
+            tool: {
+                id: 'pending-bash',
+                permission: { id: 'pending-bash', status: 'pending' }
+            }
+        })
+    })
+
     it('ignores child agent usage when calculating parent latest usage', () => {
         const messages: NormalizedMessage[] = [
             {

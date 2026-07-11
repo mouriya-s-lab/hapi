@@ -3,7 +3,7 @@ import type { AgentEvent, ChatBlock, NormalizedMessage, UsageData } from '@/chat
 import type { ThreadGoal } from '@/types/api'
 import { traceMessages, type TracedMessage } from '@/chat/tracer'
 import { dedupeAgentEvents, foldApiErrorEvents } from '@/chat/reducerEvents'
-import { collectTitleChanges, collectToolIdsFromMessages, ensureToolBlock, getPermissions } from '@/chat/reducerTools'
+import { collectTitleChanges, ensureToolBlock, getPermissions } from '@/chat/reducerTools'
 import { reduceTimeline } from '@/chat/reducerTimeline'
 import { isRedundantGoalStatusMessageText } from '@hapi/protocol/messages'
 
@@ -95,7 +95,6 @@ export function reduceChatBlocks(
     options: ReduceChatBlocksOptions = {}
 ): { blocks: ChatBlock[]; hasReadyEvent: boolean; latestUsage: LatestUsage | null; latestGoal: ThreadGoal | null } {
     const permissionsById = getPermissions(agentState)
-    const toolIdsInMessages = collectToolIdsFromMessages(normalized)
     const titleChangesByToolUseId = collectTitleChanges(normalized)
 
     const traced = traceMessages(normalized)
@@ -135,7 +134,6 @@ export function reduceChatBlocks(
 
     for (const [id, entry] of permissionsById) {
         if (entry.permission.status !== 'pending') continue
-        if (toolIdsInMessages.has(id)) continue
         if (rootResult.toolBlocksById.has(id)) continue
 
         const createdAt = entry.permission.createdAt ?? Date.now()
