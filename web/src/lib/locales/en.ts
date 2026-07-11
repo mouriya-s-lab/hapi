@@ -530,6 +530,9 @@ export default {
   'pwa.update.title': 'New version available',
   'pwa.update.body': 'Reload to get the latest HAPI',
   'pwa.update.reload': 'Reload',
+  'pwa.update.changes': "What's new",
+  'pwa.update.changesLoading': 'Loading version changes…',
+  'pwa.update.changesFailed': 'Version changes are unavailable. You can still reload to update.',
   'pwa.update.whyToggle': "Why can't I dismiss this?",
   'pwa.update.whyBody': 'HAPI will not reload your tab automatically while you may have an agent running, a permission waiting, or a message in progress. Running an old web build against the current server can cause sync bugs and failed actions. This banner stays visible until you reload so you are not stuck on a stale version by accident — but you choose when to tap Reload and finish what you are doing first.',
 
