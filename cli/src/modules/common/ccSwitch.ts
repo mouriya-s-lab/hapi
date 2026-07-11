@@ -1,4 +1,5 @@
-import { Database } from 'bun:sqlite';
+import type { Database } from 'bun:sqlite';
+import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -22,6 +23,13 @@ import type {
 
 const CLAUDE_APP_TYPE = 'claude';
 const DEFAULT_USAGE_TIMEOUT_SECONDS = 10;
+
+// bun:sqlite 只在 Bun 运行时可用；vitest(Node) 会加载本模块的 import 图，
+// 顶层静态 import 会让所有间接依赖此文件的测试文件级崩溃，故延迟到调用时解析。
+const requireModule = createRequire(import.meta.url);
+function loadDatabase(): typeof Database {
+    return (requireModule('bun:sqlite') as typeof import('bun:sqlite')).Database;
+}
 
 function getCcSwitchDbPath(): string {
     return join(homedir(), '.cc-switch', 'cc-switch.db');
@@ -79,7 +87,7 @@ export function listCcSwitchProviders(): { available: boolean; providers: CcSwit
     }
     let db: Database | null = null;
     try {
-        db = new Database(dbPath, { readonly: true });
+        db = new (loadDatabase())(dbPath, { readonly: true });
         const rows = db
             .query(
                 "SELECT id, name, settings_config, website_url, category, sort_index, meta, is_current FROM providers WHERE app_type = ? ORDER BY sort_index"
@@ -118,7 +126,7 @@ export function switchCcSwitchProvider(providerId: string): SwitchCcSwitchProvid
     }
     let db: Database | null = null;
     try {
-        db = new Database(dbPath);
+        db = new (loadDatabase())(dbPath);
         const row = db
             .query("SELECT id, name, settings_config FROM providers WHERE app_type = ? AND id = ?")
             .get(CLAUDE_APP_TYPE, providerId) as { id: string; name: string; settings_config: string } | null;
@@ -178,7 +186,7 @@ export async function queryCcSwitchUsage(
     let db: Database | null = null;
     let providerName: string | undefined;
     try {
-        db = new Database(dbPath, { readonly: true });
+        db = new (loadDatabase())(dbPath, { readonly: true });
         const row = (providerId
             ? db
                   .query("SELECT name, settings_config, meta FROM providers WHERE app_type = ? AND id = ?")
