@@ -3,15 +3,19 @@ import { SSEManager } from './sseManager'
 import type { SyncEvent } from '../sync/syncEngine'
 import { VisibilityTracker } from '../visibility/visibilityTracker'
 
+const accessDeps = { listReadableAccountIds: () => new Set([1]) }
+
 describe('SSEManager namespace filtering', () => {
     it('routes events to matching namespace', () => {
-        const manager = new SSEManager(0, new VisibilityTracker())
+        const manager = new SSEManager(0, new VisibilityTracker(), accessDeps)
         const receivedAlpha: SyncEvent[] = []
         const receivedBeta: SyncEvent[] = []
 
         manager.subscribe({
             id: 'alpha',
             namespace: 'alpha',
+            accountId: 1,
+            role: 'user',
             all: true,
             send: (event) => {
                 receivedAlpha.push(event)
@@ -22,6 +26,8 @@ describe('SSEManager namespace filtering', () => {
         manager.subscribe({
             id: 'beta',
             namespace: 'beta',
+            accountId: 1,
+            role: 'user',
             all: true,
             send: (event) => {
                 receivedBeta.push(event)
@@ -36,12 +42,14 @@ describe('SSEManager namespace filtering', () => {
     })
 
     it('broadcasts connection-changed to all namespaces', () => {
-        const manager = new SSEManager(0, new VisibilityTracker())
+        const manager = new SSEManager(0, new VisibilityTracker(), accessDeps)
         const received: Array<{ id: string; event: SyncEvent }> = []
 
         manager.subscribe({
             id: 'alpha',
             namespace: 'alpha',
+            accountId: 1,
+            role: 'user',
             all: true,
             send: (event) => {
                 received.push({ id: 'alpha', event })
@@ -52,6 +60,8 @@ describe('SSEManager namespace filtering', () => {
         manager.subscribe({
             id: 'beta',
             namespace: 'beta',
+            accountId: 1,
+            role: 'user',
             all: true,
             send: (event) => {
                 received.push({ id: 'beta', event })
@@ -66,12 +76,14 @@ describe('SSEManager namespace filtering', () => {
     })
 
     it('sends toast only to visible connections in a namespace', async () => {
-        const manager = new SSEManager(0, new VisibilityTracker())
+        const manager = new SSEManager(0, new VisibilityTracker(), accessDeps)
         const received: Array<{ id: string; event: SyncEvent }> = []
 
         manager.subscribe({
             id: 'visible',
             namespace: 'alpha',
+            accountId: 1,
+            role: 'user',
             all: true,
             visibility: 'visible',
             send: (event) => {
@@ -83,6 +95,8 @@ describe('SSEManager namespace filtering', () => {
         manager.subscribe({
             id: 'hidden',
             namespace: 'alpha',
+            accountId: 1,
+            role: 'user',
             all: true,
             visibility: 'hidden',
             send: (event) => {
@@ -94,6 +108,8 @@ describe('SSEManager namespace filtering', () => {
         manager.subscribe({
             id: 'other',
             namespace: 'beta',
+            accountId: 1,
+            role: 'user',
             all: true,
             visibility: 'visible',
             send: (event) => {

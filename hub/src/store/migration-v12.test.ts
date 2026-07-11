@@ -6,16 +6,18 @@ import { tmpdir } from 'node:os'
 import { Store } from './index'
 
 /**
- * Tests for V11→V12 schema migration: multi-user support. Adds owner_account_id
- * to machines/sessions and creates accounts / api_tokens / resource_grants.
+ * Tests the complete V11→current multi-user migration, including channel
+ * account attribution added in V13.
  * Mirrors migration-v9.test.ts.
  */
-describe('Store V11→V12 migration: multi-user', () => {
+describe('Store V11→current migration: multi-user', () => {
     it('fresh DB has the new columns and tables', () => {
         const store = new Store(':memory:')
         try {
             expect(getColumns(store, 'machines')).toContain('owner_account_id')
             expect(getColumns(store, 'sessions')).toContain('owner_account_id')
+            expect(getColumns(store, 'users')).toContain('account_id')
+            expect(getColumns(store, 'push_subscriptions')).toContain('account_id')
             expect(tableExists(store, 'accounts')).toBe(true)
             expect(tableExists(store, 'api_tokens')).toBe(true)
             expect(tableExists(store, 'resource_grants')).toBe(true)
@@ -24,7 +26,7 @@ describe('Store V11→V12 migration: multi-user', () => {
         }
     })
 
-    it('V11 DB migrates to V12: new columns null on existing rows, tables created', () => {
+    it('V11 DB migrates through V13 with ownership and channel account columns', () => {
         const dir = mkdtempSync(join(tmpdir(), 'hapi-migration-v12-test-'))
         const dbPath = join(dir, 'test.db')
         let store: Store | undefined
@@ -44,6 +46,8 @@ describe('Store V11→V12 migration: multi-user', () => {
             // Columns added.
             expect(getColumns(store, 'machines')).toContain('owner_account_id')
             expect(getColumns(store, 'sessions')).toContain('owner_account_id')
+            expect(getColumns(store, 'users')).toContain('account_id')
+            expect(getColumns(store, 'push_subscriptions')).toContain('account_id')
             // Pre-existing rows keep working and have no owner yet.
             expect(store.machines.getMachine('m1')?.ownerAccountId ?? null).toBeNull()
             expect(store.sessions.getSession('s1')?.ownerAccountId ?? null).toBeNull()

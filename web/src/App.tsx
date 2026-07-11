@@ -60,18 +60,29 @@ export function App() {
 function AppInner() {
     const { t } = useTranslation()
     const { serverUrl, baseUrl, setServerUrl, clearServerUrl } = useServerUrl()
-    const { authSource: storedAuthSource, isLoading: isAuthSourceLoading, setAccessToken } = useAuthSource(baseUrl)
-    const [passwordToken, setPasswordToken] = useState<string | null>(null)
-    const authSource = passwordToken ? { type: 'password' as const, token: passwordToken } : storedAuthSource
+    const {
+        authSource,
+        isLoading: isAuthSourceLoading,
+        setAccessToken,
+        setPasswordToken,
+        persistPasswordToken,
+        clearStoredPasswordToken
+    } = useAuthSource(baseUrl)
     const { token, user, api, isLoading: isAuthLoading, error: authError, needsBinding, bind } = useAuth(authSource, baseUrl)
-    const handleAccessTokenLogin = useCallback((nextToken: string) => {
-        setPasswordToken(null)
-        setAccessToken(nextToken)
-    }, [setAccessToken])
+    const handleAccessTokenLogin = setAccessToken
+    const handlePasswordLogin = setPasswordToken
 
-    const handlePasswordLogin = useCallback((jwt: string) => {
-        setPasswordToken(jwt)
-    }, [])
+    useEffect(() => {
+        if (authSource?.type === 'password' && token && token !== authSource.token) {
+            persistPasswordToken(token)
+        }
+    }, [authSource, persistPasswordToken, token])
+
+    useEffect(() => {
+        if (authError && authSource?.type === 'password') {
+            clearStoredPasswordToken()
+        }
+    }, [authError, authSource, clearStoredPasswordToken])
 
     const goBack = useAppGoBack()
     const pathname = useLocation({ select: (location) => location.pathname })
@@ -164,7 +175,6 @@ function AppInner() {
         baseUrlRef.current = baseUrl
         isFirstConnectRef.current = true
         syncTokenRef.current = 0
-        setPasswordToken(null)
         queryClient.clear()
     }, [baseUrl, queryClient])
 

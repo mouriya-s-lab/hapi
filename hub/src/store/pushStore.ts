@@ -10,7 +10,7 @@ export class PushStore {
         this.db = db
     }
 
-    addPushSubscription(namespace: string, subscription: { endpoint: string; p256dh: string; auth: string }): void {
+    addPushSubscription(namespace: string, subscription: { endpoint: string; p256dh: string; auth: string; accountId: number }): void {
         addPushSubscription(this.db, namespace, subscription)
     }
 

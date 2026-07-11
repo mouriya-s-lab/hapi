@@ -8,6 +8,8 @@ export type SSESubscription = {
     all: boolean
     sessionId: string | null
     machineId: string | null
+    accountId: number
+    role: 'admin' | 'user'
 }
 
 type SSEConnection = SSESubscription & {
@@ -15,15 +17,38 @@ type SSEConnection = SSESubscription & {
     sendHeartbeat: () => void | Promise<void>
 }
 
+export type SSEAccessDeps = {
+    listReadableAccountIds: (resourceType: 'session' | 'machine', resourceId: string) => Set<number>
+}
+
+type EventResource = { type: 'session' | 'machine'; id: string } | null
+
+function resolveEventResource(event: SyncEvent): EventResource {
+    switch (event.type) {
+        case 'heartbeat':
+        case 'connection-changed':
+        case 'session-removed':
+            return null
+        case 'machine-updated':
+            return { type: 'machine', id: event.machineId }
+        case 'toast':
+            return event.data.sessionId ? { type: 'session', id: event.data.sessionId } : null
+        default:
+            return 'sessionId' in event ? { type: 'session', id: event.sessionId } : null
+    }
+}
+
 export class SSEManager {
     private readonly connections: Map<string, SSEConnection> = new Map()
     private heartbeatTimer: NodeJS.Timeout | null = null
     private readonly heartbeatMs: number
     private readonly visibilityTracker: VisibilityTracker
+    private readonly accessDeps: SSEAccessDeps
 
-    constructor(heartbeatMs = 30_000, visibilityTracker: VisibilityTracker) {
+    constructor(heartbeatMs: number, visibilityTracker: VisibilityTracker, accessDeps: SSEAccessDeps) {
         this.heartbeatMs = heartbeatMs
         this.visibilityTracker = visibilityTracker
+        this.accessDeps = accessDeps
     }
 
     subscribe(options: {
@@ -32,6 +57,8 @@ export class SSEManager {
         all?: boolean
         sessionId?: string | null
         machineId?: string | null
+        accountId: number
+        role: 'admin' | 'user'
         visibility?: VisibilityState
         send: (event: SyncEvent) => void | Promise<void>
         sendHeartbeat: () => void | Promise<void>
@@ -42,6 +69,8 @@ export class SSEManager {
             all: Boolean(options.all),
             sessionId: options.sessionId ?? null,
             machineId: options.machineId ?? null,
+            accountId: options.accountId,
+            role: options.role,
             send: options.send,
             sendHeartbeat: options.sendHeartbeat
         }
@@ -58,7 +87,9 @@ export class SSEManager {
             namespace: subscription.namespace,
             all: subscription.all,
             sessionId: subscription.sessionId,
-            machineId: subscription.machineId
+            machineId: subscription.machineId,
+            accountId: subscription.accountId,
+            role: subscription.role
         }
     }
 
@@ -71,12 +102,16 @@ export class SSEManager {
     }
 
     async sendToast(namespace: string, event: Extract<SyncEvent, { type: 'toast' }>): Promise<number> {
+        const canAccess = this.buildAccessCheck(event)
         const deliveries: Array<Promise<{ id: string; ok: boolean }>> = []
         for (const connection of this.connections.values()) {
             if (connection.namespace !== namespace) {
                 continue
             }
             if (!this.visibilityTracker.isVisibleConnection(connection.id)) {
+                continue
+            }
+            if (!canAccess(connection)) {
                 continue
             }
 
@@ -105,8 +140,12 @@ export class SSEManager {
     }
 
     broadcast(event: SyncEvent): void {
+        const canAccess = this.buildAccessCheck(event)
         for (const connection of this.connections.values()) {
             if (!this.shouldSend(connection, event)) {
+                continue
+            }
+            if (!canAccess(connection)) {
                 continue
             }
 
@@ -122,6 +161,21 @@ export class SSEManager {
             this.visibilityTracker.removeConnection(id)
         }
         this.connections.clear()
+    }
+
+    private buildAccessCheck(event: SyncEvent): (connection: SSEConnection) => boolean {
+        const resource = resolveEventResource(event)
+        if (!resource) {
+            return () => true
+        }
+        let audience: Set<number> | null = null
+        return (connection) => {
+            if (connection.role === 'admin') {
+                return true
+            }
+            audience ??= this.accessDeps.listReadableAccountIds(resource.type, resource.id)
+            return audience.has(connection.accountId)
+        }
     }
 
     private ensureHeartbeat(): void {

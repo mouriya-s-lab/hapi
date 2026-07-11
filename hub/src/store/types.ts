@@ -56,6 +56,7 @@ export type StoredUser = {
     platformUserId: string
     namespace: string
     createdAt: number
+    accountId: number | null
 }
 
 export type AccountRole = 'admin' | 'user'
@@ -101,6 +102,7 @@ export type StoredPushSubscription = {
     p256dh: string
     auth: string
     createdAt: number
+    accountId: number | null
 }
 
 export type VersionedUpdateResult<T> =

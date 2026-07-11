@@ -35,7 +35,7 @@ export { PushStore } from './pushStore'
 export { SessionStore } from './sessionStore'
 export { UserStore } from './userStore'
 
-const SCHEMA_VERSION: number = 12
+const SCHEMA_VERSION: number = 13
 const REQUIRED_TABLES = [
     'sessions',
     'machines',
@@ -156,6 +156,7 @@ export class Store {
             9: () => this.migrateFromV9ToV10(),
             10: () => this.migrateFromV10ToV11(),
             11: () => this.migrateFromV11ToV12(legacy),
+            12: () => this.migrateFromV12ToV13(),
         })
 
         if (currentVersion === 0) {
@@ -274,6 +275,7 @@ export class Store {
                 platform_user_id TEXT NOT NULL,
                 namespace TEXT NOT NULL DEFAULT 'default',
                 created_at INTEGER NOT NULL,
+                account_id INTEGER,
                 UNIQUE(platform, platform_user_id)
             );
             CREATE INDEX IF NOT EXISTS idx_users_platform ON users(platform);
@@ -286,6 +288,7 @@ export class Store {
                 p256dh TEXT NOT NULL,
                 auth TEXT NOT NULL,
                 created_at INTEGER NOT NULL,
+                account_id INTEGER,
                 UNIQUE(namespace, endpoint)
             );
             CREATE INDEX IF NOT EXISTS idx_push_subscriptions_namespace ON push_subscriptions(namespace);
@@ -583,6 +586,22 @@ export class Store {
             CREATE INDEX IF NOT EXISTS idx_grants_grantee ON resource_grants(grantee_account_id);
             CREATE INDEX IF NOT EXISTS idx_grants_resource ON resource_grants(resource_type, resource_id);
         `)
+    }
+
+    private migrateFromV12ToV13(): void {
+        const userColumns = this.getTableColumnNames('users')
+        if (!userColumns.has('account_id')) {
+            this.db.exec('ALTER TABLE users ADD COLUMN account_id INTEGER')
+        }
+        const pushColumns = this.getTableColumnNames('push_subscriptions')
+        if (!pushColumns.has('account_id')) {
+            this.db.exec('ALTER TABLE push_subscriptions ADD COLUMN account_id INTEGER')
+        }
+    }
+
+    private getTableColumnNames(table: 'users' | 'push_subscriptions'): Set<string> {
+        const rows = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+        return new Set(rows.map((row) => row.name))
     }
 
     private getSessionColumnNames(): Set<string> {

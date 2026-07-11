@@ -15,6 +15,13 @@ import type { AccountRole } from '../../store/types'
 // window). The web client auto-refreshes before expiry, so a short TTL is
 // transparent to users.
 const JWT_TTL = '1h'
+const LOGIN_FAILURE_LIMIT = 10
+const LOGIN_FAILURE_WINDOW_MS = 15 * 60 * 1000
+
+type LoginFailure = {
+    count: number
+    firstAt: number
+}
 
 async function signSessionJwt(
     jwtSecret: Uint8Array,
@@ -34,6 +41,7 @@ async function signSessionJwt(
 
 export function createAuthRoutes(jwtSecret: Uint8Array, store: Store): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
+    const loginFailures = new Map<string, LoginFailure>()
 
     app.post('/auth', async (c) => {
         const json = await c.req.json().catch(() => null)
@@ -44,14 +52,33 @@ export function createAuthRoutes(jwtSecret: Uint8Array, store: Store): Hono<WebA
 
         // 1. Username + password (multi-user local accounts).
         if ('username' in parsed.data && 'password' in parsed.data) {
+            const forwardedFor = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ?? 'local'
+            const throttleKey = `${forwardedFor}::${parsed.data.username.toLowerCase()}`
+            const now = Date.now()
+            for (const [key, record] of loginFailures) {
+                if (now - record.firstAt >= LOGIN_FAILURE_WINDOW_MS) {
+                    loginFailures.delete(key)
+                }
+            }
+            const failure = loginFailures.get(throttleKey)
+            if (failure && now - failure.firstAt < LOGIN_FAILURE_WINDOW_MS && failure.count >= LOGIN_FAILURE_LIMIT) {
+                return c.json({ error: 'Too many failed attempts. Try again later.' }, 429)
+            }
             const account = store.accounts.getByUsername(parsed.data.username)
             // Reject disabled / passwordless (SSO-only or not-yet-set) accounts.
             const ok = account
                 && account.disabledAt === null
                 && verifyPassword(parsed.data.password, account.passwordHash)
             if (!account || !ok) {
+                const current = loginFailures.get(throttleKey)
+                if (current) {
+                    current.count += 1
+                } else {
+                    loginFailures.set(throttleKey, { count: 1, firstAt: now })
+                }
                 return c.json({ error: 'Invalid username or password' }, 401)
             }
+            loginFailures.delete(throttleKey)
 
             const token = await signSessionJwt(jwtSecret, {
                 userId: account.id,
@@ -107,17 +134,18 @@ export function createAuthRoutes(jwtSecret: Uint8Array, store: Store): Hono<WebA
             return c.json({ error: 'not_bound' }, 401)
         }
 
-        // A Telegram-bound user maps to the bootstrap admin's identity for
-        // resource ownership (its namespace comes from the binding). This
-        // preserves pre-multi-user Telegram behaviour.
         const ownerId = await getOrCreateOwnerId()
-        const adminAccount = store.accounts.list().find((a) => a.role === 'admin')
-        const accountId = adminAccount?.id ?? ownerId
-        const role: AccountRole = adminAccount?.role ?? 'user'
+        const account = storedUser.accountId === null
+            ? store.accounts.list().find((candidate) => candidate.role === 'admin') ?? null
+            : store.accounts.getById(storedUser.accountId)
+        if (!account || account.disabledAt !== null) {
+            return c.json({ error: 'not_bound' }, 401)
+        }
+        const role: AccountRole = account.role
 
         const token = await signSessionJwt(jwtSecret, {
             userId: ownerId,
-            accountId,
+            accountId: account.id,
             role,
             namespace: storedUser.namespace
         })

@@ -10,6 +10,7 @@ import { Hono } from 'hono'
 import type { SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import { createMessagesRoutes } from './messages'
+import { Store } from '../../store'
 
 // TS note: engine is cast to unknown→SyncEngine so test helpers don't need to
 // satisfy the full SyncEngine shape (only the subset the route under test uses).
@@ -39,11 +40,14 @@ function createApp(opts: {
     } as unknown as SyncEngine
 
     const app = new Hono<WebAppEnv>()
+    const store = new Store(':memory:')
     app.use('*', async (c, next) => {
         c.set('namespace', 'default')
+        c.set('accountId', 1)
+        c.set('role', 'admin')
         await next()
     })
-    app.route('/api', createMessagesRoutes(() => engine as SyncEngine))
+    app.route('/api', createMessagesRoutes(() => engine as SyncEngine, store))
 
     return { app, sentMessages }
 }

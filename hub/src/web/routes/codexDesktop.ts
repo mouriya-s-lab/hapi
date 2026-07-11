@@ -1672,6 +1672,12 @@ export function createCodexDesktopRoutes(options: {
                 error: CODEX_TRANSCRIPT_IMPORT_NAMESPACE_ERROR
             }, 403)
         }
+        if (c.get('role') !== 'admin') {
+            return c.json({
+                success: false,
+                error: 'Codex Desktop management requires admin access'
+            }, 403)
+        }
         return next()
     })
 
