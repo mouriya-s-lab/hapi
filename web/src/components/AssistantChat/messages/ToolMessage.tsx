@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ToolCallMessagePartProps } from '@assistant-ui/react'
 import type { ChatBlock } from '@/chat/types'
 import type { GeneratedImageBlock, ToolCallBlock } from '@/chat/types'
@@ -15,6 +15,7 @@ import { useHappyChatContext } from '@/components/AssistantChat/context'
 import { CliOutputBlock } from '@/components/CliOutputBlock'
 import { UserBubbleContent, getUserBubbleClassName, shouldShowMessageStatus } from '@/components/AssistantChat/messages/user-bubble'
 import { ImagePreview } from '@/components/ImagePreview'
+import { generatedInlineMediaLabel, isInlineVideoMimeType } from '@/lib/generatedInlineMedia'
 
 function isToolCallBlock(value: unknown): value is ToolCallBlock {
     if (!isObject(value)) return false
@@ -49,52 +50,74 @@ function isGeneratedImageBlock(value: unknown): value is GeneratedImageBlock {
     return true
 }
 
-function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
+export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
     const ctx = useHappyChatContext()
     const [objectUrl, setObjectUrl] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
+    const objectUrlRef = useRef<string | null>(null)
+    const isVideo = isInlineVideoMimeType(props.block.mimeType)
+    const mediaLabel = generatedInlineMediaLabel(props.block.mimeType)
+
+    useEffect(() => {
+        return () => {
+            if (objectUrlRef.current) {
+                URL.revokeObjectURL(objectUrlRef.current)
+                objectUrlRef.current = null
+            }
+        }
+    }, [])
 
     useEffect(() => {
         let disposed = false
-        let nextObjectUrl: string | null = null
 
+        if (objectUrlRef.current) {
+            URL.revokeObjectURL(objectUrlRef.current)
+            objectUrlRef.current = null
+        }
         setObjectUrl(null)
         setError(null)
         void ctx.api.getGeneratedImageBlob(ctx.sessionId, props.block.imageId)
             .then((blob) => {
                 if (disposed) return
-                nextObjectUrl = URL.createObjectURL(blob)
+                const nextObjectUrl = URL.createObjectURL(blob)
+                objectUrlRef.current = nextObjectUrl
                 setObjectUrl(nextObjectUrl)
             })
             .catch((err: unknown) => {
                 if (disposed) return
-                setError(err instanceof Error ? err.message : 'Failed to load generated image')
+                setError(err instanceof Error ? err.message : 'Failed to load inline media')
             })
 
         return () => {
             disposed = true
-            if (nextObjectUrl) {
-                URL.revokeObjectURL(nextObjectUrl)
-            }
         }
-    }, [ctx.api, ctx.sessionId, props.block.imageId])
+    }, [ctx.api, ctx.sessionId, props.block.imageId, isVideo])
 
     return (
         <div className="max-w-[92%] rounded-2xl border border-[var(--app-border)] bg-[var(--app-tool-card-bg)] p-3">
             <div className="mb-2 min-w-0 truncate text-xs font-medium text-[var(--app-hint)]">
-                Generated image · {props.block.fileName}
+                {mediaLabel} · {props.block.fileName}
             </div>
             {objectUrl ? (
-                <ImagePreview
-                    src={objectUrl}
-                    fileName={props.block.fileName}
-                    label={props.block.fileName}
-                    buttonClassName="block max-w-full cursor-zoom-in rounded-xl text-left"
-                    imageClassName="max-h-[min(28rem,60vh)] max-w-full rounded-xl object-contain"
-                />
+                isVideo ? (
+                    <video
+                        src={objectUrl}
+                        controls
+                        playsInline
+                        className="max-h-[min(28rem,60vh)] max-w-full rounded-xl"
+                    />
+                ) : (
+                    <ImagePreview
+                        src={objectUrl}
+                        fileName={props.block.fileName}
+                        label={props.block.fileName}
+                        buttonClassName="block max-w-full cursor-zoom-in rounded-xl text-left"
+                        imageClassName="max-h-[min(28rem,60vh)] max-w-full rounded-xl object-contain"
+                    />
+                )
             ) : error ? (
                 <div className="text-sm text-[var(--app-hint)]">
-                    Generated image is unavailable. {error}
+                    {mediaLabel} is unavailable. {error}
                 </div>
             ) : (
                 <div className="h-48 w-72 max-w-full animate-pulse rounded-xl bg-[var(--app-subtle-bg)]" />

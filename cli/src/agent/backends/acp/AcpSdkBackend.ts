@@ -70,6 +70,8 @@ export class AcpSdkBackend implements AgentBackend {
     private promptUsageCallback: ((msg: AgentMessage) => void) | null = null;
     private usageUpdateListener: ((msg: AgentMessage) => void) | null = null;
     private lastForwardedUsageUpdate: AcpUsageUpdate | null = null;
+    private sessionUpdateQueue: Promise<void> = Promise.resolve();
+    private sessionUpdateFailure: unknown = null;
 
     /** Retry configuration for ACP initialization */
     private static readonly INIT_RETRY_OPTIONS = {
@@ -400,6 +402,7 @@ export class AcpSdkBackend implements AgentBackend {
             AcpSdkBackend.PRE_PROMPT_UPDATE_QUIET_PERIOD_MS,
             AcpSdkBackend.PRE_PROMPT_UPDATE_DRAIN_TIMEOUT_MS
         );
+        await this.drainSessionUpdateQueue();
         this.messageHandler?.drainBuffers();
         this.messageHandler = new AcpMessageHandler(onUpdate);
         this.isProcessingMessage = true;
@@ -425,12 +428,17 @@ export class AcpSdkBackend implements AgentBackend {
                 AcpSdkBackend.UPDATE_QUIET_PERIOD_MS,
                 AcpSdkBackend.UPDATE_DRAIN_TIMEOUT_MS
             );
+            await this.drainSessionUpdateQueue();
             this.messageHandler?.drainBuffers();
             // Block here until the model truly stops streaming straggler
             // chunks (or LATE_FLUSH_WINDOW_MS elapses), so turn_complete and
             // the launcher's ready signal only fire once every chunk has been
             // emitted to this turn's onUpdate.
             await this.drainLateBuffers();
+            // Late window can enqueue async image registration; drain again
+            // before turn_complete so generated_image precedes turn boundary.
+            await this.drainSessionUpdateQueue();
+            this.messageHandler?.drainBuffers();
             try {
                 const latestUsageUpdate = this.readLatestUsageUpdate();
                 if (promptUsage) {
@@ -543,6 +551,7 @@ export class AcpSdkBackend implements AgentBackend {
 
     async disconnect(): Promise<void> {
         if (!this.transport) return;
+        await this.drainSessionUpdateQueue();
         this.messageHandler?.drainBuffers();
         this.messageHandler = null;
         this.activeSessionId = null;
@@ -561,8 +570,22 @@ export class AcpSdkBackend implements AgentBackend {
         }
         this.lastSessionUpdateAt = Date.now();
         const update = params.update;
-        this.captureUsageUpdate(update);
-        this.messageHandler?.handleUpdate(update);
+        this.sessionUpdateQueue = this.sessionUpdateQueue
+            .then(async () => {
+                this.captureUsageUpdate(update);
+                await this.messageHandler?.handleUpdate(update);
+            })
+            .catch((error) => {
+                this.sessionUpdateFailure = error;
+            });
+    }
+
+    private async drainSessionUpdateQueue(): Promise<void> {
+        await this.sessionUpdateQueue;
+        if (this.sessionUpdateFailure === null) return;
+        const failure = this.sessionUpdateFailure;
+        this.sessionUpdateFailure = null;
+        throw failure;
     }
 
     private captureUsageUpdate(update: unknown): void {
