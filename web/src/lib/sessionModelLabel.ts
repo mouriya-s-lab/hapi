@@ -1,28 +1,25 @@
 import { getClaudeModelLabel } from '@hapi/protocol'
-import type { CcSwitchUsageResult } from '@hapi/protocol'
+import type { UsageSnapshot } from '@hapi/protocol'
 
 type SessionModelSource = {
     model?: string | null
 }
 
-export function formatCcSwitchSourceLabel(
-    providerName: string | null | undefined,
-    usage: CcSwitchUsageResult | null | undefined,
+export function formatUsageSnapshotLabel(
+    snapshot: UsageSnapshot | null | undefined,
     remainingPrefix: string
 ): string | null {
-    const name = providerName?.trim()
-    if (!name) return null
-    if (!usage || !usage.isValid) return name
-    if (usage.remaining === null) {
-        const plan = usage.planName?.trim()
-        return plan ? `${name} · ${plan}` : name
+    if (!snapshot) return null
+    const progress = snapshot.metrics.find((metric) => metric.type === 'progress')
+    if (progress?.type === 'progress') {
+        const remaining = Math.max(0, progress.limit - progress.used)
+        const value = progress.unit === 'percent' ? `${remaining}%` : remaining.toLocaleString('en-US')
+        return `${snapshot.displayName} · ${progress.label} ${remainingPrefix}${value}`
     }
-    const unit = usage.unit?.trim()
-    const amount = Number.isInteger(usage.remaining)
-        ? usage.remaining.toLocaleString('en-US')
-        : usage.remaining.toLocaleString('en-US', { maximumFractionDigits: 2 })
-    const rendered = unit === '$' || unit === 'USD' ? `$${amount}` : `${amount}${unit ? ` ${unit}` : ''}`
-    return `${name} · ${remainingPrefix}${rendered}`
+    const text = snapshot.metrics.find((metric) => metric.type === 'text')
+    return text?.type === 'text'
+        ? `${snapshot.displayName} · ${text.label} ${text.value}`
+        : snapshot.displayName
 }
 
 export type SessionModelLabel = {

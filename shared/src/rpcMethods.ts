@@ -35,7 +35,8 @@ export const RPC_METHODS = {
     ListOpencodeReasoningEffortOptions: 'listOpencodeReasoningEffortOptions',
     ListCcSwitchProviders: 'listCcSwitchProviders',
     SwitchCcSwitchProvider: 'switchCcSwitchProvider',
-    QueryCcSwitchUsage: 'queryCcSwitchUsage'
+    ListUsageProviders: 'listUsageProviders',
+    QueryUsage: 'queryUsage'
 } as const
 
 export type RpcMethod = typeof RPC_METHODS[keyof typeof RPC_METHODS]

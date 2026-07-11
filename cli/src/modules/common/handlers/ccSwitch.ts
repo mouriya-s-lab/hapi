@@ -4,10 +4,9 @@ import type { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager';
 import type {
     ListCcSwitchProvidersResponse,
     SwitchCcSwitchProviderRequest,
-    SwitchCcSwitchProviderResponse,
-    QueryCcSwitchUsageResponse
+    SwitchCcSwitchProviderResponse
 } from '@hapi/protocol/apiTypes';
-import { listCcSwitchProviders, switchCcSwitchProvider, queryCcSwitchUsage } from '../ccSwitch';
+import { listCcSwitchProviders, switchCcSwitchProvider } from '../ccSwitch';
 import { getErrorMessage, rpcError } from '../rpcResponses';
 
 export function registerCcSwitchHandlers(rpcHandlerManager: RpcHandlerManager): void {
@@ -36,22 +35,6 @@ export function registerCcSwitchHandlers(rpcHandlerManager: RpcHandlerManager): 
             } catch (error) {
                 logger.debug('Failed to switch cc-switch provider:', error);
                 return rpcError(getErrorMessage(error, 'Failed to switch cc-switch provider'));
-            }
-        }
-    );
-
-    rpcHandlerManager.registerHandler<{ providerId?: string }, QueryCcSwitchUsageResponse>(
-        RPC_METHODS.QueryCcSwitchUsage,
-        async (data) => {
-            try {
-                const result = await queryCcSwitchUsage(data?.providerId);
-                if (result.error && !result.usage) {
-                    return { success: false, providerName: result.providerName, error: result.error };
-                }
-                return { success: true, providerName: result.providerName, usage: result.usage };
-            } catch (error) {
-                logger.debug('Failed to query cc-switch usage:', error);
-                return rpcError(getErrorMessage(error, 'Failed to query cc-switch usage'));
             }
         }
     );

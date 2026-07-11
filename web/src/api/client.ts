@@ -38,7 +38,8 @@ import type {
     MachinePathsExistsResponse,
     OpencodeModelsResponse,
     OpencodeReasoningEffortResponse,
-    QueryCcSwitchUsageResponse,
+    ListUsageProvidersResponse,
+    QueryUsageResponse,
     ReopenSessionResponse,
     SwitchCcSwitchProviderResponse,
     UploadFileResponse
@@ -691,10 +692,17 @@ export class ApiClient {
         )
     }
 
-    async getMachineCcSwitchUsage(machineId: string, providerId?: string): Promise<QueryCcSwitchUsageResponse> {
-        const params = providerId ? `?providerId=${encodeURIComponent(providerId)}` : ''
-        return await this.request<QueryCcSwitchUsageResponse>(
-            `/api/machines/${encodeURIComponent(machineId)}/cc-switch/usage${params}`
+    async getMachineUsageProviders(machineId: string): Promise<ListUsageProvidersResponse> {
+        return await this.request<ListUsageProvidersResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/usage/providers`
+        )
+    }
+
+    async getMachineUsage(machineId: string, providerId: string, subjectId?: string): Promise<QueryUsageResponse> {
+        const params = new URLSearchParams({ providerId })
+        if (subjectId) params.set('subjectId', subjectId)
+        return await this.request<QueryUsageResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/usage?${params.toString()}`
         )
     }
 

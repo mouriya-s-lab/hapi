@@ -26,7 +26,7 @@ function createMachine(overrides?: Partial<Machine>): Machine {
 }
 
 describe('machines routes', () => {
-    it('forwards cc-switch list, switch, and usage while rejecting malformed switch bodies', async () => {
+    it('keeps cc-switch switching separate from the unified usage API', async () => {
         const machine = createMachine()
         const switched: string[] = []
         const engine = {
@@ -37,7 +37,10 @@ describe('machines routes', () => {
                 switched.push(providerId)
                 return { success: true, currentProviderName: 'Provider' }
             },
-            queryCcSwitchUsageForMachine: async () => ({ success: false, providerName: 'Provider', error: 'no usage script' })
+            listUsageProvidersForMachine: async () => ({ success: true, providers: [{ id: 'openusage', name: 'OpenUsage', available: true }] }),
+            queryUsageForMachine: async () => ({ success: true, snapshot: {
+                providerId: 'openusage', displayName: 'Claude', plan: 'Max 20x', fetchedAt: '2026-07-12T00:00:00Z', metrics: []
+            } })
         } as Partial<SyncEngine>
         const app = new Hono<WebAppEnv>()
         app.use('*', async (c, next) => { c.set('namespace', 'default'); await next() })
@@ -53,8 +56,13 @@ describe('machines routes', () => {
         expect((await app.request('/api/machines/machine-1/cc-switch/switch', {
             method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}'
         })).status).toBe(400)
-        expect(await (await app.request('/api/machines/machine-1/cc-switch/usage')).json())
-            .toEqual({ success: false, providerName: 'Provider', error: 'no usage script' })
+        expect(await (await app.request('/api/machines/machine-1/usage/providers')).json())
+            .toEqual({ success: true, providers: [{ id: 'openusage', name: 'OpenUsage', available: true }] })
+        expect(await (await app.request('/api/machines/machine-1/usage?providerId=openusage&subjectId=claude')).json())
+            .toEqual({ success: true, snapshot: {
+                providerId: 'openusage', displayName: 'Claude', plan: 'Max 20x', fetchedAt: '2026-07-12T00:00:00Z', metrics: []
+            } })
+        expect((await app.request('/api/machines/machine-1/usage')).status).toBe(400)
     })
     it('forwards create-directory requests to the selected machine', async () => {
         const machine = createMachine()

@@ -7,8 +7,7 @@ import vm from 'node:vm';
 import { logger } from '@/ui/logger';
 import type {
     CcSwitchProviderSummary,
-    SwitchCcSwitchProviderResponse,
-    CcSwitchUsageResult
+    SwitchCcSwitchProviderResponse
 } from '@hapi/protocol/apiTypes';
 
 /**
@@ -56,6 +55,15 @@ type UsageScript = {
     code?: string;
     timeout?: number;
     templateType?: string;
+};
+
+export type CcSwitchUsageData = {
+    planName: string | null;
+    total: number | null;
+    remaining: number | null;
+    unit: string | null;
+    isValid: boolean;
+    invalidMessage: string | null;
 };
 
 function parseJsonObject(value: string | null | undefined): Record<string, unknown> {
@@ -178,7 +186,7 @@ function applyProviderToClaudeSettings(settingsConfigJson: string): void {
 /** 查询某供应商(默认当前)的用量。无脚本时返回 error。 */
 export async function queryCcSwitchUsage(
     providerId?: string
-): Promise<{ providerName?: string; usage?: CcSwitchUsageResult; error?: string }> {
+): Promise<{ providerName?: string; usage?: CcSwitchUsageData; error?: string }> {
     const dbPath = getCcSwitchDbPath();
     if (!existsSync(dbPath)) {
         return { error: 'cc-switch 数据库不存在' };
@@ -225,11 +233,11 @@ export async function queryCcSwitchUsage(
 
 type UsageScriptSpec = {
     request: { url: string; method?: string; headers?: Record<string, string>; body?: unknown };
-    extractor: (response: unknown) => CcSwitchUsageResult;
+    extractor: (response: unknown) => CcSwitchUsageData;
 };
 
 /** 在受限 vm 沙箱里求值脚本,vm 外用 fetch 发请求,再用 extractor 提取结果。 */
-async function runUsageScript(usageScript: UsageScript, apiKey: string): Promise<CcSwitchUsageResult> {
+async function runUsageScript(usageScript: UsageScript, apiKey: string): Promise<CcSwitchUsageData> {
     const code = (usageScript.code ?? '').replace(/\{\{apiKey\}\}/g, apiKey);
     const timeoutMs = Math.max(1, Math.floor(usageScript.timeout ?? DEFAULT_USAGE_TIMEOUT_SECONDS)) * 1000;
 
@@ -271,7 +279,7 @@ function toStringOrNull(value: unknown): string | null {
     return typeof value === 'string' ? value : null;
 }
 
-function normalizeUsageResult(raw: unknown): CcSwitchUsageResult {
+function normalizeUsageResult(raw: unknown): CcSwitchUsageData {
     const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
     return {
         planName: toStringOrNull(r.planName),

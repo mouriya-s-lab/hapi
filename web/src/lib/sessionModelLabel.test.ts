@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatCcSwitchSourceLabel, getSessionModelLabel } from './sessionModelLabel'
+import { formatUsageSnapshotLabel, getSessionModelLabel } from './sessionModelLabel'
 
 describe('getSessionModelLabel', () => {
     it('prefers the explicit session model', () => {
@@ -25,13 +25,11 @@ describe('getSessionModelLabel', () => {
     })
 })
 
-describe('formatCcSwitchSourceLabel', () => {
-    it('renders valid remaining usage and falls back to the provider for invalid usage', () => {
-        expect(formatCcSwitchSourceLabel('Provider', {
-            planName: 'Pro', total: 100, remaining: 12.5, unit: 'USD', isValid: true, invalidMessage: null
-        }, '余 ')).toBe('Provider · 余 $12.5')
-        expect(formatCcSwitchSourceLabel('Provider', {
-            planName: null, total: null, remaining: null, unit: null, isValid: false, invalidMessage: 'expired'
-        }, '余 ')).toBe('Provider')
+describe('formatUsageSnapshotLabel', () => {
+    it('renders the first normalized progress metric', () => {
+        expect(formatUsageSnapshotLabel({
+            providerId: 'openusage', displayName: 'Claude', plan: 'Max 20x', fetchedAt: '2026-07-12T00:00:00Z',
+            metrics: [{ type: 'progress', label: 'Session', used: 24, limit: 100, unit: 'percent', resetsAt: null }]
+        }, '余 ')).toBe('Claude · Session 余 76%')
     })
 })
