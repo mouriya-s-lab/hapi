@@ -300,6 +300,18 @@ html:not([data-telegram-app="true"]) body {
     overflow-y: auto;
 }
 
+/*
+ * Desktop uses fixed-viewport routes with their own `.app-scroll-y`
+ * containers. Keep document scrolling available for touch-first mobile
+ * browsers, but prevent desktop overflow from creating a second scrollbar.
+ */
+@media (hover: hover) and (pointer: fine) {
+    html:not([data-telegram-app="true"]),
+    html:not([data-telegram-app="true"]) body {
+        overflow-y: hidden;
+    }
+}
+
 body {
     font-size: 1rem;
     background: var(--app-bg);
