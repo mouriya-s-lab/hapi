@@ -2,6 +2,7 @@ import { basename, extname, join } from 'path'
 import { copyFile, mkdir, stat } from 'fs/promises'
 import { rmSync } from 'node:fs'
 import { tmpdir } from 'os'
+import { MAX_SOCKET_RPC_BINARY_BYTES } from '@hapi/protocol/socketLimits'
 
 export type GeneratedFileMetadata = {
     id: string
@@ -15,7 +16,7 @@ export type GeneratedFileMetadata = {
 // Files are snapshotted to disk (not held in memory like generated images) because they
 // can be much larger; the snapshot keeps IM semantics: the user downloads the bytes as
 // they were when the agent sent the file, even if the original is edited or deleted.
-const MAX_GENERATED_FILE_BYTES = 50 * 1024 * 1024
+export const MAX_GENERATED_FILE_BYTES = MAX_SOCKET_RPC_BINARY_BYTES
 const MAX_GENERATED_FILE_TOTAL_BYTES = 500 * 1024 * 1024
 const MAX_GENERATED_FILE_COUNT = 100
 
@@ -101,7 +102,7 @@ export async function registerGeneratedFile(args: { id: string; path: string; fi
         throw new Error('Path is not a regular file')
     }
     if (info.size > MAX_GENERATED_FILE_BYTES) {
-        throw new Error('File is too large to send (max 50MB)')
+        throw new Error(`File is too large to send (max ${MAX_GENERATED_FILE_BYTES} bytes)`)
     }
 
     if (!cleanupRegistered) {

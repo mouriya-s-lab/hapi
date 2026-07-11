@@ -169,6 +169,25 @@ describe('generated images route', () => {
     })
 })
 describe('generated files route', () => {
+    it('serves a valid empty sent file instead of treating empty base64 as missing', async () => {
+        const session = { id: 'session-1', namespace: 'default', active: true } as unknown as Session
+        const engine = {
+            resolveSessionAccess: () => ({ ok: true as const, sessionId: 'session-1', session }),
+            readGeneratedFile: async () => ({
+                success: true,
+                content: '',
+                mimeType: 'text/plain',
+                fileName: 'empty.txt',
+                size: 0
+            })
+        } as unknown as Partial<SyncEngine>
+
+        const response = await buildApp(engine).request('/api/sessions/session-1/generated-files/empty-file')
+
+        expect(response.status).toBe(200)
+        expect(await response.arrayBuffer()).toHaveLength(0)
+    })
+
     it('serves sent files as attachments with immutable caching', async () => {
         const fileBytes = Buffer.from('hello report')
         const session = { id: 'session-1', namespace: 'default', active: true } as unknown as Session

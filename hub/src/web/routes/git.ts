@@ -251,7 +251,7 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
         }
 
         const result = await runRpc(() => engine.readGeneratedFile(sessionResult.sessionId, parsed.data.fileId))
-        if (!result.success || !result.content) {
+        if (!result.success || result.content === undefined) {
             return c.json({ success: false, error: result.error ?? 'Sent file not found' }, 404)
         }
 

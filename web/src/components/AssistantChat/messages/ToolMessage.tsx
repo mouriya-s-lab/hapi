@@ -140,11 +140,11 @@ function isGeneratedFileBlock(value: unknown): value is GeneratedFileBlock {
 }
 
 // Browsers can render these inline in a new tab; everything else is download-only.
-function isPreviewableMimeType(mimeType: string | null): boolean {
+export function isPreviewableGeneratedFileMimeType(mimeType: string | null): boolean {
     if (!mimeType) return false
     if (mimeType === 'application/pdf' || mimeType === 'application/json') return true
-    return mimeType.startsWith('image/')
-        || mimeType.startsWith('text/')
+    if (mimeType === 'text/plain' || mimeType === 'text/markdown' || mimeType === 'text/csv' || mimeType === 'text/tab-separated-values') return true
+    return (mimeType.startsWith('image/') && mimeType !== 'image/svg+xml')
         || mimeType.startsWith('video/')
         || mimeType.startsWith('audio/')
 }
@@ -224,7 +224,7 @@ export function GeneratedFileCard(props: { block: GeneratedFileBlock }) {
                 >
                     Download
                 </button>
-                {isPreviewableMimeType(props.block.mimeType) ? (
+                {isPreviewableGeneratedFileMimeType(props.block.mimeType) ? (
                     <button
                         type="button"
                         onClick={handleOpen}

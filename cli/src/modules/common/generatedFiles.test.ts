@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdir, rm, writeFile } from 'fs/promises'
+import { mkdir, rm, truncate, writeFile } from 'fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { RpcHandlerManager } from '../../api/rpc/RpcHandlerManager'
 import { registerFileHandlers } from './handlers/files'
-import { clearGeneratedFiles, detectFileMimeType, getGeneratedFile, registerGeneratedFile } from './generatedFiles'
+import { clearGeneratedFiles, detectFileMimeType, getGeneratedFile, MAX_GENERATED_FILE_BYTES, registerGeneratedFile } from './generatedFiles'
 
 async function createTempDir(prefix: string): Promise<string> {
     const path = join(tmpdir(), `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`)
@@ -68,6 +68,14 @@ describe('generated files registry', () => {
 
     it('rejects directories', async () => {
         await expect(registerGeneratedFile({ id: 'file-3', path: sourceDir })).rejects.toThrow('not a regular file')
+    })
+
+    it('rejects a file whose base64 RPC response would exceed the socket transport limit', async () => {
+        const sourcePath = join(sourceDir, 'oversized.bin')
+        await writeFile(sourcePath, '')
+        await truncate(sourcePath, MAX_GENERATED_FILE_BYTES + 1)
+
+        await expect(registerGeneratedFile({ id: 'file-too-large', path: sourcePath })).rejects.toThrow(`max ${MAX_GENERATED_FILE_BYTES} bytes`)
     })
 
     it('serves registered files over the readGeneratedFile RPC', async () => {
