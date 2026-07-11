@@ -306,7 +306,9 @@ export default {
 
   // Code block
   'code.copy': 'Copy',
-  'code.truncated': 'Preview truncated — open details for full output',
+  'collapse.expand': 'Expand',
+  'collapse.collapse': 'Collapse',
+  'collapse.expandLines': 'Show all ({n} lines)',
 
   // Diff view
   'diff.title': 'Diff',

@@ -5,6 +5,7 @@ import { memo, useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent
 import { isObject, safeStringify } from '@hapi/protocol'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { CodeBlock } from '@/components/CodeBlock'
+import { CollapsibleContent } from '@/components/CollapsibleContent'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { PermissionFooter } from '@/components/ToolCard/PermissionFooter'
@@ -123,7 +124,12 @@ function renderToolInput(block: ToolCallBlock, surface: 'inline' | 'dialog' = 'i
     const input = block.tool.input
 
     if (isSubagentToolName(toolName) && isObject(input) && typeof input.prompt === 'string') {
-        return <MarkdownRenderer content={input.prompt} />
+        if (!collapseLongContent) return <MarkdownRenderer content={input.prompt} />
+        return (
+            <CollapsibleContent text={input.prompt} surfaceVar="--app-tool-card-bg">
+                <MarkdownRenderer content={input.prompt} />
+            </CollapsibleContent>
+        )
     }
 
     const commandArray = isObject(input) && Array.isArray(input.command) ? input.command : null
@@ -341,7 +347,7 @@ function ToolCardInner(props: ToolCardProps) {
     )
 
     return (
-        <Card className="overflow-hidden rounded-[20px] bg-[var(--app-tool-card-bg)] shadow-none">
+        <Card className="overflow-clip rounded-[20px] bg-[var(--app-tool-card-bg)] shadow-none">
             <CardHeader className={cn('space-y-0 p-3', subtitle ? 'pb-2' : null)}>
                 <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
                     <DialogTrigger asChild>

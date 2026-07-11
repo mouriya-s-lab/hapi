@@ -223,8 +223,8 @@ export function ToolGroupCard(props: {
     const fileCount = props.block.summary.fileTargets.length
 
     return (
-        <Card className="overflow-hidden rounded-[20px] bg-[var(--app-tool-group-bg)] shadow-none">
-            <CardHeader className={cn('space-y-0 p-3', subtitle ? 'pb-2' : null)}>
+        <Card className="overflow-clip rounded-[20px] bg-[var(--app-tool-group-bg)] shadow-none">
+            <CardHeader className={cn('space-y-0 p-3', subtitle ? 'pb-2' : null, open && 'sticky top-0 z-10 rounded-t-[20px] bg-[var(--app-tool-group-bg)]')}>
                 <button
                     type="button"
                     onClick={() => setOpen((value) => !value)}
