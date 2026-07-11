@@ -726,6 +726,7 @@ export default {
   'misc.resumeWithSessionModel': 'Use session model on resume',
   'misc.resumeWithSessionModelHint': 'Pass this session’s Claude model and effort when resuming.',
   'misc.reasoningEffort': 'Reasoning Effort',
+  'reasoning.collapseHint': 'click to collapse',
   'misc.effort': 'Effort',
   'misc.fastMode': 'Fast Mode',
   'misc.fastModeStandard': 'Standard',
