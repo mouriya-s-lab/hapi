@@ -209,6 +209,8 @@ export class SDKToLogConverter {
             parentUuid = this.sidechainLastUUID.get((sdkMessage as any).parent_tool_use_id) ?? null;
             this.sidechainLastUUID.set((sdkMessage as any).parent_tool_use_id!, uuid);
         }
+        const providerUuid = (sdkMessage as unknown as { uuid?: unknown }).uuid
+        const providerMessageId = typeof providerUuid === 'string' ? providerUuid : undefined
         const baseFields = {
             parentUuid: parentUuid,
             isSidechain: isSidechain,
@@ -218,7 +220,8 @@ export class SDKToLogConverter {
             version: this.context.version,
             gitBranch: this.context.gitBranch,
             uuid,
-            timestamp
+            timestamp,
+            providerMessageId
         }
 
         let logMessage: RawJSONLines | null = null

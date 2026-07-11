@@ -13,6 +13,7 @@ describe('isClaudeChatVisibleMessage', () => {
         expect(isClaudeChatVisibleMessage({ type: 'system', subtype: 'api_error' })).toBe(true)
         expect(isClaudeChatVisibleMessage({ type: 'system', subtype: 'microcompact_boundary' })).toBe(true)
         expect(isClaudeChatVisibleMessage({ type: 'system', subtype: 'compact_boundary' })).toBe(true)
+        expect(isClaudeChatVisibleMessage({ type: 'system', subtype: 'model_refusal_fallback' })).toBe(true)
     })
 
     it('keeps conversation messages visible', () => {

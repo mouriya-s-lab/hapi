@@ -1,22 +1,29 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { randomId } from '@/lib/randomId'
 
+export type ToastVariant = 'default' | 'warning'
+
 export type Toast = {
     id: string
     title: string
     body: string
     sessionId: string
     url: string
+    variant?: ToastVariant
+}
+
+export type AddToastInput = Omit<Toast, 'id'> & {
+    durationMs?: number
 }
 
 export type ToastContextValue = {
     toasts: Toast[]
-    addToast: (toast: Omit<Toast, 'id'>) => void
+    addToast: (toast: AddToastInput) => void
     removeToast: (id: string) => void
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null)
-const TOAST_DURATION_MS = 6000
+const DEFAULT_TOAST_DURATION_MS = 6000
 
 function createToastId(): string {
     return randomId()
@@ -44,12 +51,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         }
     }, [])
 
-    const addToast = useCallback((toast: Omit<Toast, 'id'>) => {
+    const addToast = useCallback((toast: AddToastInput) => {
         const id = createToastId()
-        setToasts((prev) => [...prev, { id, ...toast }])
+        const { durationMs, ...visibleToast } = toast
+        setToasts((prev) => [...prev, { id, ...visibleToast }])
         const timer = setTimeout(() => {
             removeToast(id)
-        }, TOAST_DURATION_MS)
+        }, durationMs ?? DEFAULT_TOAST_DURATION_MS)
         timersRef.current.set(id, timer)
     }, [removeToast])
 

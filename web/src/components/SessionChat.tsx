@@ -12,7 +12,7 @@ import type {
     PiModelSummary,
     SlashCommand
 } from '@/types/api'
-import type { ChatBlock, NormalizedMessage } from '@/chat/types'
+import type { ChatBlock, ModelRefusalFallbackEvent, NormalizedMessage } from '@/chat/types'
 import type { Suggestion } from '@/hooks/useActiveSuggestions'
 import { normalizeDecryptedMessage } from '@/chat/normalize'
 import { reduceChatBlocks } from '@/chat/reducer'
@@ -29,6 +29,7 @@ import { HappyThread } from '@/components/AssistantChat/HappyThread'
 import { QueuedMessagesBar } from '@/components/AssistantChat/QueuedMessagesBar'
 import { ScratchlistDrawer } from '@/components/AssistantChat/ScratchlistPanel'
 import { useScratchlist } from '@/lib/use-scratchlist'
+import { useToast } from '@/lib/toast-context'
 import { useHappyRuntime } from '@/lib/assistant-runtime'
 import { createAttachmentAdapter } from '@/lib/attachmentAdapter'
 import { consumeSharePendingTransfer } from '@/lib/sharePendingState'
@@ -327,6 +328,12 @@ function getOutlineTitle(session: Session): string {
     return session.id.slice(0, 8)
 }
 
+const MODEL_REFUSAL_FALLBACK_TOAST_DURATION_MS = 5000
+
+function isModelRefusalFallbackEvent(value: unknown): value is ModelRefusalFallbackEvent {
+    return Boolean(value) && typeof value === 'object' && (value as { type?: unknown }).type === 'model-refusal-fallback'
+}
+
 function hasAbortableAgentRun(blocks: readonly ChatBlock[]): boolean {
     for (const block of blocks) {
         if (block.kind === 'tool-call') {
@@ -403,10 +410,12 @@ function SessionChatInner(props: SessionChatProps) {
     const { haptic } = usePlatform()
     const { t } = useTranslation()
     const navigate = useNavigate()
+    const { addToast } = useToast()
     const sessionInactive = !props.session.active
     const inactiveCanResume = inactiveSessionCanResume(props.session, props.messages.length)
     const terminalSupported = isRemoteTerminalSupported(props.session.metadata)
     const normalizedCacheRef = useRef<Map<string, { source: DecryptedMessage; normalized: NormalizedMessage | null }>>(new Map())
+    const modelRefusalFallbackToastIdsRef = useRef<Set<string>>(new Set())
     const blocksByIdRef = useRef<Map<string, ChatBlock>>(new Map())
     const visibleGroupsRef = useRef<ToolGroupBlock[]>([])
     const [forceScrollToken, setForceScrollToken] = useState(0)
@@ -499,8 +508,11 @@ function SessionChatInner(props: SessionChatProps) {
     const codexCollaborationModeSupported = agentFlavor === 'codex' && !controlledByUser
     const codexModelsState = useCodexModels({
         api: props.api,
-        sessionId: props.session.id,
-        enabled: agentFlavor === 'codex' && props.session.active && !controlledByUser
+        machineId: props.session.metadata?.machineId,
+        enabled: agentFlavor === 'codex'
+            && props.session.active
+            && !controlledByUser
+            && Boolean(props.session.metadata?.machineId)
     })
     const codexModelOptions = useMemo(() => {
         if (agentFlavor !== 'codex') {
@@ -519,7 +531,7 @@ function SessionChatInner(props: SessionChatProps) {
     const opencodeModelsState = useOpencodeModels({
         api: props.api,
         sessionId: props.session.id,
-        enabled: agentFlavor === 'opencode' && props.session.active
+        enabled: (agentFlavor === 'opencode' || agentFlavor === 'omp') && props.session.active
     })
     const opencodeReasoningEffortState = useOpencodeReasoningEffortOptions({
         api: props.api,
@@ -527,7 +539,7 @@ function SessionChatInner(props: SessionChatProps) {
         enabled: agentFlavor === 'opencode' && props.session.active
     })
     const opencodeModelOptions = useMemo(() => {
-        if (agentFlavor !== 'opencode') {
+        if (agentFlavor !== 'opencode' && agentFlavor !== 'omp') {
             return undefined
         }
 
@@ -676,6 +688,7 @@ function SessionChatInner(props: SessionChatProps) {
         setPermissionMode,
         setCollaborationMode,
         setModel,
+        setResumeWithSessionModel,
         setModelReasoningEffort,
         setEffort,
         setServiceTier
@@ -782,6 +795,7 @@ function SessionChatInner(props: SessionChatProps) {
 
     useEffect(() => {
         normalizedCacheRef.current.clear()
+        modelRefusalFallbackToastIdsRef.current.clear()
         blocksByIdRef.current.clear()
         visibleGroupsRef.current = []
         setOutlineOpen(false)
@@ -829,6 +843,29 @@ function SessionChatInner(props: SessionChatProps) {
         }
         return normalized
     }, [visibleMessages])
+
+    useEffect(() => {
+        const displayedIds = modelRefusalFallbackToastIdsRef.current
+        for (const message of normalizedMessages) {
+            if (message.role !== 'event') continue
+            if (!isModelRefusalFallbackEvent(message.content)) continue
+            if (displayedIds.has(message.id)) continue
+
+            displayedIds.add(message.id)
+            const event = message.content
+            addToast({
+                title: t('toast.modelRefusalFallback.title'),
+                body: t('toast.modelRefusalFallback.body', {
+                    originalModel: event.originalModel,
+                    message: event.message
+                }),
+                sessionId: props.session.id,
+                url: `/sessions/${props.session.id}`,
+                variant: 'warning',
+                durationMs: MODEL_REFUSAL_FALLBACK_TOAST_DURATION_MS
+            })
+        }
+    }, [addToast, normalizedMessages, props.session.id, t])
 
     const goalStateSourceMessages = useMemo(
         () => buildGoalStateMessages(props.messages, props.pendingMessages ?? []),
@@ -919,6 +956,17 @@ function SessionChatInner(props: SessionChatProps) {
             console.error('Failed to set model:', e)
         }
     }, [setModel, props.onRefresh, haptic])
+
+    const handleResumeWithSessionModelChange = useCallback(async (enabled: boolean) => {
+        try {
+            await setResumeWithSessionModel(enabled)
+            haptic.notification('success')
+            props.onRefresh()
+        } catch (e) {
+            haptic.notification('error')
+            console.error('Failed to set resume model setting:', e)
+        }
+    }, [setResumeWithSessionModel, props.onRefresh, haptic])
 
     const handleCursorBaseModelChange = useCallback(async (baseKey: string | null) => {
         if (!cursorPicker) {
@@ -1218,6 +1266,7 @@ function SessionChatInner(props: SessionChatProps) {
                         model={props.session.model}
                         modelReasoningEffort={agentFlavor === 'codex' || agentFlavor === 'opencode' ? props.session.modelReasoningEffort : undefined}
                         effort={props.session.effort}
+                        resumeWithSessionModel={props.session.resumeWithSessionModel}
                         agentFlavor={agentFlavor}
                         availableModelOptions={
                             agentFlavor === 'codex'
@@ -1230,7 +1279,7 @@ function SessionChatInner(props: SessionChatProps) {
                                             ? undefined
                                             : cursorPicker.modelOptions
                                     )
-                                    : agentFlavor === 'opencode'
+                                    : (agentFlavor === 'opencode' || agentFlavor === 'omp')
                                         ? opencodeModelOptions
                                         // Pi uses its own provider-qualified picker (piModels prop).
                                         // Feeding piModelOptions here would make the generic Ctrl/Cmd+M
@@ -1297,6 +1346,7 @@ function SessionChatInner(props: SessionChatProps) {
                                         ? (props.session.active && !piModelsState.error ? handleModelChange : undefined)
                                         : handleModelChange
                         }
+                        onResumeWithSessionModelChange={agentFlavor === 'claude' ? handleResumeWithSessionModelChange : undefined}
                         onModelEffortChange={
                             agentFlavor === 'cursor'
                                 && props.session.active

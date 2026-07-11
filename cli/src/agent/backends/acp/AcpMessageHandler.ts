@@ -1,5 +1,7 @@
-import type { AgentMessage, PlanItem } from '@/agent/types';
 import { randomUUID } from 'node:crypto';
+import { logger } from '@/ui/logger';
+import type { AgentMessage, PlanItem } from '@/agent/types';
+import { registerGeneratedImageFromAcpBlock } from '@/modules/common/generatedImages';
 import { asString, isObject } from '@hapi/protocol';
 import { deriveToolNameWithSource, isPlaceholderToolName } from '@/agent/utils';
 import { parseRateLimitText } from '@/agent/rateLimitParser';
@@ -528,7 +530,7 @@ export class AcpMessageHandler {
         this.reasoningSnapshotEmitted = false;
     }
 
-    handleUpdate(update: unknown): void {
+    async handleUpdate(update: unknown): Promise<void> {
         if (!isObject(update)) return;
         const updateType = asString(update.sessionUpdate);
         if (!updateType) return;
@@ -554,6 +556,12 @@ export class AcpMessageHandler {
 
         if (updateType === ACP_SESSION_UPDATE_TYPES.agentMessageChunk) {
             const content = update.content;
+            if (isObject(content) && content.type === 'image') {
+                this.flushReasoning();
+                this.flushText();
+                await this.emitGeneratedImageFromAcpContent(content);
+                return;
+            }
             const text = extractTextContent(content);
             if (text) {
                 // Check once whether the buffered text is a prefix of this
@@ -627,6 +635,21 @@ export class AcpMessageHandler {
                 this.onMessage({ type: 'plan', items });
             }
         }
+    }
+
+    private async emitGeneratedImageFromAcpContent(content: Record<string, unknown>): Promise<void> {
+        const result = await registerGeneratedImageFromAcpBlock(content);
+        if (!result.ok) {
+            logger.debug('[AcpMessageHandler] Rejected ACP image block:', result.error.code, result.error.message);
+            return;
+        }
+        const image = result.media;
+        this.onMessage({
+            type: 'generated_image',
+            imageId: image.id,
+            fileName: image.fileName,
+            mimeType: image.mimeType,
+        });
     }
 
     private handleToolCall(update: Record<string, unknown>): void {

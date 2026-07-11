@@ -48,6 +48,7 @@ export const MetadataSchema = z.object({
     cursorMigrationState: z.enum(['in_progress', 'ambiguous']).optional(),
     kimiSessionId: z.string().optional(),
     piSessionId: z.string().optional(),
+    ompSessionId: z.string().optional(),
     tools: z.array(z.string()).optional(),
     slashCommands: z.array(z.string()).optional(),
     homeDir: z.string().optional(),
@@ -62,6 +63,11 @@ export const MetadataSchema = z.object({
     lifecycleStateSince: z.number().optional(),
     archivedBy: z.string().optional(),
     archiveReason: z.string().optional(),
+    // Set ONLY when the user explicitly archives a session via the session
+    // menu (syncEngine.archiveSession). Distinct from archivedBy/archiveReason,
+    // which the CLI sets on local startup failure. Used to hide user-archived
+    // sessions from the list without conflating them with naturally-ended ones.
+    archivedAt: z.number().optional(),
     preferredPermissionMode: PermissionModeSchema.optional(),
     flavor: z.string().nullish(),
     capabilities: SessionCapabilitiesSchema.optional(),
@@ -73,7 +79,10 @@ export const MetadataSchema = z.object({
     // field stores only modelId (shared across all flavors); this preserves
     // the provider so web can resolve the exact model when two providers
     // share a modelId.
-    piSelectedModel: z.object({ provider: z.string(), modelId: z.string() }).nullable().optional()
+    piSelectedModel: z.object({ provider: z.string(), modelId: z.string() }).nullable().optional(),
+    forkedFrom: z.string().optional(),
+    forkedAt: z.number().optional(),
+    forkedFromMessageId: z.string().optional()
 })
 
 export type Metadata = z.infer<typeof MetadataSchema>
@@ -225,6 +234,7 @@ export const SessionSchema = z.object({
     modelReasoningEffort: z.string().nullable().optional().default(null),
     effort: z.string().nullable().optional().default(null),
     serviceTier: z.string().nullable().optional().default(null),
+    resumeWithSessionModel: z.boolean().optional().default(false),
     permissionMode: PermissionModeSchema.optional(),
     collaborationMode: CodexCollaborationModeSchema.optional()
 })
@@ -240,6 +250,7 @@ export const SessionPatchSchema = z.object({
     modelReasoningEffort: z.string().nullable().optional(),
     effort: z.string().nullable().optional(),
     serviceTier: z.string().nullable().optional(),
+    resumeWithSessionModel: z.boolean().optional(),
     permissionMode: PermissionModeSchema.optional(),
     collaborationMode: CodexCollaborationModeSchema.optional(),
     backgroundTaskCount: z.number().optional()

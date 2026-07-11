@@ -1089,9 +1089,18 @@ export function buildCliArgs(
           ? 'opencode'
           : agent === 'pi'
             ? 'pi'
-            : 'claude';
+            : agent === 'omp'
+              ? 'omp'
+              : 'claude';
   const args = [agentCommand];
-  if (options.resumeSessionId) {
+  if (agent === 'claude' && options.claudeLaunch) {
+    if (!options.resumeSessionId) throw new Error('Claude fork launch requires resumeSessionId')
+    if (options.claudeLaunch.type === 'resume-at') {
+      args.push('--resume', options.claudeLaunch.sourceSessionId)
+      args.push('--fork-session', '--resume-session-at', options.claudeLaunch.providerMessageId)
+    }
+    args.push('--session-id', options.resumeSessionId)
+  } else if (options.resumeSessionId) {
     if (agent === 'codex') {
       args.push('resume', options.resumeSessionId);
     } else if (agent === 'cursor') {

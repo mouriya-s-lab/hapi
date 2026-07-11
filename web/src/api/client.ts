@@ -30,6 +30,7 @@ import type {
     CursorModelsResponse,
     DeleteUploadResponse,
     FileReadResponse,
+    FileWriteResponse,
     GitCommandResponse,
     ListDirectoryResponse,
     MachineListDirectoryResponse,
@@ -326,9 +327,11 @@ export class ApiClient {
         if (authToken) {
             headers.set('authorization', `Bearer ${authToken}`)
         }
-        const res = await fetch(this.buildUrl(`/api/sessions/${encodeURIComponent(sessionId)}/generated-images/${encodeURIComponent(imageId)}`), {
-            headers
-        })
+        const url = this.buildUrl(`/api/sessions/${encodeURIComponent(sessionId)}/generated-images/${encodeURIComponent(imageId)}`)
+        let res = await fetch(url, { headers })
+        if (res.status === 304) {
+            res = await fetch(url, { headers, cache: 'force-cache' })
+        }
         if (res.status === 401 && attempt === 0 && this.onUnauthorized) {
             const refreshed = await this.onUnauthorized()
             if (refreshed) {
@@ -346,6 +349,13 @@ export class ApiClient {
         const params = new URLSearchParams()
         params.set('path', path)
         return await this.request<FileReadResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/file?${params.toString()}`)
+    }
+
+    async writeSessionFile(sessionId: string, path: string, content: string, expectedHash: string): Promise<FileWriteResponse> {
+        return await this.request<FileWriteResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/file`, {
+            method: 'PUT',
+            body: JSON.stringify({ path, content, expectedHash })
+        })
     }
 
     async listSessionDirectory(sessionId: string, path?: string): Promise<ListDirectoryResponse> {
@@ -429,6 +439,40 @@ export class ApiClient {
     }
 
     /**
+     * Session fork (fork-features/session-fork). Returns the new hapi session
+     * id for the forked copy.
+     */
+    /**
+     * Fork a session. Absent `forkPoint` = HEAD fork (session-level menu
+     * entry). With `forkPoint.messageId` = per-message fork (UserMessage
+     * trailing-row rewind button, capability-gated to at-message flavors).
+     * Hub computes `tailOffset` from the source session's messages table;
+     * clients don't send it.
+     */
+    async forkSession(
+        sessionId: string,
+        opts?: { forkPoint?: { messageId: string } }
+    ): Promise<{ newSessionId: string }> {
+        const body: Record<string, unknown> = {}
+        if (opts?.forkPoint) body.forkPoint = opts.forkPoint
+        return await this.request<{ newSessionId: string }>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/fork`,
+            { method: 'POST', body: JSON.stringify(body) }
+        )
+    }
+
+    /**
+     * Returns per-flavor fork capability shape (see
+     * `useFlavorCapabilities`). Web uses it to capability-gate the
+     * session-level Fork menu and the per-message rewind button.
+     */
+    async getFlavorCapabilities(): Promise<{
+        capabilities: Record<string, { fork: 'none' | 'head-only' | 'at-message'; files: 'none' }>
+    }> {
+        return await this.request('/api/flavors/capabilities')
+    }
+
+    /**
      * Migrate a legacy stream-json Cursor session to ACP. See tiann/hapi#824.
      *
      * Refusals (e.g. running session, missing on-disk store, target collision)
@@ -504,6 +548,13 @@ export class ApiClient {
         })
     }
 
+    async setResumeWithSessionModel(sessionId: string, resumeWithSessionModel: boolean): Promise<void> {
+        await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/resume-model`, {
+            method: 'POST',
+            body: JSON.stringify({ resumeWithSessionModel })
+        })
+    }
+
     async setModelReasoningEffort(sessionId: string, modelReasoningEffort: string | null): Promise<void> {
         await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/model-reasoning-effort`, {
             method: 'POST',
@@ -574,6 +625,20 @@ export class ApiClient {
         )
     }
 
+    async createMachineDirectory(
+        machineId: string,
+        parentPath: string,
+        name: string
+    ): Promise<import('@hapi/protocol/apiTypes').MachineCreateDirectoryResponse> {
+        return await this.request(
+            `/api/machines/${encodeURIComponent(machineId)}/create-directory`,
+            {
+                method: 'POST',
+                body: JSON.stringify({ parentPath, name })
+            }
+        )
+    }
+
     async checkMachinePathsExists(
         machineId: string,
         paths: string[]
@@ -607,12 +672,6 @@ export class ApiClient {
     async getMachineCodexModels(machineId: string): Promise<CodexModelsResponse> {
         return await this.request<CodexModelsResponse>(
             `/api/machines/${encodeURIComponent(machineId)}/codex-models`
-        )
-    }
-
-    async getSessionCodexModels(sessionId: string): Promise<CodexModelsResponse> {
-        return await this.request<CodexModelsResponse>(
-            `/api/sessions/${encodeURIComponent(sessionId)}/codex-models`
         )
     }
 

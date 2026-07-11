@@ -20,11 +20,13 @@ export function useSessionActions(
     setPermissionMode: (mode: PermissionMode) => Promise<void>
     setCollaborationMode: (mode: CodexCollaborationMode) => Promise<void>
     setModel: (model: { provider: string; modelId: string } | string | null) => Promise<void>
+    setResumeWithSessionModel: (enabled: boolean) => Promise<void>
     setModelReasoningEffort: (modelReasoningEffort: string | null) => Promise<void>
     setEffort: (effort: string | null) => Promise<void>
     setServiceTier: (serviceTier: string | null) => Promise<void>
     renameSession: (name: string) => Promise<void>
     deleteSession: () => Promise<void>
+    forkSession: (opts?: { forkPoint?: { messageId: string } }) => Promise<{ newSessionId: string }>
     isPending: boolean
 } {
     const queryClient = useQueryClient()
@@ -125,6 +127,19 @@ export function useSessionActions(
         },
     })
 
+    const resumeWithSessionModelMutation = useMutation({
+        mutationFn: async (enabled: boolean) => {
+            if (!api || !sessionId) {
+                throw new Error('Session unavailable')
+            }
+            if (agentFlavor !== 'claude') {
+                throw new Error('Resume model selection is only supported for Claude sessions')
+            }
+            await api.setResumeWithSessionModel(sessionId, enabled)
+        },
+        onSuccess: () => void invalidateSession(),
+    })
+
     const modelReasoningEffortMutation = useMutation({
         mutationFn: async (modelReasoningEffort: string | null) => {
             if (!api || !sessionId) {
@@ -192,6 +207,26 @@ export function useSessionActions(
         },
     })
 
+    const forkMutation = useMutation<
+        { newSessionId: string },
+        Error,
+        { forkPoint?: { messageId: string } } | void
+    >({
+        mutationFn: async (args) => {
+            if (!api || !sessionId) {
+                throw new Error('Session unavailable')
+            }
+            const forkPoint = args && 'forkPoint' in args ? args.forkPoint : undefined
+            if (forkPoint) {
+                return await api.forkSession(sessionId, { forkPoint })
+            }
+            return await api.forkSession(sessionId)
+        },
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: queryKeys.sessions })
+        },
+    })
+
     return {
         abortSession: abortMutation.mutateAsync,
         archiveSession: archiveMutation.mutateAsync,
@@ -200,11 +235,13 @@ export function useSessionActions(
         setPermissionMode: permissionMutation.mutateAsync,
         setCollaborationMode: collaborationMutation.mutateAsync,
         setModel: modelMutation.mutateAsync,
+        setResumeWithSessionModel: resumeWithSessionModelMutation.mutateAsync,
         setModelReasoningEffort: modelReasoningEffortMutation.mutateAsync,
         setEffort: effortMutation.mutateAsync,
         setServiceTier: serviceTierMutation.mutateAsync,
         renameSession: renameMutation.mutateAsync,
         deleteSession: deleteMutation.mutateAsync,
+        forkSession: forkMutation.mutateAsync,
         isPending: abortMutation.isPending
             || archiveMutation.isPending
             || reopenMutation.isPending
@@ -212,10 +249,12 @@ export function useSessionActions(
             || permissionMutation.isPending
             || collaborationMutation.isPending
             || modelMutation.isPending
+            || resumeWithSessionModelMutation.isPending
             || modelReasoningEffortMutation.isPending
             || effortMutation.isPending
             || serviceTierMutation.isPending
             || renameMutation.isPending
-            || deleteMutation.isPending,
+            || deleteMutation.isPending
+            || forkMutation.isPending,
     }
 }
