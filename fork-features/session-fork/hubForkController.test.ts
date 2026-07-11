@@ -5,6 +5,7 @@ import { __resetRegistryForTests, registerForkProvider } from './providerRegistr
 interface MakeDepsOpts {
     source?: Partial<ForkSourceSession> | null
     forkShouldThrow?: Error
+    forkResult?: { providerSessionId: string; metadataPatch: Record<string, any>; claudeLaunch?: any }
     spawnResult?: { type: 'success'; sessionId: string } | { type: 'error'; message: string }
     copyShouldThrow?: Error
     updateShouldThrow?: Error
@@ -32,7 +33,7 @@ function makeDeps(opts: MakeDepsOpts = {}): ForkDeps {
         async forkProvider(machineId, request) {
             captured.push(['forkProvider', machineId, request])
             if (opts.forkShouldThrow) throw opts.forkShouldThrow
-            return {
+            return opts.forkResult ?? {
                 providerSessionId: 'new-prov-id',
                 metadataPatch: { claudeSessionId: 'new-prov-id' }
             }
@@ -320,6 +321,11 @@ describe('forkSession per-message (#61 c4)', () => {
                 metadata: { flavor: 'claude', claudeSessionId: 'csrc' } as any
             },
             messages: [{ id: 'm1', seq: 1, role: 'user' }],
+            forkResult: {
+                providerSessionId: 'new-prov-id',
+                metadataPatch: {},
+                claudeLaunch: { type: 'fresh' }
+            },
             resolveProviderMessageIdImpl: () => undefined
         })
         const result = await forkSession({
@@ -335,6 +341,12 @@ describe('forkSession per-message (#61 c4)', () => {
             isFirstUserTurn: true
         })
         expect(captured.find((c) => c[0] === 'copy')![3]).toEqual({ beforeSeq: 1 })
+        expect(captured.find((c) => c[0] === 'updateMetadata')![2]).toMatchObject({
+            pendingClaudeLaunch: {
+                resumeSessionId: 'new-prov-id',
+                launch: { type: 'fresh' }
+            }
+        })
     })
 
     it('rejects a non-first Claude turn whose legacy transcript lacks a provider anchor', async () => {

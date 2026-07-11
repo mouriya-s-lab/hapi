@@ -282,6 +282,14 @@ export async function forkSession(args: {
     // forks stay visually distinct without replacing the source context.
     deps.updateMetadata(newSessionId, {
         ...forkResult.metadataPatch,
+        ...(forkResult.claudeLaunch
+            ? {
+                  pendingClaudeLaunch: {
+                      resumeSessionId: forkResult.providerSessionId,
+                      launch: forkResult.claudeLaunch
+                  }
+              }
+            : {}),
         forkedFrom: srcSessionId,
         forkedAt: Date.now(),
         name: forkTitle(sourceSessionTitle(src)),
