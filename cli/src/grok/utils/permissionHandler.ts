@@ -53,6 +53,11 @@ export function mapDecisionToOutcome(request: PermissionRequest, decision: Permi
     return optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' };
 }
 
+export function mapAutoApprovalToOutcome(request: PermissionRequest): PermissionResponse {
+    const optionId = pickOptionId(request, ['allow_once'], false);
+    return optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' };
+}
+
 export class GrokPermissionHandler extends BasePermissionHandler<PermissionResponseMessage, void> {
     private readonly pendingBackendRequests = new Map<string, PermissionRequest>();
 
@@ -95,7 +100,7 @@ export class GrokPermissionHandler extends BasePermissionHandler<PermissionRespo
         toolInput: unknown,
         decision: AutoApprovalDecision
     ): Promise<void> {
-        const outcome = mapDecisionToOutcome(request, decision);
+        const outcome = mapAutoApprovalToOutcome(request);
         await this.backend.respondToPermission(request.sessionId, request, outcome);
 
         this.client.updateAgentState((currentState) => ({
