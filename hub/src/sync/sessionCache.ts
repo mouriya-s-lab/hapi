@@ -868,6 +868,13 @@ export class SessionCache {
             : newStored.ownerAccountId)
             ?? oldStored.ownerAccountId
             ?? newStored.ownerAccountId
+        const daemonOwner = newStored.ownerAccountId
+        if (daemonOwner !== null && daemonOwner !== preferredOwner) {
+            this.store.grants.upsert({
+                resourceType: 'session', resourceId: newSessionId,
+                granteeAccountId: daemonOwner, role: 'operator'
+            })
+        }
         if (preferredOwner !== null && newStored.ownerAccountId !== preferredOwner) {
             this.store.sessions.setSessionOwner(newSessionId, preferredOwner)
         }

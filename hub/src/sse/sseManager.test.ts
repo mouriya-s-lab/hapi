@@ -3,7 +3,7 @@ import { SSEManager } from './sseManager'
 import type { SyncEvent } from '../sync/syncEngine'
 import { VisibilityTracker } from '../visibility/visibilityTracker'
 
-const accessDeps = { listReadableAccountIds: () => new Set([1]), isAccountActive: () => true }
+const accessDeps = { listReadableAccountIds: () => new Set([1]), getActiveAccountRole: () => 'user' as const }
 
 describe('SSEManager namespace filtering', () => {
     it('routes events to matching namespace', () => {
@@ -78,7 +78,7 @@ describe('SSEManager namespace filtering', () => {
     it('stops delivery after an account is disabled', () => {
         let active = true
         const manager = new SSEManager(0, new VisibilityTracker(), {
-            listReadableAccountIds: () => new Set([1]), isAccountActive: () => active
+            listReadableAccountIds: () => new Set([1]), getActiveAccountRole: () => active ? 'user' : null
         })
         const received: SyncEvent[] = []
         manager.subscribe({ id: 'user', namespace: 'alpha', accountId: 1, role: 'user', all: true,
@@ -88,10 +88,21 @@ describe('SSEManager namespace filtering', () => {
         expect(received).toHaveLength(0)
     })
 
+    it('does not trust a stale admin role after demotion', () => {
+        const manager = new SSEManager(0, new VisibilityTracker(), {
+            listReadableAccountIds: () => new Set(), getActiveAccountRole: () => 'user'
+        })
+        const received: SyncEvent[] = []
+        manager.subscribe({ id: 'former-admin', namespace: 'alpha', accountId: 1, role: 'admin', all: true,
+            send: (event) => { received.push(event) }, sendHeartbeat: () => {} })
+        manager.broadcast({ type: 'session-updated', sessionId: 's1', namespace: 'alpha' })
+        expect(received).toHaveLength(0)
+    })
+
     it('sends session removal only to admins and accounts that could read the session', () => {
         const manager = new SSEManager(0, new VisibilityTracker(), {
             listReadableAccountIds: () => new Set([1]),
-            isAccountActive: () => true
+            getActiveAccountRole: (accountId) => accountId === 3 ? 'admin' : 'user'
         })
         const received: string[] = []
         for (const [id, accountId, role] of [
