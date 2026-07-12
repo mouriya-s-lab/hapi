@@ -20,6 +20,7 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
     private displayModel: string | null = null;
     private displayPermissionMode: PermissionMode | null = null;
     private currentBackendModel: string | null = null;
+    private defaultBackendModel: string | null = null;
     private setModelSupported: boolean | undefined = undefined;
     private currentEffort: string | null = null;
     private lastDisplayedToolCall = new Map<string, string>();
@@ -93,6 +94,7 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
             () => session.getPermissionMode() as PermissionMode | undefined
         );
         this.currentBackendModel = backend.getSessionModelsMetadata(acpSessionId)?.currentModelId ?? this.model ?? null;
+        this.defaultBackendModel = this.currentBackendModel;
         this.applyDisplayMode(session.getPermissionMode() as PermissionMode, this.currentBackendModel ?? undefined);
 
         this.setupAbortHandlers(session.client.rpcHandlerManager, {
@@ -114,14 +116,16 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
                 break;
             }
 
-            if (batch.mode.model && batch.mode.model !== this.currentBackendModel) {
+            const requestedModel = batch.mode.model === null ? this.defaultBackendModel : batch.mode.model;
+            if (requestedModel && requestedModel !== this.currentBackendModel) {
                 if (!backend.setModel || this.setModelSupported === false) {
-                    batch.mode.model = this.currentBackendModel!;
+                    batch.mode.model = this.currentBackendModel ?? undefined;
+                    this.opts.onModelRollback?.(this.currentBackendModel);
                 } else {
-                    logger.debug(`[grok-remote] Switching model inline: ${this.currentBackendModel} -> ${batch.mode.model}`);
+                    logger.debug(`[grok-remote] Switching model inline: ${this.currentBackendModel} -> ${requestedModel}`);
                     try {
-                        await backend.setModel(acpSessionId, batch.mode.model);
-                        this.currentBackendModel = batch.mode.model;
+                        await backend.setModel(acpSessionId, requestedModel);
+                        this.currentBackendModel = requestedModel;
                         this.setModelSupported = true;
                     } catch (error) {
                         const message = error instanceof Error ? error.message : String(error);
@@ -137,7 +141,7 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
                             logger.warn('[grok-remote] Inline model switch failed', error);
                             session.sendSessionEvent({
                                 type: 'message',
-                                message: `Failed to switch model to ${batch.mode.model}. Continuing with ${this.currentBackendModel}.`
+                                message: `Failed to switch model to ${requestedModel}. Continuing with ${this.currentBackendModel}.`
                             });
                         }
                         batch.mode.model = this.currentBackendModel ?? undefined;
@@ -164,7 +168,7 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
                 }
             }
 
-            this.applyDisplayMode(batch.mode.permissionMode, batch.mode.model);
+            this.applyDisplayMode(batch.mode.permissionMode, this.currentBackendModel ?? undefined);
             messageBuffer.addMessage(batch.message, 'user');
 
             const promptContent: PromptContent[] = [{

@@ -12,7 +12,7 @@ function filterEnv(env: NodeJS.ProcessEnv): Record<string, string> {
 }
 
 export function buildGrokAgentArgs(opts: { model?: string; permissionMode?: string }): string[] {
-    const args = ['agent'];
+    const args = ['--permission-mode', 'default', 'agent'];
     if (opts.model) args.push('--model', opts.model);
     args.push('stdio');
     return args;

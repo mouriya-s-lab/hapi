@@ -12,7 +12,7 @@ export function buildGrokLocalArgs(opts: {
     if (opts.sessionId) args.push(opts.createSession ? '--session-id' : '--resume', opts.sessionId);
     if (opts.model) args.push('--model', opts.model);
     if (opts.yolo) args.push('--always-approve');
-    if (opts.reasoningEffort) args.push('--reasoning-effort', opts.reasoningEffort);
+    if (opts.reasoningEffort) args.push('--effort', opts.reasoningEffort);
     return args;
 }
 

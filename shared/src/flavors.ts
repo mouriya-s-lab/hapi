@@ -59,5 +59,5 @@ export function supportsEffort(flavor: string | null | undefined): boolean {
 }
 
 export function isCodexFamilyFlavor(flavor: string | null | undefined): boolean {
-    return flavor === 'codex' || flavor === 'gemini' || flavor === 'grok' || flavor === 'kimi' || flavor === 'opencode' || flavor === 'omp'
+    return flavor === 'codex' || flavor === 'gemini' || flavor === 'kimi' || flavor === 'opencode' || flavor === 'omp'
 }

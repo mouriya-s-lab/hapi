@@ -12,7 +12,7 @@ describe('buildGrokLocalArgs', () => {
             '--resume', '019f5343-cedc-7d22-808e-34c9e61c125c',
             '--model', 'grok-4.5',
             '--always-approve',
-            '--reasoning-effort', 'medium'
+            '--effort', 'medium'
         ]);
     });
 
