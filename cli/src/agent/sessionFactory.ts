@@ -225,6 +225,7 @@ export async function bootstrapLazySession(options: SessionBootstrapOptions): Pr
         modelReasoningEffort: options.modelReasoningEffort ?? null,
         effort: options.effort ?? null,
         serviceTier: null,
+        resumeWithSessionModel: false,
         permissionMode: undefined,
         collaborationMode: undefined
     }
