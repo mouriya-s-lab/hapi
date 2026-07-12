@@ -37,6 +37,11 @@ describe('getCodexComposerReasoningEffortOptions', () => {
         ])
     })
 
+    it('hides Grok effort for Composer models', () => {
+        expect(getCodexComposerReasoningEffortOptions(null, 'grok', undefined, 'grok-composer-2.5-fast')).toEqual([])
+        expect(getCodexComposerReasoningEffortOptions(null, 'grok', undefined, 'grok-4.5')).not.toEqual([])
+    })
+
     it('builds OpenCode options from ACP-reported values', () => {
         expect(getCodexComposerReasoningEffortOptions('low', 'opencode', [
             { value: 'low', name: 'Low' },

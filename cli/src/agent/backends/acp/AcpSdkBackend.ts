@@ -202,6 +202,12 @@ export class AcpSdkBackend implements AgentBackend {
         }
     }
 
+    async authenticateFirstAvailable(methodIds: readonly string[]): Promise<void> {
+        const advertised = new Set((this.initializeResult?.authMethods ?? []).map((method) => method.id));
+        const methodId = methodIds.find((candidate) => advertised.has(candidate));
+        if (methodId) await this.authenticateIfAvailable(methodId);
+    }
+
     supportsLoadSession(): boolean {
         return this.initializeResult?.agentCapabilities?.loadSession === true;
     }

@@ -17,6 +17,7 @@ const harness = vi.hoisted(() => ({
 vi.mock('./utils/grokBackend', () => ({
     createGrokBackend: vi.fn(() => ({
         initialize: vi.fn(async () => {}),
+        authenticateFirstAvailable: vi.fn(async () => {}),
         newSession: vi.fn(async () => {
             harness.newSessionCalls++;
             return 'grok-new-session';
@@ -145,6 +146,18 @@ describe('Grok remote session state transitions', () => {
         const { session } = createSession([{ message: 'one', mode: mode() }]);
         await grokRemoteLauncher(session as never, {});
         expect(harness.setModelIds).toEqual([]);
+    });
+
+    it('rolls Default back to the applied model when the backend did not report a launch default', async () => {
+        harness.currentModel = null;
+        const rollback = vi.fn();
+        const { session } = createSession([
+            { message: 'one', mode: mode({ model: 'grok-composer-2.5-fast' }) },
+            { message: 'two', mode: mode({ model: null }) }
+        ]);
+        await grokRemoteLauncher(session as never, { onModelRollback: rollback });
+        expect(harness.setModelIds).toEqual(['grok-composer-2.5-fast']);
+        expect(rollback).toHaveBeenCalledWith('grok-composer-2.5-fast');
     });
 
     it('rolls rejected model changes back to the applied backend model', async () => {

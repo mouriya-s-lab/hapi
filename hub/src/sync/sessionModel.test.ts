@@ -2122,6 +2122,43 @@ describe('session model', () => {
             expect(cache.getSession(s2.id)).toBeDefined()
         })
 
+        it('uses the flavor-owned Grok ID when stale cross-flavor IDs are present', async () => {
+            const store = new Store(':memory:')
+            const events: SyncEvent[] = []
+            const cache = new SessionCache(store, createPublisher(events))
+
+            const grokA = cache.getOrCreateSession(
+                'tag-grok-a',
+                { path: '/tmp/project', host: 'localhost', flavor: 'grok', grokSessionId: 'grok-X' },
+                null,
+                'default'
+            )
+            const unrelatedCodex = cache.getOrCreateSession(
+                'tag-codex',
+                { path: '/tmp/project', host: 'localhost', flavor: 'codex', codexSessionId: 'codex-stale' },
+                null,
+                'default'
+            )
+            const grokB = cache.getOrCreateSession(
+                'tag-grok-b',
+                {
+                    path: '/tmp/project',
+                    host: 'localhost',
+                    flavor: 'grok',
+                    grokSessionId: 'grok-X',
+                    codexSessionId: 'codex-stale'
+                },
+                null,
+                'default'
+            )
+
+            await cache.deduplicateByAgentSessionId(grokB.id)
+
+            expect(cache.getSession(grokA.id)).toBeUndefined()
+            expect(cache.getSession(grokB.id)).toBeDefined()
+            expect(cache.getSession(unrelatedCodex.id)).toBeDefined()
+        })
+
         it('does not merge across namespaces', async () => {
             const store = new Store(':memory:')
             const events: SyncEvent[] = []

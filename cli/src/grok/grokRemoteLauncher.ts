@@ -73,6 +73,7 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
         });
 
         await backend.initialize();
+        await backend.authenticateFirstAvailable(['xai.api_key', 'cached_token']);
 
         const resumeSessionId = session.sessionId;
         const acpMcpServers = toAcpMcpServers(mcpServers);
@@ -121,6 +122,14 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
 
             const modelRequest = parseRuntimeConfigRequest(batch.mode.model);
             const requestedModel = resolveRuntimeConfigRequest(modelRequest, this.defaultBackendModel);
+            if (modelRequest.kind === 'reset' && requestedModel === null && this.currentBackendModel !== null) {
+                session.sendSessionEvent({
+                    type: 'message',
+                    message: `Grok did not report its default model. Continuing with ${this.currentBackendModel}.`
+                });
+                batch.mode.model = this.currentBackendModel;
+                this.opts.onModelRollback?.(this.currentBackendModel);
+            }
             if (requestedModel && requestedModel !== this.currentBackendModel) {
                 if (!backend.setModel || this.setModelSupported === false) {
                     batch.mode.model = this.currentBackendModel ?? undefined;

@@ -867,6 +867,32 @@ describe('AcpSdkBackend', () => {
         expect(calls).toEqual([]);
     });
 
+    it('authenticateFirstAvailable uses the first preferred method advertised by the agent', async () => {
+        const backend = new AcpSdkBackend({ command: 'agent' });
+        const calls: Array<{ method: string; params: unknown }> = [];
+        const backendInternal = backend as unknown as {
+            initializeResult: { protocolVersion: number; authMethods?: Array<{ id: string }> } | null;
+            transport: { sendRequest: (method: string, params: unknown) => Promise<unknown>; close: () => Promise<void> } | null;
+        };
+        backendInternal.initializeResult = {
+            protocolVersion: 1,
+            authMethods: [{ id: 'cached_token' }, { id: 'xai.api_key' }]
+        };
+        backendInternal.transport = {
+            sendRequest: async (method, params) => {
+                calls.push({ method, params });
+                return null;
+            },
+            close: async () => {}
+        };
+
+        await backend.authenticateFirstAvailable(['xai.api_key', 'cached_token']);
+
+        expect(calls).toEqual([
+            { method: '_client/authenticate', params: { methodId: 'xai.api_key' } }
+        ]);
+    });
+
     it('supportsLoadSession reflects initialize agentCapabilities', () => {
         const backend = new AcpSdkBackend({ command: 'agent' });
         const backendInternal = backend as unknown as {

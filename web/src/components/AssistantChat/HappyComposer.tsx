@@ -483,10 +483,11 @@ export function HappyComposer(props: {
             ? getCodexComposerReasoningEffortOptions(
                 modelReasoningEffort,
                 agentFlavor,
-                agentFlavor === 'opencode' ? availableModelReasoningEffortOptions : undefined
+                agentFlavor === 'opencode' ? availableModelReasoningEffortOptions : undefined,
+                model
             )
             : [],
-        [agentFlavor, modelReasoningEffort, availableModelReasoningEffortOptions]
+        [agentFlavor, model, modelReasoningEffort, availableModelReasoningEffortOptions]
     )
     // Pi: group models by provider for hierarchical display
     const piModelGroups = useMemo(
