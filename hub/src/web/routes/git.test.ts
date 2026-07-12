@@ -20,10 +20,14 @@ async function authHeaders(namespace: string): Promise<{ authorization: string }
 
 function buildApp(engine: Partial<SyncEngine>): Hono<WebAppEnv> {
     const store = new Store(':memory:')
+    const admin = store.accounts.create({ username: `git-route-admin-${Math.random()}`, passwordHash: null, role: 'admin', defaultNamespace: 'default' })
+    const stored = store.sessions.getOrCreateSession('session-1', {}, null, 'default', undefined, undefined, undefined, admin.id)
+    // @ts-expect-error test fixture pins the protocol id expected by the route stub
+    store.db.prepare('UPDATE sessions SET id = ? WHERE id = ?').run('session-1', stored.id)
     const app = new Hono<WebAppEnv>()
     app.use('*', async (c, next) => {
         c.set('namespace', 'default')
-        c.set('accountId', 1)
+        c.set('accountId', admin.id)
         c.set('role', 'admin')
         await next()
     })
@@ -33,7 +37,10 @@ function buildApp(engine: Partial<SyncEngine>): Hono<WebAppEnv> {
 
 function buildAuthenticatedApp(engine: Partial<SyncEngine>): Hono<WebAppEnv> {
     const store = new Store(':memory:')
-    store.accounts.create({ username: 'git-admin', passwordHash: null, role: 'admin', defaultNamespace: 'default' })
+    const admin = store.accounts.create({ username: 'git-admin', passwordHash: null, role: 'admin', defaultNamespace: 'default' })
+    const stored = store.sessions.getOrCreateSession('session-1', {}, null, 'default', undefined, undefined, undefined, admin.id)
+    // @ts-expect-error test fixture pins the protocol id expected by the route stub
+    store.db.prepare('UPDATE sessions SET id = ? WHERE id = ?').run('session-1', stored.id)
     const app = new Hono<WebAppEnv>()
     app.use('*', createAuthMiddleware(JWT_SECRET, store))
     app.route('/api', createGitRoutes(() => engine as SyncEngine, store))

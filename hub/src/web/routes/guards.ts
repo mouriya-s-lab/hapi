@@ -2,7 +2,7 @@ import type { Context } from 'hono'
 import type { Machine, Session, SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import type { Store } from '../../store'
-import { canOperate, canRead, resolveAccessLevel, type AccessLevel } from '../../auth/access'
+import { authorizeResource as authorizeAccountResource } from '../../auth/access'
 
 export function requireSyncEngine(
     c: Context<WebAppEnv>,
@@ -34,28 +34,15 @@ function authorizeResource(
     if (!store) {
         return null
     }
-    const ownerAccountId = resourceType === 'machine'
-        ? store.machines.getMachine(resourceId)?.ownerAccountId ?? null
-        : store.sessions.getSession(resourceId)?.ownerAccountId ?? null
-
-    const accountId = c.get('accountId')
-    const role = c.get('role') ?? 'user'
-    const level: AccessLevel = resolveAccessLevel({
-        store,
-        accountId,
-        role,
-        resourceType,
-        resourceId,
-        ownerAccountId
+    const result = authorizeAccountResource({
+        store, accountId: c.get('accountId'), namespace: c.get('namespace'),
+        resourceType, resourceId, capability: requireOperate ? 'operate' : 'read'
     })
     const label = resourceType === 'machine' ? 'Machine' : 'Session'
-    if (!canRead(level)) {
+    if (!result.ok && result.reason !== 'insufficient-access') {
         return c.json({ error: `${label} access denied` }, 403)
     }
-    if (requireOperate && !canOperate(level)) {
-        return c.json({ error: 'Insufficient permissions' }, 403)
-    }
-    return null
+    return result.ok ? null : c.json({ error: requireOperate ? 'Insufficient permissions' : `${label} access denied` }, 403)
 }
 
 export function requireSession(

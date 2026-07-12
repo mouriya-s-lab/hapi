@@ -5,7 +5,7 @@ import type { SyncEvent } from '../../../sync/syncEngine'
 import type { TerminalRegistry } from '../../terminalRegistry'
 import type { CliSocketWithData, SocketServer } from '../../socketTypes'
 import type { AccessErrorReason, AccessResult } from './types'
-import { canOperate, resolveAccessLevel } from '../../../auth/access'
+import { authorizeResource } from '../../../auth/access'
 import { registerMachineHandlers } from './machineHandlers'
 import { registerRpcHandlers } from './rpcHandlers'
 import { registerSessionHandlers } from './sessionHandlers'
@@ -59,15 +59,10 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
     const terminalNamespace = io.of('/terminal')
     const namespace = typeof socket.data.namespace === 'string' ? socket.data.namespace : null
     const accountId = socket.data.accountId
-    const role = socket.data.role
 
-    const hasOperatorAccess = (resourceType: 'session' | 'machine', resourceId: string, ownerAccountId: number | null): boolean => {
-        if (typeof accountId !== 'number' || !role) {
-            return false
-        }
-        const account = store.accounts.getById(accountId)
-        if (!account || account.disabledAt !== null) return false
-        return canOperate(resolveAccessLevel({ store, accountId, role: account.role, resourceType, resourceId, ownerAccountId }))
+    const hasOperatorAccess = (resourceType: 'session' | 'machine', resourceId: string): boolean => {
+        if (typeof accountId !== 'number' || !namespace) return false
+        return authorizeResource({ store, accountId, namespace, resourceType, resourceId, capability: 'operate' }).ok
     }
 
     const resolveSessionAccess = (sessionId: string): AccessResult<StoredSession> => {
@@ -75,7 +70,7 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
             return { ok: false, reason: 'namespace-missing' }
         }
         const session = store.sessions.getSessionByNamespace(sessionId, namespace)
-        if (session && hasOperatorAccess('session', sessionId, session.ownerAccountId)) {
+        if (session && hasOperatorAccess('session', sessionId)) {
             return { ok: true, value: session }
         }
         if (session) return { ok: false, reason: 'access-denied' }
@@ -90,7 +85,7 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
             return { ok: false, reason: 'namespace-missing' }
         }
         const machine = store.machines.getMachineByNamespace(machineId, namespace)
-        if (machine && hasOperatorAccess('machine', machineId, machine.ownerAccountId)) {
+        if (machine && hasOperatorAccess('machine', machineId)) {
             return { ok: true, value: machine }
         }
         if (machine) return { ok: false, reason: 'access-denied' }

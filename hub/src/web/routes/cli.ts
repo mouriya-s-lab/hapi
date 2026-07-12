@@ -7,7 +7,7 @@ import {
     PROTOCOL_VERSION
 } from '@hapi/protocol'
 import { resolveAuth } from '../../auth/authContext'
-import { canOperate, canRead, resolveAccessLevel } from '../../auth/access'
+import { authorizeResource } from '../../auth/access'
 import type { Store } from '../../store'
 import type { Machine, Session, SyncEngine } from '../../sync/syncEngine'
 
@@ -37,16 +37,9 @@ function resolveSessionForAccount(
 ): { ok: true; session: Session; sessionId: string } | { ok: false; status: 403 | 404; error: string } {
     const access = engine.resolveSessionAccess(sessionId, namespace)
     if (access.ok) {
-        const stored = store.sessions.getSession(access.sessionId)
-        const level = resolveAccessLevel({
-            store,
-            accountId,
-            role,
-            resourceType: 'session',
-            resourceId: access.sessionId,
-            ownerAccountId: stored?.ownerAccountId ?? null
-        })
-        if (!canRead(level) || (requireOperate && !canOperate(level))) {
+        const authorization = authorizeResource({ store, accountId, namespace, resourceType: 'session',
+            resourceId: access.sessionId, capability: requireOperate ? 'operate' : 'read' })
+        if (!authorization.ok) {
             return { ok: false, status: 403, error: requireOperate ? 'Insufficient permissions' : 'Session access denied' }
         }
         return { ok: true, session: access.session, sessionId: access.sessionId }
@@ -69,16 +62,9 @@ function resolveMachineForAccount(
 ): { ok: true; machine: Machine } | { ok: false; status: 403 | 404; error: string } {
     const machine = engine.getMachineByNamespace(machineId, namespace)
     if (machine) {
-        const stored = store.machines.getMachine(machineId)
-        const level = resolveAccessLevel({
-            store,
-            accountId,
-            role,
-            resourceType: 'machine',
-            resourceId: machineId,
-            ownerAccountId: stored?.ownerAccountId ?? null
-        })
-        if (!canRead(level) || (requireOperate && !canOperate(level))) {
+        const authorization = authorizeResource({ store, accountId, namespace, resourceType: 'machine',
+            resourceId: machineId, capability: requireOperate ? 'operate' : 'read' })
+        if (!authorization.ok) {
             return { ok: false, status: 403, error: requireOperate ? 'Insufficient permissions' : 'Machine access denied' }
         }
         return { ok: true, machine }

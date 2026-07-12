@@ -11,7 +11,7 @@ import { createQwenProxyWebSocketHandler } from './qwenProxyHandler'
 import { decodeVoiceSystemPromptParam } from '../voiceSystemPromptParam'
 import type { SyncEngine } from '../sync/syncEngine'
 import { createAuthMiddleware, type WebAppEnv } from './middleware/auth'
-import { canOperate, resolveAccessLevel } from '../auth/access'
+import { authorizeResource } from '../auth/access'
 import { createAuthRoutes } from './routes/auth'
 import { createBindRoutes } from './routes/bind'
 import { createAccountRoutes } from './routes/accounts'
@@ -263,16 +263,8 @@ function createWebApp(options: {
         if (!engine) return null
         return buildForkDeps({ store: options.store, syncEngine: engine, namespace })
     }, (sessionId, namespace, accountId, role) => {
-        const session = options.store.sessions.getSessionByNamespace(sessionId, namespace)
-        if (!session) return false
-        return canOperate(resolveAccessLevel({
-            store: options.store,
-            accountId,
-            role,
-            resourceType: 'session',
-            resourceId: sessionId,
-            ownerAccountId: session.ownerAccountId
-        }))
+        return authorizeResource({ store: options.store, accountId, namespace,
+            resourceType: 'session', resourceId: sessionId, capability: 'operate' }).ok
     }, (sessionId, accountId) => {
         const session = options.store.sessions.getSession(sessionId)
         if (!session) throw new Error('Forked session not found')

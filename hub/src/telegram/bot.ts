@@ -12,7 +12,7 @@ import { formatReadyNotification, formatSessionNotification, createNotificationK
 import { getAgentName } from '../notifications/sessionInfo'
 import type { NotificationChannel, TaskNotification } from '../notifications/notificationTypes'
 import type { Store } from '../store'
-import { canOperate, listActiveAdminAccountIds, listReadableAccountIds, resolveAccessLevel } from '../auth/access'
+import { authorizeResource, listActiveAdminAccountIds, listReadableAccountIds } from '../auth/access'
 
 export interface BotContext extends Context {
     // Extended context for future use
@@ -150,13 +150,9 @@ export class HappyBot implements NotificationChannel {
                 syncEngine: this.syncEngine,
                 namespace: binding.namespace,
                 canOperateSession: (sessionId) => {
-                    const session = this.store.sessions.getSessionByNamespace(sessionId, binding.namespace)
-                    const account = this.store.accounts.getById(boundAccountId)
-                    if (!session || !account || account.disabledAt !== null) return false
-                    return canOperate(resolveAccessLevel({
-                        store: this.store, accountId: account.id, role: account.role,
-                        resourceType: 'session', resourceId: sessionId, ownerAccountId: session.ownerAccountId
-                    }))
+                    return authorizeResource({ store: this.store, accountId: boundAccountId,
+                        namespace: binding.namespace, resourceType: 'session', resourceId: sessionId,
+                        capability: 'operate' }).ok
                 },
                 answerCallback: async (text?: string) => {
                     await ctx.answerCallbackQuery(text)

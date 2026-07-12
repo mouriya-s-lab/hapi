@@ -12,7 +12,7 @@ import { SOCKET_MAX_HTTP_BUFFER_SIZE } from './socketLimits'
 import type { SyncEvent } from '../sync/syncEngine'
 import { TerminalRegistry } from './terminalRegistry'
 import type { CliSocketWithData, SocketData, SocketServer } from './socketTypes'
-import { canOperate, resolveAccessLevel } from '../auth/access'
+import { authorizeResource } from '../auth/access'
 
 const jwtPayloadSchema = z.object({
     uid: z.number(),
@@ -163,18 +163,17 @@ export function createSocketServer(deps: SocketServerDeps): {
             return deps.getSession?.(sessionId) ?? deps.store.sessions.getSession(sessionId)
         },
         canOperateSession: (sessionId) => {
-            const session = deps.store.sessions.getSession(sessionId)
             const accountId = socket.data.accountId
-            const account = typeof accountId === 'number' ? deps.store.accounts.getById(accountId) : null
-            if (!session || !account || account.disabledAt !== null) return false
-            return canOperate(resolveAccessLevel({
+            const namespace = socket.data.namespace
+            if (typeof accountId !== 'number' || !namespace) return false
+            return authorizeResource({
                 store: deps.store,
-                accountId: account.id,
-                role: account.role,
+                accountId,
+                namespace,
                 resourceType: 'session',
                 resourceId: sessionId,
-                ownerAccountId: session.ownerAccountId
-            }))
+                capability: 'operate'
+            }).ok
         },
         terminalRegistry,
         maxTerminalsPerSocket,

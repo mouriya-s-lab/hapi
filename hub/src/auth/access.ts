@@ -1,7 +1,12 @@
 import type { Store } from '../store'
-import type { AccountRole, GrantRole, ResourceType } from '../store/types'
+import type { AccountRole, GrantRole, ResourceType, StoredAccount, StoredMachine, StoredSession } from '../store/types'
 
 export type AccessLevel = 'none' | 'viewer' | 'operator' | 'owner'
+export type ResourceCapability = 'read' | 'operate' | 'administer'
+export type AuthorizedResource = StoredMachine | StoredSession
+export type ResourceAuthorization =
+    | { ok: true; account: StoredAccount; resource: AuthorizedResource; level: AccessLevel }
+    | { ok: false; reason: 'account-unavailable' | 'resource-not-found' | 'namespace-mismatch' | 'insufficient-access' }
 
 const LEVEL_RANK: Record<AccessLevel, number> = {
     none: 0,
@@ -53,6 +58,32 @@ export function canRead(level: AccessLevel): boolean {
 
 export function canOperate(level: AccessLevel): boolean {
     return meetsAccess(level, 'operator')
+}
+
+export function authorizeResource(params: {
+    store: Store
+    accountId: number
+    namespace: string
+    resourceType: ResourceType
+    resourceId: string
+    capability: ResourceCapability
+}): ResourceAuthorization {
+    const account = params.store.accounts.getById(params.accountId)
+    if (!account || account.disabledAt !== null) return { ok: false, reason: 'account-unavailable' }
+    const resource = params.resourceType === 'machine'
+        ? params.store.machines.getMachine(params.resourceId)
+        : params.store.sessions.getSession(params.resourceId)
+    if (!resource) return { ok: false, reason: 'resource-not-found' }
+    if (resource.namespace !== params.namespace) return { ok: false, reason: 'namespace-mismatch' }
+    const level = resolveAccessLevel({
+        store: params.store, accountId: account.id, role: account.role,
+        resourceType: params.resourceType, resourceId: params.resourceId,
+        ownerAccountId: resource.ownerAccountId
+    })
+    const allowed = params.capability === 'read' ? canRead(level)
+        : params.capability === 'operate' ? canOperate(level)
+            : level === 'owner'
+    return allowed ? { ok: true, account, resource, level } : { ok: false, reason: 'insufficient-access' }
 }
 
 export function listReadableAccountIds(store: Store, resourceType: ResourceType, resourceId: string): Set<number> {

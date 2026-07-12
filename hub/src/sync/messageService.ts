@@ -14,7 +14,7 @@ import type { Server } from 'socket.io'
 import { randomUUID } from 'node:crypto'
 import type { Store, CancelQueuedMessageResult } from '../store'
 import { EventPublisher } from './eventPublisher'
-import { canOperate, resolveAccessLevel } from '../auth/access'
+import { authorizeResource } from '../auth/access'
 
 type StoredMessageForDelivery = ReturnType<Store['messages']['getMessages']>[number]
 
@@ -101,11 +101,10 @@ export class MessageService {
             const socket = socketState.sockets.get(socketId)
             const accountId = socket?.data.accountId
             if (accountId === undefined) continue
-            const account = typeof accountId === 'number' ? this.store.accounts.getById(accountId) : null
-            if (!socket || !account || account.disabledAt !== null || !canOperate(resolveAccessLevel({
-                store: this.store, accountId: account.id, role: account.role,
-                resourceType: 'session', resourceId: sessionId, ownerAccountId: session.ownerAccountId
-            }))) {
+            if (!socket || typeof accountId !== 'number' || !authorizeResource({
+                store: this.store, accountId, namespace: session.namespace,
+                resourceType: 'session', resourceId: sessionId, capability: 'operate'
+            }).ok) {
                 socket?.leave(roomName)
             }
         }

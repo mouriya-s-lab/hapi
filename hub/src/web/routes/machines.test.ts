@@ -58,6 +58,7 @@ describe('machines routes', () => {
     it('assigns a successful remote spawn to the requesting account', async () => {
         const store = new Store(':memory:')
         const daemon = store.accounts.create({ username: 'daemon', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+        const requester = store.accounts.create({ username: 'requester', passwordHash: null, role: 'admin', defaultNamespace: 'default' })
         store.machines.getOrCreateMachine('machine-1', {}, null, 'default', daemon.id)
         const machine = createMachine()
         const assignments: Array<{ sessionId: string; accountId: number }> = []
@@ -72,7 +73,7 @@ describe('machines routes', () => {
         const app = new Hono<WebAppEnv>()
         app.use('*', async (c, next) => {
             c.set('namespace', 'default')
-            c.set('accountId', 42)
+            c.set('accountId', requester.id)
             c.set('role', 'admin')
             await next()
         })
@@ -86,7 +87,7 @@ describe('machines routes', () => {
 
         expect(response.status).toBe(200)
         expect(await response.json()).toEqual({ type: 'success', sessionId: 'spawned-session' })
-        expect(assignments).toEqual([{ sessionId: 'spawned-session', accountId: 42 }])
+        expect(assignments).toEqual([{ sessionId: 'spawned-session', accountId: requester.id }])
         expect(store.grants.get('session', 'spawned-session', daemon.id)?.role).toBe('operator')
         store.close()
     })

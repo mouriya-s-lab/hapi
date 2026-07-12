@@ -3,6 +3,7 @@ import { CreateGrantRequestSchema, type ResourceGrantSummary } from '@hapi/proto
 import type { WebAppEnv } from '../middleware/auth'
 import type { Store } from '../../store'
 import type { ResourceType, StoredResourceGrant } from '../../store/types'
+import { authorizeResource } from '../../auth/access'
 
 function toGrantSummary(g: StoredResourceGrant, granteeUsername?: string): ResourceGrantSummary {
     return {
@@ -26,17 +27,8 @@ export function createGrantRoutes(store: Store): Hono<WebAppEnv> {
 
     // Returns true if the caller may administer grants on this resource.
     const callerOwnsResource = (c: Context<WebAppEnv>, type: ResourceType, id: string): boolean => {
-        const namespace = c.get('namespace')
-        const resource = type === 'machine'
-            ? store.machines.getMachineByNamespace(id, namespace)
-            : store.sessions.getSessionByNamespace(id, namespace)
-        if (!resource) return false
-        if ((c.get('role') ?? 'user') === 'admin') {
-            return true
-        }
-        const accountId = c.get('accountId')
-        const owner = resource.ownerAccountId
-        return owner !== null && owner === accountId
+        return authorizeResource({ store, accountId: c.get('accountId'), namespace: c.get('namespace'),
+            resourceType: type, resourceId: id, capability: 'administer' }).ok
     }
 
     app.get('/grants', (c) => {

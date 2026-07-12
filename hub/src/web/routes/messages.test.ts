@@ -41,9 +41,13 @@ function createApp(opts: {
 
     const app = new Hono<WebAppEnv>()
     const store = new Store(':memory:')
+    const admin = store.accounts.create({ username: `messages-admin-${Math.random()}`, passwordHash: null, role: 'admin', defaultNamespace: 'default' })
+    const stored = store.sessions.getOrCreateSession('session-1', {}, null, 'default', undefined, undefined, undefined, admin.id)
+    // @ts-expect-error test fixture pins the protocol id expected by the route stub
+    store.db.prepare('UPDATE sessions SET id = ? WHERE id = ?').run('session-1', stored.id)
     app.use('*', async (c, next) => {
         c.set('namespace', 'default')
-        c.set('accountId', 1)
+        c.set('accountId', admin.id)
         c.set('role', 'admin')
         await next()
     })

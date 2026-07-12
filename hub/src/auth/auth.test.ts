@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { Store } from '../store'
 import { resolveAuthToken, type AuthResolverDeps } from './resolveAuth'
 import { bootstrapMultiUser } from './bootstrap'
-import { resolveAccessLevel, canOperate, canRead } from './access'
+import { authorizeResource, resolveAccessLevel, canOperate, canRead } from './access'
 import { generateApiToken, hashApiToken } from '../utils/apiToken'
 
 const LEGACY_TOKEN = 'legacy-shared-token-abc123'
@@ -200,6 +200,33 @@ describe('resolveAccessLevel', () => {
         } finally {
             store.close()
         }
+    })
+})
+
+describe('authorizeResource', () => {
+    it('enforces active account, namespace, and read/operate/administer capabilities', () => {
+        const store = new Store(':memory:')
+        const owner = store.accounts.create({ username: 'matrix-owner', passwordHash: null, role: 'user', defaultNamespace: 'alpha' })
+        const viewer = store.accounts.create({ username: 'matrix-viewer', passwordHash: null, role: 'user', defaultNamespace: 'alpha' })
+        const operator = store.accounts.create({ username: 'matrix-operator', passwordHash: null, role: 'user', defaultNamespace: 'alpha' })
+        const admin = store.accounts.create({ username: 'matrix-admin', passwordHash: null, role: 'admin', defaultNamespace: 'alpha' })
+        const stranger = store.accounts.create({ username: 'matrix-stranger', passwordHash: null, role: 'user', defaultNamespace: 'alpha' })
+        const session = store.sessions.getOrCreateSession('matrix', {}, null, 'alpha', undefined, undefined, undefined, owner.id)
+        store.grants.upsert({ resourceType: 'session', resourceId: session.id, granteeAccountId: viewer.id, role: 'viewer' })
+        store.grants.upsert({ resourceType: 'session', resourceId: session.id, granteeAccountId: operator.id, role: 'operator' })
+        const check = (accountId: number, capability: 'read' | 'operate' | 'administer', namespace = 'alpha') =>
+            authorizeResource({ store, accountId, namespace, resourceType: 'session', resourceId: session.id, capability }).ok
+        expect(check(owner.id, 'administer')).toBe(true)
+        expect(check(admin.id, 'administer')).toBe(true)
+        expect(check(viewer.id, 'read')).toBe(true)
+        expect(check(viewer.id, 'operate')).toBe(false)
+        expect(check(operator.id, 'operate')).toBe(true)
+        expect(check(operator.id, 'administer')).toBe(false)
+        expect(check(stranger.id, 'read')).toBe(false)
+        expect(check(owner.id, 'read', 'beta')).toBe(false)
+        store.accounts.setDisabled(operator.id, true)
+        expect(check(operator.id, 'operate')).toBe(false)
+        store.close()
     })
 })
 
