@@ -17,7 +17,9 @@ export function registerRpcHandlers(socket: CliSocketWithData, rpcRegistry: RpcR
             return
         }
         const resourceId = parsed.data.method.split(':', 1)[0]
-        if (resourceId && canRegister(resourceId)) rpcRegistry.register(socket, parsed.data.method)
+        if (resourceId && canRegister(resourceId)) {
+            rpcRegistry.register(socket, parsed.data.method, () => canRegister(resourceId))
+        }
     })
 
     socket.on('rpc-unregister', (data: unknown) => {

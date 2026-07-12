@@ -3,13 +3,15 @@ import type { Socket } from 'socket.io'
 export class RpcRegistry {
     private readonly methodToSocketId: Map<string, string> = new Map()
     private readonly socketIdToMethods: Map<string, Set<string>> = new Map()
+    private readonly methodValidators: Map<string, () => boolean> = new Map()
 
-    register(socket: Socket, method: string): void {
+    register(socket: Socket, method: string, validator: () => boolean): void {
         if (!method) {
             return
         }
 
         this.methodToSocketId.set(method, socket.id)
+        this.methodValidators.set(method, validator)
 
         const existing = this.socketIdToMethods.get(socket.id)
         if (existing) {
@@ -23,6 +25,7 @@ export class RpcRegistry {
         const socketId = this.methodToSocketId.get(method)
         if (socketId === socket.id) {
             this.methodToSocketId.delete(method)
+            this.methodValidators.delete(method)
         }
 
         const methods = this.socketIdToMethods.get(socket.id)
@@ -43,13 +46,18 @@ export class RpcRegistry {
             const socketId = this.methodToSocketId.get(method)
             if (socketId === socket.id) {
                 this.methodToSocketId.delete(method)
+                this.methodValidators.delete(method)
             }
         }
         this.socketIdToMethods.delete(socket.id)
     }
 
     getSocketIdForMethod(method: string): string | null {
+        if (this.methodValidators.get(method)?.() === false) {
+            this.methodToSocketId.delete(method)
+            this.methodValidators.delete(method)
+            return null
+        }
         return this.methodToSocketId.get(method) ?? null
     }
 }
-

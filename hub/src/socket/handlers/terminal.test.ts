@@ -105,6 +105,18 @@ function lastEmit(socket: FakeSocket, event: string): EmittedEvent | undefined {
 }
 
 describe('terminal socket handlers', () => {
+    it('closes an existing terminal when operator access is revoked before a write', () => {
+        const options = { canOperateSession: true }
+        const { terminalSocket, cliNamespace, terminalRegistry } = createHarness(options)
+        const cliSocket = new FakeSocket('cli-revoked')
+        connectCliSocket(cliNamespace, cliSocket, 'session-1')
+        terminalSocket.trigger('terminal:create', { sessionId: 'session-1', terminalId: 'terminal-1', cols: 80, rows: 24 })
+        options.canOperateSession = false
+        terminalSocket.trigger('terminal:write', { terminalId: 'terminal-1', data: 'blocked\n' })
+        expect(terminalRegistry.get('terminal-1')).toBeNull()
+        expect(lastEmit(terminalSocket, 'terminal:error')?.data).toEqual({ terminalId: 'terminal-1', message: 'Session access revoked.' })
+    })
+
     it('rejects terminal creation without operator access', () => {
         const { terminalSocket, terminalRegistry } = createHarness({ canOperateSession: false })
 

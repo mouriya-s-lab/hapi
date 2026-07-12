@@ -148,6 +148,12 @@ export function registerTerminalHandlers(socket: SocketWithData, deps: TerminalH
         if (!entry) {
             return
         }
+        if (!canOperateSession(entry.sessionId)) {
+            terminalRegistry.remove(terminalId)
+            emitTerminalError(terminalId, 'Session access revoked.')
+            emitCloseToCli(entry)
+            return
+        }
 
         const cliSocket = resolveCliSocket(entry, true)
         if (!cliSocket) {
@@ -170,6 +176,12 @@ export function registerTerminalHandlers(socket: SocketWithData, deps: TerminalH
         const { terminalId, cols, rows } = parsed.data
         const entry = resolveEntryForSocket(terminalId)
         if (!entry) {
+            return
+        }
+        if (!canOperateSession(entry.sessionId)) {
+            terminalRegistry.remove(terminalId)
+            emitTerminalError(terminalId, 'Session access revoked.')
+            emitCloseToCli(entry)
             return
         }
 
