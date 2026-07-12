@@ -103,6 +103,14 @@ describe('getModelOptionsForFlavor', () => {
         expect(options).toEqual([])
     })
 
+    it('returns Grok presets for an active session with an implicit default model', () => {
+        expect(getModelOptionsForFlavor('grok', null)).toEqual([
+            { value: 'grok-4.5', label: 'Grok 4.5' },
+            { value: 'grok-composer-2.5-fast', label: 'Composer 2.5 Fast' }
+        ])
+        expect(getNextModelForFlavor('grok', null)).toBe('grok-composer-2.5-fast')
+    })
+
     it('returns an empty list for omp flavor before models are discovered (no claude fallback)', () => {
         const options = getModelOptionsForFlavor('omp', null)
         expect(options).toEqual([])
