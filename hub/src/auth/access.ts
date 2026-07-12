@@ -112,6 +112,26 @@ export function listOperableAccountIds(store: Store, resourceType: ResourceType,
     return accountIds
 }
 
+export function transferSessionOwnership(params: {
+    store: Store
+    sessionId: string
+    requesterAccountId: number
+    assignOwner: (sessionId: string, accountId: number) => boolean
+}): void {
+    const session = params.store.sessions.getSession(params.sessionId)
+    if (!session) throw new Error('Session not found for ownership transfer')
+    const daemonAccountId = session.ownerAccountId
+    if (!params.assignOwner(params.sessionId, params.requesterAccountId)) {
+        throw new Error('Failed to transfer session ownership')
+    }
+    if (daemonAccountId !== null && daemonAccountId !== params.requesterAccountId) {
+        params.store.grants.upsert({
+            resourceType: 'session', resourceId: params.sessionId,
+            granteeAccountId: daemonAccountId, role: 'operator'
+        })
+    }
+}
+
 export function listActiveAdminAccountIds(store: Store): number[] {
     return store.accounts.list()
         .filter((account) => account.role === 'admin' && account.disabledAt === null)

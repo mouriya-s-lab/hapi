@@ -60,6 +60,9 @@ describe('machines routes', () => {
         const daemon = store.accounts.create({ username: 'daemon', passwordHash: null, role: 'user', defaultNamespace: 'default' })
         const requester = store.accounts.create({ username: 'requester', passwordHash: null, role: 'admin', defaultNamespace: 'default' })
         store.machines.getOrCreateMachine('machine-1', {}, null, 'default', daemon.id)
+        const spawned = store.sessions.getOrCreateSession('spawned-session', {}, null, 'default', undefined, undefined, undefined, daemon.id)
+        // @ts-expect-error test fixture pins the RPC result id
+        store.db.prepare('UPDATE sessions SET id = ? WHERE id = ?').run('spawned-session', spawned.id)
         const machine = createMachine()
         const assignments: Array<{ sessionId: string; accountId: number }> = []
         const engine = {

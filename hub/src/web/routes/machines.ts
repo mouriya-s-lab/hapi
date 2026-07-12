@@ -9,6 +9,7 @@ import type { SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import type { Store } from '../../store'
 import { requireMachine } from './guards'
+import { transferSessionOwnership } from '../../auth/access'
 
 export function createMachinesRoutes(
     getSyncEngine: () => SyncEngine | null,
@@ -74,18 +75,10 @@ export function createMachinesRoutes(
             parsed.data.effort
         )
         if (result.type === 'success') {
-            const requesterAccountId = c.get('accountId')
             const store = getStore?.() ?? null
-            const daemonAccountId = store?.machines.getMachine(machineId)?.ownerAccountId ?? null
-            engine.assignSessionOwner(result.sessionId, requesterAccountId)
-            if (store && daemonAccountId !== null && daemonAccountId !== requesterAccountId) {
-                store.grants.upsert({
-                    resourceType: 'session',
-                    resourceId: result.sessionId,
-                    granteeAccountId: daemonAccountId,
-                    role: 'operator'
-                })
-            }
+            if (!store) throw new Error('Store unavailable for ownership transfer')
+            transferSessionOwnership({ store, sessionId: result.sessionId,
+                requesterAccountId: c.get('accountId'), assignOwner: (id, owner) => engine.assignSessionOwner(id, owner) })
         }
         return c.json(result)
     })

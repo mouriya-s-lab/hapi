@@ -6,7 +6,7 @@ import { EventPublisher } from './eventPublisher'
 import { applyTodoMessageContent, TodosSchema } from './todos'
 import type { TodoItem } from './todos'
 import { extractBackgroundTaskDelta } from './backgroundTasks'
-import { listReadableAccountIds } from '../auth/access'
+import { listReadableAccountIds, transferSessionOwnership } from '../auth/access'
 
 const QUEUED_MESSAGE_THINKING_GRACE_MS = 15_000
 // tiann/hapi#919: metadata writers (renameSession, clearSessionArchiveMetadata,
@@ -868,15 +868,10 @@ export class SessionCache {
             : newStored.ownerAccountId)
             ?? oldStored.ownerAccountId
             ?? newStored.ownerAccountId
-        const daemonOwner = newStored.ownerAccountId
-        if (daemonOwner !== null && daemonOwner !== preferredOwner) {
-            this.store.grants.upsert({
-                resourceType: 'session', resourceId: newSessionId,
-                granteeAccountId: daemonOwner, role: 'operator'
-            })
-        }
         if (preferredOwner !== null && newStored.ownerAccountId !== preferredOwner) {
-            this.store.sessions.setSessionOwner(newSessionId, preferredOwner)
+            transferSessionOwnership({ store: this.store, sessionId: newSessionId,
+                requesterAccountId: preferredOwner,
+                assignOwner: (id, owner) => this.store.sessions.setSessionOwner(id, owner) })
         }
 
         for (const grant of this.store.grants.listForResource('session', oldSessionId)) {

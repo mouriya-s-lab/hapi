@@ -11,7 +11,7 @@ import { createQwenProxyWebSocketHandler } from './qwenProxyHandler'
 import { decodeVoiceSystemPromptParam } from '../voiceSystemPromptParam'
 import type { SyncEngine } from '../sync/syncEngine'
 import { createAuthMiddleware, type WebAppEnv } from './middleware/auth'
-import { authorizeResource } from '../auth/access'
+import { authorizeResource, transferSessionOwnership } from '../auth/access'
 import { createAuthRoutes } from './routes/auth'
 import { createBindRoutes } from './routes/bind'
 import { createAccountRoutes } from './routes/accounts'
@@ -269,24 +269,10 @@ function createWebApp(options: {
         return authorizeResource({ store: options.store, accountId, namespace,
             resourceType: 'session', resourceId: sessionId, capability: 'operate' }).ok
     }, (sessionId, accountId) => {
-        const session = options.store.sessions.getSession(sessionId)
-        if (!session) throw new Error('Forked session not found')
-        const metadataMachineId = session.metadata !== null && typeof session.metadata === 'object' && 'machineId' in session.metadata
-            && typeof session.metadata.machineId === 'string' ? session.metadata.machineId : null
-        const machineId = session.machineId ?? metadataMachineId
-        const daemonAccountId = machineId
-            ? options.store.machines.getMachine(machineId)?.ownerAccountId ?? null
-            : null
         const engine = options.getSyncEngine()
-        if (!engine || !engine.assignSessionOwner(sessionId, accountId)) {
-            throw new Error('Failed to assign forked session owner')
-        }
-        if (daemonAccountId !== null && daemonAccountId !== accountId) {
-            options.store.grants.upsert({
-                resourceType: 'session', resourceId: sessionId,
-                granteeAccountId: daemonAccountId, role: 'operator'
-            })
-        }
+        if (!engine) throw new Error('Sync engine unavailable for ownership transfer')
+        transferSessionOwnership({ store: options.store, sessionId, requesterAccountId: accountId,
+            assignOwner: (id, owner) => engine.assignSessionOwner(id, owner) })
     })
 
     // Skip static serving in relay mode, show helpful message on root
