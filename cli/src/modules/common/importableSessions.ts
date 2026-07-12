@@ -132,6 +132,10 @@ function legacyCodexUserText(value: JsonRecord): string | null {
     return valueText
 }
 
+function inferCodexSessionIdFromPath(path: string): string | null {
+    return /([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/.exec(path)?.[1] ?? null
+}
+
 async function scanCodex(path: string): Promise<ImportableSessionSummary | null> {
     let externalSessionId: string | null = null
     let cwd: string | null = null
@@ -177,6 +181,7 @@ async function scanCodex(path: string): Promise<ImportableSessionSummary | null>
         firstPrompt = legacyFirstPrompt
         lastPrompt = legacyLastPrompt
     }
+    externalSessionId ??= inferCodexSessionIdFromPath(path)
     if (!externalSessionId || child || visibleMessages === 0) return null
     const metadata = await stat(path)
     return {

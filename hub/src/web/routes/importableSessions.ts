@@ -22,7 +22,9 @@ function isInsideWorkspaceRoot(pathValue: string, rootValue: string): boolean {
 
 function machineAllowsCwd(machine: Machine, cwd: string | null): boolean {
     if (!cwd) return false
-    return (machine.metadata?.workspaceRoots ?? []).some((root) => isInsideWorkspaceRoot(cwd, root))
+    const roots = machine.metadata?.workspaceRoots
+    if (!roots || roots.length === 0) return true
+    return roots.some((root) => isInsideWorkspaceRoot(cwd, root))
 }
 
 function externalSessionId(metadata: NonNullable<ReturnType<SyncEngine['getSessionsByNamespace']>[number]['metadata']>, agent: ImportableSessionAgent): string | null {

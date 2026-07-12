@@ -109,4 +109,15 @@ describe('streaming importable session index', () => {
         expect(second.sessions[0].externalSessionId).not.toBe('added-later')
         expect(second.nextCursor).toBeNull()
     })
+
+    it('infers a legacy Codex session id from its filename', async () => {
+        const root = setup()
+        const id = '11111111-2222-4333-8444-555555555555'
+        transcript(join(root, `codex/sessions/rollout-${id}.jsonl`), [
+            { type: 'event_msg', payload: { type: 'user_message', message: 'legacy question' } }
+        ])
+        expect((await listImportableSessions({ agent: 'codex' })).sessions[0]).toMatchObject({
+            externalSessionId: id, previewPrompt: 'legacy question'
+        })
+    })
 })

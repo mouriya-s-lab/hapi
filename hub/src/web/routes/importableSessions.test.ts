@@ -123,4 +123,13 @@ describe('importable session routes', () => {
         expect(archived as string | null).toBe('partial')
         expect(spawned).toBe(true)
     })
+
+    it('allows imports on runners without configured workspace roots', async () => {
+        const unscopedMachine = { ...machine, metadata: { ...machine.metadata!, workspaceRoots: undefined } }
+        const engine = fakeEngine({ getMachine: () => unscopedMachine } as Partial<SyncEngine>)
+        const listed = await app(engine).request('/api/machines/machine-1/importable-sessions?agent=codex')
+        expect(((await listed.json()) as ImportableSessionsResponse).sessions).toHaveLength(1)
+        const imported = await app(engine).request('/api/machines/machine-1/importable-sessions/codex/external-1/import', { method: 'POST' })
+        expect(imported.status).toBe(200)
+    })
 })

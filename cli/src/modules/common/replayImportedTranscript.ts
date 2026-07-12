@@ -24,9 +24,13 @@ async function hasModernCodexChat(transcriptPath: string): Promise<boolean> {
             if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) continue
             const record = parsed as Record<string, unknown>
             if (record.type !== 'response_item' || record.payload === null || typeof record.payload !== 'object' || Array.isArray(record.payload)) continue
-            const converted = convertCodexEvent({ type: 'response_item', payload: record.payload })
-            if (converted?.message) return true
-            if (converted?.userMessage && !isSyntheticCodexUserText(converted.userMessage)) return true
+            const payload = record.payload as Record<string, unknown>
+            if (payload.type !== 'message') continue
+            if (payload.role === 'assistant') return true
+            if (payload.role === 'user') {
+                const converted = convertCodexEvent({ type: 'response_item', payload })
+                if (converted?.userMessage && !isSyntheticCodexUserText(converted.userMessage)) return true
+            }
         }
         return false
     } finally {
@@ -71,7 +75,7 @@ export async function replayImportedTranscript(options: {
             }
             const record = parsed as Record<string, unknown>
             if (typeof record.type !== 'string') throw new Error('Codex transcript line has no type')
-            if (record.type !== 'response_item' && !(useLegacyCodexChat && record.type === 'event_msg')) continue
+            if (useLegacyCodexChat ? record.type !== 'event_msg' : record.type !== 'response_item') continue
             const event: CodexSessionEvent = {
                 timestamp: typeof record.timestamp === 'string' ? record.timestamp : undefined,
                 type: record.type,
