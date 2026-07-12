@@ -113,6 +113,7 @@ export async function runCodex(opts: {
             session.updateMetadata((metadata) => ({ ...metadata, importHistoryState: 'complete' }))
         } catch (error) {
             session.updateMetadata((metadata) => ({ ...metadata, importHistoryState: 'failed' }))
+            await session.flushMetadata()
             throw error
         }
     }

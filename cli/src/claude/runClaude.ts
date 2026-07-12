@@ -86,6 +86,7 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
             session.updateMetadata((metadata) => ({ ...metadata, importHistoryState: 'complete' }))
         } catch (error) {
             session.updateMetadata((metadata) => ({ ...metadata, importHistoryState: 'failed' }))
+            await session.flushMetadata()
             throw error
         }
     }

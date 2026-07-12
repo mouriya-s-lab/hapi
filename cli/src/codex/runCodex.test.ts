@@ -18,6 +18,7 @@ const harness = vi.hoisted(() => ({
         onUserMessage: vi.fn(),
         onCancelQueuedMessage: vi.fn(),
         updateMetadata: vi.fn(),
+        flushMetadata: vi.fn(async () => true),
         rpcHandlerManager: {
             registerHandler: vi.fn()
         }
@@ -119,6 +120,7 @@ describe('runCodex', () => {
         harness.session.onUserMessage.mockReset()
         harness.session.onCancelQueuedMessage.mockReset()
         harness.session.updateMetadata.mockReset()
+        harness.session.flushMetadata.mockClear()
         replayMock.mockReset()
         replayMock.mockResolvedValue(2)
         harness.session.rpcHandlerManager.registerHandler.mockReset()
@@ -251,5 +253,6 @@ describe('runCodex', () => {
             update({}).importHistoryState
         ))
         expect(states).toEqual(['replaying', 'failed'])
+        expect(harness.session.flushMetadata).toHaveBeenCalledOnce()
     })
 })
