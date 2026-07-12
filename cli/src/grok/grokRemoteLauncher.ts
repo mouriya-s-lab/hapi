@@ -9,6 +9,9 @@ import type { GrokSession } from './session';
 import type { PermissionMode } from './types';
 import { createGrokBackend } from './utils/grokBackend';
 import { GrokPermissionHandler } from './utils/permissionHandler';
+import { parseRuntimeConfigRequest, resolveRuntimeConfigRequest } from './runtimeConfigState';
+
+const GROK_DEFAULT_REASONING_EFFORT = 'high';
 
 class GrokRemoteLauncher extends RemoteLauncherBase {
     private readonly session: GrokSession;
@@ -116,7 +119,8 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
                 break;
             }
 
-            const requestedModel = batch.mode.model === null ? this.defaultBackendModel : batch.mode.model;
+            const modelRequest = parseRuntimeConfigRequest(batch.mode.model);
+            const requestedModel = resolveRuntimeConfigRequest(modelRequest, this.defaultBackendModel);
             if (requestedModel && requestedModel !== this.currentBackendModel) {
                 if (!backend.setModel || this.setModelSupported === false) {
                     batch.mode.model = this.currentBackendModel ?? undefined;
@@ -150,13 +154,16 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
                 }
             }
 
-            const requestedEffort = batch.mode.modelReasoningEffort ?? null;
-            const shouldResetEffort = requestedEffort === null && this.currentEffort !== null;
-            if ((requestedEffort !== null && requestedEffort !== this.currentEffort) || shouldResetEffort) {
-                const wireEffort = requestedEffort ?? 'high';
+            const effortRequest = parseRuntimeConfigRequest(batch.mode.modelReasoningEffort);
+            const wireEffort = resolveRuntimeConfigRequest(effortRequest, GROK_DEFAULT_REASONING_EFFORT);
+            if (wireEffort != null && (
+                effortRequest.kind === 'reset'
+                    ? this.currentEffort !== null
+                    : wireEffort !== this.currentEffort
+            )) {
                 try {
                     await backend.setMode(acpSessionId, wireEffort);
-                    this.currentEffort = requestedEffort;
+                    this.currentEffort = effortRequest.kind === 'reset' ? null : wireEffort;
                 } catch (error) {
                     const message = error instanceof Error ? error.message : String(error);
                     session.sendSessionEvent({

@@ -1345,7 +1345,7 @@ function SessionChatInner(props: SessionChatProps) {
                                 ? handleCollaborationModeChange
                                 : undefined
                         }
-                        onPermissionModeChange={handlePermissionModeChange}
+                        onPermissionModeChange={agentFlavor === 'grok' && controlledByUser ? undefined : handlePermissionModeChange}
                         ccSwitchProviders={agentFlavor === 'claude' && ccSwitchProvidersState.available
                             ? ccSwitchProvidersState.providers
                             : undefined}

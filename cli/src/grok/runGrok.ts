@@ -14,6 +14,7 @@ import { PermissionModeSchema } from '@hapi/protocol/schemas';
 import { formatMessageWithAttachments } from '@/utils/attachmentFormatter';
 import { getInvokedCwd } from '@/utils/invokedCwd';
 import { resolveGrokRuntimeConfig } from './utils/config';
+import { assertGrokRuntimeConfigOwnership } from './runtimeConfigState';
 
 export async function runGrok(opts: {
     startedBy?: 'runner' | 'terminal';
@@ -72,9 +73,8 @@ export async function runGrok(opts: {
 
     const sessionWrapperRef: { current: GrokSession | null } = { current: null };
     let currentPermissionMode: PermissionMode = opts.permissionMode ?? 'default';
-    let sessionModel: string | null = persistedModel ?? null;
-    let resolvedModel: string | null = sessionModel;
-    let sessionModelReasoningEffort = opts.modelReasoningEffort ?? null;
+    let requestedModel: string | null = persistedModel ?? null;
+    let requestedReasoningEffort = opts.modelReasoningEffort ?? null;
 
     const lifecycle = createRunnerLifecycle({
         session,
@@ -92,19 +92,19 @@ export async function runGrok(opts: {
             return;
         }
         sessionInstance.setPermissionMode(currentPermissionMode);
-        sessionInstance.setModel(sessionModel);
-        sessionInstance.setModelReasoningEffort(sessionModelReasoningEffort);
+        sessionInstance.setModel(requestedModel);
+        sessionInstance.setModelReasoningEffort(requestedReasoningEffort);
         sessionInstance.pushKeepAlive();
 
-        logger.debug(`[grok] Synced session config for keepalive: permissionMode=${currentPermissionMode}, model=${resolvedModel}`);
+        logger.debug(`[grok] Synced requested session config: permissionMode=${currentPermissionMode}, model=${requestedModel}`);
     };
 
     session.onUserMessage((message, localId) => {
         const formattedText = formatMessageWithAttachments(message.content.text, message.content.attachments);
         const mode: GrokMode = {
             permissionMode: currentPermissionMode,
-            model: resolvedModel,
-            modelReasoningEffort: sessionModelReasoningEffort
+            model: requestedModel,
+            modelReasoningEffort: requestedReasoningEffort
         };
         messageQueue.push(formattedText, mode, localId);
     });
@@ -138,6 +138,11 @@ export async function runGrok(opts: {
             throw new Error('Invalid session config payload');
         }
         const config = payload as { permissionMode?: unknown; model?: unknown; modelReasoningEffort?: unknown };
+        assertGrokRuntimeConfigOwnership(sessionWrapperRef.current?.mode, (
+            config.permissionMode !== undefined
+            || config.model !== undefined
+            || config.modelReasoningEffort !== undefined
+        ));
         const applied: Record<string, unknown> = {};
 
         if (config.permissionMode !== undefined) {
@@ -146,14 +151,13 @@ export async function runGrok(opts: {
         }
 
         if (config.model !== undefined) {
-            sessionModel = resolveModel(config.model);
-            resolvedModel = sessionModel;
-            applied.model = sessionModel;
+            requestedModel = resolveModel(config.model);
+            applied.model = requestedModel;
         }
         if (config.modelReasoningEffort !== undefined) {
             if (config.modelReasoningEffort !== null && typeof config.modelReasoningEffort !== 'string') throw new Error('Invalid reasoning effort');
-            sessionModelReasoningEffort = config.modelReasoningEffort as string | null;
-            applied.modelReasoningEffort = sessionModelReasoningEffort;
+            requestedReasoningEffort = config.modelReasoningEffort as string | null;
+            applied.modelReasoningEffort = requestedReasoningEffort;
         }
 
         syncSessionMode();
@@ -172,16 +176,15 @@ export async function runGrok(opts: {
             api,
             permissionMode: currentPermissionMode,
             model: persistedModel,
-            modelReasoningEffort: sessionModelReasoningEffort,
+            modelReasoningEffort: requestedReasoningEffort,
             resumeSessionId: opts.resumeSessionId,
             onModeChange: createModeChangeHandler(session),
             onModelRollback: (model) => {
-                sessionModel = model;
-                resolvedModel = model;
+                requestedModel = model;
                 syncSessionMode();
             },
             onReasoningEffortRollback: (effort) => {
-                sessionModelReasoningEffort = effort;
+                requestedReasoningEffort = effort;
                 syncSessionMode();
             },
             onSessionReady: (instance) => {
