@@ -152,7 +152,7 @@ describe('SSEManager namespace filtering', () => {
 
         const delivered = await manager.sendToast('alpha', toastEvent)
 
-        expect(delivered).toBe(1)
+        expect([...delivered]).toEqual([1])
         expect(received).toHaveLength(1)
         expect(received[0]?.id).toBe('visible')
     })

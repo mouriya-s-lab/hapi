@@ -102,7 +102,7 @@ export class SSEManager {
         }
     }
 
-    async sendToast(namespace: string, event: Extract<SyncEvent, { type: 'toast' }>): Promise<number> {
+    async sendToast(namespace: string, event: Extract<SyncEvent, { type: 'toast' }>): Promise<Set<number>> {
         const canAccess = this.buildAccessCheck(event)
         const deliveries: Array<Promise<{ id: string; ok: boolean }>> = []
         for (const connection of this.connections.values()) {
@@ -124,20 +124,21 @@ export class SSEManager {
         }
 
         if (deliveries.length === 0) {
-            return 0
+            return new Set()
         }
 
         const results = await Promise.all(deliveries)
-        let successCount = 0
+        const deliveredAccountIds = new Set<number>()
         for (const result of results) {
             if (result.ok) {
-                successCount += 1
+                const connection = this.connections.get(result.id)
+                if (connection) deliveredAccountIds.add(connection.accountId)
                 continue
             }
             this.unsubscribe(result.id)
         }
 
-        return successCount
+        return deliveredAccountIds
     }
 
     broadcast(event: SyncEvent, audienceOverride?: Set<number>): void {

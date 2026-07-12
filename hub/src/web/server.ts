@@ -262,8 +262,8 @@ function createWebApp(options: {
         const engine = options.getSyncEngine()
         if (!engine) return null
         return buildForkDeps({ store: options.store, syncEngine: engine, namespace })
-    }, (sessionId, accountId, role) => {
-        const session = options.store.sessions.getSession(sessionId)
+    }, (sessionId, namespace, accountId, role) => {
+        const session = options.store.sessions.getSessionByNamespace(sessionId, namespace)
         if (!session) return false
         return canOperate(resolveAccessLevel({
             store: options.store,

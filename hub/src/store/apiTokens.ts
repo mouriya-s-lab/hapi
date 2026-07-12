@@ -41,7 +41,7 @@ export function getTokenById(db: Database, id: number): StoredApiToken | null {
 
 export function listTokensForAccount(db: Database, accountId: number): StoredApiToken[] {
     const rows = db.prepare(
-        'SELECT * FROM api_tokens WHERE account_id = ? ORDER BY created_at DESC'
+        'SELECT * FROM api_tokens WHERE account_id = ? AND revoked_at IS NULL ORDER BY created_at DESC'
     ).all(accountId) as DbApiTokenRow[]
     return rows.map(toStoredApiToken)
 }

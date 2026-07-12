@@ -95,6 +95,26 @@ describe('mountForkRoutes', () => {
         expect(res.status).toBe(403)
     })
 
+    it('passes the authenticated namespace into source-session authorization', async () => {
+        const app = new Hono()
+        app.use('*', async (c, next) => {
+            c.set('namespace' as never, 'namespace-b' as never)
+            c.set('accountId' as never, 1 as never)
+            c.set('role' as never, 'user' as never)
+            await next()
+        })
+        let authorizedNamespace = ''
+        mountForkRoutes(app, () => makeDeps(), (_sessionId, namespace) => {
+            authorizedNamespace = namespace
+            return false
+        })
+
+        const res = await app.request('/api/sessions/src/fork', { method: 'POST' })
+
+        expect(res.status).toBe(403)
+        expect(authorizedNamespace).toBe('namespace-b')
+    })
+
     it('returns 404 when source session missing', async () => {
         const app = new Hono()
         mountForkRoutes(app, () => makeDeps({ sourceMissing: true }), () => true)

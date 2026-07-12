@@ -36,12 +36,12 @@ describe('password login security', () => {
         expect((await login(app, 'alice', 'wrong')).status).toBe(401)
     })
 
-    it('throttles repeated failures per client and username without blocking another client', async () => {
+    it('throttles repeated failures per username even when forwarded headers rotate', async () => {
         const app = createAuthRoutes(JWT_SECRET, new Store(':memory:'))
         for (let attempt = 0; attempt < 10; attempt += 1) {
             expect((await login(app, 'missing', 'wrong')).status).toBe(401)
         }
         expect((await login(app, 'missing', 'wrong')).status).toBe(429)
-        expect((await login(app, 'missing', 'wrong', '192.0.2.2')).status).toBe(401)
+        expect((await login(app, 'missing', 'wrong', '192.0.2.2')).status).toBe(429)
     })
 })

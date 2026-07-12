@@ -151,6 +151,8 @@ describe('api tokens', () => {
             headers: { authorization: `Bearer ${userJwt}` }
         })
         expect(delRes.status).toBe(200)
+        const listAfterRevoke = await app.request('/api/tokens', { headers: { authorization: `Bearer ${userJwt}` } })
+        expect((await listAfterRevoke.json() as { tokens: unknown[] }).tokens).toHaveLength(0)
     })
 })
 

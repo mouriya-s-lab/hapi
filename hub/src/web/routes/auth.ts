@@ -52,8 +52,7 @@ export function createAuthRoutes(jwtSecret: Uint8Array, store: Store): Hono<WebA
 
         // 1. Username + password (multi-user local accounts).
         if ('username' in parsed.data && 'password' in parsed.data) {
-            const forwardedFor = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ?? 'local'
-            const throttleKey = `${forwardedFor}::${parsed.data.username.toLowerCase()}`
+            const throttleKey = parsed.data.username.toLowerCase()
             const now = Date.now()
             for (const [key, record] of loginFailures) {
                 if (now - record.firstAt >= LOGIN_FAILURE_WINDOW_MS) {

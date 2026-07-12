@@ -22,7 +22,7 @@ const ForkRequestBodySchema = z.object({
 export function mountForkRoutes(
     app: Hono<any>,
     getDeps: (namespace: string) => ForkSyncEngineLike | null,
-    canOperateSession: (sessionId: string, accountId: number, role: 'admin' | 'user') => boolean
+    canOperateSession: (sessionId: string, namespace: string, accountId: number, role: 'admin' | 'user') => boolean
 ): void {
     app.get('/api/flavors/capabilities', (c) => {
         return c.json({ capabilities: getAllForkCapabilities() })
@@ -37,7 +37,7 @@ export function mountForkRoutes(
         const srcSessionId = c.req.param('id')
         const accountId = c.get('accountId' as never) as number
         const role = c.get('role' as never) as 'admin' | 'user'
-        if (!canOperateSession(srcSessionId, accountId, role)) {
+        if (!canOperateSession(srcSessionId, namespace, accountId, role)) {
             return c.json({ error: 'Insufficient permissions' }, 403 as StatusCode)
         }
 
