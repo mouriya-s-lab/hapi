@@ -54,13 +54,33 @@ const PARSE_IDENTITY_FIELDS = ['path', 'host'] as const
 const ROUTING_FIELDS = ['flavor', 'machineId'] as const
 
 const SIMPLE_RESUME_TOKENS = [
-    'claudeSessionId',
     'codexSessionId',
     'geminiSessionId',
     'opencodeSessionId',
     'cursorSessionId',
     'kimiSessionId'
 ] as const
+
+function preservePendingClaudeLaunch(
+    prior: Record<string, unknown>,
+    next: Record<string, unknown>,
+    merged: Record<string, unknown> | null
+): Record<string, unknown> | null {
+    const pending = prior.pendingClaudeLaunch
+    if (!isPlainObject(pending) || typeof pending.resumeSessionId !== 'string') {
+        return carryForwardIfMissing(prior, next, merged, ['claudeSessionId'])
+    }
+
+    const result = merged ?? { ...next }
+    if (next.claudeSessionId === pending.resumeSessionId) {
+        delete result.pendingClaudeLaunch
+        return result
+    }
+
+    delete result.claudeSessionId
+    result.pendingClaudeLaunch = pending
+    return result
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -124,6 +144,7 @@ export function mergeSessionMetadata(prior: unknown, next: unknown): unknown {
     let merged: Record<string, unknown> | null = null
     merged = carryForwardIfMissing(prior, next, merged, PARSE_IDENTITY_FIELDS)
     merged = carryForwardIfMissing(prior, next, merged, ROUTING_FIELDS)
+    merged = preservePendingClaudeLaunch(prior, next, merged)
     merged = carryForwardIfMissing(prior, next, merged, SIMPLE_RESUME_TOKENS)
     merged = preserveCursorProtocolPair(prior, next, merged)
     return merged ?? next
@@ -144,6 +165,7 @@ type DbSessionRow = {
     model_reasoning_effort: string | null
     effort: string | null
     service_tier: string | null
+    resume_with_session_model: number
     todos: string | null
     todos_updated_at: number | null
     team_state: string | null
@@ -169,6 +191,7 @@ function toStoredSession(row: DbSessionRow): StoredSession {
         modelReasoningEffort: row.model_reasoning_effort,
         effort: row.effort,
         serviceTier: row.service_tier,
+        resumeWithSessionModel: row.resume_with_session_model === 1,
         todos: safeJsonParse(row.todos),
         todosUpdatedAt: row.todos_updated_at,
         teamState: safeJsonParse(row.team_state),
@@ -225,6 +248,7 @@ export function getOrCreateSession(
             model,
             model_reasoning_effort,
             effort,
+            resume_with_session_model,
             todos, todos_updated_at,
             active, active_at, seq
         ) VALUES (
@@ -234,6 +258,7 @@ export function getOrCreateSession(
             @model,
             @model_reasoning_effort,
             @effort,
+            0,
             NULL, NULL,
             0, NULL, 0
         )
@@ -320,9 +345,13 @@ export function updateSessionAgentState(
     expectedVersion: number,
     namespace: string
 ): VersionedUpdateResult<unknown | null> {
-    const now = Date.now()
     const normalized = agentState ?? null
 
+    // fork(#5/#2): do NOT touch updated_at here. agent_state churn (thinking,
+    // internal request changes) is not a user-visible "reply". updated_at must
+    // mean "time of last reply/message" so the session list's relative time is
+    // accurate (#5) and high-frequency agent_state updates stop forcing list
+    // re-sorts (#2). updated_at is now advanced only by recordSessionActivity.
     return updateVersionedField({
         db,
         table: 'sessions',
@@ -334,8 +363,8 @@ export function updateSessionAgentState(
         value: normalized,
         encode: (value) => (value === null ? null : JSON.stringify(value)),
         decode: safeJsonParse,
-        setClauses: ['updated_at = @updated_at', 'seq = seq + 1'],
-        params: { updated_at: now }
+        setClauses: ['seq = seq + 1'],
+        params: {}
     })
 }
 
@@ -525,6 +554,40 @@ export function setSessionEffort(
             id,
             namespace,
             effort,
+            updated_at: now,
+            touch_updated_at: touchUpdatedAt ? 1 : 0
+        })
+
+        return result.changes === 1
+    } catch {
+        return false
+    }
+}
+
+export function setSessionResumeWithSessionModel(
+    db: Database,
+    id: string,
+    resumeWithSessionModel: boolean,
+    namespace: string,
+    options?: { touchUpdatedAt?: boolean }
+): boolean {
+    const now = Date.now()
+    const touchUpdatedAt = options?.touchUpdatedAt === true
+    const storedValue = resumeWithSessionModel ? 1 : 0
+
+    try {
+        const result = db.prepare(`
+            UPDATE sessions
+            SET resume_with_session_model = @resume_with_session_model,
+                updated_at = CASE WHEN @touch_updated_at = 1 THEN @updated_at ELSE updated_at END,
+                seq = seq + 1
+            WHERE id = @id
+              AND namespace = @namespace
+              AND resume_with_session_model IS NOT @resume_with_session_model
+        `).run({
+            id,
+            namespace,
+            resume_with_session_model: storedValue,
             updated_at: now,
             touch_updated_at: touchUpdatedAt ? 1 : 0
         })

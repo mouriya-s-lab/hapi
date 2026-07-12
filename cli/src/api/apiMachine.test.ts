@@ -60,6 +60,48 @@ async function callListOpencodeModels(client: ApiMachineClient, machineId: strin
     return JSON.parse(raw) as unknown
 }
 
+async function callCreateDirectory(client: ApiMachineClient, machineId: string, parentPath: string, name: string): Promise<unknown> {
+    const manager = (client as unknown as { rpcHandlerManager: { handleRequest: (req: { method: string; params: string }) => Promise<string> } }).rpcHandlerManager
+    const raw = await manager.handleRequest({
+        method: `${machineId}:create-directory`,
+        params: JSON.stringify({ parentPath, name })
+    })
+    return JSON.parse(raw) as unknown
+}
+
+describe('ApiMachineClient create-directory handler', () => {
+    it('creates one directory inside a workspace root', async () => {
+        const workspaceRoot = mkdtempSync(join(tmpdir(), 'hapi-create-dir-'))
+        const machine = makeMachine('machine-create')
+        const client = new ApiMachineClient('cli-token', machine, [workspaceRoot])
+
+        try {
+            const result = await callCreateDirectory(client, machine.id, workspaceRoot, 'new-project')
+            expect(result).toEqual({ success: true, path: join(realpathSync(workspaceRoot), 'new-project') })
+            expect(realpathSync(join(workspaceRoot, 'new-project'))).toBe(join(realpathSync(workspaceRoot), 'new-project'))
+        } finally {
+            client.shutdown()
+            rmSync(workspaceRoot, { recursive: true, force: true })
+        }
+    })
+
+    it('rejects path separators in the directory name', async () => {
+        const workspaceRoot = mkdtempSync(join(tmpdir(), 'hapi-create-dir-'))
+        const machine = makeMachine('machine-create-invalid')
+        const client = new ApiMachineClient('cli-token', machine, [workspaceRoot])
+
+        try {
+            expect(await callCreateDirectory(client, machine.id, workspaceRoot, '../escape')).toEqual({
+                success: false,
+                error: 'Directory name must be a single path segment'
+            })
+        } finally {
+            client.shutdown()
+            rmSync(workspaceRoot, { recursive: true, force: true })
+        }
+    })
+})
+
 describe('ApiMachineClient listOpencodeModelsForCwd handler', () => {
     let workspaceRoot: string
 

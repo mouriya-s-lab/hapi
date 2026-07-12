@@ -92,6 +92,19 @@ describe('buildCliArgs', () => {
         expect(args).not.toContain('--service-tier')
     })
 
+    it('maps the omp flavor to the `omp` command with --model and permission mode', () => {
+        const args = buildCliArgs('omp', {
+            directory: '/tmp',
+            model: 'anthropic/claude-sonnet-4-5',
+            permissionMode: 'safe-yolo',
+        })
+        expect(args[0]).toBe('omp')
+        expect(args).toContain('--model')
+        expect(args).toContain('anthropic/claude-sonnet-4-5')
+        expect(args).toContain('--permission-mode')
+        expect(args).toContain('safe-yolo')
+    })
+
     it('validates all known permission modes', () => {
         for (const mode of ['default', 'acceptEdits', 'auto', 'bypassPermissions', 'plan', 'ask', 'read-only', 'safe-yolo', 'yolo']) {
             const args = buildCliArgs('claude', {
@@ -142,4 +155,29 @@ describe('buildCliArgs', () => {
         expect(args).toContain('--effort')
         expect(args).toContain('high')
     })
+
+    it('launches Claude per-message fork lazily on the first real user message', () => {
+        const args = buildCliArgs('claude', {
+            directory: '/w',
+            resumeSessionId: 'new-session',
+            claudeLaunch: { type: 'resume-at', sourceSessionId: 'source-session', providerMessageId: 'provider-message' }
+        })
+        expect(args).toContain('--fork-session')
+        expect(args.slice(args.indexOf('--resume'), args.indexOf('--resume') + 2)).toEqual(['--resume', 'source-session'])
+        expect(args.slice(args.indexOf('--resume-session-at'), args.indexOf('--resume-session-at') + 2)).toEqual(['--resume-session-at', 'provider-message'])
+        expect(args.slice(args.indexOf('--session-id'), args.indexOf('--session-id') + 2)).toEqual(['--session-id', 'new-session'])
+    })
+
+    it('launches a fresh Claude session when rewinding the first user turn', () => {
+        const args = buildCliArgs('claude', {
+            directory: '/w',
+            resumeSessionId: 'new-session',
+            claudeLaunch: { type: 'fresh' }
+        })
+        expect(args.slice(0, 3)).toEqual(['claude', '--session-id', 'new-session'])
+        expect(args).not.toContain('--resume')
+        expect(args).not.toContain('--fork-session')
+        expect(args).not.toContain('--resume-session-at')
+    })
+
 })

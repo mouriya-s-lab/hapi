@@ -13,6 +13,14 @@ export type UsageData = {
     service_tier?: string
 }
 
+export type ModelRefusalFallbackEvent = {
+    type: 'model-refusal-fallback'
+    originalModel: string
+    message: string
+    direction?: string
+    trigger?: string
+}
+
 export type AgentEvent =
     | { type: 'switch'; mode: 'local' | 'remote' }
     | { type: 'message'; message: string }
@@ -25,6 +33,7 @@ export type AgentEvent =
     | { type: 'turn-duration'; durationMs: number; targetMessageId?: string }
     | { type: 'microcompact'; trigger: string; preTokens: number; tokensSaved: number }
     | { type: 'compact'; trigger: string; preTokens: number }
+    | ModelRefusalFallbackEvent
     | { type: 'thread-goal-updated'; goal: ThreadGoal; threadId?: string; turnId?: string }
     | { type: 'thread-goal-cleared'; threadId?: string }
     | ({ type: string } & Record<string, unknown>)
@@ -66,6 +75,16 @@ export type GeneratedImageContent = {
     parentUUID: string | null
 }
 
+export type GeneratedFileContent = {
+    type: 'generated-file'
+    fileId: string
+    fileName: string
+    mimeType: string | null
+    size: number | null
+    uuid: string
+    parentUUID: string | null
+}
+
 export type CodexReviewFinding = {
     title: string
     body: string
@@ -100,6 +119,7 @@ export type NormalizedAgentContent =
     | ToolUse
     | ToolResult
     | GeneratedImageContent
+    | GeneratedFileContent
     | {
         type: 'codex-review'
         review: CodexReview
@@ -235,6 +255,19 @@ export type GeneratedImageBlock = {
     meta?: unknown
 }
 
+export type GeneratedFileBlock = {
+    kind: 'generated-file'
+    id: string
+    localId: string | null
+    createdAt: number
+    invokedAt?: number | null
+    fileId: string
+    fileName: string
+    mimeType: string | null
+    size: number | null
+    meta?: unknown
+}
+
 export type AgentEventBlock = {
     kind: 'agent-event'
     id: string
@@ -259,4 +292,4 @@ export type ToolCallBlock = {
     meta?: unknown
 }
 
-export type ChatBlock = UserTextBlock | AgentTextBlock | AgentReasoningBlock | CodexReviewBlock | CliOutputBlock | ToolCallBlock | GeneratedImageBlock | AgentEventBlock
+export type ChatBlock = UserTextBlock | AgentTextBlock | AgentReasoningBlock | CodexReviewBlock | CliOutputBlock | ToolCallBlock | GeneratedImageBlock | GeneratedFileBlock | AgentEventBlock

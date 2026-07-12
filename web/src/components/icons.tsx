@@ -72,3 +72,53 @@ export function ScheduleIcon(props: IconProps) {
         2
     )
 }
+
+/** Magnifying glass with a plus — zoom in. */
+export function ZoomInIcon(props: IconProps) {
+    return createIcon(
+        <>
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5M11 8.5v5M8.5 11h5" />
+        </>,
+        props
+    )
+}
+
+/** Magnifying glass with a minus — zoom out. */
+export function ZoomOutIcon(props: IconProps) {
+    return createIcon(
+        <>
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5M8.5 11h5" />
+        </>,
+        props
+    )
+}
+
+/** Arrows pointing to four corners — fit / reset zoom. */
+export function ExpandIcon(props: IconProps) {
+    return createIcon(
+        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M8 21H5a2 2 0 0 1-2-2v-3m18 0v3a2 2 0 0 1-2 2h-3" />,
+        props
+    )
+}
+
+export function SpeakerIcon(props: IconProps) {
+    return createIcon(
+        <>
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+        </>,
+        props,
+        2
+    )
+}
+
+export function StopIcon(props: IconProps) {
+    return createIcon(
+        <rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" stroke="none" />,
+        props,
+        2
+    )
+}

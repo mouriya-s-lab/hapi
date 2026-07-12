@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import { MessagePrimitive, useAssistantState } from '@assistant-ui/react'
 import { useHappyChatContext } from '@/components/AssistantChat/context'
 import type { HappyChatMessageMetadata } from '@/lib/assistant-runtime'
@@ -11,13 +12,60 @@ import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { getConversationMessageAnchorId } from '@/chat/outline'
 import { MessageMetadata } from '@/components/AssistantChat/messages/MessageMetadata'
 import { MessageTimestamp } from '@/components/AssistantChat/messages/MessageTimestamp'
+import {
+    useFlavorCapabilities,
+    getFlavorForkCapability
+} from '@/hooks/queries/useFlavorCapabilities'
+import { useSessionActions } from '@/hooks/mutations/useSessionActions'
+import { setForkedFromText } from '@/lib/fork-restore'
+
+function RewindIcon(props: { className?: string }) {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={props.className}
+            aria-hidden="true"
+        >
+            <path d="M3 7v6h6" />
+            <path d="M21 17a9 9 0 0 0-15-6.7L3 13" />
+        </svg>
+    )
+}
 
 export function HappyUserMessage() {
     const ctx = useHappyChatContext()
     const { copied, copy } = useCopyToClipboard()
     const [showMetadata, setShowMetadata] = useState(false)
+    const [rewindError, setRewindError] = useState<string | null>(null)
+    const navigate = useNavigate()
+    const sessionFlavor = ctx.metadata?.flavor ?? null
+    const { data: capabilities } = useFlavorCapabilities(ctx.api)
+    const rewindSupported =
+        Boolean(sessionFlavor) &&
+        getFlavorForkCapability(capabilities, sessionFlavor).fork === 'at-message'
+    const { forkSession, isPending: sessionActionPending } = useSessionActions(
+        ctx.api,
+        ctx.sessionId,
+        sessionFlavor
+    )
     const role = useAssistantState(({ message }) => message.role)
     const messageId = useAssistantState(({ message }) => message.id)
+    // Raw hub-DB message id (unprefixed). `message.id` is the composed
+    // assistant-ui threadMessageId `${kind}:${block.id}` — hub's fork
+    // endpoint matches on the raw id, not the composed one.
+    const hubMessageId = useAssistantState(({ message }) => {
+        if (message.role !== 'user') return undefined
+        const custom = message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined
+        return custom?.hubMessageId
+    })
     const text = useAssistantState(({ message }) => {
         if (message.role !== 'user') return ''
         return message.content.find((part) => part.type === 'text')?.text ?? ''
@@ -54,12 +102,32 @@ export function HappyUserMessage() {
     const canRetry = status === 'failed' && typeof localId === 'string' && Boolean(ctx.onRetryMessage)
     const onRetry = canRetry ? () => ctx.onRetryMessage!(localId) : undefined
     const showStatus = shouldShowMessageStatus(status)
+    const canRewind = rewindSupported && typeof hubMessageId === 'string' && hubMessageId.length > 0
+
+    const handleRewind = async () => {
+        if (!canRewind || !hubMessageId) return
+        setRewindError(null)
+        try {
+            const { newSessionId } = await forkSession({
+                forkPoint: { messageId: hubMessageId }
+            })
+            if (text) {
+                setForkedFromText(newSessionId, text)
+            }
+            await navigate({
+                to: '/sessions/$sessionId',
+                params: { sessionId: newSessionId }
+            })
+        } catch (err) {
+            setRewindError(err instanceof Error ? err.message : 'Rewind failed')
+        }
+    }
 
     if (isCliOutput) {
         return (
             <MessagePrimitive.Root
                 id={getConversationMessageAnchorId(messageId)}
-                className="scroll-mt-4 px-1 min-w-0 max-w-full overflow-x-hidden"
+                className="scroll-mt-4 px-1 min-w-0 max-w-full overflow-x-clip"
             >
                 <div className="ml-auto w-full max-w-[92%]">
                     <CliOutputBlock text={cliText} />
@@ -117,6 +185,18 @@ export function HappyUserMessage() {
                     )}
                 </div>
                 <div className="flex justify-end items-center gap-2">
+                    {canRewind && (
+                        <button
+                            type="button"
+                            title="Rewind to this message"
+                            aria-label="Rewind to this message"
+                            onClick={handleRewind}
+                            disabled={sessionActionPending}
+                            className="rounded p-0.5 text-[var(--app-hint)] opacity-60 transition-[opacity,color] hover:text-[var(--app-fg)] disabled:cursor-not-allowed disabled:opacity-40 sm:opacity-0 sm:group-hover/msg:opacity-100"
+                        >
+                            <RewindIcon className="h-3.5 w-3.5" />
+                        </button>
+                    )}
                     <MessageTimestamp className="text-[10px] leading-none text-[var(--app-hint)]" />
                     {hasMetadata && (
                         <button
@@ -129,6 +209,11 @@ export function HappyUserMessage() {
                         </button>
                     )}
                 </div>
+                {rewindError && (
+                    <div className="mt-0.5 text-right text-[10px] text-red-500" role="alert">
+                        {rewindError}
+                    </div>
+                )}
                 {showMetadata && invokedAt != null && (
                     <MessageMetadata invokedAt={invokedAt} />
                 )}

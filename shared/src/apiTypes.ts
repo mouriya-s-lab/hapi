@@ -137,6 +137,12 @@ export const SessionModelRequestSchema = z.object({
 
 export type SessionModelRequest = z.infer<typeof SessionModelRequestSchema>
 
+export const SessionResumeModelRequestSchema = z.object({
+    resumeWithSessionModel: z.boolean()
+})
+
+export type SessionResumeModelRequest = z.infer<typeof SessionResumeModelRequestSchema>
+
 export const SessionModelReasoningEffortRequestSchema = z.object({
     modelReasoningEffort: z.string().trim().min(1).nullable()
 })
@@ -263,6 +269,13 @@ export const MachineListDirectoryRequestSchema = z.object({
 
 export type MachineListDirectoryRequest = z.infer<typeof MachineListDirectoryRequestSchema>
 
+export const MachineCreateDirectoryRequestSchema = z.object({
+    parentPath: z.string().min(1),
+    name: z.string().min(1)
+})
+
+export type MachineCreateDirectoryRequest = z.infer<typeof MachineCreateDirectoryRequestSchema>
+
 export const MachinePathsExistsRequestSchema = z.object({
     paths: z.array(z.string().min(1)).max(1000)
 })
@@ -289,6 +302,13 @@ export type GitCommandResponse = CommandResponse
 export type FileReadResponse = {
     success: boolean
     content?: string
+    hash?: string
+    error?: string
+}
+
+export type FileWriteResponse = {
+    success: boolean
+    hash?: string
     error?: string
 }
 
@@ -297,6 +317,15 @@ export type GeneratedImageResponse = {
     content?: string
     mimeType?: string
     fileName?: string
+    error?: string
+}
+
+export type GeneratedFileResponse = {
+    success: boolean
+    content?: string
+    mimeType?: string
+    fileName?: string
+    size?: number
     error?: string
 }
 
@@ -333,6 +362,12 @@ export type MachineDirectoryEntry = DirectoryEntry & {
 export type MachineListDirectoryResponse = {
     success: boolean
     entries?: MachineDirectoryEntry[]
+    error?: string
+}
+
+export type MachineCreateDirectoryResponse = {
+    success: boolean
+    path?: string
     error?: string
 }
 
@@ -393,6 +428,23 @@ export type CursorModelSummary = OpencodeModelSummary
 export type CursorModelsResponse = OpencodeModelsResponse
 
 export type ListCursorModelsResponse = CursorModelsResponse
+
+export type CcSwitchProviderSummary = {
+    id: string
+    name: string
+    category: string | null
+    websiteUrl: string | null
+    isCurrent: boolean
+}
+
+export type ListCcSwitchProvidersResponse = {
+    success: boolean
+    providers?: CcSwitchProviderSummary[]
+    available?: boolean
+    error?: string
+}
+
+export type ValidateCcSwitchProviderResponse = { success: boolean; error?: string }
 
 /** Maps thinking levels to provider-specific values. null = unsupported. */
 export type PiThinkingLevelMap = Partial<Record<string, string | null>>

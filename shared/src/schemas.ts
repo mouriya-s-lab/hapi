@@ -33,6 +33,7 @@ export const MetadataSchema = z.object({
     os: z.string().optional(),
     summary: MetadataSummarySchema.optional(),
     machineId: z.string().optional(),
+    ccSwitchProviderId: z.string().optional(),
     claudeSessionId: z.string().optional(),
     codexSessionId: z.string().optional(),
     geminiSessionId: z.string().optional(),
@@ -48,6 +49,7 @@ export const MetadataSchema = z.object({
     cursorMigrationState: z.enum(['in_progress', 'ambiguous']).optional(),
     kimiSessionId: z.string().optional(),
     piSessionId: z.string().optional(),
+    ompSessionId: z.string().optional(),
     tools: z.array(z.string()).optional(),
     slashCommands: z.array(z.string()).optional(),
     homeDir: z.string().optional(),
@@ -62,6 +64,11 @@ export const MetadataSchema = z.object({
     lifecycleStateSince: z.number().optional(),
     archivedBy: z.string().optional(),
     archiveReason: z.string().optional(),
+    // Set ONLY when the user explicitly archives a session via the session
+    // menu (syncEngine.archiveSession). Distinct from archivedBy/archiveReason,
+    // which the CLI sets on local startup failure. Used to hide user-archived
+    // sessions from the list without conflating them with naturally-ended ones.
+    archivedAt: z.number().optional(),
     preferredPermissionMode: PermissionModeSchema.optional(),
     flavor: z.string().nullish(),
     capabilities: SessionCapabilitiesSchema.optional(),
@@ -73,7 +80,21 @@ export const MetadataSchema = z.object({
     // field stores only modelId (shared across all flavors); this preserves
     // the provider so web can resolve the exact model when two providers
     // share a modelId.
-    piSelectedModel: z.object({ provider: z.string(), modelId: z.string() }).nullable().optional()
+    piSelectedModel: z.object({ provider: z.string(), modelId: z.string() }).nullable().optional(),
+    forkedFrom: z.string().optional(),
+    forkedAt: z.number().optional(),
+    forkedFromMessageId: z.string().optional(),
+    pendingClaudeLaunch: z.object({
+        resumeSessionId: z.string(),
+        launch: z.discriminatedUnion('type', [
+            z.object({ type: z.literal('fresh') }),
+            z.object({
+                type: z.literal('resume-at'),
+                sourceSessionId: z.string(),
+                providerMessageId: z.string()
+            })
+        ])
+    }).optional()
 })
 
 export type Metadata = z.infer<typeof MetadataSchema>
@@ -225,6 +246,7 @@ export const SessionSchema = z.object({
     modelReasoningEffort: z.string().nullable().optional().default(null),
     effort: z.string().nullable().optional().default(null),
     serviceTier: z.string().nullable().optional().default(null),
+    resumeWithSessionModel: z.boolean().optional().default(false),
     permissionMode: PermissionModeSchema.optional(),
     collaborationMode: CodexCollaborationModeSchema.optional()
 })
@@ -240,12 +262,50 @@ export const SessionPatchSchema = z.object({
     modelReasoningEffort: z.string().nullable().optional(),
     effort: z.string().nullable().optional(),
     serviceTier: z.string().nullable().optional(),
+    resumeWithSessionModel: z.boolean().optional(),
     permissionMode: PermissionModeSchema.optional(),
     collaborationMode: CodexCollaborationModeSchema.optional(),
     backgroundTaskCount: z.number().optional()
 }).strict()
 
 export type SessionPatch = z.infer<typeof SessionPatchSchema>
+
+export const UsageMetricSchema = z.discriminatedUnion('type', [
+    z.object({
+        type: z.literal('progress'),
+        label: z.string(),
+        used: z.number(),
+        limit: z.number(),
+        unit: z.enum(['percent', 'count']),
+        resetsAt: z.string().nullable()
+    }),
+    z.object({ type: z.literal('text'), label: z.string(), value: z.string() }),
+    z.object({ type: z.literal('badge'), label: z.string(), text: z.string() }),
+    z.object({
+        type: z.literal('barChart'),
+        label: z.string(),
+        points: z.array(z.object({ label: z.string(), value: z.number(), valueLabel: z.string().nullable() })),
+        note: z.string().nullable()
+    })
+])
+
+export const UsageSnapshotSchema = z.object({
+    providerId: z.string(),
+    displayName: z.string(),
+    plan: z.string().nullable(),
+    metrics: z.array(UsageMetricSchema),
+    fetchedAt: z.string()
+})
+
+export const MachineUsageStateSchema = z.object({
+    providers: z.array(z.object({ id: z.string(), name: z.string() })),
+    snapshots: z.array(UsageSnapshotSchema),
+    refreshedAt: z.string()
+})
+
+export type UsageMetric = z.infer<typeof UsageMetricSchema>
+export type UsageSnapshot = z.infer<typeof UsageSnapshotSchema>
+export type MachineUsageState = z.infer<typeof MachineUsageStateSchema>
 
 export const MachineMetadataSchema = z.object({
     host: z.string(),
@@ -255,7 +315,8 @@ export const MachineMetadataSchema = z.object({
     homeDir: z.string().optional(),
     happyHomeDir: z.string().optional(),
     happyLibDir: z.string().optional(),
-    workspaceRoots: z.array(z.string()).optional()
+    workspaceRoots: z.array(z.string()).optional(),
+    usage: MachineUsageStateSchema.optional()
 })
 
 export type MachineMetadata = z.infer<typeof MachineMetadataSchema>

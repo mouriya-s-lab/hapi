@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { I18nProvider } from '@/lib/i18n-context'
 import { PwaUpdateBanner, PwaUpdateBannerWithStatusOffset } from '@/components/PwaUpdateBanner'
@@ -50,6 +50,10 @@ describe('PwaUpdateBanner', () => {
             },
             configurable: true,
         })
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+            ok: false,
+            status: 404,
+        }))
     })
 
     afterEach(() => {
@@ -86,6 +90,38 @@ describe('PwaUpdateBanner', () => {
         expect(reload).toHaveBeenCalledTimes(1)
     })
 
+    it('shows only changes newer than the current build', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                version: 'next',
+                commit: '2'.repeat(40),
+                builtAt: '2026-07-11T00:00:00.000Z',
+                entries: [
+                    { hash: '2'.repeat(40), date: '2026-07-11', subject: 'new behavior' },
+                    { hash: __APP_COMMIT__, date: '2026-07-10', subject: 'current behavior' },
+                    { hash: '1'.repeat(40), date: '2026-07-09', subject: 'old behavior' },
+                ],
+            }),
+        } as Response))
+        usePwaUpdateMock.mockReturnValue({ needRefresh: true, reload: vi.fn() })
+
+        renderBanner()
+
+        await waitFor(() => expect(screen.getByText('new behavior')).toBeInTheDocument())
+        expect(screen.queryByText('current behavior')).not.toBeInTheDocument()
+        expect(screen.queryByText('old behavior')).not.toBeInTheDocument()
+    })
+
+    it('keeps reload available and exposes changelog failure', async () => {
+        usePwaUpdateMock.mockReturnValue({ needRefresh: true, reload: vi.fn() })
+
+        renderBanner()
+
+        await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Version changes are unavailable'))
+        expect(screen.getByRole('button', { name: 'Reload' })).toBeInTheDocument()
+    })
+
     it('honors a custom top offset when provided', () => {
         usePwaUpdateMock.mockReturnValue({
             needRefresh: true,
@@ -117,7 +153,9 @@ describe('PwaUpdateBanner', () => {
             </I18nProvider>,
         )
 
-        expect(screen.getByTestId('pwa-update-banner')).toHaveClass('top-12')
+        expect(screen.getByTestId('pwa-update-banner')).toHaveClass(
+            'top-[calc(env(safe-area-inset-top)+3rem)]'
+        )
     })
 
     it('expands the rationale section when the disclosure is opened', () => {

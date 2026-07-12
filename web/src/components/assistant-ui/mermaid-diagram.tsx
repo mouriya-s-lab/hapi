@@ -1,16 +1,9 @@
 import type { SyntaxHighlighterProps } from '@assistant-ui/react-markdown'
-import {
-    useEffect,
-    useId,
-    useRef,
-    useState,
-    type ComponentPropsWithoutRef,
-    type Ref,
-    type SyntheticEvent,
-} from 'react'
-import { ZoomableLightbox } from '@/components/ZoomableLightbox'
+import { useEffect, useId, useState, type ComponentPropsWithoutRef } from 'react'
+import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
-import { useTranslation } from '@/lib/use-translation'
+import { CloseIcon } from '@/components/icons'
+import { MermaidZoomViewer } from './MermaidZoomViewer'
 
 let initializedTheme: 'light' | 'dark' | null = null
 let mermaidPromise: Promise<typeof import('mermaid').default> | null = null
@@ -53,15 +46,6 @@ async function ensureMermaid(theme: 'light' | 'dark') {
                 clusterBkg: '#2d3440',
                 clusterBorder: '#6d8fd6',
                 edgeLabelBackground: '#2a2f35',
-                actorBkg: '#323843',
-                actorBorder: '#6d8fd6',
-                actorTextColor: '#edf1f5',
-                signalColor: '#94a3b8',
-                labelBoxBkgColor: '#323843',
-                labelTextColor: '#edf1f5',
-                loopTextColor: '#edf1f5',
-                noteBkgColor: '#2d3440',
-                noteTextColor: '#edf1f5',
             }
             : {
                 primaryColor: '#f8fbff',
@@ -76,32 +60,11 @@ async function ensureMermaid(theme: 'light' | 'dark') {
                 clusterBkg: '#eef4ff',
                 clusterBorder: '#b8cdfd',
                 edgeLabelBackground: '#f5f6f7',
-                actorBkg: '#f8fbff',
-                actorBorder: '#b8cdfd',
-                actorTextColor: '#2d333b',
-                signalColor: '#94a3b8',
-                labelBoxBkgColor: '#f8fbff',
-                labelTextColor: '#2d333b',
-                loopTextColor: '#2d333b',
-                noteBkgColor: '#eef4ff',
-                noteTextColor: '#2d333b',
             },
     })
 
     initializedTheme = theme
     return mermaid
-}
-
-export async function renderMermaidSvg(
-    code: string,
-    elementId: string,
-    theme: 'light' | 'dark',
-): Promise<string | null> {
-    const mermaid = await ensureMermaid(theme)
-    const isValid = await mermaid.parse(code, { suppressErrors: true })
-    if (!isValid) return null
-    const result = await mermaid.render(elementId, code)
-    return result.svg
 }
 
 export function getMermaidSvgLayoutSize(svg: string): { width: number; height: number } | null {
@@ -112,7 +75,6 @@ export function getMermaidSvgLayoutSize(svg: string): { width: number; height: n
     return { width: parts[2], height: parts[3] }
 }
 
-/** Mermaid often emits width="100%"; normalize before rasterizing for the lightbox. */
 export function normalizeMermaidSvgForStandaloneDisplay(svg: string): string {
     let result = svg
     const viewBoxSize = getMermaidSvgLayoutSize(result)
@@ -140,10 +102,7 @@ export function normalizeMermaidSvgForStandaloneDisplay(svg: string): string {
             },
         )
     } else {
-        result = result.replace(
-            /<svg/i,
-            `<svg width="${width}" height="${height}"`,
-        )
+        result = result.replace(/<svg/i, `<svg width="${width}" height="${height}"`)
     }
 
     if (!/\bwidth="/i.test(result.split('>')[0] ?? '')) {
@@ -154,114 +113,34 @@ export function normalizeMermaidSvgForStandaloneDisplay(svg: string): string {
 }
 
 function MermaidFallback(props: ComponentPropsWithoutRef<'pre'> & { code: string }) {
-    const { code, className, ...rest } = props
     return (
         <pre
-            {...rest}
             className={cn(
-                'aui-mermaid-fallback m-0 overflow-x-auto rounded-b-xl bg-[var(--app-code-bg)] p-4 text-sm text-[var(--app-fg)]',
-                className
+                'aui-mermaid-fallback mt-2 overflow-x-auto rounded-xl bg-[var(--app-code-bg)] p-4 text-sm text-[var(--app-fg)]',
+                props.className
             )}
         >
-            <code>{code}</code>
+            <code>{props.code}</code>
         </pre>
     )
 }
 
-function MermaidSvgContent(props: { svg: string; className?: string; hostRef?: Ref<HTMLDivElement> }) {
-    return (
-        <div
-            ref={props.hostRef}
-            className={cn('min-w-fit [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full', props.className)}
-            dangerouslySetInnerHTML={{ __html: props.svg }}
-        />
-    )
-}
-
-/** Prefer viewBox layout; use getBBox when Mermaid pads the viewBox (e.g. gitGraph). */
-export function resolveMermaidLightboxFitSize(
-    svgElement: SVGSVGElement | null,
-    svgString: string,
-): { width: number; height: number } | null {
-    const fromViewBox = getMermaidSvgLayoutSize(svgString)
-    if (!svgElement) return fromViewBox
-
-    try {
-        const bbox = svgElement.getBBox()
-        if (bbox.width <= 0 || bbox.height <= 0) return fromViewBox
-        if (!fromViewBox) return { width: bbox.width, height: bbox.height }
-
-        const viewBoxArea = fromViewBox.width * fromViewBox.height
-        const bboxArea = bbox.width * bbox.height
-        if (viewBoxArea > bboxArea * 2) {
-            return { width: bbox.width, height: bbox.height }
-        }
-    } catch {
-        // getBBox unavailable (some test environments)
-    }
-
-    return fromViewBox
-}
-
-/**
- * Shadow root isolates duplicate mermaid ids from the inline diagram in the page.
- *
- * Mermaid emits `width="100%"` on every diagram. Inside a shadow root whose host
- * has no explicit size, that collapses to zero in Chromium for most diagram types
- * (only ones that ship pixel attrs - e.g. `journey` - happen to render). Strip
- * the relative size and bake explicit pixels from the viewBox before injecting,
- * and give the host an inline-block layout so it sizes to the SVG.
- */
-function MermaidLightboxSvg(props: { svg: string }) {
-    const hostRef = useRef<HTMLDivElement>(null)
-
-    useEffect(() => {
-        const host = hostRef.current
-        if (!host) return
-
-        const root = host.shadowRoot ?? host.attachShadow({ mode: 'open' })
-        const normalized = normalizeMermaidSvgForStandaloneDisplay(props.svg)
-        root.innerHTML = [
-            '<style>',
-            ':host{display:inline-block;line-height:0}',
-            'svg{display:block;max-width:none;max-height:none}',
-            '</style>',
-            normalized,
-        ].join('')
-    }, [props.svg])
-
-    return <div ref={hostRef} className="aui-mermaid-lightbox-host" data-mermaid-lightbox />
-}
-
-function readMermaidE2eCaseId(code: string): string | undefined {
-    return code.match(/<!--\s*mermaid-e2e:([\w-]+)\s*-->/i)?.[1]
-}
-
 export function MermaidDiagram(props: SyntaxHighlighterProps) {
-    const { t } = useTranslation()
-    const e2eCaseId = readMermaidE2eCaseId(props.code)
     const [theme, setTheme] = useState<'light' | 'dark'>(() => resolveTheme())
     const [renderError, setRenderError] = useState(false)
     const [svg, setSvg] = useState<string | null>(null)
-    const [lightboxOpen, setLightboxOpen] = useState(false)
-    const [lightboxFitSize, setLightboxFitSize] = useState<{ width: number; height: number } | null>(null)
-    const inlineHostRef = useRef<HTMLDivElement>(null)
+    const [zoomed, setZoomed] = useState(false)
     const id = useId().replace(/:/g, '-')
-    const openLabel = t('mermaid.openFullscreen')
-    const viewerLabel = t('mermaid.viewerTitle')
 
-    const stopEvent = (event: SyntheticEvent) => {
-        event.stopPropagation()
-    }
-
-    const openLightbox = (event: SyntheticEvent) => {
-        event.preventDefault()
-        event.stopPropagation()
-        if (!svg) return
-        const inlineSvg = inlineHostRef.current?.querySelector('svg') ?? null
-        setLightboxFitSize(resolveMermaidLightboxFitSize(inlineSvg, svg))
-        setLightboxOpen(true)
-    }
+    // Close the zoom overlay on Escape. Only attach the listener while open.
+    useEffect(() => {
+        if (!zoomed) return undefined
+        const onKey = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') setZoomed(false)
+        }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+    }, [zoomed])
 
     useEffect(() => {
         if (typeof document === 'undefined') return undefined
@@ -284,14 +163,18 @@ export function MermaidDiagram(props: SyntaxHighlighterProps) {
 
         const render = async () => {
             try {
-                const nextSvg = await renderMermaidSvg(props.code, `mermaid-${id}`, theme)
+                const mermaid = await ensureMermaid(theme)
+                const isValid = await mermaid.parse(props.code, { suppressErrors: true })
                 if (cancelled) return
-                if (!nextSvg) {
+                if (!isValid) {
                     setSvg(null)
                     setRenderError(true)
                     return
                 }
-                setSvg(nextSvg)
+
+                const result = await mermaid.render(`mermaid-${id}`, props.code)
+                if (cancelled) return
+                setSvg(result.svg)
                 setRenderError(false)
             } catch {
                 if (cancelled) return
@@ -307,8 +190,6 @@ export function MermaidDiagram(props: SyntaxHighlighterProps) {
         }
     }, [id, props.code, theme])
 
-    const lightboxLayoutSize = lightboxFitSize ?? (svg ? getMermaidSvgLayoutSize(svg) : null)
-
     if (renderError || !svg) {
         return <MermaidFallback code={props.code} data-mermaid-diagram data-rendered="false" />
     }
@@ -317,33 +198,53 @@ export function MermaidDiagram(props: SyntaxHighlighterProps) {
         <>
             <button
                 type="button"
-                aria-label={openLabel}
-                title={openLabel}
-                onPointerDown={stopEvent}
-                onMouseDown={stopEvent}
-                onTouchStart={stopEvent}
-                onClick={openLightbox}
-                className="aui-mermaid-diagram w-full cursor-zoom-in overflow-x-auto rounded-b-xl bg-[var(--app-code-bg)] px-4 py-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]"
                 data-mermaid-diagram
                 data-rendered="true"
-                data-mermaid-e2e-case={e2eCaseId}
-                data-mermaid-source={encodeURIComponent(props.code)}
+                data-mermaid-zoom-trigger
+                onClick={() => setZoomed(true)}
+                title="Click to enlarge"
+                aria-label="Enlarge diagram"
+                className="aui-mermaid-diagram mt-2 block w-full cursor-zoom-in overflow-x-auto rounded-xl bg-[var(--app-code-bg)] px-4 py-3 text-left"
             >
-                <MermaidSvgContent svg={svg} hostRef={inlineHostRef} />
+                <div
+                    className="min-w-fit [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full"
+                    dangerouslySetInnerHTML={{ __html: svg }}
+                />
             </button>
-
-            <ZoomableLightbox
-                open={lightboxOpen}
-                onClose={() => setLightboxOpen(false)}
-                title={viewerLabel}
-                ariaLabel={viewerLabel}
-                fitContentKey={lightboxOpen ? svg : null}
-                fitContentSize={lightboxLayoutSize}
-            >
-                <div className="rounded-lg bg-[var(--app-code-bg)] px-3 py-3">
-                    <MermaidLightboxSvg svg={svg} />
-                </div>
-            </ZoomableLightbox>
+            {zoomed && typeof document !== 'undefined'
+                ? createPortal(
+                    <div
+                        data-mermaid-zoom-overlay
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Enlarged diagram"
+                        onClick={() => setZoomed(false)}
+                        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+                    >
+                        <button
+                            type="button"
+                            data-mermaid-zoom-close
+                            aria-label="Close"
+                            onClick={() => setZoomed(false)}
+                            className="absolute right-4 top-[max(1rem,env(safe-area-inset-top))] z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-black shadow-md hover:bg-white"
+                        >
+                            <CloseIcon className="h-5 w-5" />
+                        </button>
+                        <div
+                            // Stop propagation so interactions inside the viewer
+                            // (pan / pinch / zoom buttons) don't dismiss the overlay.
+                            // The box is pinned to a definite size: the viewer fills it
+                            // and provides its own pan/zoom, so the mermaid <svg>
+                            // (width="100%") has a stable frame to render and scale in.
+                            onClick={(event) => event.stopPropagation()}
+                            className="relative h-[min(85vh,820px)] w-[min(92vw,1000px)] overflow-hidden rounded-xl bg-[var(--app-code-bg)]"
+                        >
+                            <MermaidZoomViewer svg={svg} />
+                        </div>
+                    </div>,
+                    document.body
+                )
+                : null}
         </>
     )
 }

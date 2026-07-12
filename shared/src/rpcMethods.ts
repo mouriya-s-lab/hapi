@@ -6,15 +6,18 @@ export const RPC_METHODS = {
     KillSession: 'killSession',
     HandoffLocal: 'handoff-local',
     SpawnHappySession: 'spawn-happy-session',
+    ForkSpawnSession: 'fork-spawn-session',
     StopSession: 'stop-session',
     StopRunner: 'stop-runner',
     ListMachineDirectory: 'list-directory',
+    CreateMachineDirectory: 'create-directory',
     PathExists: 'path-exists',
     GitStatus: 'git-status',
     GitDiffNumstat: 'git-diff-numstat',
     GitDiffFile: 'git-diff-file',
     ReadFile: 'readFile',
     ReadGeneratedImage: 'readGeneratedImage',
+    ReadGeneratedFile: 'readGeneratedFile',
     WriteFile: 'writeFile',
     ListDirectory: 'listDirectory',
     GetDirectoryTree: 'getDirectoryTree',
@@ -30,7 +33,9 @@ export const RPC_METHODS = {
     ListPiModels: 'listPiModels',
     ListOpencodeModels: 'listOpencodeModels',
     ListOpencodeModelsForCwd: 'listOpencodeModelsForCwd',
-    ListOpencodeReasoningEffortOptions: 'listOpencodeReasoningEffortOptions'
+    ListOpencodeReasoningEffortOptions: 'listOpencodeReasoningEffortOptions',
+    ListCcSwitchProviders: 'listCcSwitchProviders',
+    ValidateCcSwitchProvider: 'validateCcSwitchProvider'
 } as const
 
 export type RpcMethod = typeof RPC_METHODS[keyof typeof RPC_METHODS]

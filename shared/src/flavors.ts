@@ -17,6 +17,7 @@ const FLAVOR_CAPS: Record<AgentFlavor, ReadonlySet<Capability>> = {
     cursor: new Set([Capabilities.ModelChange]),
     opencode: new Set([Capabilities.ModelChange]),
     pi: new Set([Capabilities.ModelChange, Capabilities.Effort]),
+    omp: new Set([Capabilities.ModelChange]),
 }
 
 // --- Flavor display names ---
@@ -28,6 +29,7 @@ const FLAVOR_LABELS: Record<AgentFlavor, string> = {
     cursor: 'Cursor',
     opencode: 'OpenCode',
     pi: 'Pi',
+    omp: 'Oh My Pi',
 }
 
 // --- Query functions ---
@@ -55,5 +57,5 @@ export function supportsEffort(flavor: string | null | undefined): boolean {
 }
 
 export function isCodexFamilyFlavor(flavor: string | null | undefined): boolean {
-    return flavor === 'codex' || flavor === 'gemini' || flavor === 'kimi' || flavor === 'opencode'
+    return flavor === 'codex' || flavor === 'gemini' || flavor === 'kimi' || flavor === 'opencode' || flavor === 'omp'
 }
