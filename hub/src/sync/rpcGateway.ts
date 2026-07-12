@@ -149,13 +149,14 @@ export class RpcGateway {
         serviceTier?: string,
         claudeLaunch?: ClaudeLaunch,
         importHistory?: boolean,
-        importTranscriptPath?: string
+        importTranscriptPath?: string,
+        approvedNewDirectoryCreation?: boolean
     ): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }> {
         try {
             const result = await this.machineRpc(
                 machineId,
                 RPC_METHODS.SpawnHappySession,
-                { type: 'spawn-in-directory', directory, agent, model, modelReasoningEffort, yolo, sessionType, worktreeName, resumeSessionId, effort, permissionMode, serviceTier, claudeLaunch, importHistory, importTranscriptPath }
+                { type: 'spawn-in-directory', directory, agent, model, modelReasoningEffort, yolo, sessionType, worktreeName, resumeSessionId, effort, permissionMode, serviceTier, claudeLaunch, importHistory, importTranscriptPath, approvedNewDirectoryCreation }
             )
             if (result && typeof result === 'object') {
                 const obj = result as Record<string, unknown>

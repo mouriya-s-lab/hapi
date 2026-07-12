@@ -57,7 +57,7 @@ export function createImportableSessionsRoutes(getSyncEngine: () => SyncEngine |
 
         const spawned = await engine.spawnSession(
             machineId, source.cwd, agent, undefined, undefined, undefined, undefined, undefined,
-            sourceId, undefined, undefined, undefined, undefined, true, resolved.transcriptPath
+            sourceId, undefined, undefined, undefined, undefined, true, resolved.transcriptPath, false
         )
         if (spawned.type === 'error') return c.json({ type: 'error', error: spawned.message } satisfies ImportExistingSessionResponse, 500)
         const active = await engine.waitForSessionActive(spawned.sessionId)

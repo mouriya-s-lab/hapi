@@ -45,6 +45,9 @@ describe('replayImportedTranscript', () => {
             agent: 'claude', session,
             transcriptPath: file([
                 { type: 'file-history-snapshot', snapshot: {} },
+                { type: 'summary', summary: 'internal compact summary', leafUuid: 'summary-leaf' },
+                { type: 'assistant', uuid: 'meta', parentUuid: null, sessionId: 's1', timestamp: new Date().toISOString(), isMeta: true, message: { role: 'assistant', content: [{ type: 'text', text: 'skill injection' }] } },
+                { type: 'assistant', uuid: 'compact', parentUuid: null, sessionId: 's1', timestamp: new Date().toISOString(), isCompactSummary: true, message: { role: 'assistant', content: [{ type: 'text', text: 'compact context' }] } },
                 { type: 'user', uuid: 'command', parentUuid: null, sessionId: 's1', timestamp: new Date().toISOString(), message: { role: 'user', content: '<command-message>review</command-message>' } },
                 { type: 'user', uuid: 'args', parentUuid: 'command', sessionId: 's1', timestamp: new Date().toISOString(), message: { role: 'user', content: '<command-args>--all</command-args>' } },
                 { type: 'user', uuid: 'u1', parentUuid: null, sessionId: 's1', timestamp: new Date().toISOString(), message: { role: 'user', content: 'question' } },

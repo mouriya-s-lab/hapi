@@ -48,6 +48,7 @@ export async function replayImportedTranscript(options: {
                     continue
                 }
                 const message = result.data
+                if (message.type === 'summary' || message.isMeta || message.isCompactSummary) continue
                 if (!isClaudeChatVisibleMessage(message)) continue
                 if (message.type === 'user' && realClaudeUserText(message) === null) continue
                 options.session.sendClaudeSessionMessage(message)

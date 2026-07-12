@@ -764,7 +764,8 @@ export class SyncEngine {
         serviceTier?: string,
         claudeLaunch?: ClaudeLaunch,
         importHistory?: boolean,
-        importTranscriptPath?: string
+        importTranscriptPath?: string,
+        approvedNewDirectoryCreation?: boolean
     ): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }> {
         return await this.rpcGateway.spawnSession(
             machineId,
@@ -781,7 +782,8 @@ export class SyncEngine {
             serviceTier,
             claudeLaunch,
             importHistory,
-            importTranscriptPath
+            importTranscriptPath,
+            approvedNewDirectoryCreation
         )
     }
 

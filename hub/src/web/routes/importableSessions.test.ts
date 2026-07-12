@@ -52,7 +52,7 @@ describe('importable session routes', () => {
         expect(calls).toHaveLength(1)
         expect(calls[0].slice(0, 3)).toEqual(['machine-1', '/work', 'codex'])
         expect(calls[0][8]).toBe('external-1')
-        expect(calls[0].slice(-2)).toEqual([true, '/private/transcript.jsonl'])
+        expect(calls[0].slice(-3)).toEqual([true, '/private/transcript.jsonl', false])
         expect(renamed as unknown).toEqual(['hapi-1', 'Imported title'])
     })
 
