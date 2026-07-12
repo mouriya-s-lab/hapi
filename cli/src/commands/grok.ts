@@ -3,15 +3,14 @@ import { authAndSetupMachineIfNeeded } from '@/ui/auth'
 import { initializeToken } from '@/ui/tokenInit'
 import { maybeAutoStartServer } from '@/utils/autoStartServer'
 import type { CommandDefinition } from './types'
-import { GROK_PERMISSION_MODES } from '@hapi/protocol/modes'
-import { parseRemoteAgentCommandOptions } from './agentCommandOptions'
+import { parseGrokCommandOptions } from '@/grok/commandOptions'
 
 export const grokCommand: CommandDefinition = {
     name: 'grok',
     requiresRuntimeAssets: true,
     run: async ({ commandArgs }) => {
         try {
-            const options = parseRemoteAgentCommandOptions(commandArgs, GROK_PERMISSION_MODES)
+            const options = parseGrokCommandOptions(commandArgs)
 
             await initializeToken()
             await maybeAutoStartServer()

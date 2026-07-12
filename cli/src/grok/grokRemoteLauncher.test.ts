@@ -66,7 +66,7 @@ vi.mock('@/ui/logger', () => ({
     logger: { debug: vi.fn(), warn: vi.fn(), info: vi.fn() }
 }));
 
-import { grokRemoteLauncher } from './grokRemoteLauncher';
+import { getGrokAuthPreference, grokRemoteLauncher } from './grokRemoteLauncher';
 
 function mode(config: Partial<GrokMode> = {}): GrokMode {
     return { permissionMode: 'default', ...config };
@@ -186,5 +186,23 @@ describe('Grok remote session state transitions', () => {
         await grokRemoteLauncher(session as never, { onReasoningEffortRollback: rollback });
         expect(rollback).toHaveBeenCalledWith(null);
         expect(harness.promptCount).toBe(1);
+    });
+
+    it('clears stale effort instead of applying it after switching to Composer', async () => {
+        const rollback = vi.fn();
+        const { session } = createSession([
+            { message: 'one', mode: mode({ modelReasoningEffort: 'medium' }) },
+            { message: 'two', mode: mode({ model: 'grok-composer-2.5-fast', modelReasoningEffort: 'medium' }) }
+        ]);
+        await grokRemoteLauncher(session as never, { onReasoningEffortRollback: rollback });
+        expect(harness.setModeIds).toEqual(['medium']);
+        expect(rollback).toHaveBeenCalledWith(null);
+    });
+});
+
+describe('getGrokAuthPreference', () => {
+    it('prefers cached login unless XAI_API_KEY is present', () => {
+        expect(getGrokAuthPreference({})).toEqual(['cached_token', 'xai.api_key']);
+        expect(getGrokAuthPreference({ XAI_API_KEY: 'configured' })).toEqual(['xai.api_key', 'cached_token']);
     });
 });

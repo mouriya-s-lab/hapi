@@ -13,6 +13,10 @@ import { parseRuntimeConfigRequest, resolveRuntimeConfigRequest } from './runtim
 
 const GROK_DEFAULT_REASONING_EFFORT = 'high';
 
+export function getGrokAuthPreference(env: NodeJS.ProcessEnv): readonly string[] {
+    return env.XAI_API_KEY ? ['xai.api_key', 'cached_token'] : ['cached_token', 'xai.api_key'];
+}
+
 class GrokRemoteLauncher extends RemoteLauncherBase {
     private readonly session: GrokSession;
     private readonly model?: string;
@@ -73,7 +77,7 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
         });
 
         await backend.initialize();
-        await backend.authenticateFirstAvailable(['xai.api_key', 'cached_token']);
+        await backend.authenticateFirstAvailable(getGrokAuthPreference(process.env));
 
         const resumeSessionId = session.sessionId;
         const acpMcpServers = toAcpMcpServers(mcpServers);
@@ -164,7 +168,15 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
             }
 
             const effortRequest = parseRuntimeConfigRequest(batch.mode.modelReasoningEffort);
-            const wireEffort = resolveRuntimeConfigRequest(effortRequest, GROK_DEFAULT_REASONING_EFFORT);
+            const effortSupported = this.currentBackendModel === 'grok-4.5';
+            if (!effortSupported && (this.currentEffort !== null || effortRequest.kind === 'set')) {
+                this.currentEffort = null;
+                batch.mode.modelReasoningEffort = null;
+                this.opts.onReasoningEffortRollback?.(null);
+            }
+            const wireEffort = effortSupported
+                ? resolveRuntimeConfigRequest(effortRequest, GROK_DEFAULT_REASONING_EFFORT)
+                : undefined;
             if (wireEffort != null && (
                 effortRequest.kind === 'reset'
                     ? this.currentEffort !== null

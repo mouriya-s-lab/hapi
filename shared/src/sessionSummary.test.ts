@@ -93,6 +93,20 @@ describe('toSessionSummary', () => {
         expect(summary.metadata?.lifecycleState).toBe('archived')
     })
 
+    it('publishes the flavor-owned Grok identity instead of a stale cross-flavor id', () => {
+        const summary = toSessionSummary(makeSession({
+            metadata: {
+                path: '/proj',
+                host: 'local',
+                flavor: 'grok',
+                grokSessionId: 'grok-session',
+                codexSessionId: 'stale-codex-session'
+            }
+        }))
+
+        expect(summary.metadata?.agentSessionId).toBe('grok-session')
+    })
+
     it('includes structured pendingRequests for hover-tooltip copy', () => {
         const summary = toSessionSummary(makeSession({
             updatedAt: 5000,
