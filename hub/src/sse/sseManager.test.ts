@@ -3,7 +3,7 @@ import { SSEManager } from './sseManager'
 import type { SyncEvent } from '../sync/syncEngine'
 import { VisibilityTracker } from '../visibility/visibilityTracker'
 
-const accessDeps = { listReadableAccountIds: () => new Set([1]) }
+const accessDeps = { listReadableAccountIds: () => new Set([1]), isAccountActive: () => true }
 
 describe('SSEManager namespace filtering', () => {
     it('routes events to matching namespace', () => {
@@ -75,9 +75,23 @@ describe('SSEManager namespace filtering', () => {
         expect(received.map((entry) => entry.id).sort()).toEqual(['alpha', 'beta'])
     })
 
+    it('stops delivery after an account is disabled', () => {
+        let active = true
+        const manager = new SSEManager(0, new VisibilityTracker(), {
+            listReadableAccountIds: () => new Set([1]), isAccountActive: () => active
+        })
+        const received: SyncEvent[] = []
+        manager.subscribe({ id: 'user', namespace: 'alpha', accountId: 1, role: 'user', all: true,
+            send: (event) => { received.push(event) }, sendHeartbeat: () => {} })
+        active = false
+        manager.broadcast({ type: 'session-updated', sessionId: 's1', namespace: 'alpha' })
+        expect(received).toHaveLength(0)
+    })
+
     it('sends session removal only to admins and accounts that could read the session', () => {
         const manager = new SSEManager(0, new VisibilityTracker(), {
-            listReadableAccountIds: () => new Set([1])
+            listReadableAccountIds: () => new Set([1]),
+            isAccountActive: () => true
         })
         const received: string[] = []
         for (const [id, accountId, role] of [

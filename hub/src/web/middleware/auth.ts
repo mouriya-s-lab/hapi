@@ -8,6 +8,7 @@ export type WebAppEnv = {
         namespace: string
         accountId: number
         role: 'admin' | 'user'
+        authSource: 'password' | 'api' | 'legacy' | 'telegram' | 'unknown'
     }
 }
 
@@ -15,7 +16,8 @@ const jwtPayloadSchema = z.object({
     uid: z.number(),
     ns: z.string(),
     aid: z.number().optional(),
-    role: z.enum(['admin', 'user']).optional()
+    role: z.enum(['admin', 'user']).optional(),
+    src: z.enum(['password', 'api', 'legacy', 'telegram']).optional()
 })
 
 export function createAuthMiddleware(jwtSecret: Uint8Array): MiddlewareHandler<WebAppEnv> {
@@ -50,6 +52,7 @@ export function createAuthMiddleware(jwtSecret: Uint8Array): MiddlewareHandler<W
             // privileged role so an old token can't silently act as admin.
             c.set('accountId', parsed.data.aid ?? parsed.data.uid)
             c.set('role', parsed.data.role ?? 'user')
+            c.set('authSource', parsed.data.src ?? 'unknown')
             await next()
             return
         } catch {

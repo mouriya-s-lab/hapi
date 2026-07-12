@@ -118,7 +118,8 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
         socket.emit('error', { message, code: reason, scope, id })
     }
 
-    registerRpcHandlers(socket, rpcRegistry)
+    registerRpcHandlers(socket, rpcRegistry, (resourceId) =>
+        resolveSessionAccess(resourceId).ok || resolveMachineAccess(resourceId).ok)
     registerSessionHandlers(socket, {
         store,
         resolveSessionAccess,

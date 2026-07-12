@@ -15,7 +15,7 @@ const JWT_SECRET = new TextEncoder().encode('test-secret-key-for-management-rout
 const LEGACY_TOKEN = 'mgmt-test-shared-token'
 
 async function makeJwt(accountId: number, role: AccountRole, namespace = 'default'): Promise<string> {
-    return await new SignJWT({ uid: accountId, aid: accountId, role, ns: namespace })
+    return await new SignJWT({ uid: accountId, aid: accountId, role, ns: namespace, src: 'password' })
         .setProtectedHeader({ alg: 'HS256' })
         .setIssuedAt()
         .setExpirationTime('1h')
@@ -96,6 +96,15 @@ describe('admin account management', () => {
 })
 
 describe('password login', () => {
+    it('does not refresh a JWT minted from an API token', async () => {
+        const account = store.accounts.create({ username: 'api-session', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+        const token = await new SignJWT({ uid: account.id, aid: account.id, role: 'user', ns: 'default', src: 'api' })
+            .setProtectedHeader({ alg: 'HS256' }).setIssuedAt().setExpirationTime('1h').sign(JWT_SECRET)
+        const response = await makeApp(store).request('/api/auth/refresh', {
+            method: 'POST', headers: { authorization: `Bearer ${token}` }
+        })
+        expect(response.status).toBe(401)
+    })
     it('issues a JWT for valid credentials and rejects bad ones', async () => {
         const app = makeApp(store)
         const adminJwt = await makeJwt(adminId, 'admin')

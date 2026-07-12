@@ -118,7 +118,8 @@ describe('multi-user SSE isolation', () => {
             role: 'viewer'
         })
         const manager = new SSEManager(0, new VisibilityTracker(), {
-            listReadableAccountIds: (type, id) => listReadableAccountIds(fixture.store, type, id)
+            listReadableAccountIds: (type, id) => listReadableAccountIds(fixture.store, type, id),
+            isAccountActive: (accountId) => fixture.store.accounts.getById(accountId)?.disabledAt === null
         })
         const subscribe = (accountId: number, role: 'admin' | 'user') => {
             const events: SyncEvent[] = []

@@ -34,12 +34,16 @@ export function bootstrapMultiUser(store: Store, legacyToken: string): Bootstrap
     let createdAdmin = false
 
     const existingByName = store.accounts.getByUsername(BOOTSTRAP_ADMIN_USERNAME)
-    if (existingByName) {
+    if (existingByName?.role === 'admin' && existingByName.disabledAt === null) {
         adminId = existingByName.id
     } else {
-        const anyAdmin = store.accounts.list().find((a) => a.role === 'admin')
+        const anyAdmin = store.accounts.list().find((a) => a.role === 'admin' && a.disabledAt === null)
         if (anyAdmin) {
             adminId = anyAdmin.id
+        } else if (existingByName) {
+            store.accounts.setRole(existingByName.id, 'admin')
+            store.accounts.setDisabled(existingByName.id, false)
+            adminId = existingByName.id
         }
     }
 

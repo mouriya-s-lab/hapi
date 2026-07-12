@@ -19,6 +19,7 @@ type SSEConnection = SSESubscription & {
 
 export type SSEAccessDeps = {
     listReadableAccountIds: (resourceType: 'session' | 'machine', resourceId: string) => Set<number>
+    isAccountActive: (accountId: number) => boolean
 }
 
 type EventResource = { type: 'session' | 'machine'; id: string } | null
@@ -172,6 +173,7 @@ export class SSEManager {
         }
         let audience: Set<number> | null = audienceOverride ?? null
         return (connection) => {
+            if (!this.accessDeps.isAccountActive(connection.accountId)) return false
             if (connection.role === 'admin') {
                 return true
             }

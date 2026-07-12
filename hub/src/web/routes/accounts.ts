@@ -48,13 +48,16 @@ export function createAccountRoutes(store: Store, jwtSecret: Uint8Array): Hono<W
     // refreshes its short-lived JWT here. Re-validates the account still exists
     // and is enabled, so disabling an account takes effect within one TTL.
     app.post('/auth/refresh', async (c) => {
+        if (c.get('authSource') !== 'password' && c.get('authSource') !== 'telegram') {
+            return c.json({ error: 'Session is not refreshable' }, 401)
+        }
         const accountId = c.get('accountId')
         const account = store.accounts.getById(accountId)
         if (!account || account.disabledAt !== null) {
             return c.json({ error: 'Account unavailable' }, 401)
         }
         const namespace = c.get('namespace') ?? account.defaultNamespace
-        const token = await new SignJWT({ uid: account.id, aid: account.id, role: account.role, ns: namespace })
+        const token = await new SignJWT({ uid: account.id, aid: account.id, role: account.role, ns: namespace, src: c.get('authSource') })
             .setProtectedHeader({ alg: 'HS256' })
             .setIssuedAt()
             .setExpirationTime('1h')

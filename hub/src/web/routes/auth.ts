@@ -25,13 +25,14 @@ type LoginFailure = {
 
 async function signSessionJwt(
     jwtSecret: Uint8Array,
-    params: { userId: number; accountId: number; role: AccountRole; namespace: string }
+    params: { userId: number; accountId: number; role: AccountRole; namespace: string; source: 'password' | 'api' | 'legacy' | 'telegram' }
 ): Promise<string> {
     return await new SignJWT({
         uid: params.userId,
         aid: params.accountId,
         role: params.role,
-        ns: params.namespace
+        ns: params.namespace,
+        src: params.source
     })
         .setProtectedHeader({ alg: 'HS256' })
         .setIssuedAt()
@@ -83,7 +84,8 @@ export function createAuthRoutes(jwtSecret: Uint8Array, store: Store): Hono<WebA
                 userId: account.id,
                 accountId: account.id,
                 role: account.role,
-                namespace: account.defaultNamespace
+                namespace: account.defaultNamespace,
+                source: 'password'
             })
             return c.json({
                 token,
@@ -103,7 +105,8 @@ export function createAuthRoutes(jwtSecret: Uint8Array, store: Store): Hono<WebA
                 userId: ownerId,
                 accountId: resolved.accountId,
                 role: resolved.role,
-                namespace: resolved.namespace
+                namespace: resolved.namespace,
+                source: resolved.tokenId === null ? 'legacy' : 'api'
             })
             return c.json({
                 token,
@@ -146,7 +149,8 @@ export function createAuthRoutes(jwtSecret: Uint8Array, store: Store): Hono<WebA
             userId: ownerId,
             accountId: account.id,
             role,
-            namespace: storedUser.namespace
+            namespace: storedUser.namespace,
+            source: 'telegram'
         })
 
         return c.json({

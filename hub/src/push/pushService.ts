@@ -38,7 +38,9 @@ export class PushService {
 
     async sendToNamespace(namespace: string, payload: PushPayload, allowedAccountIds: ReadonlySet<number>): Promise<void> {
         const subscriptions = this.store.push.getPushSubscriptionsByNamespace(namespace)
-            .filter((subscription) => subscription.accountId !== null && allowedAccountIds.has(subscription.accountId))
+            .filter((subscription) => subscription.accountId !== null
+                && allowedAccountIds.has(subscription.accountId)
+                && this.store.accounts.getById(subscription.accountId)?.disabledAt === null)
         if (subscriptions.length === 0) {
             return
         }

@@ -10,13 +10,14 @@ const rpcUnregisterSchema = z.object({
     method: z.string().min(1)
 })
 
-export function registerRpcHandlers(socket: CliSocketWithData, rpcRegistry: RpcRegistry): void {
+export function registerRpcHandlers(socket: CliSocketWithData, rpcRegistry: RpcRegistry, canRegister: (resourceId: string) => boolean): void {
     socket.on('rpc-register', (data: unknown) => {
         const parsed = rpcRegisterSchema.safeParse(data)
         if (!parsed.success) {
             return
         }
-        rpcRegistry.register(socket, parsed.data.method)
+        const resourceId = parsed.data.method.split(':', 1)[0]
+        if (resourceId && canRegister(resourceId)) rpcRegistry.register(socket, parsed.data.method)
     })
 
     socket.on('rpc-unregister', (data: unknown) => {

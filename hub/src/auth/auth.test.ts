@@ -16,6 +16,15 @@ function makeDeps(store: Store, legacyAdminId: number | null): AuthResolverDeps 
 }
 
 describe('bootstrapMultiUser', () => {
+    it('maps the legacy token to an active admin after the named admin was disabled', () => {
+        const store = new Store(':memory:')
+        const named = store.accounts.create({ username: 'admin', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+        store.accounts.setDisabled(named.id, true)
+        const active = store.accounts.create({ username: 'active-admin', passwordHash: null, role: 'admin', defaultNamespace: 'default' })
+        const boot = bootstrapMultiUser(store, 'legacy')
+        expect(boot.legacyAdminAccountId).toBe(active.id)
+        store.close()
+    })
     it('creates an admin, keeps the legacy token out of api_tokens, and backfills ownership', () => {
         const store = new Store(':memory:')
         try {

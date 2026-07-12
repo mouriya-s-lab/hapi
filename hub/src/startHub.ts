@@ -188,7 +188,8 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
 
     visibilityTracker = new VisibilityTracker()
     sseManager = new SSEManager(30_000, visibilityTracker, {
-        listReadableAccountIds: (resourceType, resourceId) => listReadableAccountIds(store, resourceType, resourceId)
+        listReadableAccountIds: (resourceType, resourceId) => listReadableAccountIds(store, resourceType, resourceId),
+        isAccountActive: (accountId) => store.accounts.getById(accountId)?.disabledAt === null
     })
 
     const socketServer = createSocketServer({

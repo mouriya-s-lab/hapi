@@ -151,7 +151,7 @@ export class HappyBot implements NotificationChannel {
                 canOperateSession: (sessionId) => {
                     const session = this.store.sessions.getSessionByNamespace(sessionId, binding.namespace)
                     const account = this.store.accounts.getById(binding.accountId as number)
-                    if (!session || !account) return false
+                    if (!session || !account || account.disabledAt !== null) return false
                     return canOperate(resolveAccessLevel({
                         store: this.store, accountId: account.id, role: account.role,
                         resourceType: 'session', resourceId: sessionId, ownerAccountId: session.ownerAccountId
@@ -181,7 +181,9 @@ export class HappyBot implements NotificationChannel {
         const ids = new Set<number>()
         for (const user of users) {
             const chatId = Number(user.platformUserId)
-            if (user.accountId !== null && audience.has(user.accountId) && Number.isFinite(chatId)) {
+            const accountId = user.accountId ?? listActiveAdminAccountIds(this.store)[0] ?? null
+            const account = accountId === null ? null : this.store.accounts.getById(accountId)
+            if (account && account.disabledAt === null && audience.has(account.id) && Number.isFinite(chatId)) {
                 ids.add(chatId)
             }
         }
