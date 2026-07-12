@@ -80,8 +80,9 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
     if (options.importHistory) {
         if (!options.importTranscriptPath) throw new Error('Import history requires a transcript path')
         if (!options.resumeSessionId) throw new Error('Import history requires a Claude session ID')
-        session.updateMetadata((metadata) => ({ ...metadata, claudeSessionId: options.resumeSessionId }))
+        session.updateMetadata((metadata) => ({ ...metadata, claudeSessionId: options.resumeSessionId, importHistoryState: 'replaying' }))
         await replayImportedTranscript({ agent: 'claude', transcriptPath: options.importTranscriptPath, session })
+        session.updateMetadata((metadata) => ({ ...metadata, importHistoryState: 'complete' }))
     }
 
     // Extract SDK metadata in background and update session when ready

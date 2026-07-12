@@ -1564,6 +1564,15 @@ export class SyncEngine {
         return false
     }
 
+    async waitForImportHistoryComplete(sessionId: string): Promise<'complete' | 'ended'> {
+        while (true) {
+            const session = this.getSession(sessionId)
+            if (session?.metadata?.importHistoryState === 'complete') return 'complete'
+            if (session && !session.active) return 'ended'
+            await new Promise((resolve) => setTimeout(resolve, 250))
+        }
+    }
+
     async waitForSessionReady(sessionId: string, timeoutMs: number = 60_000): Promise<'ready' | 'ended' | 'timeout'> {
         const start = Date.now()
         while (Date.now() - start < timeoutMs) {

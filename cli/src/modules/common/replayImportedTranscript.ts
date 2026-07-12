@@ -5,7 +5,7 @@ import { RawJSONLinesSchema } from '@/claude/types'
 import { isClaudeChatVisibleMessage } from '@/claude/utils/chatVisibility'
 import { convertCodexEvent, type CodexSessionEvent } from '@/codex/utils/codexEventConverter'
 import type { ImportableSessionAgent } from '@hapi/protocol/apiTypes'
-import { realClaudeUserText } from './importableSessions'
+import { isSyntheticCodexUserText, realClaudeUserText } from './importableSessions'
 
 function hasClaudeToolResult(message: { message?: { content: unknown } }): boolean {
     return Array.isArray(message.message?.content) && message.message.content.some((block) => (
@@ -79,8 +79,10 @@ export async function replayImportedTranscript(options: {
             const converted = convertCodexEvent(event)
             if (converted?.sessionId) options.session.updateMetadata((metadata) => ({ ...metadata, codexSessionId: converted.sessionId }))
             if (converted?.userMessage) {
-                options.session.sendUserMessage(converted.userMessage)
-                imported += 1
+                if (!isSyntheticCodexUserText(converted.userMessage)) {
+                    options.session.sendUserMessage(converted.userMessage)
+                    imported += 1
+                }
             }
             if (converted?.message) {
                 options.session.sendAgentMessage(converted.message)

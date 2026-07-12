@@ -1,4 +1,5 @@
 import { createReadStream } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
@@ -10,6 +11,8 @@ type JsonRecord = Record<string, unknown>
 const SCAN_WINDOW_SIZE = 50
 const listedSessions = new Map<string, ImportableSessionSummary>()
 const listedSessionPaths = new Map<string, string>()
+type FileSnapshot = { id: string; root: string; files: Array<{ path: string; modifiedAt: number }> }
+const activeFileSnapshots = new Map<ImportableSessionAgent, FileSnapshot>()
 
 function sessionKey(agent: ImportableSessionAgent, externalSessionId: string): string {
     return `${agent}:${externalSessionId}`
@@ -112,8 +115,12 @@ function codexUserText(value: JsonRecord): string | null {
     const payload = record(value.payload)
     if (payload?.type !== 'message' || payload.role !== 'user') return null
     const valueText = text(payload.content).trim()
-    if (!valueText || /^<(user_instructions|environment_context|user_action)>/.test(valueText)) return null
+    if (!valueText || isSyntheticCodexUserText(valueText)) return null
     return valueText
+}
+
+export function isSyntheticCodexUserText(value: string): boolean {
+    return /^<(user_instructions|environment_context|user_action)>/.test(value.trimStart())
 }
 
 function legacyCodexUserText(value: JsonRecord): string | null {
@@ -121,7 +128,7 @@ function legacyCodexUserText(value: JsonRecord): string | null {
     const payload = record(value.payload)
     if (payload?.type !== 'user_message') return null
     const valueText = text(payload.message ?? payload.text ?? payload.content).trim()
-    if (!valueText || /^<(user_instructions|environment_context|user_action)>/.test(valueText)) return null
+    if (!valueText || isSyntheticCodexUserText(valueText)) return null
     return valueText
 }
 
@@ -186,15 +193,26 @@ export async function listImportableSessions(request: ListImportableSessionsRequ
     const root = agent === 'claude'
         ? join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'projects')
         : join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'sessions')
-    const files = await collectJsonlFiles(root)
-    const filesByRecency: Array<{ path: string; modifiedAt: number }> = []
-    for (const path of files) {
-        filesByRecency.push({ path, modifiedAt: (await stat(path)).mtimeMs })
+    let snapshot: FileSnapshot
+    let offset: number
+    if (request.cursor === undefined) {
+        const files = await collectJsonlFiles(root)
+        const filesByRecency: Array<{ path: string; modifiedAt: number }> = []
+        for (const path of files) filesByRecency.push({ path, modifiedAt: (await stat(path)).mtimeMs })
+        filesByRecency.sort((left, right) => right.modifiedAt - left.modifiedAt)
+        snapshot = { id: randomUUID(), root, files: filesByRecency }
+        activeFileSnapshots.set(agent, snapshot)
+        offset = 0
+    } else {
+        const separator = request.cursor.lastIndexOf(':')
+        const snapshotId = request.cursor.slice(0, separator)
+        offset = Number.parseInt(request.cursor.slice(separator + 1), 10)
+        const active = activeFileSnapshots.get(agent)
+        if (!active || active.id !== snapshotId || active.root !== root) throw new Error('Expired importable session cursor')
+        snapshot = active
     }
-    filesByRecency.sort((left, right) => right.modifiedAt - left.modifiedAt)
-    const offset = request.cursor === undefined ? 0 : Number.parseInt(request.cursor, 10)
     if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid importable session cursor')
-    const window = filesByRecency.slice(offset, offset + SCAN_WINDOW_SIZE)
+    const window = snapshot.files.slice(offset, offset + SCAN_WINDOW_SIZE)
     const sessions: ImportableSessionSummary[] = []
     for (const { path } of window) {
         let summary: ImportableSessionSummary | null
@@ -212,7 +230,7 @@ export async function listImportableSessions(request: ListImportableSessionsRequ
     }
     sessions.sort((left, right) => right.timestamp - left.timestamp)
     const nextOffset = offset + window.length
-    return { sessions, nextCursor: nextOffset < filesByRecency.length ? String(nextOffset) : null }
+    return { sessions, nextCursor: nextOffset < snapshot.files.length ? `${snapshot.id}:${nextOffset}` : null }
 }
 
 export function resolveImportableSession(agent: ImportableSessionAgent, externalSessionId: string): ImportableSessionSummary | null {

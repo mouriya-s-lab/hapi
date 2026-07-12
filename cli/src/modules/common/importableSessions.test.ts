@@ -87,4 +87,26 @@ describe('streaming importable session index', () => {
             expect.objectContaining({ externalSessionId: 'valid' })
         ])
     })
+
+    it('reuses a stable file snapshot across cursor pages', async () => {
+        const root = setup()
+        for (let index = 0; index < 51; index += 1) {
+            transcript(join(root, `codex/sessions/${index}.jsonl`), [
+                { type: 'session_meta', payload: { id: `session-${index}`, cwd: '/work' } },
+                { type: 'event_msg', payload: { type: 'user_message', message: `question ${index}` } }
+            ])
+        }
+        const first = await listImportableSessions({ agent: 'codex' })
+        expect(first.sessions).toHaveLength(50)
+        expect(first.nextCursor).not.toBeNull()
+
+        transcript(join(root, 'codex/sessions/added-after-page-one.jsonl'), [
+            { type: 'session_meta', payload: { id: 'added-later', cwd: '/work' } },
+            { type: 'event_msg', payload: { type: 'user_message', message: 'later' } }
+        ])
+        const second = await listImportableSessions({ agent: 'codex', cursor: first.nextCursor! })
+        expect(second.sessions).toHaveLength(1)
+        expect(second.sessions[0].externalSessionId).not.toBe('added-later')
+        expect(second.nextCursor).toBeNull()
+    })
 })
