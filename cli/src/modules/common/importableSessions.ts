@@ -6,6 +6,8 @@ import { basename, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { ImportableSessionAgent, ImportableSessionSummary, ListImportableSessionsRequest, ListImportableSessionsResponse } from '@hapi/protocol/apiTypes'
 import { logger } from '@/ui/logger'
+import { RawJSONLinesSchema, type RawJSONLines } from '@/claude/types'
+import { isClaudeChatVisibleMessage } from '@/claude/utils/chatVisibility'
 
 type JsonRecord = Record<string, unknown>
 const SCAN_WINDOW_SIZE = 50
@@ -79,6 +81,26 @@ export function realClaudeUserText(input: unknown): string | null {
     return valueText
 }
 
+function hasClaudeToolResult(message: Extract<RawJSONLines, { type: 'user' }>): boolean {
+    return Array.isArray(message.message.content) && message.message.content.some((block) => (
+        block !== null && typeof block === 'object' && !Array.isArray(block)
+        && (block as Record<string, unknown>).type === 'tool_result'
+    ))
+}
+
+export function replayableClaudeMessage(input: unknown): RawJSONLines | null {
+    const parsed = RawJSONLinesSchema.safeParse(input)
+    if (!parsed.success) return null
+    const message = parsed.data
+    if (message.type === 'summary' || message.isMeta || message.isCompactSummary) return null
+    if (!isClaudeChatVisibleMessage(message)) return null
+    if (message.type === 'user') {
+        if (message.isSidechain) return null
+        if (!hasClaudeToolResult(message) && realClaudeUserText(message) === null) return null
+    }
+    return message
+}
+
 async function scanClaude(path: string): Promise<ImportableSessionSummary | null> {
     const externalSessionId = basename(path, '.jsonl')
     let cwd: string | null = null
@@ -91,10 +113,9 @@ async function scanClaude(path: string): Promise<ImportableSessionSummary | null
         if (!cwd && typeof value.cwd === 'string') cwd = value.cwd
         if (!cliVersion && typeof value.version === 'string') cliVersion = value.version
         if (value.type === 'ai-title' && typeof value.title === 'string') title = preview(value.title)
-        if (value.type === 'assistant') visibleMessages += 1
+        if (replayableClaudeMessage(value)) visibleMessages += 1
         const userText = realClaudeUserText(value)
         if (userText) {
-            visibleMessages += 1
             firstPrompt ??= preview(userText)
             lastPrompt = preview(userText)
         }

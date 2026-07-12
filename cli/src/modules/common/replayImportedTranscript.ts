@@ -2,17 +2,9 @@ import { createReadStream } from 'node:fs'
 import { createInterface } from 'node:readline'
 import type { ApiSessionClient } from '@/api/apiSession'
 import { RawJSONLinesSchema } from '@/claude/types'
-import { isClaudeChatVisibleMessage } from '@/claude/utils/chatVisibility'
 import { convertCodexEvent, type CodexSessionEvent } from '@/codex/utils/codexEventConverter'
 import type { ImportableSessionAgent } from '@hapi/protocol/apiTypes'
-import { isSyntheticCodexUserText, realClaudeUserText } from './importableSessions'
-
-function hasClaudeToolResult(message: { message?: { content: unknown } }): boolean {
-    return Array.isArray(message.message?.content) && message.message.content.some((block) => (
-        block !== null && typeof block === 'object' && !Array.isArray(block)
-        && (block as Record<string, unknown>).type === 'tool_result'
-    ))
-}
+import { isSyntheticCodexUserText, replayableClaudeMessage } from './importableSessions'
 
 async function hasModernCodexChat(transcriptPath: string): Promise<boolean> {
     const input = createReadStream(transcriptPath, { encoding: 'utf8' })
@@ -59,13 +51,8 @@ export async function replayImportedTranscript(options: {
                     if (raw?.type === 'user' || raw?.type === 'assistant' || raw?.type === 'system') throw result.error
                     continue
                 }
-                const message = result.data
-                if (message.type === 'summary' || message.isMeta || message.isCompactSummary) continue
-                if (!isClaudeChatVisibleMessage(message)) continue
-                if (message.type === 'user') {
-                    if (message.isSidechain) continue
-                    if (!hasClaudeToolResult(message) && realClaudeUserText(message) === null) continue
-                }
+                const message = replayableClaudeMessage(result.data)
+                if (!message) continue
                 options.session.sendClaudeSessionMessage(message)
                 imported += 1
                 continue

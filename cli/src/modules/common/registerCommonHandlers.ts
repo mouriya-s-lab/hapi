@@ -13,10 +13,10 @@ import { registerSlashCommandHandlers } from './handlers/slashCommands'
 import { registerSkillsHandlers } from './handlers/skills'
 import { registerUploadHandlers } from './handlers/uploads'
 
-export function registerCommonHandlers(rpcHandlerManager: RpcHandlerManager, workingDirectory: string): void {
+export function registerCommonHandlers(rpcHandlerManager: RpcHandlerManager, workingDirectory: string, allowsImportCwd?: (cwd: string) => Promise<boolean>): void {
     registerBashHandlers(rpcHandlerManager, workingDirectory)
     registerCodexModelHandlers(rpcHandlerManager)
-    registerImportableSessionHandlers(rpcHandlerManager)
+    registerImportableSessionHandlers(rpcHandlerManager, allowsImportCwd)
     registerCursorModelHandlers(rpcHandlerManager)
     registerOpencodeModelHandlers(rpcHandlerManager)
     registerFileHandlers(rpcHandlerManager, workingDirectory)

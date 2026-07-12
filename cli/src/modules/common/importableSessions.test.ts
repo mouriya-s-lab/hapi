@@ -33,8 +33,11 @@ describe('streaming importable session index', () => {
     it('indexes Claude and Codex transcripts without returning local paths', async () => {
         const root = setup()
         transcript(join(root, 'claude/projects/p/claude-id.jsonl'), [
-            { type: 'user', cwd: '/work/claude', version: '2', message: { content: 'question' } },
-            { type: 'assistant', message: { content: [{ type: 'text', text: 'answer' }] } }
+            { type: 'user', uuid: 'u1', cwd: '/work/claude', version: '2', message: { content: 'question' } },
+            { type: 'assistant', uuid: 'a1', message: { content: [{ type: 'text', text: 'answer' }] } },
+            { type: 'assistant', uuid: 'meta', isMeta: true, message: { content: [{ type: 'text', text: 'internal' }] } },
+            { type: 'user', uuid: 'command', message: { content: '<command-message>review</command-message>' } },
+            { type: 'user', uuid: 'result', message: { content: [{ type: 'tool_result', tool_use_id: 'tool-1', content: 'result' }] } }
         ])
         transcript(join(root, 'codex/sessions/2026/07/12/rollout.jsonl'), [
             { type: 'session_meta', payload: { id: 'codex-id', cwd: '/work/codex', cli_version: '1' } },
@@ -46,7 +49,7 @@ describe('streaming importable session index', () => {
         const claude = (await listImportableSessions({ agent: 'claude' })).sessions
         const codex = (await listImportableSessions({ agent: 'codex' })).sessions
         expect(claude).toHaveLength(1)
-        expect(claude[0]).toMatchObject({ externalSessionId: 'claude-id', cwd: '/work/claude', messageCount: 2 })
+        expect(claude[0]).toMatchObject({ externalSessionId: 'claude-id', cwd: '/work/claude', messageCount: 3 })
         expect(codex).toHaveLength(1)
         expect(codex[0]).toMatchObject({ externalSessionId: 'codex-id', cwd: '/work/codex', previewPrompt: 'codex question', messageCount: 2 })
         expect(JSON.stringify([...claude, ...codex])).not.toContain(root)

@@ -132,4 +132,24 @@ describe('importable session routes', () => {
         const imported = await app(engine).request('/api/machines/machine-1/importable-sessions/codex/external-1/import', { method: 'POST' })
         expect(imported.status).toBe(200)
     })
+
+    it('serializes concurrent imports of the same provider session', async () => {
+        let completed = false
+        let spawnCount = 0
+        const engine = fakeEngine({
+            getSessionsByNamespace: () => completed
+                ? [{ id: 'hapi-1', metadata: { flavor: 'codex', codexSessionId: 'external-1', importHistoryState: 'complete' } }] as never
+                : [],
+            spawnSession: async () => { spawnCount += 1; return { type: 'success', sessionId: 'hapi-1' } },
+            renameSession: async () => { completed = true }
+        } as Partial<SyncEngine>)
+        const testApp = app(engine)
+        const [first, second] = await Promise.all([
+            testApp.request('/api/machines/machine-1/importable-sessions/codex/external-1/import', { method: 'POST' }),
+            testApp.request('/api/machines/machine-1/importable-sessions/codex/external-1/import', { method: 'POST' })
+        ])
+        expect(spawnCount).toBe(1)
+        expect(await first.json()).toEqual({ type: 'success', sessionId: 'hapi-1', alreadyImported: false })
+        expect(await second.json()).toEqual({ type: 'success', sessionId: 'hapi-1', alreadyImported: true })
+    })
 })

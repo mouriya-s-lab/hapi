@@ -33,6 +33,7 @@ function externalSessionId(metadata: NonNullable<ReturnType<SyncEngine['getSessi
 
 export function createImportableSessionsRoutes(getSyncEngine: () => SyncEngine | null): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
+    const importLocks = new Map<string, Promise<void>>()
 
     app.get('/machines/:id/importable-sessions', async (c) => {
         const engine = getSyncEngine()
@@ -67,35 +68,47 @@ export function createImportableSessionsRoutes(getSyncEngine: () => SyncEngine |
         const agent = parsed.data
         const sourceId = c.req.param('externalSessionId')
         const namespace = c.get('namespace')
-        const duplicate = engine.getSessionsByNamespace(namespace).find((candidate) => candidate.metadata && externalSessionId(candidate.metadata, agent) === sourceId)
-        if (duplicate) {
-            if (duplicate.metadata?.importHistoryState !== 'replaying') {
-                return c.json({ type: 'success', sessionId: duplicate.id, alreadyImported: true } satisfies ImportExistingSessionResponse)
+        const lockKey = `${namespace}:${machineId}:${agent}:${sourceId}`
+        const previous = importLocks.get(lockKey) ?? Promise.resolve()
+        let release!: () => void
+        const gate = new Promise<void>((resolve) => { release = resolve })
+        const queued = previous.then(() => gate)
+        importLocks.set(lockKey, queued)
+        await previous
+        try {
+            const duplicate = engine.getSessionsByNamespace(namespace).find((candidate) => candidate.metadata && externalSessionId(candidate.metadata, agent) === sourceId)
+            if (duplicate) {
+                if (duplicate.metadata?.importHistoryState !== 'replaying') {
+                    return c.json({ type: 'success', sessionId: duplicate.id, alreadyImported: true } satisfies ImportExistingSessionResponse)
+                }
+                const importState = await engine.waitForImportHistoryComplete(duplicate.id)
+                if (importState === 'complete') {
+                    return c.json({ type: 'success', sessionId: duplicate.id, alreadyImported: true } satisfies ImportExistingSessionResponse)
+                }
+                await engine.archiveSession(duplicate.id)
             }
-            const importState = await engine.waitForImportHistoryComplete(duplicate.id)
-            if (importState === 'complete') {
-                return c.json({ type: 'success', sessionId: duplicate.id, alreadyImported: true } satisfies ImportExistingSessionResponse)
-            }
-            await engine.archiveSession(duplicate.id)
+
+            const resolved = await engine.resolveImportableSessionForMachine(machineId, agent, sourceId)
+            if (resolved.type === 'error') return c.json({ type: 'error', error: resolved.error } satisfies ImportExistingSessionResponse, 404)
+            const source = resolved.session
+            if (!source.cwd) return c.json({ type: 'error', error: 'Importable session has no working directory' } satisfies ImportExistingSessionResponse, 409)
+            if (!machineAllowsCwd(machine, source.cwd)) return c.json({ type: 'error', error: 'Importable session is outside configured workspace roots' } satisfies ImportExistingSessionResponse, 403)
+
+            const spawned = await engine.spawnSession(
+                machineId, source.cwd, agent, undefined, undefined, undefined, undefined, undefined,
+                sourceId, undefined, undefined, undefined, undefined, true, resolved.transcriptPath, false
+            )
+            if (spawned.type === 'error') return c.json({ type: 'error', error: spawned.message } satisfies ImportExistingSessionResponse, 500)
+            const active = await engine.waitForSessionActive(spawned.sessionId)
+            if (!active) return c.json({ type: 'error', error: 'Imported session did not become active' } satisfies ImportExistingSessionResponse, 500)
+            const importState = await engine.waitForImportHistoryComplete(spawned.sessionId)
+            if (importState !== 'complete') return c.json({ type: 'error', error: 'Imported session ended before history replay completed' } satisfies ImportExistingSessionResponse, 500)
+            await engine.renameSession(spawned.sessionId, source.previewTitle)
+            return c.json({ type: 'success', sessionId: spawned.sessionId, alreadyImported: false } satisfies ImportExistingSessionResponse)
+        } finally {
+            release()
+            if (importLocks.get(lockKey) === queued) importLocks.delete(lockKey)
         }
-
-        const resolved = await engine.resolveImportableSessionForMachine(machineId, agent, sourceId)
-        if (resolved.type === 'error') return c.json({ type: 'error', error: resolved.error } satisfies ImportExistingSessionResponse, 404)
-        const source = resolved.session
-        if (!source.cwd) return c.json({ type: 'error', error: 'Importable session has no working directory' } satisfies ImportExistingSessionResponse, 409)
-        if (!machineAllowsCwd(machine, source.cwd)) return c.json({ type: 'error', error: 'Importable session is outside configured workspace roots' } satisfies ImportExistingSessionResponse, 403)
-
-        const spawned = await engine.spawnSession(
-            machineId, source.cwd, agent, undefined, undefined, undefined, undefined, undefined,
-            sourceId, undefined, undefined, undefined, undefined, true, resolved.transcriptPath, false
-        )
-        if (spawned.type === 'error') return c.json({ type: 'error', error: spawned.message } satisfies ImportExistingSessionResponse, 500)
-        const active = await engine.waitForSessionActive(spawned.sessionId)
-        if (!active) return c.json({ type: 'error', error: 'Imported session did not become active' } satisfies ImportExistingSessionResponse, 500)
-        const importState = await engine.waitForImportHistoryComplete(spawned.sessionId)
-        if (importState !== 'complete') return c.json({ type: 'error', error: 'Imported session ended before history replay completed' } satisfies ImportExistingSessionResponse, 500)
-        await engine.renameSession(spawned.sessionId, source.previewTitle)
-        return c.json({ type: 'success', sessionId: spawned.sessionId, alreadyImported: false } satisfies ImportExistingSessionResponse)
     })
 
     return app
