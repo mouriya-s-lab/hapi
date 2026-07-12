@@ -76,7 +76,7 @@ export class PushService {
                 : null
 
             if (statusCode === 410) {
-                this.store.push.removePushSubscription(namespace, subscription.endpoint)
+                this.store.push.removeExpiredPushSubscription(namespace, subscription.endpoint)
                 return
             }
 

@@ -156,7 +156,7 @@ export function createAuthRoutes(jwtSecret: Uint8Array, store: Store): Hono<WebA
         return c.json({
             token,
             user: {
-                id: ownerId,
+                id: account.id,
                 username: result.user.username,
                 firstName: result.user.first_name,
                 lastName: result.user.last_name,

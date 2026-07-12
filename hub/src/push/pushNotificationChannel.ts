@@ -3,7 +3,7 @@ import type { NotificationChannel, TaskNotification } from '../notifications/not
 import { getAgentName, getSessionName } from '../notifications/sessionInfo'
 import type { SSEManager } from '../sse/sseManager'
 import type { Store } from '../store'
-import { listActiveAdminAccountIds, listReadableAccountIds } from '../auth/access'
+import { listActiveAdminAccountIds, listOperableAccountIds, listReadableAccountIds } from '../auth/access'
 import type { VisibilityTracker } from '../visibility/visibilityTracker'
 import type { PushPayload, PushService } from './pushService'
 
@@ -16,8 +16,10 @@ export class PushNotificationChannel implements NotificationChannel {
         private readonly store: Store
     ) {}
 
-    private resolveAudience(sessionId: string): Set<number> {
-        const audience = listReadableAccountIds(this.store, 'session', sessionId)
+    private resolveAudience(sessionId: string, actionable = false): Set<number> {
+        const audience = actionable
+            ? listOperableAccountIds(this.store, 'session', sessionId)
+            : listReadableAccountIds(this.store, 'session', sessionId)
         for (const adminId of listActiveAdminAccountIds(this.store)) {
             audience.add(adminId)
         }
@@ -47,7 +49,7 @@ export class PushNotificationChannel implements NotificationChannel {
         }
 
         const url = payload.data?.url ?? this.buildSessionPath(session.id)
-        const audience = this.resolveAudience(session.id)
+        const audience = this.resolveAudience(session.id, true)
         if (this.visibilityTracker.hasVisibleConnection(session.namespace)) {
             const delivered = await this.sseManager.sendToast(session.namespace, {
                 type: 'toast',
@@ -57,7 +59,7 @@ export class PushNotificationChannel implements NotificationChannel {
                     sessionId: session.id,
                     url
                 }
-            })
+            }, audience)
             for (const accountId of delivered) {
                 audience.delete(accountId)
             }
@@ -88,7 +90,7 @@ export class PushNotificationChannel implements NotificationChannel {
         }
 
         const url = payload.data?.url ?? this.buildSessionPath(session.id)
-        const audience = this.resolveAudience(session.id)
+        const audience = this.resolveAudience(session.id, true)
         if (this.visibilityTracker.hasVisibleConnection(session.namespace)) {
             const delivered = await this.sseManager.sendToast(session.namespace, {
                 type: 'toast',
@@ -98,7 +100,7 @@ export class PushNotificationChannel implements NotificationChannel {
                     sessionId: session.id,
                     url
                 }
-            })
+            }, audience)
             for (const accountId of delivered) {
                 audience.delete(accountId)
             }

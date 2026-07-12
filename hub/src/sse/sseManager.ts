@@ -103,7 +103,7 @@ export class SSEManager {
         }
     }
 
-    async sendToast(namespace: string, event: Extract<SyncEvent, { type: 'toast' }>): Promise<Set<number>> {
+    async sendToast(namespace: string, event: Extract<SyncEvent, { type: 'toast' }>, audienceOverride?: ReadonlySet<number>): Promise<Set<number>> {
         const canAccess = this.buildAccessCheck(event)
         const deliveries: Array<Promise<{ id: string; ok: boolean }>> = []
         for (const connection of this.connections.values()) {
@@ -116,6 +116,7 @@ export class SSEManager {
             if (!canAccess(connection)) {
                 continue
             }
+            if (audienceOverride && !audienceOverride.has(connection.accountId) && connection.role !== 'admin') continue
 
             deliveries.push(
                 Promise.resolve(connection.send(event))

@@ -49,7 +49,7 @@ export function createPushRoutes(store: Store, vapidPublicKey: string): Hono<Web
         }
 
         const namespace = c.get('namespace')
-        store.push.removePushSubscription(namespace, parsed.data.endpoint)
+        store.push.removePushSubscription(namespace, parsed.data.endpoint, c.get('accountId'))
         return c.json({ ok: true })
     })
 

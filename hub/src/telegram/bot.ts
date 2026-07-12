@@ -12,7 +12,7 @@ import { formatReadyNotification, formatSessionNotification, createNotificationK
 import { getAgentName } from '../notifications/sessionInfo'
 import type { NotificationChannel, TaskNotification } from '../notifications/notificationTypes'
 import type { Store } from '../store'
-import { authorizeResource, listActiveAdminAccountIds, listReadableAccountIds } from '../auth/access'
+import { authorizeResource, listActiveAdminAccountIds, listOperableAccountIds, listReadableAccountIds } from '../auth/access'
 
 export interface BotContext extends Context {
     // Extended context for future use
@@ -171,9 +171,11 @@ export class HappyBot implements NotificationChannel {
     /**
      * Get bound Telegram chat IDs from storage.
      */
-    private getBoundChatIds(session: Session): number[] {
+    private getBoundChatIds(session: Session, actionable = false): number[] {
         const users = this.store.users.getUsersByPlatformAndNamespace('telegram', session.namespace)
-        const audience = listReadableAccountIds(this.store, 'session', session.id)
+        const audience = actionable
+            ? listOperableAccountIds(this.store, 'session', session.id)
+            : listReadableAccountIds(this.store, 'session', session.id)
         for (const adminId of listActiveAdminAccountIds(this.store)) audience.add(adminId)
         const ids = new Set<number>()
         for (const user of users) {
@@ -230,7 +232,7 @@ export class HappyBot implements NotificationChannel {
         const keyboard = new InlineKeyboard()
             .webApp('Open Session', url)
 
-        const chatIds = this.getBoundChatIds(session)
+        const chatIds = this.getBoundChatIds(session, true)
         if (chatIds.length === 0) {
             return
         }
@@ -259,7 +261,7 @@ export class HappyBot implements NotificationChannel {
         const text = formatSessionNotification(session, this.getSessionMachine(session))
         const keyboard = createNotificationKeyboard(session, this.publicUrl)
 
-        const chatIds = this.getBoundChatIds(session)
+        const chatIds = this.getBoundChatIds(session, true)
         if (chatIds.length === 0) {
             return
         }

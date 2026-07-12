@@ -199,12 +199,7 @@ export function getOrCreateSession(
     ).get(tag, namespace) as DbSessionRow | undefined
 
     if (existing) {
-        const stored = toStoredSession(existing)
-        if (stored.ownerAccountId === null && ownerAccountId != null) {
-            db.prepare('UPDATE sessions SET owner_account_id = ? WHERE id = ?').run(ownerAccountId, stored.id)
-            stored.ownerAccountId = ownerAccountId
-        }
-        return stored
+        return toStoredSession(existing)
     }
 
     const now = Date.now()

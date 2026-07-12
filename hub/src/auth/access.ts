@@ -100,6 +100,18 @@ export function listReadableAccountIds(store: Store, resourceType: ResourceType,
     return accountIds
 }
 
+export function listOperableAccountIds(store: Store, resourceType: ResourceType, resourceId: string): Set<number> {
+    const accountIds = new Set<number>()
+    const ownerAccountId = resourceType === 'machine'
+        ? store.machines.getMachine(resourceId)?.ownerAccountId ?? null
+        : store.sessions.getSession(resourceId)?.ownerAccountId ?? null
+    if (ownerAccountId !== null) accountIds.add(ownerAccountId)
+    for (const grant of store.grants.listForResource(resourceType, resourceId)) {
+        if (grant.role === 'operator') accountIds.add(grant.granteeAccountId)
+    }
+    return accountIds
+}
+
 export function listActiveAdminAccountIds(store: Store): number[] {
     return store.accounts.list()
         .filter((account) => account.role === 'admin' && account.disabledAt === null)

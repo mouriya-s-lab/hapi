@@ -88,7 +88,7 @@ describe('PushNotificationChannel', () => {
         const owner = store.accounts.create({ username: 'owner', passwordHash: null, role: 'user', defaultNamespace: 'default' })
         const grantee = store.accounts.create({ username: 'grantee', passwordHash: null, role: 'user', defaultNamespace: 'default' })
         const session = store.sessions.getOrCreateSession('toast-audience', {}, null, 'default', undefined, undefined, undefined, owner.id)
-        store.grants.upsert({ resourceType: 'session', resourceId: session.id, granteeAccountId: grantee.id, role: 'viewer' })
+        store.grants.upsert({ resourceType: 'session', resourceId: session.id, granteeAccountId: grantee.id, role: 'operator' })
         let pushedAudience = new Set<number>()
         const channel = new PushNotificationChannel(
             { sendToNamespace: async (_namespace: string, _payload: PushPayload, audience: Set<number>) => { pushedAudience = audience } } as never,

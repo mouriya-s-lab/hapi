@@ -52,10 +52,14 @@ export function addPushSubscription(
     })
 }
 
-export function removePushSubscription(db: Database, namespace: string, endpoint: string): void {
+export function removePushSubscription(db: Database, namespace: string, endpoint: string, accountId: number): void {
     db.prepare(
-        'DELETE FROM push_subscriptions WHERE namespace = ? AND endpoint = ?'
-    ).run(namespace, endpoint)
+        'DELETE FROM push_subscriptions WHERE namespace = ? AND endpoint = ? AND account_id = ?'
+    ).run(namespace, endpoint, accountId)
+}
+
+export function removeExpiredPushSubscription(db: Database, namespace: string, endpoint: string): void {
+    db.prepare('DELETE FROM push_subscriptions WHERE namespace = ? AND endpoint = ?').run(namespace, endpoint)
 }
 
 export function getPushSubscriptionsByNamespace(
