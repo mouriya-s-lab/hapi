@@ -24,8 +24,9 @@ async function hasModernCodexChat(transcriptPath: string): Promise<boolean> {
             if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) continue
             const record = parsed as Record<string, unknown>
             if (record.type !== 'response_item' || record.payload === null || typeof record.payload !== 'object' || Array.isArray(record.payload)) continue
-            const payload = record.payload as Record<string, unknown>
-            if (payload.type === 'message' && (payload.role === 'user' || payload.role === 'assistant')) return true
+            const converted = convertCodexEvent({ type: 'response_item', payload: record.payload })
+            if (converted?.message) return true
+            if (converted?.userMessage && !isSyntheticCodexUserText(converted.userMessage)) return true
         }
         return false
     } finally {

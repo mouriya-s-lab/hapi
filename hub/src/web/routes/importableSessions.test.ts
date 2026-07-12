@@ -34,6 +34,7 @@ function fakeEngine(overrides: Partial<SyncEngine> = {}): SyncEngine {
         spawnSession: async () => ({ type: 'success', sessionId: 'hapi-1' }),
         waitForSessionActive: async () => true,
         waitForImportHistoryComplete: async () => 'complete',
+        archiveSession: async () => {},
         renameSession: async () => {},
         ...overrides
     } as unknown as SyncEngine
@@ -105,5 +106,21 @@ describe('importable session routes', () => {
         const response = await app(engine).request('/api/machines/machine-1/importable-sessions/codex/external-1/import', { method: 'POST' })
         expect(response.status).toBe(200)
         expect(replayWaited).toBe(true)
+    })
+
+    it('archives an ended partial import and retries instead of returning it as complete', async () => {
+        let archived: string | null = null
+        let spawned = false
+        let waits = 0
+        const engine = fakeEngine({
+            getSessionsByNamespace: () => [{ id: 'partial', active: false, metadata: { flavor: 'codex', codexSessionId: 'external-1', importHistoryState: 'replaying' } }] as never,
+            waitForImportHistoryComplete: async () => (++waits === 1 ? 'ended' : 'complete'),
+            archiveSession: async (sessionId: string) => { archived = sessionId },
+            spawnSession: async () => { spawned = true; return { type: 'success', sessionId: 'retry' } }
+        } as Partial<SyncEngine>)
+        const response = await app(engine).request('/api/machines/machine-1/importable-sessions/codex/external-1/import', { method: 'POST' })
+        expect(response.status).toBe(200)
+        expect(archived as string | null).toBe('partial')
+        expect(spawned).toBe(true)
     })
 })

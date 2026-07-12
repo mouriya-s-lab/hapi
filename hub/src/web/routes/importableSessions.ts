@@ -46,7 +46,7 @@ export function createImportableSessionsRoutes(getSyncEngine: () => SyncEngine |
         const existing = engine.getSessionsByNamespace(namespace)
         const response: ImportableSessionsResponse = {
             sessions: result.sessions.filter((session) => machineAllowsCwd(machine, session.cwd)).map((session) => {
-                const imported = existing.find((candidate) => candidate.metadata && externalSessionId(candidate.metadata, parsed.data) === session.externalSessionId)
+                const imported = existing.find((candidate) => candidate.metadata && candidate.metadata.importHistoryState !== 'replaying' && externalSessionId(candidate.metadata, parsed.data) === session.externalSessionId)
                 return { ...session, alreadyImported: Boolean(imported), importedHapiSessionId: imported?.id ?? null }
             }),
             nextCursor: result.nextCursor
@@ -66,7 +66,16 @@ export function createImportableSessionsRoutes(getSyncEngine: () => SyncEngine |
         const sourceId = c.req.param('externalSessionId')
         const namespace = c.get('namespace')
         const duplicate = engine.getSessionsByNamespace(namespace).find((candidate) => candidate.metadata && externalSessionId(candidate.metadata, agent) === sourceId)
-        if (duplicate) return c.json({ type: 'success', sessionId: duplicate.id, alreadyImported: true } satisfies ImportExistingSessionResponse)
+        if (duplicate) {
+            if (duplicate.metadata?.importHistoryState !== 'replaying') {
+                return c.json({ type: 'success', sessionId: duplicate.id, alreadyImported: true } satisfies ImportExistingSessionResponse)
+            }
+            const importState = await engine.waitForImportHistoryComplete(duplicate.id)
+            if (importState === 'complete') {
+                return c.json({ type: 'success', sessionId: duplicate.id, alreadyImported: true } satisfies ImportExistingSessionResponse)
+            }
+            await engine.archiveSession(duplicate.id)
+        }
 
         const resolved = await engine.resolveImportableSessionForMachine(machineId, agent, sourceId)
         if (resolved.type === 'error') return c.json({ type: 'error', error: resolved.error } satisfies ImportExistingSessionResponse, 404)

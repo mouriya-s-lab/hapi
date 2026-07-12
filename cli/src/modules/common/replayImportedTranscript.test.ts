@@ -71,6 +71,7 @@ describe('replayImportedTranscript', () => {
         const imported = await replayImportedTranscript({
             agent: 'codex', session,
             transcriptPath: file([
+                { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<environment_context>internal</environment_context>' }] } },
                 { type: 'event_msg', payload: { type: 'user_message', message: 'legacy question' } },
                 { type: 'event_msg', payload: { type: 'user_message', message: '<user_instructions>internal</user_instructions>' } },
                 { type: 'event_msg', payload: { type: 'agent_message', message: 'legacy answer' } }

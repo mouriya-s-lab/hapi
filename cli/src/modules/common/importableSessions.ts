@@ -198,7 +198,13 @@ export async function listImportableSessions(request: ListImportableSessionsRequ
     if (request.cursor === undefined) {
         const files = await collectJsonlFiles(root)
         const filesByRecency: Array<{ path: string; modifiedAt: number }> = []
-        for (const path of files) filesByRecency.push({ path, modifiedAt: (await stat(path)).mtimeMs })
+        for (const path of files) {
+            try {
+                filesByRecency.push({ path, modifiedAt: (await stat(path)).mtimeMs })
+            } catch (error) {
+                logger.warn(`Skipping vanished import transcript ${path}`, error)
+            }
+        }
         filesByRecency.sort((left, right) => right.modifiedAt - left.modifiedAt)
         snapshot = { id: randomUUID(), root, files: filesByRecency }
         activeFileSnapshots.set(agent, snapshot)
