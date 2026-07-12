@@ -893,6 +893,31 @@ describe('AcpSdkBackend', () => {
         ]);
     });
 
+    it('authenticateFirstAvailable tries the next advertised method after method-not-found', async () => {
+        const backend = new AcpSdkBackend({ command: 'agent' });
+        const calls: string[] = [];
+        const backendInternal = backend as unknown as {
+            initializeResult: { protocolVersion: number; authMethods?: Array<{ id: string }> } | null;
+            transport: { sendRequest: (method: string, params: { methodId?: string }) => Promise<unknown>; close: () => Promise<void> } | null;
+        };
+        backendInternal.initializeResult = {
+            protocolVersion: 1,
+            authMethods: [{ id: 'xai.api_key' }, { id: 'cached_token' }]
+        };
+        backendInternal.transport = {
+            sendRequest: async (_method, params) => {
+                calls.push(params.methodId ?? '');
+                if (params.methodId === 'xai.api_key') throw new Error('Method not found');
+                return null;
+            },
+            close: async () => {}
+        };
+
+        await backend.authenticateFirstAvailable(['xai.api_key', 'cached_token']);
+
+        expect(calls).toEqual(['xai.api_key', 'cached_token']);
+    });
+
     it('supportsLoadSession reflects initialize agentCapabilities', () => {
         const backend = new AcpSdkBackend({ command: 'agent' });
         const backendInternal = backend as unknown as {

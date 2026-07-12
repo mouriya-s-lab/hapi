@@ -107,6 +107,19 @@ describe('toSessionSummary', () => {
         expect(summary.metadata?.agentSessionId).toBe('grok-session')
     })
 
+    it('does not fall back to a stale cross-flavor identity', () => {
+        const summary = toSessionSummary(makeSession({
+            metadata: {
+                path: '/proj',
+                host: 'local',
+                flavor: 'grok',
+                codexSessionId: 'stale-codex-session'
+            }
+        }))
+
+        expect(summary.metadata?.agentSessionId).toBeUndefined()
+    })
+
     it('includes structured pendingRequests for hover-tooltip copy', () => {
         const summary = toSessionSummary(makeSession({
             updatedAt: 5000,

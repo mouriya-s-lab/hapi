@@ -1,5 +1,21 @@
 import type { Session, WorktreeMetadata } from './schemas'
 
+export function resolveFlavorOwnedAgentSessionId(
+    metadata: NonNullable<Session['metadata']>
+): string | undefined {
+    switch (metadata.flavor) {
+        case 'codex': return metadata.codexSessionId
+        case 'gemini': return metadata.geminiSessionId
+        case 'grok': return metadata.grokSessionId
+        case 'opencode': return metadata.opencodeSessionId
+        case 'cursor': return metadata.cursorSessionId
+        case 'kimi': return metadata.kimiSessionId
+        case 'pi': return metadata.piSessionId
+        case 'omp': return metadata.ompSessionId
+        default: return metadata.claudeSessionId
+    }
+}
+
 export type PendingRequestKind = 'permission' | 'input'
 
 const INPUT_REQUEST_TOOLS = new Set([
@@ -121,26 +137,7 @@ export function toSessionSummary(session: Session): SessionSummary {
         summary: session.metadata.summary ? { text: session.metadata.summary.text } : undefined,
         flavor: session.metadata.flavor ?? null,
         worktree: session.metadata.worktree,
-        agentSessionId: session.metadata.flavor === 'grok' && session.metadata.grokSessionId
-            ? session.metadata.grokSessionId
-            : session.metadata.flavor === 'codex' && session.metadata.codexSessionId
-                ? session.metadata.codexSessionId
-                : session.metadata.flavor === 'claude' && session.metadata.claudeSessionId
-                    ? session.metadata.claudeSessionId
-                    : session.metadata.flavor === 'gemini' && session.metadata.geminiSessionId
-                        ? session.metadata.geminiSessionId
-                        : session.metadata.flavor === 'opencode' && session.metadata.opencodeSessionId
-                            ? session.metadata.opencodeSessionId
-                            : session.metadata.flavor === 'cursor' && session.metadata.cursorSessionId
-                                ? session.metadata.cursorSessionId
-                                : session.metadata.codexSessionId
-            ?? session.metadata.claudeSessionId
-            ?? session.metadata.geminiSessionId
-            ?? session.metadata.grokSessionId
-            ?? session.metadata.opencodeSessionId
-            ?? session.metadata.cursorSessionId
-            ?? session.metadata.kimiSessionId
-            ?? undefined,
+        agentSessionId: resolveFlavorOwnedAgentSessionId(session.metadata),
         lifecycleState: session.metadata.lifecycleState,
         archivedAt: session.metadata.archivedAt
     } : null

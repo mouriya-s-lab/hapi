@@ -384,6 +384,23 @@ describe('sessions routes', () => {
         ])
     })
 
+    it('rejects model reasoning effort for Grok Composer', async () => {
+        const session = createSession({
+            model: 'grok-composer-2.5-fast',
+            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'grok' }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/model-reasoning-effort', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ modelReasoningEffort: 'medium' })
+        })
+
+        expect(response.status).toBe(400)
+        expect(applySessionConfigCalls).toEqual([])
+    })
+
     it('applies fast service tier changes for remote Codex sessions', async () => {
         const { app, applySessionConfigCalls } = createApp(createSession())
 
@@ -572,6 +589,42 @@ describe('sessions routes', () => {
             error: 'Model selection can only be changed for remote Codex sessions'
         })
         expect(applySessionConfigCalls).toEqual([])
+    })
+
+    it('rejects model changes for local Grok sessions', async () => {
+        const session = createSession({
+            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'grok' },
+            agentState: { controlledByUser: true, requests: {}, completedRequests: {} }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/model', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ model: 'grok-composer-2.5-fast' })
+        })
+
+        expect(response.status).toBe(409)
+        expect(applySessionConfigCalls).toEqual([])
+    })
+
+    it('clears Grok effort atomically when switching to Composer', async () => {
+        const session = createSession({
+            modelReasoningEffort: 'medium',
+            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'grok' }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/model', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ model: 'grok-composer-2.5-fast' })
+        })
+
+        expect(response.status).toBe(200)
+        expect(applySessionConfigCalls).toEqual([
+            ['session-1', { model: 'grok-composer-2.5-fast', modelReasoningEffort: null }]
+        ])
     })
 
     it('applies model changes for OpenCode sessions', async () => {
@@ -876,6 +929,23 @@ describe('sessions routes', () => {
         expect(applySessionConfigCalls).toEqual([
             ['session-1', { permissionMode: 'plan' }]
         ])
+    })
+
+    it('rejects permission mode changes for local Grok sessions', async () => {
+        const session = createSession({
+            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'grok' },
+            agentState: { controlledByUser: true, requests: {}, completedRequests: {} }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/permission-mode', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ mode: 'yolo' })
+        })
+
+        expect(response.status).toBe(409)
+        expect(applySessionConfigCalls).toEqual([])
     })
 
     it('applies permission mode changes for inactive sessions', async () => {

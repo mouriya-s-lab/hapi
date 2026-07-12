@@ -204,8 +204,17 @@ export class AcpSdkBackend implements AgentBackend {
 
     async authenticateFirstAvailable(methodIds: readonly string[]): Promise<void> {
         const advertised = new Set((this.initializeResult?.authMethods ?? []).map((method) => method.id));
-        const methodId = methodIds.find((candidate) => advertised.has(candidate));
-        if (methodId) await this.authenticateIfAvailable(methodId);
+        for (const methodId of methodIds) {
+            if (!advertised.has(methodId)) continue;
+            try {
+                await this.authenticate(methodId);
+                return;
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                if (!/method not found/i.test(message)) throw error;
+                logger.debug(`[ACP] Auth method advertised but unsupported: ${methodId}`, error);
+            }
+        }
     }
 
     supportsLoadSession(): boolean {

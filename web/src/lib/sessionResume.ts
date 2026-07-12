@@ -1,4 +1,4 @@
-import { isKnownFlavor } from '@hapi/protocol'
+import { isKnownFlavor, resolveFlavorOwnedAgentSessionId } from '@hapi/protocol'
 import type { Session } from '@/types/api'
 
 /** Agent thread id used by hub `resolveAgentResumeId`, flavor-specific.
@@ -11,18 +11,7 @@ export function resolveAgentSessionIdFromMetadata(
     if (!metadata) {
         return undefined
     }
-    const flavor = isKnownFlavor(metadata.flavor) ? metadata.flavor : 'claude'
-    switch (flavor) {
-        case 'codex': return metadata.codexSessionId ?? undefined
-        case 'gemini': return metadata.geminiSessionId ?? undefined
-        case 'grok': return metadata.grokSessionId ?? undefined
-        case 'opencode': return metadata.opencodeSessionId ?? undefined
-        case 'cursor': return metadata.cursorSessionId ?? undefined
-        case 'kimi': return metadata.kimiSessionId ?? undefined
-        case 'pi': return metadata.piSessionId ?? undefined
-        case 'omp': return metadata.ompSessionId ?? undefined
-        default: return metadata.claudeSessionId ?? undefined
-    }
+    return resolveFlavorOwnedAgentSessionId(metadata)
 }
 
 /**

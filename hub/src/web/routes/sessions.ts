@@ -442,6 +442,9 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         if (flavor === 'opencode' && mode === 'plan' && sessionResult.session.agentState?.controlledByUser === true) {
             return c.json({ error: 'OpenCode plan mode is only supported for remote sessions' }, 409)
         }
+        if (flavor === 'grok' && sessionResult.session.agentState?.controlledByUser === true) {
+            return c.json({ error: 'Grok permission mode can only be changed for remote sessions' }, 409)
+        }
 
         try {
             await engine.applySessionConfig(sessionResult.sessionId, { permissionMode: mode })
@@ -518,10 +521,18 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             if (flavor === 'cursor') {
                 return c.json({ error: 'Model selection can only be changed for remote Cursor sessions' }, 409)
             }
+            if (flavor === 'grok') {
+                return c.json({ error: 'Model selection can only be changed for remote Grok sessions' }, 409)
+            }
         }
 
         try {
-            await engine.applySessionConfig(sessionResult.sessionId, { model: parsed.data.model })
+            await engine.applySessionConfig(sessionResult.sessionId, {
+                model: parsed.data.model,
+                ...(flavor === 'grok' && parsed.data.model === 'grok-composer-2.5-fast'
+                    ? { modelReasoningEffort: null }
+                    : {})
+            })
             return c.json({ ok: true })
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to apply model'
@@ -545,7 +556,6 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         if (!parsed.success) {
             return c.json({ error: 'Invalid body' }, 400)
         }
-
         const flavor = sessionResult.session.metadata?.flavor ?? 'claude'
         if (flavor !== 'claude') {
             return c.json({ error: 'Resume model selection is only supported for Claude sessions' }, 400)
@@ -585,6 +595,13 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         const parsed = SessionModelReasoningEffortRequestSchema.safeParse(body)
         if (!parsed.success) {
             return c.json({ error: 'Invalid body' }, 400)
+        }
+        if (
+            flavor === 'grok'
+            && sessionResult.session.model === 'grok-composer-2.5-fast'
+            && parsed.data.modelReasoningEffort !== null
+        ) {
+            return c.json({ error: 'Model reasoning effort is not supported by Grok Composer' }, 400)
         }
 
         try {

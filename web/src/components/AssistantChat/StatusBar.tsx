@@ -212,7 +212,11 @@ export function StatusBar(props: {
     const collaborationModeLabel = displayCollaborationMode
         ? getCodexCollaborationModeLabel(displayCollaborationMode)
         : null
-    const codexReasoningLabel = (props.agentFlavor === 'codex' || props.agentFlavor === 'opencode')
+    const codexReasoningLabel = (
+        props.agentFlavor === 'codex'
+        || props.agentFlavor === 'opencode'
+        || (props.agentFlavor === 'grok' && (props.model == null || props.model === 'grok-4.5'))
+    )
         ? formatCodexReasoningLabel(props.modelReasoningEffort)
         : null
     // Prefer the explicit service tier (the real Fast-mode toggle) when set;
