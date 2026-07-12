@@ -165,12 +165,12 @@ export function createSocketServer(deps: SocketServerDeps): {
         canOperateSession: (sessionId) => {
             const session = deps.store.sessions.getSession(sessionId)
             const accountId = socket.data.accountId
-            const role = socket.data.role
-            if (!session || typeof accountId !== 'number' || !role) return false
+            const account = typeof accountId === 'number' ? deps.store.accounts.getById(accountId) : null
+            if (!session || !account || account.disabledAt !== null) return false
             return canOperate(resolveAccessLevel({
                 store: deps.store,
-                accountId,
-                role,
+                accountId: account.id,
+                role: account.role,
                 resourceType: 'session',
                 resourceId: sessionId,
                 ownerAccountId: session.ownerAccountId

@@ -12,6 +12,7 @@ import type { Store } from '../../store'
 import type { StoredAccount, StoredApiToken } from '../../store/types'
 import { hashPassword } from '../../utils/password'
 import { generateApiToken, hashApiToken } from '../../utils/apiToken'
+import { getLegacyAdminAccountId } from '../../auth/authContext'
 
 function toAccountSummary(a: StoredAccount): AccountSummary {
     return {
@@ -179,6 +180,9 @@ export function createAccountRoutes(store: Store, jwtSecret: Uint8Array): Hono<W
         if (!parsed.success) {
             return c.json({ error: 'Invalid body' }, 400)
         }
+        if (id === getLegacyAdminAccountId() && (parsed.data.role === 'user' || parsed.data.disabled === true)) {
+            return c.json({ error: 'Cannot demote or disable the legacy-token admin' }, 409)
+        }
 
         // Guard against locking out the last admin.
         const wouldDemote = parsed.data.role === 'user' && target.role === 'admin'
@@ -208,6 +212,9 @@ export function createAccountRoutes(store: Store, jwtSecret: Uint8Array): Hono<W
         const target = store.accounts.getById(id)
         if (!target) {
             return c.json({ error: 'Account not found' }, 404)
+        }
+        if (id === getLegacyAdminAccountId()) {
+            return c.json({ error: 'Cannot delete the legacy-token admin' }, 409)
         }
         if (target.role === 'admin') {
             const activeAdmins = store.accounts.list().filter((a) => a.role === 'admin' && a.disabledAt === null)

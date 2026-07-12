@@ -238,7 +238,7 @@ function createWebApp(options: {
     app.route('/api', createAuthRoutes(options.jwtSecret, options.store))
     app.route('/api', createBindRoutes(options.jwtSecret, options.store))
 
-    app.use('/api/*', createAuthMiddleware(options.jwtSecret))
+    app.use('/api/*', createAuthMiddleware(options.jwtSecret, options.store))
     app.route('/api', createAccountRoutes(options.store, options.jwtSecret))
     app.route('/api', createGrantRoutes(options.store))
     app.route('/api', createEventsRoutes(options.getSseManager, options.getSyncEngine, options.getVisibilityTracker, options.store))

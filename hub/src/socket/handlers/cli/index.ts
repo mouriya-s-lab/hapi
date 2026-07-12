@@ -67,7 +67,7 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
         }
         const account = store.accounts.getById(accountId)
         if (!account || account.disabledAt !== null) return false
-        return canOperate(resolveAccessLevel({ store, accountId, role, resourceType, resourceId, ownerAccountId }))
+        return canOperate(resolveAccessLevel({ store, accountId, role: account.role, resourceType, resourceId, ownerAccountId }))
     }
 
     const resolveSessionAccess = (sessionId: string): AccessResult<StoredSession> => {

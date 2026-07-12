@@ -1,6 +1,7 @@
 import type { MiddlewareHandler } from 'hono'
 import { z } from 'zod'
 import { jwtVerify } from 'jose'
+import type { Store } from '../../store'
 
 export type WebAppEnv = {
     Variables: {
@@ -20,7 +21,7 @@ const jwtPayloadSchema = z.object({
     src: z.enum(['password', 'api', 'legacy', 'telegram']).optional()
 })
 
-export function createAuthMiddleware(jwtSecret: Uint8Array): MiddlewareHandler<WebAppEnv> {
+export function createAuthMiddleware(jwtSecret: Uint8Array, store: Store): MiddlewareHandler<WebAppEnv> {
     return async (c, next) => {
         const path = c.req.path
         if (path === '/api/auth' || path === '/api/bind') {
@@ -50,8 +51,11 @@ export function createAuthMiddleware(jwtSecret: Uint8Array): MiddlewareHandler<W
             // upgrade. Legacy tokens (pre-upgrade, still within their 4h TTL)
             // lack them; fall back to uid as the account id and the least
             // privileged role so an old token can't silently act as admin.
-            c.set('accountId', parsed.data.aid ?? parsed.data.uid)
-            c.set('role', parsed.data.role ?? 'user')
+            const accountId = parsed.data.aid ?? parsed.data.uid
+            const account = store.accounts.getById(accountId)
+            if (!account || account.disabledAt !== null) return c.json({ error: 'Account unavailable' }, 401)
+            c.set('accountId', accountId)
+            c.set('role', account.role)
             c.set('authSource', parsed.data.src ?? 'unknown')
             await next()
             return

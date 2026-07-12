@@ -4,11 +4,14 @@ import { SignJWT } from 'jose'
 import type { WebAppEnv } from '../middleware/auth'
 import { createAuthMiddleware } from '../middleware/auth'
 import { createVoiceRoutes } from './voice'
+import { Store } from '../../store'
 
 const JWT_SECRET = new TextEncoder().encode('test-secret')
+const store = new Store(':memory:')
+store.accounts.create({ username: 'voice-admin', passwordHash: null, role: 'admin', defaultNamespace: 'default' })
 
 async function authHeaders() {
-    const token = await new SignJWT({ uid: 1, ns: 'default' })
+    const token = await new SignJWT({ uid: 1, aid: 1, role: 'admin', ns: 'default' })
         .setProtectedHeader({ alg: 'HS256' })
         .setIssuedAt()
         .setExpirationTime('1h')
@@ -18,7 +21,7 @@ async function authHeaders() {
 
 function createApp() {
     const app = new Hono<WebAppEnv>()
-    app.use('*', createAuthMiddleware(JWT_SECRET))
+    app.use('*', createAuthMiddleware(JWT_SECRET, store))
     app.route('/api', createVoiceRoutes())
     return app
 }

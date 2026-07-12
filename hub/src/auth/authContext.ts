@@ -22,6 +22,10 @@ export function isAuthContextReady(): boolean {
     return deps !== null
 }
 
+export function getLegacyAdminAccountId(): number | null {
+    return deps?.getLegacyAdminAccountId() ?? null
+}
+
 /**
  * Resolve a raw bearer token to an identity, or null. Returns null if the auth
  * context hasn't been initialized yet (startup ordering guard).

@@ -27,7 +27,7 @@ function makeApp(store: Store) {
     // Public auth route (no middleware).
     app.route('/api', createAuthRoutes(JWT_SECRET, store))
     // Protected routes.
-    app.use('/api/*', createAuthMiddleware(JWT_SECRET))
+    app.use('/api/*', createAuthMiddleware(JWT_SECRET, store))
     app.route('/api', createAccountRoutes(store, JWT_SECRET))
     app.route('/api', createGrantRoutes(store))
     return app

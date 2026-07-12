@@ -14,6 +14,7 @@ import type { Server } from 'socket.io'
 import { randomUUID } from 'node:crypto'
 import type { Store, CancelQueuedMessageResult } from '../store'
 import { EventPublisher } from './eventPublisher'
+import { canOperate, resolveAccessLevel } from '../auth/access'
 
 type StoredMessageForDelivery = ReturnType<Store['messages']['getMessages']>[number]
 
@@ -83,6 +84,30 @@ export class MessageService {
     private forgetScheduledMatureNotified(localIds: Iterable<string>): void {
         for (const localId of localIds) {
             this.scheduledMatureNotifiedLocalIds.delete(localId)
+        }
+    }
+
+    private pruneUnauthorizedCliSockets(sessionId: string): void {
+        const session = this.store.sessions.getSession(sessionId)
+        if (!session) return
+        const namespace = this.io.of('/cli')
+        const socketState = namespace as unknown as {
+            adapter?: { rooms?: Map<string, Set<string>> }
+            sockets?: Map<string, { data: { accountId?: number }; leave: (room: string) => void }>
+        }
+        if (!socketState.adapter?.rooms || !socketState.sockets) return
+        const roomName = `session:${sessionId}`
+        for (const socketId of socketState.adapter.rooms.get(roomName) ?? []) {
+            const socket = socketState.sockets.get(socketId)
+            const accountId = socket?.data.accountId
+            if (accountId === undefined) continue
+            const account = typeof accountId === 'number' ? this.store.accounts.getById(accountId) : null
+            if (!socket || !account || account.disabledAt !== null || !canOperate(resolveAccessLevel({
+                store: this.store, accountId: account.id, role: account.role,
+                resourceType: 'session', resourceId: sessionId, ownerAccountId: session.ownerAccountId
+            }))) {
+                socket?.leave(roomName)
+            }
         }
     }
 
@@ -394,6 +419,7 @@ export class MessageService {
         timeoutMs: number
     ): Promise<'removed' | 'not-found' | 'timeout'> {
         return new Promise((resolve) => {
+            this.pruneUnauthorizedCliSockets(sessionId)
             const room = this.io.of('/cli').to(`session:${sessionId}`)
             // socket.io v4 BroadcastOperator: .timeout(ms).emit(event, data, ackCb)
             // ack signature: (err: Error | null, responses: T[])
@@ -498,6 +524,7 @@ export class MessageService {
                     }
                 }
             }
+            this.pruneUnauthorizedCliSockets(sessionId)
             this.io.of('/cli').to(`session:${sessionId}`).emit('update', update)
         }
 
@@ -588,6 +615,7 @@ export class MessageService {
                     }
                 }
             }
+            this.pruneUnauthorizedCliSockets(msg.sessionId)
             this.io.of('/cli').to(`session:${msg.sessionId}`).emit('update', update)
             // NOTE: do NOT call markMessagesInvoked here (pitfall #2).
             // CLI ack (messages-consumed) will handle invoked_at stamping.

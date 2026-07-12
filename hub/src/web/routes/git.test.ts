@@ -33,8 +33,9 @@ function buildApp(engine: Partial<SyncEngine>): Hono<WebAppEnv> {
 
 function buildAuthenticatedApp(engine: Partial<SyncEngine>): Hono<WebAppEnv> {
     const store = new Store(':memory:')
+    store.accounts.create({ username: 'git-admin', passwordHash: null, role: 'admin', defaultNamespace: 'default' })
     const app = new Hono<WebAppEnv>()
-    app.use('*', createAuthMiddleware(JWT_SECRET))
+    app.use('*', createAuthMiddleware(JWT_SECRET, store))
     app.route('/api', createGitRoutes(() => engine as SyncEngine, store))
     return app
 }
