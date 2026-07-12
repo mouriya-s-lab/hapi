@@ -37,10 +37,14 @@ export class PushService {
     }
 
     async sendToNamespace(namespace: string, payload: PushPayload, allowedAccountIds: ReadonlySet<number>): Promise<void> {
+        const legacyAdminId = this.store.accounts.list()
+            .find((account) => account.role === 'admin' && account.disabledAt === null)?.id ?? null
         const subscriptions = this.store.push.getPushSubscriptionsByNamespace(namespace)
-            .filter((subscription) => subscription.accountId !== null
-                && allowedAccountIds.has(subscription.accountId)
-                && this.store.accounts.getById(subscription.accountId)?.disabledAt === null)
+            .filter((subscription) => {
+                const accountId = subscription.accountId ?? legacyAdminId
+                return accountId !== null && allowedAccountIds.has(accountId)
+                    && this.store.accounts.getById(accountId)?.disabledAt === null
+            })
         if (subscriptions.length === 0) {
             return
         }

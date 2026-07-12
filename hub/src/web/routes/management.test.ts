@@ -166,6 +166,19 @@ describe('api tokens', () => {
 })
 
 describe('resource grants', () => {
+    it('rejects missing and cross-namespace grant targets', async () => {
+        const admin = store.accounts.create({ username: 'grant-admin', passwordHash: null, role: 'admin', defaultNamespace: 'alpha' })
+        const grantee = store.accounts.create({ username: 'grant-target', passwordHash: null, role: 'user', defaultNamespace: 'alpha' })
+        store.sessions.getOrCreateSession('other-ns', {}, null, 'beta', undefined, undefined, undefined, admin.id)
+        const app = makeApp(store)
+        const jwt = await makeJwt(admin.id, 'admin', 'alpha')
+        const post = (resourceId: string) => app.request('/api/grants', {
+            method: 'POST', headers: { authorization: `Bearer ${jwt}`, 'content-type': 'application/json' },
+            body: JSON.stringify({ resourceType: 'session', resourceId, granteeUsername: grantee.username, role: 'viewer' })
+        })
+        expect((await post('missing')).status).toBe(403)
+        expect((await post(store.sessions.getSessionsByNamespace('beta')[0]!.id)).status).toBe(403)
+    })
     it('owner grants another user access; unrelated user cannot', async () => {
         const owner = store.accounts.create({ username: 'owner', passwordHash: null, role: 'user', defaultNamespace: 'default' })
         const friend = store.accounts.create({ username: 'friend', passwordHash: null, role: 'user', defaultNamespace: 'default' })

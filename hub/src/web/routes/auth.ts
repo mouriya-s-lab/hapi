@@ -138,7 +138,7 @@ export function createAuthRoutes(jwtSecret: Uint8Array, store: Store): Hono<WebA
 
         const ownerId = await getOrCreateOwnerId()
         const account = storedUser.accountId === null
-            ? store.accounts.list().find((candidate) => candidate.role === 'admin') ?? null
+            ? store.accounts.list().find((candidate) => candidate.role === 'admin' && candidate.disabledAt === null) ?? null
             : store.accounts.getById(storedUser.accountId)
         if (!account || account.disabledAt !== null) {
             return c.json({ error: 'not_bound' }, 401)

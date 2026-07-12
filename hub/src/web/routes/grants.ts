@@ -26,13 +26,16 @@ export function createGrantRoutes(store: Store): Hono<WebAppEnv> {
 
     // Returns true if the caller may administer grants on this resource.
     const callerOwnsResource = (c: Context<WebAppEnv>, type: ResourceType, id: string): boolean => {
+        const namespace = c.get('namespace')
+        const resource = type === 'machine'
+            ? store.machines.getMachineByNamespace(id, namespace)
+            : store.sessions.getSessionByNamespace(id, namespace)
+        if (!resource) return false
         if ((c.get('role') ?? 'user') === 'admin') {
             return true
         }
         const accountId = c.get('accountId')
-        const owner = type === 'machine'
-            ? store.machines.getMachine(id)?.ownerAccountId ?? null
-            : store.sessions.getSession(id)?.ownerAccountId ?? null
+        const owner = resource.ownerAccountId
         return owner !== null && owner === accountId
     }
 

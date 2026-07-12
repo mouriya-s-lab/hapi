@@ -65,6 +65,8 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
         if (typeof accountId !== 'number' || !role) {
             return false
         }
+        const account = store.accounts.getById(accountId)
+        if (!account || account.disabledAt !== null) return false
         return canOperate(resolveAccessLevel({ store, accountId, role, resourceType, resourceId, ownerAccountId }))
     }
 
