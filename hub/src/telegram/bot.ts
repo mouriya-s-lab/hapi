@@ -138,7 +138,8 @@ export class HappyBot implements NotificationChannel {
             }
 
             const binding = this.getBindingForChatId(ctx.from?.id ?? null)
-            if (!binding || binding.accountId === null) {
+            const boundAccountId = binding?.accountId ?? listActiveAdminAccountIds(this.store)[0] ?? null
+            if (!binding || boundAccountId === null) {
                 await ctx.answerCallbackQuery('Telegram account is not bound')
                 return
             }
@@ -150,7 +151,7 @@ export class HappyBot implements NotificationChannel {
                 namespace: binding.namespace,
                 canOperateSession: (sessionId) => {
                     const session = this.store.sessions.getSessionByNamespace(sessionId, binding.namespace)
-                    const account = this.store.accounts.getById(binding.accountId as number)
+                    const account = this.store.accounts.getById(boundAccountId)
                     if (!session || !account || account.disabledAt !== null) return false
                     return canOperate(resolveAccessLevel({
                         store: this.store, accountId: account.id, role: account.role,
