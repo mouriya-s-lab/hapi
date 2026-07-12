@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Store } from './index'
+import { randomUUID } from 'node:crypto'
+import { SessionIdentityConflictError } from './sessions'
 
 function makeStore(): Store {
     return new Store(':memory:')
@@ -12,6 +14,65 @@ function getMetadata(store: Store, id: string): Record<string, unknown> | null {
     const row = store.sessions.getSession(id)
     return (row?.metadata ?? null) as Record<string, unknown> | null
 }
+
+describe('getOrCreateSession: requested identity', () => {
+    it('creates and idempotently reloads a client-requested id', () => {
+        const store = makeStore()
+        const requestedId = randomUUID()
+
+        const created = store.sessions.getOrCreateSession(
+            'lazy-session-tag',
+            { path: '/tmp/project' },
+            { controlledByUser: true },
+            'default',
+            undefined,
+            undefined,
+            undefined,
+            requestedId
+        )
+        const reloaded = store.sessions.getOrCreateSession(
+            'lazy-session-tag',
+            { path: '/tmp/ignored' },
+            null,
+            'default',
+            undefined,
+            undefined,
+            undefined,
+            requestedId
+        )
+
+        expect(created.id).toBe(requestedId)
+        expect(reloaded.id).toBe(requestedId)
+        expect(store.sessions.getSessionsByNamespace('default')).toHaveLength(1)
+        store.close()
+    })
+
+    it('rejects a tag already bound to another requested id', () => {
+        const store = makeStore()
+        const firstId = randomUUID()
+        store.sessions.getOrCreateSession(
+            'conflicting-tag', {}, null, 'default', undefined, undefined, undefined, firstId
+        )
+
+        expect(() => store.sessions.getOrCreateSession(
+            'conflicting-tag', {}, null, 'default', undefined, undefined, undefined, randomUUID()
+        )).toThrow(SessionIdentityConflictError)
+        store.close()
+    })
+
+    it('rejects a requested id already bound to another tag', () => {
+        const store = makeStore()
+        const requestedId = randomUUID()
+        store.sessions.getOrCreateSession(
+            'first-tag', {}, null, 'default', undefined, undefined, undefined, requestedId
+        )
+
+        expect(() => store.sessions.getOrCreateSession(
+            'second-tag', {}, null, 'default', undefined, undefined, undefined, requestedId
+        )).toThrow(SessionIdentityConflictError)
+        store.close()
+    })
+})
 
 describe('session resume model setting', () => {
     it('defaults false and persists enabled state across Store reopen', () => {

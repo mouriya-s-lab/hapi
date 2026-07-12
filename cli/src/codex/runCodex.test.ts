@@ -32,6 +32,14 @@ vi.mock('@/agent/sessionFactory', () => ({
             sessionInfo: harness.sessionInfo
         }
     }),
+    bootstrapLazySession: vi.fn(async (options: Record<string, unknown>) => {
+        harness.bootstrapArgs.push({ ...options, lazy: true })
+        return {
+            api: {},
+            session: harness.session,
+            sessionInfo: harness.sessionInfo
+        }
+    }),
     bootstrapExistingSession: vi.fn(async (options: Record<string, unknown>) => {
         harness.bootstrapArgs.push(options)
         return {
@@ -200,6 +208,27 @@ describe('runCodex', () => {
         // Untouched (account-default) sessions must omit the tier entirely so
         // the keepalive never persists serviceTier: null over the default.
         expect(mockCodexSession.setServiceTier).not.toHaveBeenCalled()
+    })
+
+    it('uses lazy bootstrap for a fresh terminal launch', async () => {
+        await runCodexImpl({ workingDirectory: '/tmp/project' })
+
+        expect(harness.bootstrapArgs[0]).toEqual(expect.objectContaining({
+            workingDirectory: '/tmp/project',
+            lazy: true
+        }))
+        expect(harness.loopArgs[0]).toEqual(expect.objectContaining({
+            replayTranscriptHistoryOnStart: true
+        }))
+    })
+
+    it('keeps eager bootstrap for runner launches', async () => {
+        await runCodexImpl({
+            startedBy: 'runner',
+            workingDirectory: '/tmp/project'
+        })
+
+        expect(harness.bootstrapArgs[0]).not.toHaveProperty('lazy')
     })
 
     it('replays transcript history when attaching a new Hapi session to an existing Codex thread', async () => {
