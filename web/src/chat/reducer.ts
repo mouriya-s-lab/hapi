@@ -89,6 +89,21 @@ function filterSilentGoalBlocks(blocks: ChatBlock[]): ChatBlock[] {
     return filtered
 }
 
+function collectRenderedToolIds(blocks: ChatBlock[]): Set<string> {
+    const ids = new Set<string>()
+
+    const visit = (items: ChatBlock[]): void => {
+        for (const block of items) {
+            if (block.kind !== 'tool-call') continue
+            ids.add(block.tool.id)
+            visit(block.children)
+        }
+    }
+
+    visit(blocks)
+    return ids
+}
+
 export function reduceChatBlocks(
     normalized: NormalizedMessage[],
     agentState: AgentState | null | undefined,
@@ -116,6 +131,7 @@ export function reduceChatBlocks(
     const reducerContext = { permissionsById, groups, consumedGroupIds, titleChangesByToolUseId, emittedTitleChangeToolUseIds }
     const rootResult = reduceTimeline(root, reducerContext)
     let hasReadyEvent = rootResult.hasReadyEvent
+    const renderedToolIds = collectRenderedToolIds(rootResult.blocks)
 
     // Synthesize a tool card only for a *pending* permission that has no tool
     // call/result in the transcript — so the user can still answer it when its
@@ -134,7 +150,7 @@ export function reduceChatBlocks(
 
     for (const [id, entry] of permissionsById) {
         if (entry.permission.status !== 'pending') continue
-        if (rootResult.toolBlocksById.has(id)) continue
+        if (renderedToolIds.has(id)) continue
 
         const createdAt = entry.permission.createdAt ?? Date.now()
 
