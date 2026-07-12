@@ -20,6 +20,8 @@ interface GrokLoopOptions {
     modelReasoningEffort?: string | null;
     resumeSessionId?: string;
     onSessionReady?: (session: GrokSession) => void;
+    onModelRollback?: (model: string | null) => void;
+    onReasoningEffortRollback?: (effort: string | null) => void;
 }
 
 export async function grokLoop(opts: GrokLoopOptions): Promise<void> {
@@ -59,7 +61,9 @@ export async function grokLoop(opts: GrokLoopOptions): Promise<void> {
             model: getCurrentModel()
         }),
         runRemote: (instance) => grokRemoteLauncher(instance, {
-            model: getCurrentModel()
+            model: getCurrentModel(),
+            onModelRollback: opts.onModelRollback,
+            onReasoningEffortRollback: opts.onReasoningEffortRollback
         }),
         onSessionReady: opts.onSessionReady
     });

@@ -24,17 +24,17 @@ function deriveToolInput(request: PermissionRequest): unknown {
     return request.rawOutput;
 }
 
-function pickOptionId(request: PermissionRequest, preferredKinds: string[]): string | null {
+function pickOptionId(request: PermissionRequest, preferredKinds: string[], allowFallback = true): string | null {
     for (const kind of preferredKinds) {
         const match = request.options.find((option) => option.kind === kind);
         if (match) {
             return match.optionId;
         }
     }
-    return request.options.length > 0 ? request.options[0].optionId : null;
+    return allowFallback && request.options.length > 0 ? request.options[0].optionId : null;
 }
 
-function mapDecisionToOutcome(request: PermissionRequest, decision: PermissionResponseMessage['decision']): PermissionResponse {
+export function mapDecisionToOutcome(request: PermissionRequest, decision: PermissionResponseMessage['decision']): PermissionResponse {
     if (decision === 'abort') {
         return { outcome: 'cancelled' };
     }
@@ -49,7 +49,7 @@ function mapDecisionToOutcome(request: PermissionRequest, decision: PermissionRe
         return optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' };
     }
 
-    const optionId = pickOptionId(request, ['reject_once', 'reject_always']);
+    const optionId = pickOptionId(request, ['reject_once', 'reject_always'], false);
     return optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' };
 }
 

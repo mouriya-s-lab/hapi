@@ -115,7 +115,7 @@ export function getModelOptionsForFlavor(
     }
     if (flavor === 'grok') {
         return withCurrentModelOption(MODEL_OPTIONS.grok.map((option) => ({
-            value: option.value,
+            value: option.value === 'auto' ? null : option.value,
             label: option.label
         })), currentModel)
     }

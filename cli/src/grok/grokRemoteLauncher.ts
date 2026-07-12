@@ -24,7 +24,11 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
     private currentEffort: string | null = null;
     private lastDisplayedToolCall = new Map<string, string>();
 
-    constructor(session: GrokSession, opts: { model?: string }) {
+    constructor(session: GrokSession, private readonly opts: {
+        model?: string;
+        onModelRollback?: (model: string | null) => void;
+        onReasoningEffortRollback?: (effort: string | null) => void;
+    }) {
         super(process.env.DEBUG ? session.logPath : undefined);
         this.session = session;
         this.model = opts.model;
@@ -136,22 +140,27 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
                                 message: `Failed to switch model to ${batch.mode.model}. Continuing with ${this.currentBackendModel}.`
                             });
                         }
-                        batch.mode.model = this.currentBackendModel!;
+                        batch.mode.model = this.currentBackendModel ?? undefined;
+                        this.opts.onModelRollback?.(this.currentBackendModel);
                     }
                 }
             }
 
-            if (batch.mode.modelReasoningEffort && batch.mode.modelReasoningEffort !== this.currentEffort) {
+            const requestedEffort = batch.mode.modelReasoningEffort ?? null;
+            const shouldResetEffort = requestedEffort === null && this.currentEffort !== null;
+            if ((requestedEffort !== null && requestedEffort !== this.currentEffort) || shouldResetEffort) {
+                const wireEffort = requestedEffort ?? 'high';
                 try {
-                    await backend.setMode(acpSessionId, batch.mode.modelReasoningEffort);
-                    this.currentEffort = batch.mode.modelReasoningEffort;
+                    await backend.setMode(acpSessionId, wireEffort);
+                    this.currentEffort = requestedEffort;
                 } catch (error) {
                     const message = error instanceof Error ? error.message : String(error);
                     session.sendSessionEvent({
                         type: 'message',
-                        message: `Grok rejected reasoning effort ${batch.mode.modelReasoningEffort}: ${message}`
+                        message: `Grok rejected reasoning effort ${wireEffort}: ${message}`
                     });
                     batch.mode.modelReasoningEffort = this.currentEffort;
+                    this.opts.onReasoningEffortRollback?.(this.currentEffort);
                 }
             }
 
@@ -300,7 +309,11 @@ function toAcpMcpServers(config: Record<string, { command: string; args: string[
 
 export async function grokRemoteLauncher(
     session: GrokSession,
-    opts: { model?: string }
+    opts: {
+        model?: string;
+        onModelRollback?: (model: string | null) => void;
+        onReasoningEffortRollback?: (effort: string | null) => void;
+    }
 ): Promise<'switch' | 'exit'> {
     const launcher = new GrokRemoteLauncher(session, opts);
     return launcher.launch();

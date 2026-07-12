@@ -175,6 +175,15 @@ export async function runGrok(opts: {
             modelReasoningEffort: sessionModelReasoningEffort,
             resumeSessionId: opts.resumeSessionId,
             onModeChange: createModeChangeHandler(session),
+            onModelRollback: (model) => {
+                sessionModel = model;
+                resolvedModel = model ?? persistedModel;
+                syncSessionMode();
+            },
+            onReasoningEffortRollback: (effort) => {
+                sessionModelReasoningEffort = effort;
+                syncSessionMode();
+            },
             onSessionReady: (instance) => {
                 sessionWrapperRef.current = instance;
                 syncSessionMode();
