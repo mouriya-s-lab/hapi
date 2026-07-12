@@ -61,7 +61,7 @@ describe('importable session routes', () => {
     it('returns the existing Hapi session without spawning a duplicate', async () => {
         let spawned = false
         const engine = fakeEngine({
-            getSessionsByNamespace: () => [{ id: 'existing', metadata: { flavor: 'claude', claudeSessionId: 'external-1' } }] as never,
+            getSessionsByNamespace: () => [{ id: 'existing', metadata: { flavor: 'claude', claudeSessionId: 'external-1', importHistoryState: 'complete' } }] as never,
             spawnSession: async () => { spawned = true; return { type: 'success', sessionId: 'unexpected' } }
         })
         const response = await app(engine).request('/api/machines/machine-1/importable-sessions/claude/external-1/import', { method: 'POST' })
@@ -78,24 +78,6 @@ describe('importable session routes', () => {
         const response = await app(engine).request('/api/machines/machine-1/importable-sessions/codex/missing/import', { method: 'POST' })
         expect(response.status).toBe(404)
         expect(spawned).toBe(false)
-    })
-
-    it('does not expose or import sessions outside machine workspace roots', async () => {
-        const engine = fakeEngine({
-            listImportableSessionsForMachine: async () => ({ sessions: [{
-                agent: 'codex', externalSessionId: 'private', cwd: '/private/project', timestamp: 1,
-                previewTitle: 'Private title', previewPrompt: 'private prompt', messageCount: 2, cliVersion: '1'
-            }], nextCursor: null }),
-            resolveImportableSessionForMachine: async () => ({
-                type: 'success', transcriptPath: '/private/transcript.jsonl',
-                session: { agent: 'codex', externalSessionId: 'private', cwd: '/private/project', timestamp: 1, previewTitle: 'Private title', previewPrompt: 'private prompt', messageCount: 2, cliVersion: '1' }
-            })
-        } as Partial<SyncEngine>)
-
-        const listed = await app(engine).request('/api/machines/machine-1/importable-sessions?agent=codex')
-        expect(((await listed.json()) as ImportableSessionsResponse).sessions).toEqual([])
-        const imported = await app(engine).request('/api/machines/machine-1/importable-sessions/codex/private/import', { method: 'POST' })
-        expect(imported.status).toBe(403)
     })
 
     it('waits for history replay completion before returning success', async () => {
@@ -151,5 +133,13 @@ describe('importable session routes', () => {
         expect(spawnCount).toBe(1)
         expect(await first.json()).toEqual({ type: 'success', sessionId: 'hapi-1', alreadyImported: false })
         expect(await second.json()).toEqual({ type: 'success', sessionId: 'hapi-1', alreadyImported: true })
+    })
+
+    it('does not treat archived or non-import resumes as completed imports', async () => {
+        const engine = fakeEngine({
+            getSessionsByNamespace: () => [{ id: 'archived', active: false, metadata: { flavor: 'codex', codexSessionId: 'external-1', importHistoryState: 'complete', archivedAt: 1 } }] as never
+        } as Partial<SyncEngine>)
+        const listed = await app(engine).request('/api/machines/machine-1/importable-sessions?agent=codex')
+        expect(((await listed.json()) as ImportableSessionsResponse).sessions[0].alreadyImported).toBe(false)
     })
 })

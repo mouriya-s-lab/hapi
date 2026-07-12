@@ -13,8 +13,8 @@ type JsonRecord = Record<string, unknown>
 const SCAN_WINDOW_SIZE = 50
 const listedSessions = new Map<string, ImportableSessionSummary>()
 const listedSessionPaths = new Map<string, string>()
-type FileSnapshot = { id: string; root: string; files: Array<{ path: string; modifiedAt: number }> }
-const activeFileSnapshots = new Map<ImportableSessionAgent, FileSnapshot>()
+type FileSnapshot = { id: string; root: string; iterator: AsyncGenerator<string>; files: Array<{ path: string; modifiedAt: number }>; done: boolean }
+const fileSnapshots = new Map<string, FileSnapshot>()
 
 function sessionKey(agent: ImportableSessionAgent, externalSessionId: string): string {
     return `${agent}:${externalSessionId}`
@@ -38,20 +38,34 @@ function preview(value: string): string {
     return trimmed.length > 160 ? `${trimmed.slice(0, 160)}…` : trimmed
 }
 
-async function collectJsonlFiles(root: string): Promise<string[]> {
+async function* iterateJsonlFiles(root: string): AsyncGenerator<string> {
     let entries
     try {
         entries = await readdir(root, { withFileTypes: true })
     } catch {
-        return []
+        return
     }
-    const files: string[] = []
+    entries.sort((left, right) => right.name.localeCompare(left.name))
     for (const entry of entries) {
         const path = join(root, entry.name)
-        if (entry.isDirectory()) files.push(...await collectJsonlFiles(path))
-        else if (entry.isFile() && entry.name.endsWith('.jsonl')) files.push(path)
+        if (entry.isDirectory()) yield* iterateJsonlFiles(path)
+        else if (entry.isFile() && entry.name.endsWith('.jsonl')) yield path
     }
-    return files
+}
+
+async function fillSnapshot(snapshot: FileSnapshot, requiredCount: number): Promise<void> {
+    while (!snapshot.done && snapshot.files.length < requiredCount) {
+        const next = await snapshot.iterator.next()
+        if (next.done) {
+            snapshot.done = true
+            break
+        }
+        try {
+            snapshot.files.push({ path: next.value, modifiedAt: (await stat(next.value)).mtimeMs })
+        } catch (error) {
+            logger.warn(`Skipping vanished import transcript ${next.value}`, error)
+        }
+    }
 }
 
 async function forEachJsonLine(path: string, visit: (value: JsonRecord) => void): Promise<void> {
@@ -172,6 +186,7 @@ async function scanCodex(path: string): Promise<ImportableSessionSummary | null>
     let child = false
     await forEachJsonLine(path, (value) => {
         const payload = record(value.payload)
+        if (!cwd && typeof value.cwd === 'string') cwd = value.cwd
         if (value.type === 'session_meta' && payload) {
             if (typeof payload.id === 'string') externalSessionId = payload.id
             if (typeof payload.cwd === 'string') cwd = payload.cwd
@@ -203,7 +218,7 @@ async function scanCodex(path: string): Promise<ImportableSessionSummary | null>
         lastPrompt = legacyLastPrompt
     }
     externalSessionId ??= inferCodexSessionIdFromPath(path)
-    if (!externalSessionId || child || visibleMessages === 0) return null
+    if (!externalSessionId || !cwd || child || visibleMessages === 0) return null
     const metadata = await stat(path)
     return {
         agent: 'codex', externalSessionId, cwd, timestamp: timestamp !== null && Number.isFinite(timestamp) ? timestamp : metadata.mtimeMs,
@@ -222,28 +237,19 @@ export async function listImportableSessions(request: ListImportableSessionsRequ
     let snapshot: FileSnapshot
     let offset: number
     if (request.cursor === undefined) {
-        const files = await collectJsonlFiles(root)
-        const filesByRecency: Array<{ path: string; modifiedAt: number }> = []
-        for (const path of files) {
-            try {
-                filesByRecency.push({ path, modifiedAt: (await stat(path)).mtimeMs })
-            } catch (error) {
-                logger.warn(`Skipping vanished import transcript ${path}`, error)
-            }
-        }
-        filesByRecency.sort((left, right) => right.modifiedAt - left.modifiedAt)
-        snapshot = { id: randomUUID(), root, files: filesByRecency }
-        activeFileSnapshots.set(agent, snapshot)
+        snapshot = { id: randomUUID(), root, iterator: iterateJsonlFiles(root), files: [], done: false }
+        fileSnapshots.set(snapshot.id, snapshot)
         offset = 0
     } else {
         const separator = request.cursor.lastIndexOf(':')
         const snapshotId = request.cursor.slice(0, separator)
         offset = Number.parseInt(request.cursor.slice(separator + 1), 10)
-        const active = activeFileSnapshots.get(agent)
-        if (!active || active.id !== snapshotId || active.root !== root) throw new Error('Expired importable session cursor')
+        const active = fileSnapshots.get(snapshotId)
+        if (!active || active.root !== root) throw new Error('Expired importable session cursor')
         snapshot = active
     }
     if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid importable session cursor')
+    await fillSnapshot(snapshot, offset + SCAN_WINDOW_SIZE + 1)
     const window = snapshot.files.slice(offset, offset + SCAN_WINDOW_SIZE)
     const sessions: ImportableSessionSummary[] = []
     for (const { path } of window) {
@@ -262,7 +268,9 @@ export async function listImportableSessions(request: ListImportableSessionsRequ
     }
     sessions.sort((left, right) => right.timestamp - left.timestamp)
     const nextOffset = offset + window.length
-    return { sessions, nextCursor: nextOffset < snapshot.files.length ? `${snapshot.id}:${nextOffset}` : null }
+    const nextCursor = nextOffset < snapshot.files.length || !snapshot.done ? `${snapshot.id}:${nextOffset}` : null
+    if (nextCursor === null) fileSnapshots.delete(snapshot.id)
+    return { sessions, nextCursor }
 }
 
 export function resolveImportableSession(agent: ImportableSessionAgent, externalSessionId: string): ImportableSessionSummary | null {

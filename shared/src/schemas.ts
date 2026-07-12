@@ -35,7 +35,7 @@ export const MetadataSchema = z.object({
     machineId: z.string().optional(),
     claudeSessionId: z.string().optional(),
     codexSessionId: z.string().optional(),
-    importHistoryState: z.enum(['replaying', 'complete']).optional(),
+    importHistoryState: z.enum(['replaying', 'complete', 'failed']).optional(),
     geminiSessionId: z.string().optional(),
     opencodeSessionId: z.string().optional(),
     cursorSessionId: z.string().optional(),

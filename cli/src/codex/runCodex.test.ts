@@ -65,6 +65,8 @@ const lifecycleMock = vi.hoisted(() => ({
     hasExplicitSessionEndReason: vi.fn(() => false)
 }))
 
+const replayMock = vi.hoisted(() => vi.fn(async () => 2))
+
 vi.mock('@/agent/runnerLifecycle', () => ({
     createModeChangeHandler: vi.fn(() => vi.fn()),
     createRunnerLifecycle: vi.fn(() => lifecycleMock),
@@ -90,7 +92,7 @@ vi.mock('@/modules/common/slashCommands', () => ({
 }))
 
 vi.mock('@/modules/common/replayImportedTranscript', () => ({
-    replayImportedTranscript: vi.fn(async () => 2)
+    replayImportedTranscript: replayMock
 }))
 
 vi.mock('./utils/slashCommands', () => ({
@@ -117,6 +119,8 @@ describe('runCodex', () => {
         harness.session.onUserMessage.mockReset()
         harness.session.onCancelQueuedMessage.mockReset()
         harness.session.updateMetadata.mockReset()
+        replayMock.mockReset()
+        replayMock.mockResolvedValue(2)
         harness.session.rpcHandlerManager.registerHandler.mockReset()
         mockCodexSession.setPermissionMode.mockReset()
         mockCodexSession.setModel.mockReset()
@@ -232,5 +236,20 @@ describe('runCodex', () => {
             resumeSessionId: 'codex-thread-3',
             replayTranscriptHistoryOnStart: false
         }))
+    })
+
+    it('marks a failed import so the Hub completion wait can terminate', async () => {
+        replayMock.mockRejectedValueOnce(new Error('malformed transcript'))
+        await expect(runCodexImpl({
+            workingDirectory: '/tmp/project',
+            resumeSessionId: 'codex-thread-failed',
+            importHistory: true,
+            importTranscriptPath: '/tmp/broken.jsonl'
+        })).rejects.toThrow('malformed transcript')
+
+        const states = harness.session.updateMetadata.mock.calls.map(([update]) => (
+            update({}).importHistoryState
+        ))
+        expect(states).toEqual(['replaying', 'failed'])
     })
 })

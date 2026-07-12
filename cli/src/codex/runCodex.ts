@@ -108,8 +108,13 @@ export async function runCodex(opts: {
         if (!opts.importTranscriptPath) throw new Error('Import history requires a transcript path')
         if (!opts.resumeSessionId) throw new Error('Import history requires a Codex session ID')
         session.updateMetadata((metadata) => ({ ...metadata, codexSessionId: opts.resumeSessionId, importHistoryState: 'replaying' }))
-        await replayImportedTranscript({ agent: 'codex', transcriptPath: opts.importTranscriptPath, session })
-        session.updateMetadata((metadata) => ({ ...metadata, importHistoryState: 'complete' }))
+        try {
+            await replayImportedTranscript({ agent: 'codex', transcriptPath: opts.importTranscriptPath, session })
+            session.updateMetadata((metadata) => ({ ...metadata, importHistoryState: 'complete' }))
+        } catch (error) {
+            session.updateMetadata((metadata) => ({ ...metadata, importHistoryState: 'failed' }))
+            throw error
+        }
     }
 
     const applyCurrentConfigToSession = (options?: { syncModel?: boolean }) => {

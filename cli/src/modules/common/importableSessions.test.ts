@@ -102,6 +102,8 @@ describe('streaming importable session index', () => {
         const first = await listImportableSessions({ agent: 'codex' })
         expect(first.sessions).toHaveLength(50)
         expect(first.nextCursor).not.toBeNull()
+        const independent = await listImportableSessions({ agent: 'codex' })
+        expect(independent.nextCursor).not.toBe(first.nextCursor)
 
         transcript(join(root, 'codex/sessions/added-after-page-one.jsonl'), [
             { type: 'session_meta', payload: { id: 'added-later', cwd: '/work' } },
@@ -117,7 +119,7 @@ describe('streaming importable session index', () => {
         const root = setup()
         const id = '11111111-2222-4333-8444-555555555555'
         transcript(join(root, `codex/sessions/rollout-${id}.jsonl`), [
-            { type: 'event_msg', payload: { type: 'user_message', message: 'legacy question' } }
+            { type: 'event_msg', cwd: '/work/legacy', payload: { type: 'user_message', message: 'legacy question' } }
         ])
         expect((await listImportableSessions({ agent: 'codex' })).sessions[0]).toMatchObject({
             externalSessionId: id, previewPrompt: 'legacy question'
