@@ -61,6 +61,9 @@ export function createImportableSessionsRoutes(getSyncEngine: () => SyncEngine |
                 if (duplicate.metadata?.importHistoryState === 'complete' && !duplicate.metadata.archivedAt) {
                     return c.json({ type: 'success', sessionId: duplicate.id, alreadyImported: true } satisfies ImportExistingSessionResponse)
                 }
+                if (duplicate.metadata?.importHistoryState === undefined) {
+                    return c.json({ type: 'error', error: 'Provider session is attached to an existing Hapi session that was not fully imported' } satisfies ImportExistingSessionResponse, 409)
+                }
                 const importState = duplicate.metadata?.importHistoryState === 'replaying' ? await engine.waitForImportHistoryComplete(duplicate.id) : 'failed'
                 if (importState === 'complete' && !duplicate.metadata?.archivedAt) {
                     return c.json({ type: 'success', sessionId: duplicate.id, alreadyImported: true } satisfies ImportExistingSessionResponse)

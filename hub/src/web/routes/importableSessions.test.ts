@@ -142,4 +142,15 @@ describe('importable session routes', () => {
         const listed = await app(engine).request('/api/machines/machine-1/importable-sessions?agent=codex')
         expect(((await listed.json()) as ImportableSessionsResponse).sessions[0].alreadyImported).toBe(false)
     })
+
+    it('does not archive an active normal resume when full history was never imported', async () => {
+        let archived = false
+        const engine = fakeEngine({
+            getSessionsByNamespace: () => [{ id: 'normal', active: true, metadata: { flavor: 'claude', claudeSessionId: 'external-1' } }] as never,
+            archiveSession: async () => { archived = true }
+        } as Partial<SyncEngine>)
+        const response = await app(engine).request('/api/machines/machine-1/importable-sessions/claude/external-1/import', { method: 'POST' })
+        expect(response.status).toBe(409)
+        expect(archived).toBe(false)
+    })
 })

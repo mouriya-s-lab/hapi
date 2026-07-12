@@ -15,6 +15,17 @@ const listedSessions = new Map<string, ImportableSessionSummary>()
 const listedSessionPaths = new Map<string, string>()
 type FileSnapshot = { id: string; root: string; iterator: AsyncGenerator<string>; files: Array<{ path: string; modifiedAt: number }>; done: boolean }
 const fileSnapshots = new Map<string, FileSnapshot>()
+const CURSOR_LEASE_MS = 5 * 60 * 1000
+const cursorLeaseTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+function renewCursorLease(snapshotId: string): void {
+    const current = cursorLeaseTimers.get(snapshotId)
+    if (current) clearTimeout(current)
+    cursorLeaseTimers.set(snapshotId, setTimeout(() => {
+        fileSnapshots.delete(snapshotId)
+        cursorLeaseTimers.delete(snapshotId)
+    }, CURSOR_LEASE_MS))
+}
 
 function sessionKey(agent: ImportableSessionAgent, externalSessionId: string): string {
     return `${agent}:${externalSessionId}`
@@ -239,6 +250,7 @@ export async function listImportableSessions(request: ListImportableSessionsRequ
     if (request.cursor === undefined) {
         snapshot = { id: randomUUID(), root, iterator: iterateJsonlFiles(root), files: [], done: false }
         fileSnapshots.set(snapshot.id, snapshot)
+        renewCursorLease(snapshot.id)
         offset = 0
     } else {
         const separator = request.cursor.lastIndexOf(':')
@@ -247,9 +259,11 @@ export async function listImportableSessions(request: ListImportableSessionsRequ
         const active = fileSnapshots.get(snapshotId)
         if (!active || active.root !== root) throw new Error('Expired importable session cursor')
         snapshot = active
+        renewCursorLease(snapshot.id)
     }
     if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid importable session cursor')
     await fillSnapshot(snapshot, offset + SCAN_WINDOW_SIZE + 1)
+    snapshot.files.sort((left, right) => right.modifiedAt - left.modifiedAt)
     const window = snapshot.files.slice(offset, offset + SCAN_WINDOW_SIZE)
     const sessions: ImportableSessionSummary[] = []
     for (const { path } of window) {
@@ -269,7 +283,12 @@ export async function listImportableSessions(request: ListImportableSessionsRequ
     sessions.sort((left, right) => right.timestamp - left.timestamp)
     const nextOffset = offset + window.length
     const nextCursor = nextOffset < snapshot.files.length || !snapshot.done ? `${snapshot.id}:${nextOffset}` : null
-    if (nextCursor === null) fileSnapshots.delete(snapshot.id)
+    if (nextCursor === null) {
+        fileSnapshots.delete(snapshot.id)
+        const timer = cursorLeaseTimers.get(snapshot.id)
+        if (timer) clearTimeout(timer)
+        cursorLeaseTimers.delete(snapshot.id)
+    }
     return { sessions, nextCursor }
 }
 

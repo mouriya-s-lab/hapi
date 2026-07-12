@@ -37,6 +37,8 @@ export async function replayImportedTranscript(options: {
     session: ApiSessionClient
 }): Promise<number> {
     const useLegacyCodexChat = options.agent === 'codex' && !await hasModernCodexChat(options.transcriptPath)
+    options.session.keepAlive(true, 'remote')
+    const heartbeat = setInterval(() => options.session.keepAlive(true, 'remote'), 10_000)
     const input = createReadStream(options.transcriptPath, { encoding: 'utf8' })
     const lines = createInterface({ input, crlfDelay: Infinity })
     let imported = 0
@@ -82,6 +84,7 @@ export async function replayImportedTranscript(options: {
             }
         }
     } finally {
+        clearInterval(heartbeat)
         lines.close()
         input.destroy()
     }

@@ -21,6 +21,7 @@ describe('replayImportedTranscript', () => {
         const users: string[] = []
         const agents: unknown[] = []
         const session = {
+            keepAlive: () => {},
             sendUserMessage: (value: string) => users.push(value),
             sendAgentMessage: (value: unknown) => agents.push(value),
             updateMetadata: () => {}
@@ -41,7 +42,7 @@ describe('replayImportedTranscript', () => {
 
     it('replays visible Claude messages and skips sidecar records', async () => {
         const messages: unknown[] = []
-        const session = { sendClaudeSessionMessage: (value: unknown) => messages.push(value) } as unknown as ApiSessionClient
+        const session = { keepAlive: () => {}, sendClaudeSessionMessage: (value: unknown) => messages.push(value) } as unknown as ApiSessionClient
         const imported = await replayImportedTranscript({
             agent: 'claude', session,
             transcriptPath: file([
@@ -64,6 +65,7 @@ describe('replayImportedTranscript', () => {
         const users: string[] = []
         const agents: unknown[] = []
         const session = {
+            keepAlive: () => {},
             sendUserMessage: (value: string) => users.push(value),
             sendAgentMessage: (value: unknown) => agents.push(value),
             updateMetadata: () => {}
