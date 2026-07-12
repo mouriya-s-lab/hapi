@@ -273,6 +273,25 @@ function createWebApp(options: {
             resourceId: sessionId,
             ownerAccountId: session.ownerAccountId
         }))
+    }, (sessionId, accountId) => {
+        const session = options.store.sessions.getSession(sessionId)
+        if (!session) throw new Error('Forked session not found')
+        const metadataMachineId = session.metadata !== null && typeof session.metadata === 'object' && 'machineId' in session.metadata
+            && typeof session.metadata.machineId === 'string' ? session.metadata.machineId : null
+        const machineId = session.machineId ?? metadataMachineId
+        const daemonAccountId = machineId
+            ? options.store.machines.getMachine(machineId)?.ownerAccountId ?? null
+            : null
+        const engine = options.getSyncEngine()
+        if (!engine || !engine.assignSessionOwner(sessionId, accountId)) {
+            throw new Error('Failed to assign forked session owner')
+        }
+        if (daemonAccountId !== null && daemonAccountId !== accountId) {
+            options.store.grants.upsert({
+                resourceType: 'session', resourceId: sessionId,
+                granteeAccountId: daemonAccountId, role: 'operator'
+            })
+        }
     })
 
     // Skip static serving in relay mode, show helpful message on root

@@ -56,6 +56,9 @@ describe('machines routes', () => {
     })
 
     it('assigns a successful remote spawn to the requesting account', async () => {
+        const store = new Store(':memory:')
+        const daemon = store.accounts.create({ username: 'daemon', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+        store.machines.getOrCreateMachine('machine-1', {}, null, 'default', daemon.id)
         const machine = createMachine()
         const assignments: Array<{ sessionId: string; accountId: number }> = []
         const engine = {
@@ -70,9 +73,10 @@ describe('machines routes', () => {
         app.use('*', async (c, next) => {
             c.set('namespace', 'default')
             c.set('accountId', 42)
+            c.set('role', 'admin')
             await next()
         })
-        app.route('/api', createMachinesRoutes(() => engine as SyncEngine))
+        app.route('/api', createMachinesRoutes(() => engine as SyncEngine, () => store))
 
         const response = await app.request('/api/machines/machine-1/spawn', {
             method: 'POST',
@@ -83,6 +87,8 @@ describe('machines routes', () => {
         expect(response.status).toBe(200)
         expect(await response.json()).toEqual({ type: 'success', sessionId: 'spawned-session' })
         expect(assignments).toEqual([{ sessionId: 'spawned-session', accountId: 42 }])
+        expect(store.grants.get('session', 'spawned-session', daemon.id)?.role).toBe('operator')
+        store.close()
     })
 
     it('forwards create-directory requests to the selected machine', async () => {

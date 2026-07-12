@@ -22,7 +22,8 @@ const ForkRequestBodySchema = z.object({
 export function mountForkRoutes(
     app: Hono<any>,
     getDeps: (namespace: string) => ForkSyncEngineLike | null,
-    canOperateSession: (sessionId: string, namespace: string, accountId: number, role: 'admin' | 'user') => boolean
+    canOperateSession: (sessionId: string, namespace: string, accountId: number, role: 'admin' | 'user') => boolean,
+    transferSessionOwnership: (sessionId: string, accountId: number) => void
 ): void {
     app.get('/api/flavors/capabilities', (c) => {
         return c.json({ capabilities: getAllForkCapabilities() })
@@ -63,6 +64,7 @@ export function mountForkRoutes(
 
         try {
             const result = await forkSession({ srcSessionId, deps, forkPoint })
+            transferSessionOwnership(result.newSessionId, accountId)
             return c.json(result)
         } catch (err) {
             if (err instanceof HttpError) {

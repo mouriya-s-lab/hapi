@@ -2,6 +2,7 @@ import { describe, expect, it, mock, spyOn } from 'bun:test'
 import { HappyBot } from './bot'
 import type { SyncEngine } from '../sync/syncEngine'
 import type { Store } from '../store'
+import { Store as RealStore } from '../store'
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -61,5 +62,31 @@ describe('HappyBot.start', () => {
         await bot.start() // second call should be no-op
 
         expect(innerBot.start).toHaveBeenCalledTimes(1)
+    })
+})
+
+describe('HappyBot account isolation', () => {
+    it('sends a session notification only to bound accounts in its readable audience', async () => {
+        const store = new RealStore(':memory:')
+        const owner = store.accounts.create({ username: 'owner', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+        const stranger = store.accounts.create({ username: 'stranger', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+        store.users.addUser('telegram', '101', 'default', owner.id)
+        store.users.addUser('telegram', '202', 'default', stranger.id)
+        const stored = store.sessions.getOrCreateSession('telegram-session', {}, null, 'default', undefined, undefined, undefined, owner.id)
+        const bot = new HappyBot({
+            syncEngine: {} as SyncEngine,
+            botToken: '123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11',
+            publicUrl: 'https://example.com', store
+        })
+        const recipients: number[] = []
+        bot.getBot().api.sendMessage = mock(async (chatId: number) => {
+            recipients.push(chatId)
+            return {} as never
+        }) as never
+
+        await bot.sendReady({ id: stored.id, namespace: 'default', active: true, metadata: {} } as never)
+
+        expect(recipients).toEqual([101])
+        store.close()
     })
 })

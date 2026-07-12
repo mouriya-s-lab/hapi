@@ -74,7 +74,18 @@ export function createMachinesRoutes(
             parsed.data.effort
         )
         if (result.type === 'success') {
-            engine.assignSessionOwner(result.sessionId, c.get('accountId'))
+            const requesterAccountId = c.get('accountId')
+            const store = getStore?.() ?? null
+            const daemonAccountId = store?.machines.getMachine(machineId)?.ownerAccountId ?? null
+            engine.assignSessionOwner(result.sessionId, requesterAccountId)
+            if (store && daemonAccountId !== null && daemonAccountId !== requesterAccountId) {
+                store.grants.upsert({
+                    resourceType: 'session',
+                    resourceId: result.sessionId,
+                    granteeAccountId: daemonAccountId,
+                    role: 'operator'
+                })
+            }
         }
         return c.json(result)
     })

@@ -12,6 +12,7 @@ import { formatReadyNotification, formatSessionNotification, createNotificationK
 import { getAgentName } from '../notifications/sessionInfo'
 import type { NotificationChannel, TaskNotification } from '../notifications/notificationTypes'
 import type { Store } from '../store'
+import { canOperate, listActiveAdminAccountIds, listReadableAccountIds, resolveAccessLevel } from '../auth/access'
 
 export interface BotContext extends Context {
     // Extended context for future use
@@ -136,8 +137,8 @@ export class HappyBot implements NotificationChannel {
                 return
             }
 
-            const namespace = this.getNamespaceForChatId(ctx.from?.id ?? null)
-            if (!namespace) {
+            const binding = this.getBindingForChatId(ctx.from?.id ?? null)
+            if (!binding || binding.accountId === null) {
                 await ctx.answerCallbackQuery('Telegram account is not bound')
                 return
             }
@@ -146,7 +147,16 @@ export class HappyBot implements NotificationChannel {
 
             const callbackContext: CallbackContext = {
                 syncEngine: this.syncEngine,
-                namespace,
+                namespace: binding.namespace,
+                canOperateSession: (sessionId) => {
+                    const session = this.store.sessions.getSessionByNamespace(sessionId, binding.namespace)
+                    const account = this.store.accounts.getById(binding.accountId as number)
+                    if (!session || !account) return false
+                    return canOperate(resolveAccessLevel({
+                        store: this.store, accountId: account.id, role: account.role,
+                        resourceType: 'session', resourceId: sessionId, ownerAccountId: session.ownerAccountId
+                    }))
+                },
                 answerCallback: async (text?: string) => {
                     await ctx.answerCallbackQuery(text)
                 },
@@ -164,24 +174,26 @@ export class HappyBot implements NotificationChannel {
     /**
      * Get bound Telegram chat IDs from storage.
      */
-    private getBoundChatIds(namespace: string): number[] {
-        const users = this.store.users.getUsersByPlatformAndNamespace('telegram', namespace)
+    private getBoundChatIds(session: Session): number[] {
+        const users = this.store.users.getUsersByPlatformAndNamespace('telegram', session.namespace)
+        const audience = listReadableAccountIds(this.store, 'session', session.id)
+        for (const adminId of listActiveAdminAccountIds(this.store)) audience.add(adminId)
         const ids = new Set<number>()
         for (const user of users) {
             const chatId = Number(user.platformUserId)
-            if (Number.isFinite(chatId)) {
+            if (user.accountId !== null && audience.has(user.accountId) && Number.isFinite(chatId)) {
                 ids.add(chatId)
             }
         }
         return Array.from(ids)
     }
 
-    private getNamespaceForChatId(chatId: number | null | undefined): string | null {
+    private getBindingForChatId(chatId: number | null | undefined) {
         if (!chatId) {
             return null
         }
         const stored = this.store.users.getUser('telegram', String(chatId))
-        return stored?.namespace ?? null
+        return stored ?? null
     }
 
     private getSessionMachine(session: Session): Machine | undefined {
@@ -219,7 +231,7 @@ export class HappyBot implements NotificationChannel {
         const keyboard = new InlineKeyboard()
             .webApp('Open Session', url)
 
-        const chatIds = this.getBoundChatIds(session.namespace)
+        const chatIds = this.getBoundChatIds(session)
         if (chatIds.length === 0) {
             return
         }
@@ -248,7 +260,7 @@ export class HappyBot implements NotificationChannel {
         const text = formatSessionNotification(session, this.getSessionMachine(session))
         const keyboard = createNotificationKeyboard(session, this.publicUrl)
 
-        const chatIds = this.getBoundChatIds(session.namespace)
+        const chatIds = this.getBoundChatIds(session)
         if (chatIds.length === 0) {
             return
         }
@@ -278,7 +290,7 @@ export class HappyBot implements NotificationChannel {
         const keyboard = new InlineKeyboard()
             .webApp('Open Session', url)
 
-        const chatIds = this.getBoundChatIds(session.namespace)
+        const chatIds = this.getBoundChatIds(session)
         if (chatIds.length === 0) {
             return
         }

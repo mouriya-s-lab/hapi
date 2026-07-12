@@ -66,7 +66,7 @@ describe('mountForkRoutes', () => {
         // test pins that cli's registry covers exactly the flavors whose
         // fork slot is non-'none'.
         const app = new Hono()
-        mountForkRoutes(app, () => makeDeps(), () => true)
+        mountForkRoutes(app, () => makeDeps(), () => true, () => {})
         const res = await app.request('/api/flavors/capabilities')
         expect(res.status).toBe(200)
         const body = (await res.json()) as {
@@ -79,16 +79,19 @@ describe('mountForkRoutes', () => {
 
     it('POST /api/sessions/:id/fork returns 200 + newSessionId on success', async () => {
         const app = new Hono()
-        mountForkRoutes(app, () => makeDeps(), () => true)
+        const transfers: Array<{ sessionId: string; accountId: number }> = []
+        app.use('*', async (c, next) => { c.set('accountId' as never, 7 as never); await next() })
+        mountForkRoutes(app, () => makeDeps(), () => true, (sessionId, accountId) => transfers.push({ sessionId, accountId }))
         const res = await app.request('/api/sessions/src/fork', { method: 'POST' })
         expect(res.status).toBe(200)
         const body = (await res.json()) as { newSessionId: string }
         expect(body.newSessionId).toBe('new-hapi-id')
+        expect(transfers).toEqual([{ sessionId: 'new-hapi-id', accountId: 7 }])
     })
 
     it('rejects a fork without operator access to the source session', async () => {
         const app = new Hono()
-        mountForkRoutes(app, () => makeDeps(), () => false)
+        mountForkRoutes(app, () => makeDeps(), () => false, () => {})
 
         const res = await app.request('/api/sessions/src/fork', { method: 'POST' })
 
@@ -107,7 +110,7 @@ describe('mountForkRoutes', () => {
         mountForkRoutes(app, () => makeDeps(), (_sessionId, namespace) => {
             authorizedNamespace = namespace
             return false
-        })
+        }, () => {})
 
         const res = await app.request('/api/sessions/src/fork', { method: 'POST' })
 
@@ -117,21 +120,21 @@ describe('mountForkRoutes', () => {
 
     it('returns 404 when source session missing', async () => {
         const app = new Hono()
-        mountForkRoutes(app, () => makeDeps({ sourceMissing: true }), () => true)
+        mountForkRoutes(app, () => makeDeps({ sourceMissing: true }), () => true, () => {})
         const res = await app.request('/api/sessions/src/fork', { method: 'POST' })
         expect(res.status).toBe(404)
     })
 
     it('returns 500 when spawnSession errors', async () => {
         const app = new Hono()
-        mountForkRoutes(app, () => makeDeps({ spawnError: 'machine offline' }), () => true)
+        mountForkRoutes(app, () => makeDeps({ spawnError: 'machine offline' }), () => true, () => {})
         const res = await app.request('/api/sessions/src/fork', { method: 'POST' })
         expect(res.status).toBe(500)
     })
 
     it('returns 503 when sync engine not ready', async () => {
         const app = new Hono()
-        mountForkRoutes(app, () => null, () => true)
+        mountForkRoutes(app, () => null, () => true, () => {})
         const res = await app.request('/api/sessions/src/fork', { method: 'POST' })
         expect(res.status).toBe(503)
     })
@@ -148,7 +151,8 @@ describe('mountForkRoutes', () => {
                 ],
                 forkProviderSpy: (req) => forkReqs.push(req)
             }),
-            () => true
+            () => true,
+            () => {}
         )
         const res = await app.request('/api/sessions/src/fork', {
             method: 'POST',
@@ -169,7 +173,8 @@ describe('mountForkRoutes', () => {
         const app = new Hono()
         mountForkRoutes(app, () =>
             makeDeps({ forkProviderSpy: (req) => forkReqs.push(req) }),
-            () => true
+            () => true,
+            () => {}
         )
         const res = await app.request('/api/sessions/src/fork', {
             method: 'POST',
@@ -191,7 +196,8 @@ describe('mountForkRoutes', () => {
                     copyCalled = true
                 }
             }),
-            () => true
+            () => true,
+            () => {}
         )
         const res = await app.request('/api/sessions/src/fork', {
             method: 'POST',
@@ -209,7 +215,8 @@ describe('mountForkRoutes', () => {
                 flavor: 'codex',
                 messages: [{ id: 'm-agent', seq: 1, role: 'agent' }]
             }),
-            () => true
+            () => true,
+            () => {}
         )
         const res = await app.request('/api/sessions/src/fork', {
             method: 'POST',
@@ -239,7 +246,8 @@ describe('mountForkRoutes', () => {
                         : undefined
                 }
             }),
-            () => true
+            () => true,
+            () => {}
         )
         const res = await app.request('/api/sessions/src/fork', {
             method: 'POST',
@@ -258,7 +266,7 @@ describe('mountForkRoutes', () => {
 
     it('POST body forkPoint.messageId invalid shape → 400', async () => {
         const app = new Hono()
-        mountForkRoutes(app, () => makeDeps({ flavor: 'codex' }), () => true)
+        mountForkRoutes(app, () => makeDeps({ flavor: 'codex' }), () => true, () => {})
         const res = await app.request('/api/sessions/src/fork', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
@@ -272,7 +280,8 @@ describe('mountForkRoutes', () => {
         const app = new Hono()
         mountForkRoutes(app, () =>
             makeDeps({ forkProviderSpy: (request) => forkReqs.push(request) }),
-            () => true
+            () => true,
+            () => {}
         )
         const res = await app.request('/api/sessions/src/fork', {
             method: 'POST',

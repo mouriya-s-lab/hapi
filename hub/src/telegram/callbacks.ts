@@ -21,6 +21,7 @@ export const ACTIONS = {
 export interface CallbackContext {
     syncEngine: SyncEngine
     namespace: string
+    canOperateSession: (sessionId: string) => boolean
     answerCallback: (text?: string) => Promise<void>
     editMessage: (text: string, keyboard?: InlineKeyboard) => Promise<void>
 }
@@ -34,6 +35,10 @@ async function getSessionOrAnswer(
     const session = findSessionByPrefix(syncEngine.getSessionsByNamespace(ctx.namespace), sessionPrefix)
     if (!session) {
         await ctx.answerCallback('Session not found')
+        return null
+    }
+    if (!ctx.canOperateSession(session.id)) {
+        await ctx.answerCallback('Session access denied')
         return null
     }
     if (options?.requireActive && !session.active) {
