@@ -103,9 +103,10 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
         };
 
         while (!this.shouldExit) {
-            const batch = await session.queue.waitForMessagesAndGetAsString(this.abortController.signal);
+            const waitSignal = this.abortController.signal;
+            const batch = await session.queue.waitForMessagesAndGetAsString(waitSignal);
             if (!batch) {
-                if (this.abortController.signal.aborted && !this.shouldExit) {
+                if (waitSignal.aborted && !this.shouldExit) {
                     continue;
                 }
                 break;

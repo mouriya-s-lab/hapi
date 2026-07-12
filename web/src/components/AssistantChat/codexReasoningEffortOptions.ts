@@ -69,6 +69,15 @@ export function getCodexComposerReasoningEffortOptions(
         return buildOpencodeComposerReasoningEffortOptions(normalizedCurrentEffort, dynamicOptions)
     }
 
+    if (flavor === 'grok') {
+        return [
+            { value: null, label: 'Default' },
+            { value: 'low', label: 'Low' },
+            { value: 'medium', label: 'Medium' },
+            { value: 'high', label: 'High' }
+        ]
+    }
+
     const options: CodexComposerReasoningEffortOption[] = [
         { value: null, label: 'Default' }
     ]

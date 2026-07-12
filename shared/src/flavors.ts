@@ -12,7 +12,7 @@ export type Capability = typeof Capabilities[keyof typeof Capabilities]
 const FLAVOR_CAPS: Record<AgentFlavor, ReadonlySet<Capability>> = {
     claude: new Set([Capabilities.ModelChange, Capabilities.Effort]),
     gemini: new Set([Capabilities.ModelChange]),
-    grok: new Set([Capabilities.ModelChange, Capabilities.Effort]),
+    grok: new Set([Capabilities.ModelChange]),
     kimi: new Set([Capabilities.ModelChange]),
     codex: new Set([Capabilities.ModelChange]),
     cursor: new Set([Capabilities.ModelChange]),

@@ -131,7 +131,8 @@ async function dispatchLocalResume(target: LocalResumeTarget): Promise<void> {
             startedBy: base.startedBy,
             permissionMode: base.permissionMode as GrokPermissionMode | undefined,
             startingMode: 'local',
-            model: target.model ?? undefined
+            model: target.model ?? undefined,
+            modelReasoningEffort: target.modelReasoningEffort ?? undefined
         })
         return
     }

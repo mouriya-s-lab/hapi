@@ -22,9 +22,9 @@ describe('hasCapability', () => {
         expect(hasCapability('gemini', Capabilities.Effort)).toBe(false)
     })
 
-    test('grok supports model-change and effort', () => {
+    test('grok supports model-change and uses model reasoning effort instead of generic effort', () => {
         expect(hasCapability('grok', Capabilities.ModelChange)).toBe(true)
-        expect(hasCapability('grok', Capabilities.Effort)).toBe(true)
+        expect(hasCapability('grok', Capabilities.Effort)).toBe(false)
     })
 
     test('codex supports model-change but not effort', () => {

@@ -28,6 +28,15 @@ describe('getCodexComposerReasoningEffortOptions', () => {
         expect(getCodexComposerReasoningEffortOptions(null, 'opencode', [])).toEqual([])
     })
 
+    it('uses Grok model reasoning effort values without exposing xhigh', () => {
+        expect(getCodexComposerReasoningEffortOptions('medium', 'grok')).toEqual([
+            { value: null, label: 'Default' },
+            { value: 'low', label: 'Low' },
+            { value: 'medium', label: 'Medium' },
+            { value: 'high', label: 'High' }
+        ])
+    })
+
     it('builds OpenCode options from ACP-reported values', () => {
         expect(getCodexComposerReasoningEffortOptions('low', 'opencode', [
             { value: 'low', name: 'Low' },
