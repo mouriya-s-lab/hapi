@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { ImportableSessionAgent, ImportableSessionSummary, ListImportableSessionsRequest, ListImportableSessionsResponse } from '@hapi/protocol/apiTypes'
+import { logger } from '@/ui/logger'
 
 type JsonRecord = Record<string, unknown>
 const SCAN_WINDOW_SIZE = 50
@@ -196,7 +197,13 @@ export async function listImportableSessions(request: ListImportableSessionsRequ
     const window = filesByRecency.slice(offset, offset + SCAN_WINDOW_SIZE)
     const sessions: ImportableSessionSummary[] = []
     for (const { path } of window) {
-        const summary = agent === 'claude' ? await scanClaude(path) : await scanCodex(path)
+        let summary: ImportableSessionSummary | null
+        try {
+            summary = agent === 'claude' ? await scanClaude(path) : await scanCodex(path)
+        } catch (error) {
+            logger.warn(`Skipping unreadable import transcript ${path}`, error)
+            continue
+        }
         if (summary) {
             sessions.push(summary)
             listedSessions.set(sessionKey(agent, summary.externalSessionId), summary)

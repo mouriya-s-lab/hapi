@@ -72,4 +72,19 @@ describe('streaming importable session index', () => {
             externalSessionId: 'legacy', previewPrompt: 'legacy question', messageCount: 2
         })
     })
+
+    it('isolates a malformed transcript without hiding valid sessions', async () => {
+        const root = setup()
+        const malformed = join(root, 'codex/sessions/malformed.jsonl')
+        mkdirSync(dirname(malformed), { recursive: true })
+        writeFileSync(malformed, '{"type":"session_meta"\n')
+        transcript(join(root, 'codex/sessions/valid.jsonl'), [
+            { type: 'session_meta', payload: { id: 'valid', cwd: '/work/valid' } },
+            { type: 'event_msg', payload: { type: 'user_message', message: 'question' } }
+        ])
+
+        expect((await listImportableSessions({ agent: 'codex' })).sessions).toEqual([
+            expect.objectContaining({ externalSessionId: 'valid' })
+        ])
+    })
 })

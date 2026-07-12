@@ -7,6 +7,13 @@ import { convertCodexEvent, type CodexSessionEvent } from '@/codex/utils/codexEv
 import type { ImportableSessionAgent } from '@hapi/protocol/apiTypes'
 import { realClaudeUserText } from './importableSessions'
 
+function hasClaudeToolResult(message: { message?: { content: unknown } }): boolean {
+    return Array.isArray(message.message?.content) && message.message.content.some((block) => (
+        block !== null && typeof block === 'object' && !Array.isArray(block)
+        && (block as Record<string, unknown>).type === 'tool_result'
+    ))
+}
+
 async function hasModernCodexChat(transcriptPath: string): Promise<boolean> {
     const input = createReadStream(transcriptPath, { encoding: 'utf8' })
     const lines = createInterface({ input, crlfDelay: Infinity })
@@ -50,7 +57,10 @@ export async function replayImportedTranscript(options: {
                 const message = result.data
                 if (message.type === 'summary' || message.isMeta || message.isCompactSummary) continue
                 if (!isClaudeChatVisibleMessage(message)) continue
-                if (message.type === 'user' && realClaudeUserText(message) === null) continue
+                if (message.type === 'user') {
+                    if (message.isSidechain) continue
+                    if (!hasClaudeToolResult(message) && realClaudeUserText(message) === null) continue
+                }
                 options.session.sendClaudeSessionMessage(message)
                 imported += 1
                 continue

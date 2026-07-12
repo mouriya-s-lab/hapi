@@ -51,11 +51,12 @@ describe('replayImportedTranscript', () => {
                 { type: 'user', uuid: 'command', parentUuid: null, sessionId: 's1', timestamp: new Date().toISOString(), message: { role: 'user', content: '<command-message>review</command-message>' } },
                 { type: 'user', uuid: 'args', parentUuid: 'command', sessionId: 's1', timestamp: new Date().toISOString(), message: { role: 'user', content: '<command-args>--all</command-args>' } },
                 { type: 'user', uuid: 'u1', parentUuid: null, sessionId: 's1', timestamp: new Date().toISOString(), message: { role: 'user', content: 'question' } },
-                { type: 'assistant', uuid: 'a1', parentUuid: 'u1', sessionId: 's1', timestamp: new Date().toISOString(), message: { role: 'assistant', content: [{ type: 'text', text: 'answer' }] } }
+                { type: 'assistant', uuid: 'a1', parentUuid: 'u1', sessionId: 's1', timestamp: new Date().toISOString(), message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tool-1', name: 'Read', input: {} }] } },
+                { type: 'user', uuid: 'result', parentUuid: 'a1', sessionId: 's1', timestamp: new Date().toISOString(), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool-1', content: 'file contents' }] } }
             ])
         })
-        expect(imported).toBe(2)
-        expect(messages).toHaveLength(2)
+        expect(imported).toBe(3)
+        expect(messages).toHaveLength(3)
     })
 
     it('replays legacy Codex event messages when no modern chat records exist', async () => {
