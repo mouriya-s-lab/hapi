@@ -63,11 +63,11 @@ export function readGrokLocalConfig(): GrokLocalConfig {
 
 export function resolveGrokRuntimeConfig(opts: {
     model?: string;
-} = {}): { model: string; modelSource: GrokModelSource } {
+} = {}): { model: string | undefined; modelSource: GrokModelSource } {
     const local = readGrokLocalConfig();
 
     let modelSource: GrokModelSource = 'default';
-    let model: string = 'grok-4.5';
+    let model: string | undefined;
 
     if (opts.model) {
         model = opts.model;

@@ -356,7 +356,7 @@ export function NewSession(props: {
         }
     }, [agent, opencodeSelectedModel, opencodeModelsState.currentModelId, opencodeModelsState.availableModels])
     useEffect(() => {
-        if (agent === 'grok' && model !== 'grok-4.5') setModelReasoningEffort('default')
+        if (agent === 'grok' && model !== 'auto' && model !== 'grok-4.5') setModelReasoningEffort('default')
     }, [agent, model])
     useEffect(() => {
         // Reset selection when agent / machine / directory changes; new probe = new defaults.

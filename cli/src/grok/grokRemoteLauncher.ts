@@ -9,7 +9,6 @@ import type { GrokSession } from './session';
 import type { PermissionMode } from './types';
 import { createGrokBackend } from './utils/grokBackend';
 import { GrokPermissionHandler } from './utils/permissionHandler';
-import { resolveGrokRuntimeConfig } from './utils/config';
 
 class GrokRemoteLauncher extends RemoteLauncherBase {
     private readonly session: GrokSession;
@@ -49,12 +48,11 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
         const { server: happyServer, mcpServers } = await buildHapiMcpBridge(session.client);
         this.happyServer = happyServer;
 
-        const runtimeConfig = resolveGrokRuntimeConfig({ model: this.model });
-        this.displayModel = runtimeConfig.model;
-        messageBuffer.addMessage(`[MODEL:${runtimeConfig.model}]`, 'system');
+        this.displayModel = this.model ?? null;
+        if (this.model) messageBuffer.addMessage(`[MODEL:${this.model}]`, 'system');
 
         const backend = createGrokBackend({
-            model: runtimeConfig.model,
+            model: this.model,
             cwd: session.path,
             permissionMode: session.getPermissionMode() as string | undefined
         });
@@ -90,8 +88,8 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
             backend,
             () => session.getPermissionMode() as PermissionMode | undefined
         );
-        this.currentBackendModel = runtimeConfig.model;
-        this.applyDisplayMode(session.getPermissionMode() as PermissionMode, this.currentBackendModel);
+        this.currentBackendModel = backend.getSessionModelsMetadata(acpSessionId)?.currentModelId ?? this.model ?? null;
+        this.applyDisplayMode(session.getPermissionMode() as PermissionMode, this.currentBackendModel ?? undefined);
 
         this.setupAbortHandlers(session.client.rpcHandlerManager, {
             onAbort: () => this.handleAbort(),

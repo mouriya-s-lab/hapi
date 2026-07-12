@@ -3,12 +3,13 @@ import { spawnWithTerminalGuard } from '@/utils/spawnWithTerminalGuard';
 
 export function buildGrokLocalArgs(opts: {
     sessionId: string | null;
+    createSession?: boolean;
     model?: string;
     yolo?: boolean;
     reasoningEffort?: string | null;
 }): string[] {
     const args: string[] = [];
-    if (opts.sessionId) args.push('--resume', opts.sessionId);
+    if (opts.sessionId) args.push(opts.createSession ? '--session-id' : '--resume', opts.sessionId);
     if (opts.model) args.push('--model', opts.model);
     if (opts.yolo) args.push('--always-approve');
     if (opts.reasoningEffort) args.push('--reasoning-effort', opts.reasoningEffort);
@@ -18,6 +19,7 @@ export function buildGrokLocalArgs(opts: {
 export async function grokLocal(opts: {
     path: string;
     sessionId: string | null;
+    createSession?: boolean;
     abort: AbortSignal;
     model?: string;
     yolo?: boolean;

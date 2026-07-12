@@ -105,6 +105,7 @@ describe('getModelOptionsForFlavor', () => {
 
     it('returns Grok presets for an active session with an implicit default model', () => {
         expect(getModelOptionsForFlavor('grok', null)).toEqual([
+            { value: 'auto', label: 'Default' },
             { value: 'grok-4.5', label: 'Grok 4.5' },
             { value: 'grok-composer-2.5-fast', label: 'Composer 2.5 Fast' }
         ])

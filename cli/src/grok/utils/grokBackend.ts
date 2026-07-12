@@ -14,7 +14,6 @@ function filterEnv(env: NodeJS.ProcessEnv): Record<string, string> {
 export function buildGrokAgentArgs(opts: { model?: string; permissionMode?: string }): string[] {
     const args = ['agent'];
     if (opts.model) args.push('--model', opts.model);
-    if (opts.permissionMode === 'yolo') args.push('--always-approve');
     args.push('stdio');
     return args;
 }

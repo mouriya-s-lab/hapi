@@ -15,4 +15,11 @@ describe('buildGrokLocalArgs', () => {
             '--reasoning-effort', 'medium'
         ]);
     });
+
+    it('creates a fresh Grok session with a caller-owned id', () => {
+        expect(buildGrokLocalArgs({
+            sessionId: '11111111-1111-4111-8111-111111111111',
+            createSession: true
+        })).toEqual(['--session-id', '11111111-1111-4111-8111-111111111111']);
+    });
 });

@@ -2,12 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { buildGrokAgentArgs } from './grokBackend';
 
 describe('buildGrokAgentArgs', () => {
-    it('places agent-level options before the stdio transport', () => {
+    it('places agent-level options before the stdio transport without pinning approval mode', () => {
         expect(buildGrokAgentArgs({ model: 'grok-4.5', permissionMode: 'yolo' })).toEqual([
             'agent',
             '--model',
             'grok-4.5',
-            '--always-approve',
             'stdio'
         ]);
     });

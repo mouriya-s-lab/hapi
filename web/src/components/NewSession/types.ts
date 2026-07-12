@@ -33,6 +33,7 @@ export const MODEL_OPTIONS: Record<AgentType, { value: string; label: string }[]
     ],
     cursor: [],
     grok: [
+        { value: 'auto', label: 'Default' },
         { value: 'grok-4.5', label: 'Grok 4.5' },
         { value: 'grok-composer-2.5-fast', label: 'Composer 2.5 Fast' },
     ],

@@ -1373,8 +1373,12 @@ function SessionChatInner(props: SessionChatProps) {
                                 : undefined
                         }
                         onModelChange={
-                            agentFlavor === 'codex'
-                                ? (props.session.active && !controlledByUser && !codexModelsState.error ? handleModelChange : undefined)
+                            agentFlavor === 'codex' || agentFlavor === 'grok'
+                                ? (props.session.active
+                                    && !controlledByUser
+                                    && (agentFlavor !== 'codex' || !codexModelsState.error)
+                                    ? handleModelChange
+                                    : undefined)
                                 : agentFlavor === 'cursor'
                                     ? (props.session.active
                                         && !controlledByUser
@@ -1399,7 +1403,7 @@ function SessionChatInner(props: SessionChatProps) {
                                 : undefined
                         }
                         onModelReasoningEffortChange={
-                            (agentFlavor === 'codex' || agentFlavor === 'opencode')
+                            (agentFlavor === 'codex' || agentFlavor === 'grok' || agentFlavor === 'opencode')
                                 && props.session.active
                                 && !controlledByUser
                                 && (agentFlavor !== 'opencode' || opencodeReasoningEffortState.options.length > 0)

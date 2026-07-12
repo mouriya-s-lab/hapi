@@ -14,7 +14,7 @@ export function ReasoningEffortSelector(props: {
     if (props.agent !== 'codex' && props.agent !== 'grok' && props.agent !== 'opencode') {
         return null
     }
-    if (props.agent === 'grok' && props.model !== 'grok-4.5') return null
+    if (props.agent === 'grok' && props.model !== 'auto' && props.model !== 'grok-4.5') return null
 
     return (
         <div className="flex flex-col gap-1.5 px-3 py-3">

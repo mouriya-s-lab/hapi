@@ -39,11 +39,8 @@ export async function runGrok(opts: {
         controlledByUser: false
     };
 
-    const machineDefault = resolveGrokRuntimeConfig().model;
     const runtimeConfig = resolveGrokRuntimeConfig({ model: opts.model });
-    const persistedModel = runtimeConfig.modelSource === 'default'
-        ? undefined
-        : runtimeConfig.model;
+    const persistedModel = runtimeConfig.model;
 
     const bootstrap = opts.existingSessionId
         ? await bootstrapExistingSession({
@@ -76,7 +73,7 @@ export async function runGrok(opts: {
     const sessionWrapperRef: { current: GrokSession | null } = { current: null };
     let currentPermissionMode: PermissionMode = opts.permissionMode ?? 'default';
     let sessionModel: string | null = persistedModel ?? null;
-    let resolvedModel = sessionModel ?? machineDefault;
+    let resolvedModel = sessionModel ?? persistedModel;
     let sessionModelReasoningEffort = opts.modelReasoningEffort ?? null;
 
     const lifecycle = createRunnerLifecycle({
@@ -150,7 +147,7 @@ export async function runGrok(opts: {
 
         if (config.model !== undefined) {
             sessionModel = resolveModel(config.model);
-            resolvedModel = sessionModel ?? machineDefault;
+            resolvedModel = sessionModel ?? persistedModel;
             applied.model = sessionModel;
         }
         if (config.modelReasoningEffort !== undefined) {
@@ -174,7 +171,7 @@ export async function runGrok(opts: {
             session,
             api,
             permissionMode: currentPermissionMode,
-            model: machineDefault,
+            model: persistedModel,
             modelReasoningEffort: sessionModelReasoningEffort,
             resumeSessionId: opts.resumeSessionId,
             onModeChange: createModeChangeHandler(session),
