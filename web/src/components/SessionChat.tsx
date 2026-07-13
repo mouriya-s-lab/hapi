@@ -1299,7 +1299,7 @@ function SessionChatInner(props: SessionChatProps) {
                         collaborationMode={codexCollaborationModeSupported ? props.session.collaborationMode : undefined}
                         threadGoal={reduced.latestGoal}
                         model={props.session.model}
-                        modelReasoningEffort={agentFlavor === 'codex' || agentFlavor === 'opencode' ? props.session.modelReasoningEffort : undefined}
+                        modelReasoningEffort={agentFlavor === 'codex' || agentFlavor === 'grok' || agentFlavor === 'opencode' ? props.session.modelReasoningEffort : undefined}
                         effort={props.session.effort}
                         resumeWithSessionModel={props.session.resumeWithSessionModel}
                         agentFlavor={agentFlavor}
@@ -1345,7 +1345,7 @@ function SessionChatInner(props: SessionChatProps) {
                                 ? handleCollaborationModeChange
                                 : undefined
                         }
-                        onPermissionModeChange={handlePermissionModeChange}
+                        onPermissionModeChange={agentFlavor === 'grok' && controlledByUser ? undefined : handlePermissionModeChange}
                         ccSwitchProviders={agentFlavor === 'claude' && ccSwitchProvidersState.available
                             ? ccSwitchProvidersState.providers
                             : undefined}
@@ -1373,8 +1373,12 @@ function SessionChatInner(props: SessionChatProps) {
                                 : undefined
                         }
                         onModelChange={
-                            agentFlavor === 'codex'
-                                ? (props.session.active && !controlledByUser && !codexModelsState.error ? handleModelChange : undefined)
+                            agentFlavor === 'codex' || agentFlavor === 'grok'
+                                ? (props.session.active
+                                    && !controlledByUser
+                                    && (agentFlavor !== 'codex' || !codexModelsState.error)
+                                    ? handleModelChange
+                                    : undefined)
                                 : agentFlavor === 'cursor'
                                     ? (props.session.active
                                         && !controlledByUser
@@ -1399,7 +1403,7 @@ function SessionChatInner(props: SessionChatProps) {
                                 : undefined
                         }
                         onModelReasoningEffortChange={
-                            (agentFlavor === 'codex' || agentFlavor === 'opencode')
+                            (agentFlavor === 'codex' || agentFlavor === 'grok' || agentFlavor === 'opencode')
                                 && props.session.active
                                 && !controlledByUser
                                 && (agentFlavor !== 'opencode' || opencodeReasoningEffortState.options.length > 0)

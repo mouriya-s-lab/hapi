@@ -15,6 +15,10 @@ const FLAVOR_BADGES: Record<string, { label: string; colors: string }> = {
         label: 'Gm',
         colors: 'bg-[#2563eb] text-white',
     },
+    grok: {
+        label: 'Gk',
+        colors: 'bg-black text-white',
+    },
     kimi: {
         label: 'Km',
         colors: 'bg-[#7c3aed] text-white',

@@ -11,6 +11,7 @@ const {
     runCodexMock,
     runClaudeMock,
     runPiMock,
+    runGrokMock,
     assertCodexLocalSupportedMock,
     existsSyncMock
 } = vi.hoisted(() => ({
@@ -24,6 +25,7 @@ const {
     runCodexMock: vi.fn(async () => {}),
     runClaudeMock: vi.fn(async () => {}),
     runPiMock: vi.fn(async () => {}),
+    runGrokMock: vi.fn(async () => {}),
     assertCodexLocalSupportedMock: vi.fn(),
     existsSyncMock: vi.fn(() => true)
 }))
@@ -47,6 +49,7 @@ vi.mock('@/ui/ink/ResumeSessionPicker', () => ({
 vi.mock('@/codex/runCodex', () => ({ runCodex: runCodexMock }))
 vi.mock('@/claude/runClaude', () => ({ runClaude: runClaudeMock }))
 vi.mock('@/pi/runPi', () => ({ runPi: runPiMock }))
+vi.mock('@/grok/runGrok', () => ({ runGrok: runGrokMock }))
 vi.mock('@/codex/utils/codexVersion', () => ({ assertCodexLocalSupported: assertCodexLocalSupportedMock }))
 vi.mock('node:fs', () => ({ existsSync: existsSyncMock }))
 
@@ -76,6 +79,7 @@ describe('resumeCommand', () => {
         runCodexMock.mockClear()
         runClaudeMock.mockClear()
         runPiMock.mockClear()
+        runGrokMock.mockClear()
         assertCodexLocalSupportedMock.mockClear()
         existsSyncMock.mockReturnValue(true)
     })
@@ -139,6 +143,35 @@ describe('resumeCommand', () => {
             permissionMode: 'default',
             model: 'sonnet',
             effort: 'high'
+        })
+    })
+
+    it('preserves Grok model reasoning effort on local resume', async () => {
+        getLocalResumeTargetMock.mockResolvedValue({
+            sessionId: 'hapi-session-grok',
+            flavor: 'grok',
+            directory: '/tmp/project',
+            machineId: 'machine-1',
+            active: false,
+            thinking: false,
+            controlledByUser: false,
+            agentSessionId: 'grok-thread-1',
+            model: 'grok-4.5',
+            modelReasoningEffort: 'medium',
+            permissionMode: 'default'
+        })
+
+        await resumeCommand.run(createContext(['hapi-session-grok']))
+
+        expect(runGrokMock).toHaveBeenCalledWith({
+            existingSessionId: 'hapi-session-grok',
+            workingDirectory: '/tmp/project',
+            resumeSessionId: 'grok-thread-1',
+            startedBy: 'terminal',
+            permissionMode: 'default',
+            startingMode: 'local',
+            model: 'grok-4.5',
+            modelReasoningEffort: 'medium'
         })
     })
 

@@ -259,6 +259,18 @@ export const SpawnSessionRequestSchema = z.object({
     yolo: z.boolean().optional(),
     sessionType: z.enum(['simple', 'worktree']).optional(),
     worktreeName: z.string().optional()
+}).superRefine((value, ctx) => {
+    if (
+        value.agent === 'grok'
+        && value.model === 'grok-composer-2.5-fast'
+        && value.modelReasoningEffort !== undefined
+    ) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['modelReasoningEffort'],
+            message: 'Grok Composer does not support model reasoning effort'
+        })
+    }
 })
 
 export type SpawnSessionRequest = z.infer<typeof SpawnSessionRequestSchema>

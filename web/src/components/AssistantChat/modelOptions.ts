@@ -113,6 +113,12 @@ export function getModelOptionsForFlavor(
     if (flavor === 'gemini') {
         return getGeminiModelOptions(currentModel)
     }
+    if (flavor === 'grok') {
+        return withCurrentModelOption(MODEL_OPTIONS.grok.map((option) => ({
+            value: option.value === 'auto' ? null : option.value,
+            label: option.label
+        })), currentModel)
+    }
     // OpenCode discovers models dynamically via the listOpencodeModels RPC. Until
     // those options arrive, render an empty list rather than the Claude fallback —
     // the latter would surface unrelated Claude models in an OpenCode session.
@@ -166,6 +172,13 @@ export function getNextModelForFlavor(
     }
     if (flavor === 'gemini') {
         return getNextGeminiModel(currentModel)
+    }
+    if (flavor === 'grok') {
+        const options = getModelOptionsForFlavor(flavor, currentModel)
+        const normalizedCurrent = normalizeCurrentModel(currentModel) ?? 'grok-4.5'
+        const currentIndex = options.findIndex((option) => option.value === normalizedCurrent)
+        if (currentIndex === -1) return options[0]?.value ?? null
+        return options[(currentIndex + 1) % options.length]?.value ?? null
     }
     // OpenCode discovers models dynamically via the listOpencodeModels RPC. Until
     // those options arrive, pressing the Ctrl/Cmd+M shortcut must not fall through

@@ -50,6 +50,16 @@ describe('sessionResume', () => {
         })).toBe('omp-thread-1')
     })
 
+    it('resolveAgentSessionIdFromMetadata picks grokSessionId for Grok', () => {
+        expect(resolveAgentSessionIdFromMetadata({
+            path: '/p',
+            host: 'h',
+            flavor: 'grok',
+            grokSessionId: 'grok-thread-1',
+            claudeSessionId: 'stale-claude-1',
+        })).toBe('grok-thread-1')
+    })
+
     it('resolveAgentSessionIdFromMetadata defaults to claude when flavor is missing', () => {
         expect(resolveAgentSessionIdFromMetadata({
             path: '/p',

@@ -22,6 +22,11 @@ describe('hasCapability', () => {
         expect(hasCapability('gemini', Capabilities.Effort)).toBe(false)
     })
 
+    test('grok supports model-change and uses model reasoning effort instead of generic effort', () => {
+        expect(hasCapability('grok', Capabilities.ModelChange)).toBe(true)
+        expect(hasCapability('grok', Capabilities.Effort)).toBe(false)
+    })
+
     test('codex supports model-change but not effort', () => {
         expect(hasCapability('codex', Capabilities.ModelChange)).toBe(true)
         expect(hasCapability('codex', Capabilities.Effort)).toBe(false)
@@ -66,6 +71,7 @@ describe('getFlavorLabel', () => {
     test('known flavors return display names', () => {
         expect(getFlavorLabel('claude')).toBe('Claude')
         expect(getFlavorLabel('gemini')).toBe('Gemini')
+        expect(getFlavorLabel('grok')).toBe('Grok')
         expect(getFlavorLabel('codex')).toBe('Codex')
         expect(getFlavorLabel('cursor')).toBe('Cursor')
         expect(getFlavorLabel('opencode')).toBe('OpenCode')
@@ -88,6 +94,7 @@ describe('isKnownFlavor', () => {
     test('returns true for registered flavors', () => {
         expect(isKnownFlavor('claude')).toBe(true)
         expect(isKnownFlavor('gemini')).toBe(true)
+        expect(isKnownFlavor('grok')).toBe(true)
         expect(isKnownFlavor('codex')).toBe(true)
         expect(isKnownFlavor('cursor')).toBe(true)
         expect(isKnownFlavor('opencode')).toBe(true)
