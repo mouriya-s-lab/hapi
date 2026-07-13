@@ -9,7 +9,7 @@ import type { GrokSession } from './session';
 import type { PermissionMode } from './types';
 import { createGrokBackend } from './utils/grokBackend';
 import { GrokPermissionHandler } from './utils/permissionHandler';
-import { parseRuntimeConfigRequest, resolveRuntimeConfigRequest } from './runtimeConfigState';
+import type { GrokSessionController } from './sessionController';
 
 class GrokRemoteLauncher extends RemoteLauncherBase {
     private readonly session: GrokSession;
@@ -21,12 +21,12 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
     private displayModel: string | null = null;
     private displayPermissionMode: PermissionMode | null = null;
     private currentBackendModel: string | null = null;
-    private defaultBackendModel: string | null = null;
-    private setModelSupported: boolean | undefined = undefined;
+    private unbindRemoteModelTransport: (() => void) | null = null;
     private lastDisplayedToolCall = new Map<string, string>();
 
     constructor(session: GrokSession, private readonly opts: {
         model?: string;
+        controller: GrokSessionController;
         onModelRollback?: (model: string | null) => void;
         onReasoningEffortRollback?: (effort: string | null) => void;
     }) {
@@ -88,14 +88,22 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
             });
         }
         session.onSessionFound(acpSessionId);
+        this.opts.controller.commitSessionId(acpSessionId);
 
         this.permissionHandler = new GrokPermissionHandler(
             session.client,
             backend,
             () => session.getPermissionMode() as PermissionMode | undefined
         );
-        this.currentBackendModel = backend.getSessionModelsMetadata(acpSessionId)?.currentModelId ?? this.model ?? null;
-        this.defaultBackendModel = this.currentBackendModel;
+        this.currentBackendModel = backend.getSessionModelsMetadata(acpSessionId)?.currentModelId ?? null;
+        this.unbindRemoteModelTransport = this.opts.controller.bindRemoteModelTransport({
+            currentModelId: this.currentBackendModel,
+            setModel: async (modelId) => {
+                await backend.setModel(acpSessionId, modelId);
+                this.currentBackendModel = modelId;
+                this.applyDisplayMode(session.getPermissionMode() as PermissionMode, modelId);
+            }
+        });
         this.applyDisplayMode(session.getPermissionMode() as PermissionMode, this.currentBackendModel ?? undefined);
 
         this.setupAbortHandlers(session.client.rpcHandlerManager, {
@@ -115,49 +123,6 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
                     continue;
                 }
                 break;
-            }
-
-            const modelRequest = parseRuntimeConfigRequest(batch.mode.model);
-            const requestedModel = resolveRuntimeConfigRequest(modelRequest, this.defaultBackendModel);
-            if (modelRequest.kind === 'reset' && requestedModel === null && this.currentBackendModel !== null) {
-                session.sendSessionEvent({
-                    type: 'message',
-                    message: `Grok did not report its default model. Continuing with ${this.currentBackendModel}.`
-                });
-                batch.mode.model = this.currentBackendModel;
-                this.opts.onModelRollback?.(this.currentBackendModel);
-            }
-            if (requestedModel && requestedModel !== this.currentBackendModel) {
-                if (!backend.setModel || this.setModelSupported === false) {
-                    batch.mode.model = this.currentBackendModel ?? undefined;
-                    this.opts.onModelRollback?.(this.currentBackendModel);
-                } else {
-                    logger.debug(`[grok-remote] Switching model inline: ${this.currentBackendModel} -> ${requestedModel}`);
-                    try {
-                        await backend.setModel(acpSessionId, requestedModel);
-                        this.currentBackendModel = requestedModel;
-                        this.setModelSupported = true;
-                    } catch (error) {
-                        const message = error instanceof Error ? error.message : String(error);
-                        const methodNotFound = /method not found/i.test(message);
-                        if (methodNotFound && this.setModelSupported === undefined) {
-                            this.setModelSupported = false;
-                            logger.warn('[grok-remote] Grok CLI build does not support set_session_model; inline switching disabled for this session');
-                            session.sendSessionEvent({
-                                type: 'message',
-                                message: 'This Grok CLI build does not support inline model switching. Restart the session to apply a different model.'
-                            });
-                        } else {
-                            logger.warn('[grok-remote] Inline model switch failed', error);
-                            session.sendSessionEvent({
-                                type: 'message',
-                                message: `Failed to switch model to ${requestedModel}. Continuing with ${this.currentBackendModel}.`
-                            });
-                        }
-                        batch.mode.model = this.currentBackendModel ?? undefined;
-                        this.opts.onModelRollback?.(this.currentBackendModel);
-                    }
-                }
             }
 
             this.applyDisplayMode(batch.mode.permissionMode, this.currentBackendModel ?? undefined);
@@ -194,6 +159,8 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
 
     protected async cleanup(): Promise<void> {
         this.clearAbortHandlers(this.session.client.rpcHandlerManager);
+        this.unbindRemoteModelTransport?.();
+        this.unbindRemoteModelTransport = null;
 
         if (this.permissionHandler) {
             await this.permissionHandler.cancelAll('Session ended');
@@ -307,6 +274,7 @@ export async function grokRemoteLauncher(
     session: GrokSession,
     opts: {
         model?: string;
+        controller: GrokSessionController;
         onModelRollback?: (model: string | null) => void;
         onReasoningEffortRollback?: (effort: string | null) => void;
     }

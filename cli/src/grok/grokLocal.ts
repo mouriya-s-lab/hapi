@@ -5,13 +5,11 @@ export function buildGrokLocalArgs(opts: {
     sessionId: string | null;
     createSession?: boolean;
     model?: string;
-    yolo?: boolean;
     reasoningEffort?: string | null;
 }): string[] {
     const args: string[] = [];
     if (opts.sessionId) args.push(opts.createSession ? '--session-id' : '--resume', opts.sessionId);
     if (opts.createSession && opts.model) args.push('--model', opts.model);
-    if (opts.yolo) args.push('--always-approve');
     if (opts.createSession && opts.reasoningEffort) args.push('--reasoning-effort', opts.reasoningEffort);
     return args;
 }
@@ -22,13 +20,9 @@ export async function grokLocal(opts: {
     createSession?: boolean;
     abort: AbortSignal;
     model?: string;
-    yolo?: boolean;
-    plan?: boolean;
     reasoningEffort?: string | null;
 }): Promise<void> {
     const args = buildGrokLocalArgs(opts);
-    if (opts.plan) throw new Error('Grok plan mode is not exposed by HAPI');
-
     const env: NodeJS.ProcessEnv = {
         ...process.env
     };

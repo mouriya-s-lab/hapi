@@ -1,23 +1,13 @@
 import { grokLocal } from './grokLocal';
 import { GrokSession } from './session';
-import type { PermissionMode } from './types';
 import { BaseLocalLauncher } from '@/modules/common/launcher/BaseLocalLauncher';
-import { randomUUID } from 'node:crypto';
-
-function mapApprovalMode(mode: PermissionMode | undefined): { yolo: boolean; plan: boolean } {
-    if (!mode || mode === 'default') {
-        return { yolo: false, plan: false };
-    }
-    if (mode === 'yolo') {
-        return { yolo: true, plan: false };
-    }
-    return { yolo: false, plan: false };
-}
+import type { GrokSessionController } from './sessionController';
 
 export async function grokLocalLauncher(
     session: GrokSession,
     opts: {
         model?: string;
+        controller: GrokSessionController;
     }
 ): Promise<'switch' | 'exit'> {
     const launcher = new BaseLocalLauncher({
@@ -28,17 +18,19 @@ export async function grokLocalLauncher(
         startedBy: session.startedBy,
         startingMode: session.startingMode,
         launch: async (abortSignal) => {
-            const createSession = session.sessionId === null;
-            if (createSession) session.onSessionFound(randomUUID());
-            const approval = mapApprovalMode(session.getPermissionMode() as PermissionMode | undefined);
+            const identity = opts.controller.reserveLocalSessionId();
+            const createSession = identity.createSession;
+            if (session.sessionId !== identity.sessionId) session.onSessionFound(identity.sessionId);
+            opts.controller.commitSessionId(identity.sessionId);
+            if (session.getPermissionMode() !== 'default') {
+                throw new Error('Grok yolo mode is only available under HAPI remote control');
+            }
             await grokLocal({
                 path: session.path,
                 sessionId: session.sessionId,
                 createSession,
                 abort: abortSignal,
                 model: opts.model,
-                yolo: approval.yolo,
-                plan: approval.plan,
                 reasoningEffort: session.getModelReasoningEffort()
             });
         },

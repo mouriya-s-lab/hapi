@@ -26,7 +26,13 @@ export async function verifyGrokVersion(): Promise<void> {
         let error = ''
         child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString() })
         child.stderr.on('data', (chunk: Buffer) => { error += chunk.toString() })
-        child.once('error', reject)
+        child.once('error', (error: NodeJS.ErrnoException) => {
+            if (error.code === 'ENOENT') {
+                reject(new Error('Grok CLI was not found in PATH; install Grok and run `grok login`'))
+                return
+            }
+            reject(error)
+        })
         child.once('exit', (code) => code === 0 ? resolve(output) : reject(new Error(error.trim() || `grok version exited ${code}`)))
     })
     assertSupportedGrokVersion(parseGrokVersionJson(stdout))

@@ -46,6 +46,15 @@ hapi
 
 This starts Claude Code wrapped with HAPI. The session appears in the web UI.
 
+To use Grok, install Grok CLI 0.2.99 or newer, authenticate it natively, then start HAPI's Grok flavor:
+
+```bash
+grok login
+hapi grok
+```
+
+Grok reasoning effort is a creation-time setting for explicit `grok-4.5` sessions. It cannot be changed on an active or resumed session. Grok's native rules, hooks, and permission policies run first; HAPI handles only permission requests that Grok delegates to its ACP client.
+
 ## Open the UI
 
 Open the URL shown in the terminal, or scan the QR code with your phone.

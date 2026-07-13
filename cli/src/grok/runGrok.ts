@@ -14,9 +14,9 @@ import { PermissionModeSchema } from '@hapi/protocol/schemas';
 import { formatMessageWithAttachments } from '@/utils/attachmentFormatter';
 import { getInvokedCwd } from '@/utils/invokedCwd';
 import { resolveGrokRuntimeConfig } from './utils/config';
-import { assertGrokRuntimeConfigOwnership, resolveGrokReasoningEffort } from './runtimeConfigState';
+import { resolveGrokReasoningEffort } from './runtimeConfigState';
 import { verifyGrokVersion } from './version';
-import { assertEffortCreationOnly, createGrokSessionState } from './sessionController';
+import { GrokSessionController } from './sessionController';
 
 export async function runGrok(opts: {
     startedBy?: 'runner' | 'terminal';
@@ -79,11 +79,11 @@ export async function runGrok(opts: {
     let currentPermissionMode: PermissionMode = opts.permissionMode ?? 'default';
     let requestedModel: string | null = persistedModel ?? null;
     let requestedReasoningEffort = initialReasoningEffort;
-    const controllerState = createGrokSessionState({
+    const controller = new GrokSessionController({
         sessionId: opts.resumeSessionId,
         control: { kind: startingMode },
-        model: persistedModel,
-        effort: initialReasoningEffort
+        effort: initialReasoningEffort,
+        permissionMode: currentPermissionMode
     });
 
     const lifecycle = createRunnerLifecycle({
@@ -148,28 +148,18 @@ export async function runGrok(opts: {
             throw new Error('Invalid session config payload');
         }
         const config = payload as { permissionMode?: unknown; model?: unknown; modelReasoningEffort?: unknown };
-        assertGrokRuntimeConfigOwnership(sessionWrapperRef.current?.mode, (
-            config.permissionMode !== undefined
-            || config.model !== undefined
-            || config.modelReasoningEffort !== undefined
-        ));
-        const applied: Record<string, unknown> = {};
-
-        if (config.permissionMode !== undefined) {
-            currentPermissionMode = resolvePermissionMode(config.permissionMode);
-            applied.permissionMode = currentPermissionMode;
-        }
-
-        if (config.model !== undefined) {
-            requestedModel = resolveModel(config.model);
-            applied.model = requestedModel;
-        }
-        if (config.modelReasoningEffort !== undefined) {
-            assertEffortCreationOnly(controllerState, config.modelReasoningEffort);
-        }
-
+        const permissionMode = config.permissionMode === undefined ? undefined : resolvePermissionMode(config.permissionMode);
+        const model = config.model === undefined ? undefined : resolveModel(config.model);
+        const result = await controller.applyConfig({
+            permissionMode,
+            model,
+            modelReasoningEffort: config.modelReasoningEffort
+        });
+        if (permissionMode !== undefined) currentPermissionMode = permissionMode;
+        if (model !== undefined) requestedModel = model;
+        if (result.applied.modelReasoningEffort === null) requestedReasoningEffort = null;
         syncSessionMode();
-        return { applied };
+        return result;
     });
 
     let crashed = false;
@@ -186,6 +176,7 @@ export async function runGrok(opts: {
             model: persistedModel,
             modelReasoningEffort: requestedReasoningEffort,
             resumeSessionId: opts.resumeSessionId,
+            controller,
             onModeChange: createModeChangeHandler(session),
             onModelRollback: (model) => {
                 requestedModel = model;

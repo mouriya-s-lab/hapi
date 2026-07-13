@@ -7,6 +7,7 @@ import { grokRemoteLauncher } from './grokRemoteLauncher';
 import { ApiClient, ApiSessionClient } from '@/lib';
 import type { GrokMode, PermissionMode } from './types';
 import { resolveGrokHandoffModel } from './runtimeConfigState';
+import type { GrokSessionController } from './sessionController';
 
 interface GrokLoopOptions {
     path: string;
@@ -20,6 +21,7 @@ interface GrokLoopOptions {
     model?: string;
     modelReasoningEffort?: string | null;
     resumeSessionId?: string;
+    controller: GrokSessionController;
     onSessionReady?: (session: GrokSession) => void;
     onModelRollback?: (model: string | null) => void;
     onReasoningEffortRollback?: (effort: string | null) => void;
@@ -37,7 +39,10 @@ export async function grokLoop(opts: GrokLoopOptions): Promise<void> {
         sessionId: opts.resumeSessionId ?? null,
         logPath,
         messageQueue: opts.messageQueue,
-        onModeChange: opts.onModeChange,
+        onModeChange: (mode) => {
+            opts.controller.setControl({ kind: mode });
+            opts.onModeChange(mode);
+        },
         mode: startingMode,
         startedBy,
         startingMode,
@@ -58,10 +63,12 @@ export async function grokLoop(opts: GrokLoopOptions): Promise<void> {
         startingMode: opts.startingMode,
         logTag: 'grok-loop',
         runLocal: (instance) => grokLocalLauncher(instance, {
-            model: getCurrentModel()
+            model: getCurrentModel(),
+            controller: opts.controller
         }),
         runRemote: (instance) => grokRemoteLauncher(instance, {
             model: getCurrentModel(),
+            controller: opts.controller,
             onModelRollback: opts.onModelRollback,
             onReasoningEffortRollback: opts.onReasoningEffortRollback
         }),

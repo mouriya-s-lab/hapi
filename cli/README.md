@@ -31,6 +31,7 @@ Run Claude Code, Codex, Cursor Agent, Gemini, or OpenCode sessions from your ter
   Supports `hapi cursor resume <chatId>`, `hapi cursor --continue`, `--mode plan|ask`, `--yolo`, `--model`.
   Local and remote modes supported; remote uses `agent -p` with stream-json.
 - `hapi gemini` - Start Gemini mode via ACP. See `src/agent/runners/runAgentSession.ts`.
+- `hapi grok` - Start a Grok CLI session. Requires Grok CLI 0.2.99 or newer and an existing `grok login`.
   Note: Gemini runs in remote mode only; it waits for messages from the hub UI/Telegram.
 - `hapi opencode` - Start OpenCode mode via ACP. See `src/opencode/runOpencode.ts`.
   Note: OpenCode supports local and remote modes; local mode streams via OpenCode plugins.
@@ -126,6 +127,7 @@ Data is stored in `~/.hapi/` (or `$HAPI_HOME`):
 ## Requirements
 
 - Claude CLI installed and logged in (`claude` on PATH).
+- Grok CLI 0.2.99 or newer installed and logged in (`grok` on PATH, then `grok login`). Grok model selection follows the runtime ACP catalog. Reasoning effort is available only when creating an explicit `grok-4.5` session; resumed sessions keep their native persisted effort. Grok native rules, hooks, and permission policies run before any permission request delegated to HAPI.
 - Cursor Agent CLI installed (`agent` on PATH) for `hapi cursor`. Install: `curl https://cursor.com/install -fsS | bash` (macOS/Linux), `irm 'https://cursor.com/install?win32=true' | iex` (Windows).
 - OpenCode CLI installed (`opencode` on PATH).
 - Bun for building from source.

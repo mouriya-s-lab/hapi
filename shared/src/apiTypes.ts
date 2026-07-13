@@ -262,13 +262,13 @@ export const SpawnSessionRequestSchema = z.object({
 }).superRefine((value, ctx) => {
     if (
         value.agent === 'grok'
-        && value.model === 'grok-composer-2.5-fast'
+        && value.model !== 'grok-4.5'
         && value.modelReasoningEffort !== undefined
     ) {
         ctx.addIssue({
             code: 'custom',
             path: ['modelReasoningEffort'],
-            message: 'Grok Composer does not support model reasoning effort'
+            message: 'Grok reasoning effort requires an explicit grok-4.5 model'
         })
     }
 })

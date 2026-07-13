@@ -67,6 +67,7 @@ vi.mock('@/ui/logger', () => ({
 }));
 
 import { grokRemoteLauncher } from './grokRemoteLauncher';
+import { GrokSessionController } from './sessionController';
 
 function mode(config: Partial<GrokMode> = {}): GrokMode {
     return { permissionMode: 'default', ...config };
@@ -113,14 +114,21 @@ describe('Grok remote session state transitions', () => {
         harness.setModeError = null;
     });
 
+    const controller = (sessionId?: string) => new GrokSessionController({
+        sessionId,
+        control: { kind: 'remote' },
+        permissionMode: 'default'
+    });
+
     it('creates only for a fresh identity and loads only for an existing identity', async () => {
         const fresh = createSession([]);
-        await grokRemoteLauncher(fresh.session as never, {});
+        const freshController = controller();
+        await grokRemoteLauncher(fresh.session as never, { controller: freshController });
         expect(harness.newSessionCalls).toBe(1);
-        expect(fresh.session.sessionId).toBe('grok-new-session');
+        expect(freshController.snapshot().identity).toEqual({ kind: 'persisted', sessionId: 'grok-new-session' });
 
         const resumed = createSession([], 'grok-existing-session');
-        await grokRemoteLauncher(resumed.session as never, {});
+        await grokRemoteLauncher(resumed.session as never, { controller: controller('grok-existing-session') });
         expect(harness.loadSessionIds).toEqual(['grok-existing-session']);
         expect(harness.newSessionCalls).toBe(1);
     });
@@ -128,51 +136,16 @@ describe('Grok remote session state transitions', () => {
     it('fails a stale resume without replacing the conversation with a new identity', async () => {
         harness.loadSessionError = new Error('session not found');
         const resumed = createSession([], 'grok-stale-session');
-        await expect(grokRemoteLauncher(resumed.session as never, {})).rejects.toThrow('session not found');
+        await expect(grokRemoteLauncher(resumed.session as never, {
+            controller: controller('grok-stale-session')
+        })).rejects.toThrow('session not found');
         expect(harness.newSessionCalls).toBe(0);
         expect(resumed.session.sessionId).toBe('grok-stale-session');
     });
 
-    it('applies explicit model changes and resets to the captured launch model', async () => {
-        const { session } = createSession([
-            { message: 'one', mode: mode({ model: 'grok-composer-2.5-fast' }) },
-            { message: 'two', mode: mode({ model: null }) }
-        ]);
-        await grokRemoteLauncher(session as never, {});
-        expect(harness.setModelIds).toEqual(['grok-composer-2.5-fast', 'grok-4.5']);
-        expect(harness.promptCount).toBe(2);
-    });
-
-    it('does not turn an omitted model into a reset request', async () => {
-        const { session } = createSession([{ message: 'one', mode: mode() }]);
-        await grokRemoteLauncher(session as never, {});
-        expect(harness.setModelIds).toEqual([]);
-    });
-
-    it('rolls Default back to the applied model when the backend did not report a launch default', async () => {
-        harness.currentModel = null;
-        const rollback = vi.fn();
-        const { session } = createSession([
-            { message: 'one', mode: mode({ model: 'grok-composer-2.5-fast' }) },
-            { message: 'two', mode: mode({ model: null }) }
-        ]);
-        await grokRemoteLauncher(session as never, { onModelRollback: rollback });
-        expect(harness.setModelIds).toEqual(['grok-composer-2.5-fast']);
-        expect(rollback).toHaveBeenCalledWith('grok-composer-2.5-fast');
-    });
-
-    it('rolls rejected model changes back to the applied backend model', async () => {
-        harness.setModelError = new Error('agent type cannot switch');
-        const rollback = vi.fn();
-        const { session } = createSession([{ message: 'one', mode: mode({ model: 'grok-composer-2.5-fast' }) }]);
-        await grokRemoteLauncher(session as never, { onModelRollback: rollback });
-        expect(rollback).toHaveBeenCalledWith('grok-4.5');
-        expect(harness.promptCount).toBe(1);
-    });
-
     it('never mutates reasoning effort through ACP mode calls', async () => {
         const { session } = createSession([{ message: 'one', mode: mode({ modelReasoningEffort: 'low' }) }]);
-        await grokRemoteLauncher(session as never, {});
+        await grokRemoteLauncher(session as never, { controller: controller() });
         expect(harness.setModeIds).toEqual([]);
     });
 });

@@ -8,8 +8,5 @@ export function parseGrokCommandOptions(args: string[]): ReturnType<typeof parse
         options.modelReasoningEffort = options.effort;
         delete options.effort;
     }
-    if (args.includes('--always-approve') && !args.includes('--permission-mode')) {
-        options.permissionMode = 'yolo';
-    }
     return options;
 }

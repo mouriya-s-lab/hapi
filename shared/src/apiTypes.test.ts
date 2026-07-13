@@ -9,6 +9,12 @@ describe('SpawnSessionRequestSchema Grok capability contract', () => {
             model: 'grok-composer-2.5-fast',
             modelReasoningEffort: 'medium'
         }).success).toBe(false)
+        expect(SpawnSessionRequestSchema.safeParse({
+            directory: '/project', agent: 'grok', modelReasoningEffort: 'medium'
+        }).success).toBe(false)
+        expect(SpawnSessionRequestSchema.safeParse({
+            directory: '/project', agent: 'grok', model: 'future-model', modelReasoningEffort: 'medium'
+        }).success).toBe(false)
     })
 
     it('accepts reasoning effort for Grok 4.5', () => {
