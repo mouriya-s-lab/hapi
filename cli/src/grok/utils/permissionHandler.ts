@@ -40,16 +40,16 @@ export function mapDecisionToOutcome(request: PermissionRequest, decision: Permi
     }
 
     if (decision === 'approved_for_session') {
-        const optionId = pickOptionId(request, ['allow_always', 'allow_once']);
+        const optionId = pickOptionId(request, ['allow_always'], false);
         return optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' };
     }
 
     if (decision === 'approved') {
-        const optionId = pickOptionId(request, ['allow_once', 'allow_always']);
+        const optionId = pickOptionId(request, ['allow_once'], false);
         return optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' };
     }
 
-    const optionId = pickOptionId(request, ['reject_once', 'reject_always'], false);
+    const optionId = pickOptionId(request, ['reject_once'], false);
     return optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' };
 }
 

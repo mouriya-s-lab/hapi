@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
     assertGrokRuntimeConfigOwnership,
     parseRuntimeConfigRequest,
+    resolveGrokHandoffModel,
+    resolveGrokReasoningEffort,
     resolveRuntimeConfigRequest
 } from './runtimeConfigState';
 
@@ -16,6 +18,19 @@ describe('Grok runtime config request semantics', () => {
         expect(resolveRuntimeConfigRequest({ kind: 'unchanged' }, 'high')).toBeUndefined();
         expect(resolveRuntimeConfigRequest({ kind: 'reset' }, 'high')).toBe('high');
         expect(resolveRuntimeConfigRequest({ kind: 'set', value: 'low' }, 'high')).toBe('low');
+    });
+});
+
+describe('Grok handoff config', () => {
+    it('preserves an explicit Default reset instead of restoring the launch model', () => {
+        expect(resolveGrokHandoffModel(undefined, 'grok-4.5')).toBe('grok-4.5');
+        expect(resolveGrokHandoffModel(null, 'grok-4.5')).toBeUndefined();
+        expect(resolveGrokHandoffModel('grok-composer-2.5-fast', 'grok-4.5')).toBe('grok-composer-2.5-fast');
+    });
+
+    it('clears unsupported effort when the resolved model is Composer', () => {
+        expect(resolveGrokReasoningEffort('grok-composer-2.5-fast', 'medium')).toBeNull();
+        expect(resolveGrokReasoningEffort('grok-4.5', 'medium')).toBe('medium');
     });
 });
 

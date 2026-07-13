@@ -14,7 +14,7 @@ import { PermissionModeSchema } from '@hapi/protocol/schemas';
 import { formatMessageWithAttachments } from '@/utils/attachmentFormatter';
 import { getInvokedCwd } from '@/utils/invokedCwd';
 import { resolveGrokRuntimeConfig } from './utils/config';
-import { assertGrokRuntimeConfigOwnership } from './runtimeConfigState';
+import { assertGrokRuntimeConfigOwnership, resolveGrokReasoningEffort } from './runtimeConfigState';
 
 export async function runGrok(opts: {
     startedBy?: 'runner' | 'terminal';
@@ -42,6 +42,7 @@ export async function runGrok(opts: {
 
     const runtimeConfig = resolveGrokRuntimeConfig({ model: opts.model });
     const persistedModel = runtimeConfig.model;
+    const initialReasoningEffort = resolveGrokReasoningEffort(persistedModel, opts.modelReasoningEffort);
 
     const bootstrap = opts.existingSessionId
         ? await bootstrapExistingSession({
@@ -56,7 +57,7 @@ export async function runGrok(opts: {
             workingDirectory,
             agentState: initialState,
             model: persistedModel,
-            modelReasoningEffort: opts.modelReasoningEffort ?? undefined
+            modelReasoningEffort: initialReasoningEffort ?? undefined
         });
     const { api, session } = bootstrap;
 
@@ -74,7 +75,7 @@ export async function runGrok(opts: {
     const sessionWrapperRef: { current: GrokSession | null } = { current: null };
     let currentPermissionMode: PermissionMode = opts.permissionMode ?? 'default';
     let requestedModel: string | null = persistedModel ?? null;
-    let requestedReasoningEffort = opts.modelReasoningEffort ?? null;
+    let requestedReasoningEffort = initialReasoningEffort;
 
     const lifecycle = createRunnerLifecycle({
         session,

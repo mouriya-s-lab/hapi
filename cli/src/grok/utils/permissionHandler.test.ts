@@ -13,6 +13,24 @@ describe('mapDecisionToOutcome', () => {
     it('cancels a denial when the agent offers no reject option', () => {
         expect(mapDecisionToOutcome(request, 'denied')).toEqual({ outcome: 'cancelled' });
     });
+
+    it('does not turn a one-time approval into a persistent grant', () => {
+        expect(mapDecisionToOutcome({
+            ...request,
+            options: [{ optionId: 'always', name: 'Always allow', kind: 'allow_always' }]
+        }, 'approved')).toEqual({ outcome: 'cancelled' });
+    });
+
+    it('does not turn a one-time denial into a persistent rejection', () => {
+        expect(mapDecisionToOutcome({
+            ...request,
+            options: [{ optionId: 'reject-always', name: 'Always reject', kind: 'reject_always' }]
+        }, 'denied')).toEqual({ outcome: 'cancelled' });
+    });
+
+    it('does not report session approval when only allow-once is available', () => {
+        expect(mapDecisionToOutcome(request, 'approved_for_session')).toEqual({ outcome: 'cancelled' });
+    });
 });
 
 describe('mapAutoApprovalToOutcome', () => {

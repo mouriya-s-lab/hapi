@@ -31,3 +31,17 @@ export function assertGrokRuntimeConfigOwnership(
         throw new Error('Grok runtime config cannot change while the local CLI controls the session');
     }
 }
+
+export function resolveGrokHandoffModel(
+    sessionModel: string | null | undefined,
+    launchModel: string | undefined
+): string | undefined {
+    return sessionModel === undefined ? launchModel : sessionModel ?? undefined;
+}
+
+export function resolveGrokReasoningEffort(
+    model: string | undefined,
+    requestedEffort: string | null | undefined
+): string | null {
+    return model === 'grok-composer-2.5-fast' ? null : requestedEffort ?? null;
+}

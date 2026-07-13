@@ -6,6 +6,7 @@ import { grokLocalLauncher } from './grokLocalLauncher';
 import { grokRemoteLauncher } from './grokRemoteLauncher';
 import { ApiClient, ApiSessionClient } from '@/lib';
 import type { GrokMode, PermissionMode } from './types';
+import { resolveGrokHandoffModel } from './runtimeConfigState';
 
 interface GrokLoopOptions {
     path: string;
@@ -49,8 +50,7 @@ export async function grokLoop(opts: GrokLoopOptions): Promise<void> {
     }
 
     const getCurrentModel = (): string | undefined => {
-        const sessionModel = session.getModel();
-        return sessionModel != null ? sessionModel : opts.model;
+        return resolveGrokHandoffModel(session.getModel(), opts.model);
     };
 
     await runLocalRemoteSession({
