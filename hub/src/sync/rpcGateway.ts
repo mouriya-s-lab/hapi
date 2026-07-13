@@ -21,7 +21,11 @@ import type {
     OpencodeReasoningEffortResponse,
     PathExistsResponse,
     SlashCommandsResponse,
-    UploadFileResponse
+    UploadFileResponse,
+    ListImportableSessionsRequest,
+    ListImportableSessionsResponse,
+    ResolveImportableSessionRequest,
+    ResolveImportableSessionResponse
 } from '@hapi/protocol/apiTypes'
 import type { Server } from 'socket.io'
 import type { RpcRegistry } from '../socket/rpcRegistry'
@@ -322,6 +326,14 @@ export class RpcGateway {
 
     async validateCcSwitchProviderForMachine(machineId: string, providerId: string): Promise<ValidateCcSwitchProviderResponse> {
         return await this.machineRpc(machineId, RPC_METHODS.ValidateCcSwitchProvider, { providerId }) as ValidateCcSwitchProviderResponse
+    }
+
+    async listImportableSessions(machineId: string, request: ListImportableSessionsRequest): Promise<ListImportableSessionsResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ListImportableSessions, request, MODEL_LIST_RPC_TIMEOUT_MS) as ListImportableSessionsResponse
+    }
+
+    async resolveImportableSession(machineId: string, request: ResolveImportableSessionRequest): Promise<ResolveImportableSessionResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ResolveImportableSession, request, MODEL_LIST_RPC_TIMEOUT_MS) as ResolveImportableSessionResponse
     }
 
     async listOpencodeModelsForSession(sessionId: string): Promise<RpcListOpencodeModelsResponse> {

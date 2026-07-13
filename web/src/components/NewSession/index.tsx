@@ -48,6 +48,8 @@ import {
 import { SessionTypeSelector } from './SessionTypeSelector'
 import { YoloToggle } from './YoloToggle'
 import { formatRunnerSpawnError } from '../../utils/formatRunnerSpawnError'
+import { Button } from '@/components/ui/button'
+import { ImportExistingSessionsDialog } from './ImportExistingSessionsDialog'
 
 export function NewSession(props: {
     api: ApiClient
@@ -67,6 +69,7 @@ export function NewSession(props: {
     const { getRecentPaths, addRecentPath, getLastUsedMachineId, setLastUsedMachineId } = useRecentPaths()
 
     const [machineId, setMachineId] = useState<string | null>(props.initialMachineId ?? null)
+    const [importOpen, setImportOpen] = useState(false)
     const [directory, setDirectory] = useState(props.initialDirectory ?? '')
     const [suppressSuggestions, setSuppressSuggestions] = useState(false)
     const [isDirectoryFocused, setIsDirectoryFocused] = useState(false)
@@ -603,6 +606,20 @@ export function NewSession(props: {
                 isDisabled={isFormDisabled}
                 onChange={handleMachineChange}
             />
+            {machineId ? (
+                <div className="px-3 py-3">
+                    <Button type="button" variant="secondary" disabled={isFormDisabled} onClick={() => setImportOpen(true)}>
+                        {t('newSession.import.openDialog')}
+                    </Button>
+                    <ImportExistingSessionsDialog
+                        api={props.api}
+                        machineId={machineId}
+                        open={importOpen}
+                        onOpenChange={setImportOpen}
+                        onSuccess={props.onSuccess}
+                    />
+                </div>
+            ) : null}
             {runnerSpawnError ? (
                 <div className="px-3 py-2 text-xs text-red-600">
                     Runner last spawn error: {runnerSpawnError}

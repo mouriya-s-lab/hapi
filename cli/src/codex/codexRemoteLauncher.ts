@@ -14,6 +14,7 @@ import type { CodexSession } from './session';
 import type { EnhancedMode } from './loop';
 import { hasCodexCliOverrides } from './utils/codexCliOverrides';
 import { AppServerEventConverter } from './utils/appServerEventConverter';
+import { replayCodexTranscriptHistory } from './utils/replayTranscriptHistory';
 import { detectImageMimeType, registerGeneratedImage } from '@/modules/common/generatedImages';
 import { registerAppServerPermissionHandlers } from './utils/appServerPermissionAdapter';
 import { buildThreadStartParams, buildTurnStartParams } from './utils/appServerConfig';
@@ -2935,6 +2936,15 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             }
             return true;
         };
+
+        if (session.replayTranscriptHistoryOnStart && session.sessionId) {
+            session.onSessionFound(session.sessionId);
+            const history = await appServerClient.readThreadMetadata(session.sessionId);
+            const thread = asRecord(history.thread);
+            const transcriptPath = asString(thread?.path);
+            if (!transcriptPath) throw new Error(`Codex thread ${session.sessionId} has no transcript path`);
+            await replayCodexTranscriptHistory(transcriptPath, session);
+        }
 
         while (!this.shouldExit) {
             logActiveHandles('loop-top');

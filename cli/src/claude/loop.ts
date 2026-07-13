@@ -8,6 +8,8 @@ import { claudeRemoteLauncher } from "./claudeRemoteLauncher"
 import { ApiClient } from "@/lib"
 import type { SessionEffort, SessionModel } from "@/api/types"
 import type { ClaudePermissionMode } from "@hapi/protocol/types"
+import { createSessionScanner } from './utils/sessionScanner'
+import { sendClaudeTranscriptMessage } from './utils/sendTranscriptMessage'
 
 export type PermissionMode = ClaudePermissionMode;
 
@@ -40,6 +42,7 @@ interface LoopOptions {
     onSessionReady?: (session: Session) => void
     hookSettingsPath: string
     resumeSessionId?: string
+    replayTranscriptHistoryOnStart?: boolean
 }
 
 export async function loop(opts: LoopOptions) {
@@ -68,6 +71,17 @@ export async function loop(opts: LoopOptions) {
         model: opts.model,
         effort: opts.effort
     });
+
+    if (opts.replayTranscriptHistoryOnStart && session.sessionId) {
+        session.onSessionFound(session.sessionId);
+        const replay = await createSessionScanner({
+            sessionId: session.sessionId,
+            workingDirectory: session.path,
+            replayExistingHistory: true,
+            onMessage: (message) => sendClaudeTranscriptMessage(session, message)
+        });
+        await replay.cleanup();
+    }
 
     await runLocalRemoteSession({
         session,

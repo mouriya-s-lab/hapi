@@ -748,6 +748,15 @@ export default {
   'misc.permissionRequired': '需要权限',
   'misc.percentLeft': '剩余 {percent}%',
   'misc.online': '在线',
+  'newSession.import.openDialog': '导入已有会话',
+  'newSession.import.title': '导入已有会话',
+  'newSession.import.description': '从这台机器选择 Claude Code 或 Codex 会话。',
+  'newSession.import.open': '打开',
+  'newSession.import.import': '导入',
+  'newSession.import.importing': '导入中…',
+  'newSession.import.loading': '加载中…',
+  'newSession.import.loadFailed': '加载会话失败',
+  'newSession.import.importFailed': '导入会话失败',
 
   // Web Share Target 分享面板
   'share.title': '分享到 HAPI',

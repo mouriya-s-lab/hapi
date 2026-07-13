@@ -23,6 +23,7 @@ import { createCliRoutes } from './routes/cli'
 import { createCodexDesktopRoutes } from './routes/codexDesktop'
 import { createPushRoutes } from './routes/push'
 import { createVoiceRoutes } from './routes/voice'
+import { createImportableSessionsRoutes } from './routes/importableSessions'
 import { mountForkRoutes } from '../../../fork-features/session-fork/hubMount'
 import { buildForkDeps } from '../../../fork-features/session-fork/hubSyncEngineAdapter'
 import type { SSEManager } from '../sse/sseManager'
@@ -241,6 +242,7 @@ function createWebApp(options: {
     app.route('/api', createMessagesRoutes(options.getSyncEngine))
     app.route('/api', createPermissionsRoutes(options.getSyncEngine))
     app.route('/api', createMachinesRoutes(options.getSyncEngine))
+    app.route('/api', createImportableSessionsRoutes(options.getSyncEngine))
     app.route('/api', createGitRoutes(options.getSyncEngine))
     // 中文注释：这里提供两类 Codex 辅助能力：扫描本地 transcript 以导入到 Hapi，以及按需重启 Codex Desktop 客户端。
     app.route('/api', createCodexDesktopRoutes({

@@ -744,6 +744,15 @@ export default {
   'misc.permissionRequired': 'permission required',
   'misc.percentLeft': '{percent}% left',
   'misc.online': 'online',
+  'newSession.import.openDialog': 'Import existing session',
+  'newSession.import.title': 'Import existing session',
+  'newSession.import.description': 'Select a Claude Code or Codex session from this machine.',
+  'newSession.import.open': 'Open',
+  'newSession.import.import': 'Import',
+  'newSession.import.importing': 'Importing…',
+  'newSession.import.loading': 'Loading…',
+  'newSession.import.loadFailed': 'Failed to list sessions',
+  'newSession.import.importFailed': 'Failed to import session',
 
   // Web Share Target picker
   'share.title': 'Share to HAPI',

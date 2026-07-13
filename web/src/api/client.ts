@@ -646,6 +646,24 @@ export class ApiClient {
         return await this.request<MachinesResponse>('/api/machines')
     }
 
+    async listImportableSessions(
+        machineId: string,
+        provider: import('@hapi/protocol/apiTypes').ImportableSessionProvider,
+        cursor?: string
+    ): Promise<import('@hapi/protocol/apiTypes').ImportableSessionsPage> {
+        const query = new URLSearchParams({ provider })
+        if (cursor) query.set('cursor', cursor)
+        return await this.request(`/api/machines/${encodeURIComponent(machineId)}/importable-sessions?${query}`)
+    }
+
+    async importExistingSession(
+        machineId: string,
+        provider: import('@hapi/protocol/apiTypes').ImportableSessionProvider,
+        externalSessionId: string
+    ): Promise<import('@hapi/protocol/apiTypes').ImportExistingSessionResponse> {
+        return await this.request(`/api/machines/${encodeURIComponent(machineId)}/importable-sessions/${provider}/${encodeURIComponent(externalSessionId)}`, { method: 'POST' })
+    }
+
     async listMachineDirectory(
         machineId: string,
         path: string

@@ -437,6 +437,7 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
             claudeArgs: options.claudeArgs,
             startedBy,
             resumeSessionId: options.resumeSessionId,
+            replayTranscriptHistoryOnStart: Boolean(options.resumeSessionId && !options.existingSessionId),
             hookSettingsPath
         });
     } catch (error) {

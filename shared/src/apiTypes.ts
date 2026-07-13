@@ -494,3 +494,42 @@ export type SlashCommandsResponse = {
     commands?: SlashCommand[]
     error?: string
 }
+
+export type ImportableSessionProvider = 'claude' | 'codex'
+
+export type ImportableSessionSummary = {
+    provider: ImportableSessionProvider
+    externalSessionId: string
+    cwd: string
+    title: string
+    preview: string | null
+    updatedAt: number
+}
+
+export type ListImportableSessionsRequest = {
+    provider: ImportableSessionProvider
+    cursor?: string
+}
+
+export type ListImportableSessionsResponse = {
+    sessions: ImportableSessionSummary[]
+    nextCursor: string | null
+}
+
+export type ResolveImportableSessionRequest = {
+    provider: ImportableSessionProvider
+    externalSessionId: string
+}
+
+export type ResolveImportableSessionResponse =
+    | { type: 'success'; session: ImportableSessionSummary }
+    | { type: 'not-found' }
+
+export type ImportableSessionsPage = {
+    sessions: Array<ImportableSessionSummary & { importedHapiSessionId: string | null }>
+    nextCursor: string | null
+}
+
+export type ImportExistingSessionResponse =
+    | { type: 'success'; sessionId: string; alreadyImported: boolean }
+    | { type: 'error'; error: string }
