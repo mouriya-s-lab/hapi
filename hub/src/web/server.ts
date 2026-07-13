@@ -33,13 +33,11 @@ import type { VisibilityTracker } from '../visibility/visibilityTracker'
 import type { Server as BunServer, ServerWebSocket } from 'bun'
 import type { Server as SocketEngine } from '@socket.io/bun-engine'
 import { jwtVerify } from 'jose'
-import { z } from 'zod'
 import type { WebSocketData } from '@socket.io/bun-engine'
 import { loadEmbeddedAssetMap, type EmbeddedWebAsset } from './embeddedAssets'
 import { isBunCompiled } from '../utils/bunCompiled'
 import type { Store } from '../store'
-
-const voiceJwtAccountSchema = z.object({ aid: z.number() })
+import { resolveActiveWebSession } from '../auth/webSession'
 
 // Normalise upstream close codes before forwarding to the browser client.
 // Codes 1005/1006/1015 are reserved and cannot be sent in a close frame;
@@ -467,11 +465,8 @@ export async function startWebServer(options: {
                 }
                 try {
                     const verified = await jwtVerify(token, options.jwtSecret, { algorithms: ['HS256'] })
-                    const parsed = voiceJwtAccountSchema.safeParse(verified.payload)
-                    if (!parsed.success) return new Response('Invalid token', { status: 401 })
-                    const account = options.store.accounts.getById(parsed.data.aid)
-                    if (!account || account.disabledAt !== null) {
-                        return new Response('Account unavailable', { status: 401 })
+                    if (!resolveActiveWebSession(options.store, verified.payload)) {
+                        return new Response('Invalid token', { status: 401 })
                     }
                 } catch {
                     return new Response('Invalid token', { status: 401 })

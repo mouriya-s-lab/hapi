@@ -282,6 +282,7 @@ describe('cli lazy session creation', () => {
         const getOrCreateSession = mock(() => ({ id: sessionId }))
         const app = createApp({
             getMachine: () => ({ id: 'machine-1', namespace: 'other' }),
+            getMachineByNamespace: () => null,
             getOrCreateMachine,
             getOrCreateSession
         } as never)
@@ -303,6 +304,60 @@ describe('cli lazy session creation', () => {
         expect(response.status).toBe(403)
         expect(getOrCreateMachine).not.toHaveBeenCalled()
         expect(getOrCreateSession).not.toHaveBeenCalled()
+    })
+
+    it('rejects a same-namespace session that references another account machine', async () => {
+        const owner = store.accounts.getByUsername('owner')
+        if (!owner) throw new Error('owner account missing')
+        const machine = store.machines.getOrCreateMachine('owner-machine', {}, null, 'default', owner.id)
+        const getOrCreateSession = mock(() => ({ id: sessionId }))
+        const app = createApp({
+            getMachine: (id: string) => id === machine.id ? machine : null,
+            getMachineByNamespace: (id: string, namespace: string) =>
+                id === machine.id && namespace === machine.namespace ? machine : null,
+            getOrCreateSession
+        } as never)
+
+        const response = await app.request('/cli/sessions', {
+            method: 'POST',
+            headers: { ...tokenHeaders(strangerToken), 'content-type': 'application/json' },
+            body: JSON.stringify({
+                id: sessionId,
+                tag: 'foreign-machine-session',
+                metadata: { machineId: machine.id }
+            })
+        })
+
+        expect(response.status).toBe(403)
+        expect(getOrCreateSession).not.toHaveBeenCalled()
+    })
+
+    it('allows an operator to create a session on a granted machine', async () => {
+        const owner = store.accounts.getByUsername('owner')
+        const stranger = store.accounts.getByUsername('stranger')
+        if (!owner || !stranger) throw new Error('test accounts missing')
+        const machine = store.machines.getOrCreateMachine('granted-machine', {}, null, 'default', owner.id)
+        store.grants.upsert({ resourceType: 'machine', resourceId: machine.id, granteeAccountId: stranger.id, role: 'operator' })
+        const getOrCreateSession = mock((...args: Parameters<SyncEngine['getOrCreateSession']>) =>
+            store.sessions.getOrCreateSession(...args))
+        const app = createApp({
+            getMachine: (id: string) => id === machine.id ? machine : null,
+            getMachineByNamespace: (id: string, namespace: string) =>
+                id === machine.id && namespace === machine.namespace ? machine : null,
+            getOrCreateSession
+        } as never)
+
+        const response = await app.request('/cli/sessions', {
+            method: 'POST',
+            headers: { ...tokenHeaders(strangerToken), 'content-type': 'application/json' },
+            body: JSON.stringify({
+                tag: 'granted-machine-session',
+                metadata: { machineId: machine.id }
+            })
+        })
+
+        expect(response.status).toBe(200)
+        expect(getOrCreateSession).toHaveBeenCalled()
     })
 
     it('returns 409 for a requested identity conflict', async () => {

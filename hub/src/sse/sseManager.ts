@@ -104,7 +104,7 @@ export class SSEManager {
     }
 
     async sendToast(namespace: string, event: Extract<SyncEvent, { type: 'toast' }>, audienceOverride?: ReadonlySet<number>): Promise<Set<number>> {
-        const canAccess = this.buildAccessCheck(event)
+        const canAccess = this.buildAccessCheck(event, audienceOverride)
         const deliveries: Array<Promise<{ id: string; ok: boolean }>> = []
         for (const connection of this.connections.values()) {
             if (connection.namespace !== namespace) {
@@ -166,7 +166,7 @@ export class SSEManager {
         this.connections.clear()
     }
 
-    private buildAccessCheck(event: SyncEvent, audienceOverride?: Set<number>): (connection: SSEConnection) => boolean {
+    private buildAccessCheck(event: SyncEvent, audienceOverride?: ReadonlySet<number>): (connection: SSEConnection) => boolean {
         const resource = resolveEventResource(event)
         if (!resource) {
             return () => true

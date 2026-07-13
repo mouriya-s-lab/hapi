@@ -3131,4 +3131,24 @@ describe('session ownership', () => {
         expect(store.grants.get('session', resumed.id, viewer.id)?.role).toBe('viewer')
         expect(store.grants.get('session', original.id, viewer.id)).toBeNull()
     })
+
+    it('merge preserves the stronger grant from either session', async () => {
+        const store = new Store(':memory:')
+        const cache = new SessionCache(store, createPublisher([]))
+        const { admin, peter } = makeAccounts(store)
+        const grantee = store.accounts.create({ username: 'merge-operator', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+        const original = cache.getOrCreateSession(
+            'grant-strength-old', {}, null, 'default', undefined, undefined, undefined, undefined, peter
+        )
+        const resumed = cache.getOrCreateSession(
+            'grant-strength-new', {}, null, 'default', undefined, undefined, undefined, undefined, admin
+        )
+        store.grants.upsert({ resourceType: 'session', resourceId: original.id, granteeAccountId: grantee.id, role: 'operator' })
+        store.grants.upsert({ resourceType: 'session', resourceId: resumed.id, granteeAccountId: grantee.id, role: 'viewer' })
+
+        await cache.mergeSessions(original.id, resumed.id, 'default')
+
+        expect(store.grants.get('session', resumed.id, grantee.id)?.role).toBe('operator')
+        expect(store.grants.get('session', original.id, grantee.id)).toBeNull()
+    })
 })

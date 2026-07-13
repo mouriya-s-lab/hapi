@@ -19,6 +19,10 @@ const getMessagesQuerySchema = z.object({
     limit: z.coerce.number().int().min(1).max(200).optional()
 })
 
+const sessionMachineReferenceSchema = z.object({
+    machineId: z.string().min(1).optional()
+}).passthrough()
+
 type CliEnv = {
     Variables: {
         namespace: string
@@ -119,18 +123,34 @@ export function createCliRoutes(getSyncEngine: () => SyncEngine | null, store: S
         const accountId = c.get('accountId')
         const role = c.get('role')
         const machineInput = parsed.data.machine
+        const parsedMetadata = sessionMachineReferenceSchema.safeParse(parsed.data.metadata)
+        const metadataMachineId = parsedMetadata.success ? parsedMetadata.data.machineId : undefined
+        if (machineInput && metadataMachineId && machineInput.id !== metadataMachineId) {
+            return c.json({ error: 'Conflicting machine identity' }, 400)
+        }
+
+        const referencedMachineId = metadataMachineId ?? machineInput?.id
         if (machineInput) {
             const existingMachine = engine.getMachine(machineInput.id)
-            if (existingMachine && existingMachine.namespace !== namespace) {
-                return c.json({ error: 'Machine access denied' }, 403)
+            if (existingMachine) {
+                const access = resolveMachineForAccount(
+                    engine, store, machineInput.id, namespace, accountId, role, true
+                )
+                if (!access.ok) return c.json({ error: access.error }, access.status)
+            } else {
+                engine.getOrCreateMachine(
+                    machineInput.id,
+                    machineInput.metadata,
+                    machineInput.runnerState ?? null,
+                    namespace,
+                    accountId
+                )
             }
-            engine.getOrCreateMachine(
-                machineInput.id,
-                machineInput.metadata,
-                machineInput.runnerState ?? null,
-                namespace,
-                accountId
+        } else if (referencedMachineId) {
+            const access = resolveMachineForAccount(
+                engine, store, referencedMachineId, namespace, accountId, role, true
             )
+            if (!access.ok) return c.json({ error: access.error }, access.status)
         }
 
         try {

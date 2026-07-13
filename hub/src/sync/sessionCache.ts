@@ -886,13 +886,17 @@ export class SessionCache {
         }
 
         for (const grant of this.store.grants.listForResource('session', oldSessionId)) {
+            const survivingGrant = this.store.grants.get('session', newSessionId, grant.granteeAccountId)
+            const mergedRole = survivingGrant?.role === 'operator' || grant.role === 'operator'
+                ? 'operator'
+                : 'viewer'
             if (grant.granteeAccountId !== preferredOwner
-                && !this.store.grants.get('session', newSessionId, grant.granteeAccountId)) {
+                && survivingGrant?.role !== mergedRole) {
                 this.store.grants.upsert({
                     resourceType: 'session',
                     resourceId: newSessionId,
                     granteeAccountId: grant.granteeAccountId,
-                    role: grant.role
+                    role: mergedRole
                 })
             }
             if (options.deleteOldSession) {

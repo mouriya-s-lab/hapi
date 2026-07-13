@@ -10,6 +10,7 @@ import { createAccountRoutes } from './accounts'
 import { createGrantRoutes } from './grants'
 import { createAuthRoutes } from './auth'
 import type { AccountRole } from '../../store/types'
+import { generateApiToken, hashApiToken } from '../../utils/apiToken'
 
 const JWT_SECRET = new TextEncoder().encode('test-secret-key-for-management-routes-0123456789')
 const LEGACY_TOKEN = 'mgmt-test-shared-token'
@@ -182,6 +183,36 @@ describe('api tokens', () => {
             body: JSON.stringify({ namespace: 'victim-space' })
         })
         expect(response.status).toBe(403)
+    })
+
+    it('invalidates an API-token browser session as soon as its token is revoked', async () => {
+        const account = store.accounts.create({ username: 'revoked-browser', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+        const plaintext = generateApiToken()
+        const apiToken = store.apiTokens.create({
+            accountId: account.id,
+            name: 'browser',
+            tokenHash: hashApiToken(plaintext),
+            namespace: 'default'
+        })
+        const app = makeApp(store)
+        const loginResponse = await app.request('/api/auth', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ accessToken: plaintext })
+        })
+        expect(loginResponse.status).toBe(200)
+        const { token: sessionJwt } = await loginResponse.json() as { token: string }
+
+        expect((await app.request('/api/me', {
+            headers: { authorization: `Bearer ${sessionJwt}` }
+        })).status).toBe(200)
+        expect((await app.request(`/api/tokens/${apiToken.id}`, {
+            method: 'DELETE',
+            headers: { authorization: `Bearer ${sessionJwt}` }
+        })).status).toBe(200)
+        expect((await app.request('/api/me', {
+            headers: { authorization: `Bearer ${sessionJwt}` }
+        })).status).toBe(401)
     })
 })
 

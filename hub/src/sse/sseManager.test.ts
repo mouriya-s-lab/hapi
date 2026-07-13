@@ -181,4 +181,37 @@ describe('SSEManager namespace filtering', () => {
         expect(received).toHaveLength(1)
         expect(received[0]?.id).toBe('visible')
     })
+
+    it('limits actionable toasts to the explicit operator audience', async () => {
+        const manager = new SSEManager(0, new VisibilityTracker(), {
+            canReadResource: () => true,
+            getActiveAccountRole: () => 'user'
+        })
+        const received: number[] = []
+        for (const accountId of [1, 2]) {
+            manager.subscribe({
+                id: `account-${accountId}`,
+                namespace: 'alpha',
+                accountId,
+                role: 'user',
+                all: true,
+                visibility: 'visible',
+                send: () => { received.push(accountId) },
+                sendHeartbeat: () => {}
+            })
+        }
+
+        const delivered = await manager.sendToast('alpha', {
+            type: 'toast',
+            data: {
+                title: 'Permission required',
+                body: 'Approve the pending request',
+                sessionId: 'session-1',
+                url: '/sessions/session-1'
+            }
+        }, new Set([2]))
+
+        expect(received).toEqual([2])
+        expect([...delivered]).toEqual([2])
+    })
 })

@@ -13,13 +13,7 @@ import type { SyncEvent } from '../sync/syncEngine'
 import { TerminalRegistry } from './terminalRegistry'
 import type { CliSocketWithData, SocketData, SocketServer } from './socketTypes'
 import { authorizeResource, isSessionRuntimeAccount } from '../auth/access'
-
-const jwtPayloadSchema = z.object({
-    uid: z.number(),
-    ns: z.string(),
-    aid: z.number(),
-    role: z.enum(['admin', 'user'])
-})
+import { resolveActiveWebSession } from '../auth/webSession'
 
 const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60_000
 const DEFAULT_MAX_TERMINALS = 4
@@ -151,14 +145,14 @@ export function createSocketServer(deps: SocketServerDeps): {
 
         try {
             const verified = await jwtVerify(token, deps.jwtSecret, { algorithms: ['HS256'] })
-            const parsed = jwtPayloadSchema.safeParse(verified.payload)
-            if (!parsed.success) {
+            const session = resolveActiveWebSession(deps.store, verified.payload)
+            if (!session) {
                 return next(new Error('Invalid token payload'))
             }
-            socket.data.userId = parsed.data.uid
-            socket.data.namespace = parsed.data.ns
-            socket.data.accountId = parsed.data.aid
-            socket.data.role = parsed.data.role
+            socket.data.userId = session.userId
+            socket.data.namespace = session.namespace
+            socket.data.accountId = session.account.id
+            socket.data.role = session.account.role
             next()
             return
         } catch {
