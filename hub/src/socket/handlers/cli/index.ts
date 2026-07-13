@@ -60,9 +60,23 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
     const namespace = typeof socket.data.namespace === 'string' ? socket.data.namespace : null
     const accountId = socket.data.accountId
 
-    const hasOperatorAccess = (resourceType: 'session' | 'machine', resourceId: string): boolean => {
+    const hasLiveToken = (): boolean => {
+        const tokenId = socket.data.tokenId
+        return typeof tokenId !== 'number' || store.apiTokens.getById(tokenId)?.revokedAt === null
+    }
+
+    const hasRunnerAccess = (resourceType: 'session' | 'machine', resourceId: string): boolean => {
         if (typeof accountId !== 'number' || !namespace) return false
-        return authorizeResource({ store, accountId, namespace, resourceType, resourceId, capability: 'operate' }).ok
+        if (!hasLiveToken() || socket.data.resourceId !== resourceId) return false
+        if (socket.data.clientType !== `${resourceType}-scoped`) return false
+        const authorization = authorizeResource({ store, accountId, namespace, resourceType, resourceId, capability: 'administer' })
+        if (authorization.ok) return true
+        if (resourceType === 'session') {
+            const session = store.sessions.getSessionByNamespace(resourceId, namespace)
+            const machine = session?.machineId ? store.machines.getMachineByNamespace(session.machineId, namespace) : null
+            return machine?.ownerAccountId === accountId
+        }
+        return false
     }
 
     const resolveSessionAccess = (sessionId: string): AccessResult<StoredSession> => {
@@ -70,7 +84,7 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
             return { ok: false, reason: 'namespace-missing' }
         }
         const session = store.sessions.getSessionByNamespace(sessionId, namespace)
-        if (session && hasOperatorAccess('session', sessionId)) {
+        if (session && hasRunnerAccess('session', sessionId)) {
             return { ok: true, value: session }
         }
         if (session) return { ok: false, reason: 'access-denied' }
@@ -85,7 +99,7 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
             return { ok: false, reason: 'namespace-missing' }
         }
         const machine = store.machines.getMachineByNamespace(machineId, namespace)
-        if (machine && hasOperatorAccess('machine', machineId)) {
+        if (machine && hasRunnerAccess('machine', machineId)) {
             return { ok: true, value: machine }
         }
         if (machine) return { ok: false, reason: 'access-denied' }
@@ -95,13 +109,12 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
         return { ok: false, reason: 'not-found' }
     }
 
-    const auth = socket.handshake.auth as Record<string, unknown> | undefined
-    const sessionId = typeof auth?.sessionId === 'string' ? auth.sessionId : null
+    const sessionId = socket.data.clientType === 'session-scoped' ? socket.data.resourceId ?? null : null
     if (sessionId && resolveSessionAccess(sessionId).ok) {
         socket.join(`session:${sessionId}`)
     }
 
-    const machineId = typeof auth?.machineId === 'string' ? auth.machineId : null
+    const machineId = socket.data.clientType === 'machine-scoped' ? socket.data.resourceId ?? null : null
     if (machineId && resolveMachineAccess(machineId).ok) {
         socket.join(`machine:${machineId}`)
     }
@@ -115,8 +128,8 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
         socket.emit('error', { message, code: reason, scope, id })
     }
 
-    registerRpcHandlers(socket, rpcRegistry, (resourceId) =>
-        resolveSessionAccess(resourceId).ok || resolveMachineAccess(resourceId).ok)
+    registerRpcHandlers(socket, rpcRegistry, (resourceId, resourceType) =>
+        resourceType === 'session' ? resolveSessionAccess(resourceId).ok : resolveMachineAccess(resourceId).ok)
     registerSessionHandlers(socket, {
         store,
         resolveSessionAccess,

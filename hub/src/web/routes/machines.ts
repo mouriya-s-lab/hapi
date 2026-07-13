@@ -9,7 +9,7 @@ import type { SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import type { Store } from '../../store'
 import { requireMachine } from './guards'
-import { transferSessionOwnership } from '../../auth/access'
+import { authorizeResource, transferSessionOwnership } from '../../auth/access'
 
 export function createMachinesRoutes(
     getSyncEngine: () => SyncEngine | null,
@@ -29,18 +29,14 @@ export function createMachinesRoutes(
         }
 
         const namespace = c.get('namespace')
-        const role = c.get('role') ?? 'user'
         const accountId = c.get('accountId')
         const store = getStore?.() ?? null
+        if (!store) throw new Error('Store unavailable for machine visibility')
 
         let machines = engine.getOnlineMachinesByNamespace(namespace)
-        // Non-admins only see machines they own or have been granted.
-        if (store && role !== 'admin') {
-            const allowed = new Set<string>([
-                ...store.machines.getMachinesForAccount(namespace, accountId).map((m) => m.id)
-            ])
-            machines = machines.filter((m) => allowed.has(m.id))
-        }
+        machines = machines.filter((machine) => authorizeResource({
+            store, accountId, namespace, resourceType: 'machine', resourceId: machine.id, capability: 'read'
+        }).ok)
         return c.json({ machines })
     })
 

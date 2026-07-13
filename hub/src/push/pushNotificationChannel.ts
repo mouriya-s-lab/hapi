@@ -3,7 +3,7 @@ import type { NotificationChannel, TaskNotification } from '../notifications/not
 import { getAgentName, getSessionName } from '../notifications/sessionInfo'
 import type { SSEManager } from '../sse/sseManager'
 import type { Store } from '../store'
-import { listActiveAdminAccountIds, listOperableAccountIds, listReadableAccountIds } from '../auth/access'
+import { resolveResourceAudience, type AudienceCapability } from '../auth/access'
 import type { VisibilityTracker } from '../visibility/visibilityTracker'
 import type { PushPayload, PushService } from './pushService'
 
@@ -16,14 +16,11 @@ export class PushNotificationChannel implements NotificationChannel {
         private readonly store: Store
     ) {}
 
-    private resolveAudience(sessionId: string, actionable = false): Set<number> {
-        const audience = actionable
-            ? listOperableAccountIds(this.store, 'session', sessionId)
-            : listReadableAccountIds(this.store, 'session', sessionId)
-        for (const adminId of listActiveAdminAccountIds(this.store)) {
-            audience.add(adminId)
-        }
-        return audience
+    private resolveAudience(sessionId: string, capability: AudienceCapability): Set<number> {
+        return resolveResourceAudience({
+            store: this.store, resourceType: 'session', resourceId: sessionId,
+            capability
+        })
     }
 
     async sendPermissionRequest(session: Session): Promise<void> {
@@ -49,7 +46,7 @@ export class PushNotificationChannel implements NotificationChannel {
         }
 
         const url = payload.data?.url ?? this.buildSessionPath(session.id)
-        const audience = this.resolveAudience(session.id, true)
+        const audience = this.resolveAudience(session.id, 'operate')
         if (this.visibilityTracker.hasVisibleConnection(session.namespace)) {
             const delivered = await this.sseManager.sendToast(session.namespace, {
                 type: 'toast',
@@ -90,7 +87,7 @@ export class PushNotificationChannel implements NotificationChannel {
         }
 
         const url = payload.data?.url ?? this.buildSessionPath(session.id)
-        const audience = this.resolveAudience(session.id, true)
+        const audience = this.resolveAudience(session.id, 'operate')
         if (this.visibilityTracker.hasVisibleConnection(session.namespace)) {
             const delivered = await this.sseManager.sendToast(session.namespace, {
                 type: 'toast',
@@ -135,7 +132,7 @@ export class PushNotificationChannel implements NotificationChannel {
         }
 
         const url = payload.data?.url ?? this.buildSessionPath(session.id)
-        const audience = this.resolveAudience(session.id)
+        const audience = this.resolveAudience(session.id, 'read')
         if (this.visibilityTracker.hasVisibleConnection(session.namespace)) {
             const delivered = await this.sseManager.sendToast(session.namespace, {
                 type: 'toast',

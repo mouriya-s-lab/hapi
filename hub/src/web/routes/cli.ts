@@ -142,13 +142,11 @@ export function createCliRoutes(getSyncEngine: () => SyncEngine | null, store: S
 
         const namespace = c.get('namespace')
         const accountId = c.get('accountId')
-        const role = c.get('role')
         const machineId = c.req.query('machineId') || undefined
         let sessions = engine.listLocalResumableSessions(namespace, { machineId })
-        if (role !== 'admin') {
-            const visible = new Set(store.sessions.getSessionsForAccount(namespace, accountId).map((session) => session.id))
-            sessions = sessions.filter((session) => visible.has(session.sessionId))
-        }
+        sessions = sessions.filter((session) => authorizeResource({
+            store, accountId, namespace, resourceType: 'session', resourceId: session.sessionId, capability: 'read'
+        }).ok)
         return c.json({ sessions })
     })
 

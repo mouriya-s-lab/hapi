@@ -24,13 +24,14 @@ export type TerminalHandlersDeps = {
     io: SocketServer
     getSession: (sessionId: string) => { active: boolean; namespace: string } | null
     canOperateSession: (sessionId: string) => boolean
+    canUseCliSocket: (socket: SocketWithData, sessionId: string) => boolean
     terminalRegistry: TerminalRegistry
     maxTerminalsPerSocket: number
     maxTerminalsPerSession: number
 }
 
 export function registerTerminalHandlers(socket: SocketWithData, deps: TerminalHandlersDeps): void {
-    const { io, getSession, canOperateSession, terminalRegistry, maxTerminalsPerSocket, maxTerminalsPerSession } = deps
+    const { io, getSession, canOperateSession, canUseCliSocket, terminalRegistry, maxTerminalsPerSocket, maxTerminalsPerSession } = deps
     const cliNamespace = io.of('/cli')
     const namespace = typeof socket.data.namespace === 'string' ? socket.data.namespace : null
 
@@ -48,7 +49,7 @@ export function registerTerminalHandlers(socket: SocketWithData, deps: TerminalH
 
     const resolveCliSocket = (entry: TerminalRegistryEntry, reportError: boolean): SocketWithData | null => {
         const cliSocket = cliNamespace.sockets.get(entry.cliSocketId)
-        if (!cliSocket || cliSocket.data.namespace !== namespace) {
+        if (!cliSocket || cliSocket.data.namespace !== namespace || !canUseCliSocket(cliSocket, entry.sessionId)) {
             terminalRegistry.remove(entry.terminalId)
             if (reportError) {
                 emitTerminalError(entry.terminalId, 'CLI disconnected.')
@@ -60,7 +61,7 @@ export function registerTerminalHandlers(socket: SocketWithData, deps: TerminalH
 
     const emitCloseToCli = (entry: TerminalRegistryEntry): void => {
         const cliSocket = cliNamespace.sockets.get(entry.cliSocketId)
-        if (!cliSocket || cliSocket.data.namespace !== namespace) {
+        if (!cliSocket || cliSocket.data.namespace !== namespace || !canUseCliSocket(cliSocket, entry.sessionId)) {
             return
         }
         cliSocket.emit('terminal:close', {
@@ -76,7 +77,7 @@ export function registerTerminalHandlers(socket: SocketWithData, deps: TerminalH
         }
         for (const socketId of room) {
             const cliSocket = cliNamespace.sockets.get(socketId)
-            if (cliSocket && cliSocket.data.namespace === namespace) {
+            if (cliSocket && cliSocket.data.namespace === namespace && canUseCliSocket(cliSocket, sessionId)) {
                 return cliSocket.id
             }
         }

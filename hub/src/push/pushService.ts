@@ -1,6 +1,7 @@
 import * as webPush from 'web-push'
 import type { Store } from '../store'
 import type { VapidKeys } from '../config/vapidKeys'
+import { listActiveAdminAccountIds } from '../auth/access'
 
 export type PushPayload = {
     title: string
@@ -37,8 +38,7 @@ export class PushService {
     }
 
     async sendToNamespace(namespace: string, payload: PushPayload, allowedAccountIds: ReadonlySet<number>): Promise<void> {
-        const legacyAdminId = this.store.accounts.list()
-            .find((account) => account.role === 'admin' && account.disabledAt === null)?.id ?? null
+        const legacyAdminId = listActiveAdminAccountIds(this.store)[0] ?? null
         const subscriptions = this.store.push.getPushSubscriptionsByNamespace(namespace)
             .filter((subscription) => {
                 const accountId = subscription.accountId ?? legacyAdminId

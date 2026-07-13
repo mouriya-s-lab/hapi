@@ -24,6 +24,11 @@ const jwtPayloadSchema = z.object({
 const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60_000
 const DEFAULT_MAX_TERMINALS = 4
 
+const cliAuthSchema = z.discriminatedUnion('clientType', [
+    z.object({ token: z.string(), clientType: z.literal('session-scoped'), sessionId: z.string().min(1) }),
+    z.object({ token: z.string(), clientType: z.literal('machine-scoped'), machineId: z.string().min(1) })
+])
+
 function resolveEnvNumber(name: string, fallback: number): number {
     const raw = process.env[name]
     if (!raw) {
@@ -107,15 +112,18 @@ export function createSocketServer(deps: SocketServerDeps): {
     })
 
     cliNs.use((socket, next) => {
-        const auth = socket.handshake.auth as Record<string, unknown> | undefined
-        const token = typeof auth?.token === 'string' ? auth.token : null
-        const resolved = token ? resolveAuth(token) : null
+        const parsed = cliAuthSchema.safeParse(socket.handshake.auth)
+        if (!parsed.success) return next(new Error('Invalid CLI identity'))
+        const resolved = resolveAuth(parsed.data.token)
         if (!resolved) {
             return next(new Error('Invalid token'))
         }
         socket.data.namespace = resolved.namespace
         socket.data.accountId = resolved.accountId
         socket.data.role = resolved.role
+        socket.data.tokenId = resolved.tokenId
+        socket.data.clientType = parsed.data.clientType
+        socket.data.resourceId = parsed.data.clientType === 'session-scoped' ? parsed.data.sessionId : parsed.data.machineId
         next()
     })
     cliNs.on('connection', (socket) => registerCliHandlers(socket as CliSocketWithData, {
@@ -174,6 +182,20 @@ export function createSocketServer(deps: SocketServerDeps): {
                 resourceId: sessionId,
                 capability: 'operate'
             }).ok
+        },
+        canUseCliSocket: (cliSocket, sessionId) => {
+            if (cliSocket.data.clientType !== 'session-scoped' || cliSocket.data.resourceId !== sessionId) return false
+            const tokenId = cliSocket.data.tokenId
+            if (typeof tokenId === 'number' && deps.store.apiTokens.getById(tokenId)?.revokedAt !== null) return false
+            const cliAccountId = cliSocket.data.accountId
+            const cliNamespace = cliSocket.data.namespace
+            if (typeof cliAccountId !== 'number' || !cliNamespace) return false
+            const authorization = authorizeResource({ store: deps.store, accountId: cliAccountId, namespace: cliNamespace,
+                resourceType: 'session', resourceId: sessionId, capability: 'administer' })
+            if (authorization.ok) return true
+            const session = deps.store.sessions.getSessionByNamespace(sessionId, cliNamespace)
+            const machine = session?.machineId ? deps.store.machines.getMachineByNamespace(session.machineId, cliNamespace) : null
+            return machine?.ownerAccountId === cliAccountId
         },
         terminalRegistry,
         maxTerminalsPerSocket,

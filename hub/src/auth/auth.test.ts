@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { Store } from '../store'
 import { resolveAuthToken, type AuthResolverDeps } from './resolveAuth'
 import { bootstrapMultiUser } from './bootstrap'
-import { authorizeResource, resolveAccessLevel, canOperate, canRead } from './access'
+import { authorizeResource, resolveAccessLevel, canOperate, canRead, resolveResourceAudience } from './access'
 import { generateApiToken, hashApiToken } from '../utils/apiToken'
 
 const LEGACY_TOKEN = 'legacy-shared-token-abc123'
@@ -226,6 +226,26 @@ describe('authorizeResource', () => {
         expect(check(owner.id, 'read', 'beta')).toBe(false)
         store.accounts.setDisabled(operator.id, true)
         expect(check(operator.id, 'operate')).toBe(false)
+        store.close()
+    })
+
+    it('builds active read and operate audiences with admins included', () => {
+        const store = new Store(':memory:')
+        const owner = store.accounts.create({ username: 'aud-owner', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+        const viewer = store.accounts.create({ username: 'aud-viewer', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+        const operator = store.accounts.create({ username: 'aud-operator', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+        const admin = store.accounts.create({ username: 'aud-admin', passwordHash: null, role: 'admin', defaultNamespace: 'default' })
+        const disabled = store.accounts.create({ username: 'aud-disabled', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+        const session = store.sessions.getOrCreateSession('audience', {}, null, 'default', undefined, undefined, undefined, owner.id)
+        store.grants.upsert({ resourceType: 'session', resourceId: session.id, granteeAccountId: viewer.id, role: 'viewer' })
+        store.grants.upsert({ resourceType: 'session', resourceId: session.id, granteeAccountId: operator.id, role: 'operator' })
+        store.grants.upsert({ resourceType: 'session', resourceId: session.id, granteeAccountId: disabled.id, role: 'operator' })
+        store.accounts.setDisabled(disabled.id, true)
+
+        const read = resolveResourceAudience({ store, resourceType: 'session', resourceId: session.id, capability: 'read' })
+        const operate = resolveResourceAudience({ store, resourceType: 'session', resourceId: session.id, capability: 'operate' })
+        expect([...read].sort()).toEqual([owner.id, viewer.id, operator.id, admin.id].sort())
+        expect([...operate].sort()).toEqual([owner.id, operator.id, admin.id].sort())
         store.close()
     })
 })

@@ -83,6 +83,7 @@ function createHarness(options?: {
         io: io as unknown as SocketServer,
         getSession: () => ({ active: options?.sessionActive ?? true, namespace: 'default' }),
         canOperateSession: () => options?.canOperateSession ?? true,
+        canUseCliSocket: () => true,
         terminalRegistry,
         maxTerminalsPerSocket: options?.maxTerminalsPerSocket ?? 4,
         maxTerminalsPerSession: options?.maxTerminalsPerSession ?? 4

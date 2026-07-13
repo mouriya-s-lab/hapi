@@ -3,6 +3,7 @@ import type { AccountRole, GrantRole, ResourceType, StoredAccount, StoredMachine
 
 export type AccessLevel = 'none' | 'viewer' | 'operator' | 'owner'
 export type ResourceCapability = 'read' | 'operate' | 'administer'
+export type AudienceCapability = 'read' | 'operate'
 export type AuthorizedResource = StoredMachine | StoredSession
 export type ResourceAuthorization =
     | { ok: true; account: StoredAccount; resource: AuthorizedResource; level: AccessLevel }
@@ -110,6 +111,23 @@ export function listOperableAccountIds(store: Store, resourceType: ResourceType,
         if (grant.role === 'operator') accountIds.add(grant.granteeAccountId)
     }
     return accountIds
+}
+
+export function resolveResourceAudience(params: {
+    store: Store
+    resourceType: ResourceType
+    resourceId: string
+    capability: AudienceCapability
+}): Set<number> {
+    const candidates = params.capability === 'read'
+        ? listReadableAccountIds(params.store, params.resourceType, params.resourceId)
+        : listOperableAccountIds(params.store, params.resourceType, params.resourceId)
+    for (const adminId of listActiveAdminAccountIds(params.store)) candidates.add(adminId)
+    for (const accountId of candidates) {
+        const account = params.store.accounts.getById(accountId)
+        if (!account || account.disabledAt !== null) candidates.delete(accountId)
+    }
+    return candidates
 }
 
 export function transferSessionOwnership(params: {

@@ -6,6 +6,9 @@ export type SocketData = {
     userId?: number
     accountId?: number
     role?: 'admin' | 'user'
+    tokenId?: number | null
+    clientType?: 'session-scoped' | 'machine-scoped'
+    resourceId?: string
 }
 
 export type SocketServer = Server<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>

@@ -24,6 +24,7 @@ import type { SyncEngine, Session } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import type { Store } from '../../store'
 import { requireSessionFromParam, requireSyncEngine } from './guards'
+import { authorizeResource } from '../../auth/access'
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
@@ -86,9 +87,9 @@ export function createSessionsRoutes(
         const getPendingCount = (s: Session) => s.agentState?.requests ? Object.keys(s.agentState.requests).length : 0
 
         const namespace = c.get('namespace')
-        const role = c.get('role') ?? 'user'
         const accountId = c.get('accountId')
         const store = getStore?.() ?? null
+        if (!store) throw new Error('Store unavailable for session visibility')
 
         let sessionRecords = engine.getSessionsByNamespace(namespace)
             .sort((a, b) => {
@@ -105,10 +106,9 @@ export function createSessionsRoutes(
                 // Then by updatedAt
                 return b.updatedAt - a.updatedAt
             })
-        if (store && role !== 'admin') {
-            const allowed = new Set(store.sessions.getSessionsForAccount(namespace, accountId).map((session) => session.id))
-            sessionRecords = sessionRecords.filter((session) => allowed.has(session.id))
-        }
+        sessionRecords = sessionRecords.filter((session) => authorizeResource({
+            store, accountId, namespace, resourceType: 'session', resourceId: session.id, capability: 'read'
+        }).ok)
 
         const scheduledCounts = engine.getFutureScheduledMessageCounts(sessionRecords.map((session) => session.id))
         const nextScheduledAt = engine.getNextScheduledAtBySessionIds(sessionRecords.map((session) => session.id))

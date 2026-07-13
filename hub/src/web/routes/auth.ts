@@ -9,6 +9,7 @@ import { getOrCreateOwnerId } from '../../config/ownerId'
 import type { WebAppEnv } from '../middleware/auth'
 import type { Store } from '../../store'
 import type { AccountRole } from '../../store/types'
+import { listActiveAdminAccountIds } from '../../auth/access'
 
 // Web JWTs are short-lived so revoking a token/disabling an account takes
 // effect quickly (a still-valid JWT can outlive a revocation by at most this
@@ -137,8 +138,9 @@ export function createAuthRoutes(jwtSecret: Uint8Array, store: Store): Hono<WebA
         }
 
         const ownerId = await getOrCreateOwnerId()
+        const legacyAdminId = listActiveAdminAccountIds(store)[0]
         const account = storedUser.accountId === null
-            ? store.accounts.list().find((candidate) => candidate.role === 'admin' && candidate.disabledAt === null) ?? null
+            ? legacyAdminId === undefined ? null : store.accounts.getById(legacyAdminId)
             : store.accounts.getById(storedUser.accountId)
         if (!account || account.disabledAt !== null) {
             return c.json({ error: 'not_bound' }, 401)

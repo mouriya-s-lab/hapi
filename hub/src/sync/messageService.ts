@@ -93,18 +93,23 @@ export class MessageService {
         const namespace = this.io.of('/cli')
         const socketState = namespace as unknown as {
             adapter?: { rooms?: Map<string, Set<string>> }
-            sockets?: Map<string, { data: { accountId?: number }; leave: (room: string) => void }>
+            sockets?: Map<string, { data: { accountId?: number; namespace?: string; tokenId?: number | null; clientType?: string; resourceId?: string }; leave: (room: string) => void }>
         }
         if (!socketState.adapter?.rooms || !socketState.sockets) return
         const roomName = `session:${sessionId}`
         for (const socketId of socketState.adapter.rooms.get(roomName) ?? []) {
             const socket = socketState.sockets.get(socketId)
             const accountId = socket?.data.accountId
-            if (accountId === undefined) continue
-            if (!socket || typeof accountId !== 'number' || !authorizeResource({
+            const tokenId = socket?.data.tokenId
+            const tokenActive = typeof tokenId !== 'number' || this.store.apiTokens.getById(tokenId)?.revokedAt === null
+            const owner = typeof accountId === 'number' && authorizeResource({
                 store: this.store, accountId, namespace: session.namespace,
-                resourceType: 'session', resourceId: sessionId, capability: 'operate'
-            }).ok) {
+                resourceType: 'session', resourceId: sessionId, capability: 'administer'
+            }).ok
+            const machine = session.machineId ? this.store.machines.getMachineByNamespace(session.machineId, session.namespace) : null
+            const daemon = typeof accountId === 'number' && machine?.ownerAccountId === accountId
+            const bound = socket?.data.clientType === 'session-scoped' && socket.data.resourceId === sessionId
+            if (!socket || !tokenActive || !bound || (!owner && !daemon)) {
                 socket?.leave(roomName)
             }
         }
@@ -324,6 +329,7 @@ export class MessageService {
         // We re-read the row after the delete to detect that case and handle it exactly
         // like Race-B (ack returned removed:false).
         const roomName = `session:${sessionId}`
+        this.pruneUnauthorizedCliSockets(sessionId)
         const cliCount = this.io.of('/cli').adapter.rooms.get(roomName)?.size ?? 0
         if (cliCount === 0) {
             this.store.messages.deleteQueuedMessageById(sessionId, resolvedId)

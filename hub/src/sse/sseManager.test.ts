@@ -3,7 +3,7 @@ import { SSEManager } from './sseManager'
 import type { SyncEvent } from '../sync/syncEngine'
 import { VisibilityTracker } from '../visibility/visibilityTracker'
 
-const accessDeps = { listReadableAccountIds: () => new Set([1]), getActiveAccountRole: () => 'user' as const }
+const accessDeps = { canReadResource: (accountId: number) => accountId === 1, getActiveAccountRole: () => 'user' as const }
 
 describe('SSEManager namespace filtering', () => {
     it('routes events to matching namespace', () => {
@@ -78,7 +78,7 @@ describe('SSEManager namespace filtering', () => {
     it('stops delivery after an account is disabled', () => {
         let active = true
         const manager = new SSEManager(0, new VisibilityTracker(), {
-            listReadableAccountIds: () => new Set([1]), getActiveAccountRole: () => active ? 'user' : null
+            canReadResource: (accountId: number) => accountId === 1, getActiveAccountRole: () => active ? 'user' : null
         })
         const received: SyncEvent[] = []
         manager.subscribe({ id: 'user', namespace: 'alpha', accountId: 1, role: 'user', all: true,
@@ -90,7 +90,7 @@ describe('SSEManager namespace filtering', () => {
 
     it('does not trust a stale admin role after demotion', () => {
         const manager = new SSEManager(0, new VisibilityTracker(), {
-            listReadableAccountIds: () => new Set(), getActiveAccountRole: () => 'user'
+            canReadResource: () => false, getActiveAccountRole: () => 'user'
         })
         const received: SyncEvent[] = []
         manager.subscribe({ id: 'former-admin', namespace: 'alpha', accountId: 1, role: 'admin', all: true,
@@ -101,7 +101,7 @@ describe('SSEManager namespace filtering', () => {
 
     it('sends session removal only to admins and accounts that could read the session', () => {
         const manager = new SSEManager(0, new VisibilityTracker(), {
-            listReadableAccountIds: () => new Set([1]),
+            canReadResource: (accountId: number) => accountId === 1 || accountId === 3,
             getActiveAccountRole: (accountId) => accountId === 3 ? 'admin' : 'user'
         })
         const received: string[] = []

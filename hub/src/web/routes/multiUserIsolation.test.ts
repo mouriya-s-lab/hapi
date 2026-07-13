@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { Hono } from 'hono'
 import type { SyncEvent } from '@hapi/protocol/types'
-import { listReadableAccountIds } from '../../auth/access'
+import { authorizeResource } from '../../auth/access'
 import { SSEManager } from '../../sse/sseManager'
 import { Store } from '../../store'
 import type { SyncEngine } from '../../sync/syncEngine'
@@ -118,7 +118,7 @@ describe('multi-user SSE isolation', () => {
             role: 'viewer'
         })
         const manager = new SSEManager(0, new VisibilityTracker(), {
-            listReadableAccountIds: (type, id) => listReadableAccountIds(fixture.store, type, id),
+            canReadResource: (accountId, namespace, type, id) => authorizeResource({ store: fixture.store, accountId, namespace, resourceType: type, resourceId: id, capability: 'read' }).ok,
             getActiveAccountRole: (accountId) => { const account = fixture.store.accounts.getById(accountId); return account?.disabledAt === null ? account.role : null }
         })
         const subscribe = (accountId: number, role: 'admin' | 'user') => {

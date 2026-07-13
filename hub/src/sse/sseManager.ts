@@ -18,7 +18,7 @@ type SSEConnection = SSESubscription & {
 }
 
 export type SSEAccessDeps = {
-    listReadableAccountIds: (resourceType: 'session' | 'machine', resourceId: string) => Set<number>
+    canReadResource: (accountId: number, namespace: string, resourceType: 'session' | 'machine', resourceId: string) => boolean
     getActiveAccountRole: (accountId: number) => 'admin' | 'user' | null
 }
 
@@ -116,7 +116,6 @@ export class SSEManager {
             if (!canAccess(connection)) {
                 continue
             }
-            if (audienceOverride && !audienceOverride.has(connection.accountId) && connection.role !== 'admin') continue
 
             deliveries.push(
                 Promise.resolve(connection.send(event))
@@ -172,15 +171,13 @@ export class SSEManager {
         if (!resource) {
             return () => true
         }
-        let audience: Set<number> | null = audienceOverride ?? null
         return (connection) => {
             const currentRole = this.accessDeps.getActiveAccountRole(connection.accountId)
             if (!currentRole) return false
-            if (currentRole === 'admin') {
-                return true
-            }
-            audience ??= this.accessDeps.listReadableAccountIds(resource.type, resource.id)
-            return audience.has(connection.accountId)
+            if (audienceOverride) return audienceOverride.has(connection.accountId)
+            return this.accessDeps.canReadResource(
+                connection.accountId, connection.namespace, resource.type, resource.id
+            )
         }
     }
 

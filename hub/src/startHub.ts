@@ -10,7 +10,7 @@ import { bootstrapMultiUser } from './auth/bootstrap'
 import { initAuthContext } from './auth/authContext'
 import { createSocketServer } from './socket/server'
 import { SSEManager } from './sse/sseManager'
-import { listReadableAccountIds } from './auth/access'
+import { authorizeResource } from './auth/access'
 import { getOrCreateVapidKeys } from './config/vapidKeys'
 import { PushService } from './push/pushService'
 import { PushNotificationChannel } from './push/pushNotificationChannel'
@@ -188,7 +188,9 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
 
     visibilityTracker = new VisibilityTracker()
     sseManager = new SSEManager(30_000, visibilityTracker, {
-        listReadableAccountIds: (resourceType, resourceId) => listReadableAccountIds(store, resourceType, resourceId),
+        canReadResource: (accountId, namespace, resourceType, resourceId) => authorizeResource({
+            store, accountId, namespace, resourceType, resourceId, capability: 'read'
+        }).ok,
         getActiveAccountRole: (accountId) => {
             const account = store.accounts.getById(accountId)
             return account?.disabledAt === null ? account.role : null
