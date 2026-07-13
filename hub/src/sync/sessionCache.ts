@@ -6,7 +6,7 @@ import { EventPublisher } from './eventPublisher'
 import { applyTodoMessageContent, TodosSchema } from './todos'
 import type { TodoItem } from './todos'
 import { extractBackgroundTaskDelta } from './backgroundTasks'
-import { listReadableAccountIds, transferSessionOwnership } from '../auth/access'
+import { resolveResourceAudience, transferSessionOwnership } from '../auth/access'
 
 const QUEUED_MESSAGE_THINKING_GRACE_MS = 15_000
 // tiann/hapi#919: metadata writers (renameSession, clearSessionArchiveMetadata,
@@ -829,7 +829,7 @@ export class SessionCache {
             throw new Error('Cannot delete active session')
         }
 
-        const audience = listReadableAccountIds(this.store, 'session', sessionId)
+        const audience = resolveResourceAudience({ store: this.store, resourceType: 'session', resourceId: sessionId, capability: 'read' })
         const deleted = this.store.sessions.deleteSession(sessionId, session.namespace)
         if (!deleted) {
             throw new Error('Failed to delete session')
@@ -1016,7 +1016,7 @@ export class SessionCache {
 
         if (options.deleteOldSession) {
             const existed = this.sessions.has(oldSessionId)
-            const audience = listReadableAccountIds(this.store, 'session', oldSessionId)
+            const audience = resolveResourceAudience({ store: this.store, resourceType: 'session', resourceId: oldSessionId, capability: 'read' })
             const deleted = this.store.sessions.deleteSession(oldSessionId, namespace)
             if (!deleted) {
                 throw new Error('Failed to delete old session during merge')

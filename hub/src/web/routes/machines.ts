@@ -243,7 +243,7 @@ export function createMachinesRoutes(
         const engine = getSyncEngine()
         if (!engine) return c.json({ success: false, error: 'Not connected' }, 503)
         const machineId = c.req.param('id')
-        const machine = requireMachine(c, engine, machineId)
+        const machine = guardMachine(c, engine, machineId)
         if (machine instanceof Response) return machine
         try {
             return c.json(await engine.listCcSwitchProvidersForMachine(machineId))

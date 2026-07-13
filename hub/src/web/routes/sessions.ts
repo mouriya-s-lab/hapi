@@ -244,7 +244,7 @@ export function createSessionsRoutes(
         const engine = requireSyncEngine(c, getSyncEngine)
         if (engine instanceof Response) return engine
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = guardSession(c, engine, { requireActive: true, requireOperate: true })
         if (sessionResult instanceof Response) return sessionResult
 
         const body = await c.req.json().catch(() => ({})) as { ccSwitchProviderId?: unknown }

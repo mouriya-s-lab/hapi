@@ -231,7 +231,7 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null, store: S
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = requireSessionFromParam(c, engine, { store })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
