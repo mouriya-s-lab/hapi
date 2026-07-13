@@ -8,6 +8,7 @@ export type BootstrapResult = {
 }
 
 const BOOTSTRAP_ADMIN_USERNAME = 'admin'
+const LEGACY_ADMIN_SETTING = 'legacy_admin_account_id'
 
 /**
  * Idempotent multi-user bootstrap, run once at startup after the schema
@@ -33,17 +34,24 @@ export function bootstrapMultiUser(store: Store, legacyToken: string): Bootstrap
     let adminId: number | null = null
     let createdAdmin = false
 
+    const persistedAdminId = Number(store.identity.getSetting(LEGACY_ADMIN_SETTING))
+    const persistedAdmin = Number.isInteger(persistedAdminId) ? store.accounts.getById(persistedAdminId) : null
+    if (persistedAdmin?.role === 'admin' && persistedAdmin.disabledAt === null) {
+        adminId = persistedAdmin.id
+    }
     const existingByName = store.accounts.getByUsername(BOOTSTRAP_ADMIN_USERNAME)
-    if (existingByName?.role === 'admin' && existingByName.disabledAt === null) {
-        adminId = existingByName.id
-    } else {
-        const anyAdmin = store.accounts.list().find((a) => a.role === 'admin' && a.disabledAt === null)
-        if (anyAdmin) {
-            adminId = anyAdmin.id
-        } else if (existingByName) {
-            store.accounts.setRole(existingByName.id, 'admin')
-            store.accounts.setDisabled(existingByName.id, false)
+    if (adminId === null) {
+        if (existingByName?.role === 'admin' && existingByName.disabledAt === null) {
             adminId = existingByName.id
+        } else {
+            const anyAdmin = store.accounts.list().find((a) => a.role === 'admin' && a.disabledAt === null)
+            if (anyAdmin) {
+                adminId = anyAdmin.id
+            } else if (existingByName) {
+                store.accounts.setRole(existingByName.id, 'admin')
+                store.accounts.setDisabled(existingByName.id, false)
+                adminId = existingByName.id
+            }
         }
     }
 
@@ -57,6 +65,9 @@ export function bootstrapMultiUser(store: Store, legacyToken: string): Bootstrap
         adminId = created.id
         createdAdmin = true
     }
+
+    store.identity.setSetting(LEGACY_ADMIN_SETTING, String(adminId))
+    store.identity.addNamespaceMembership('default', adminId, 'admin')
 
     // Backfill ownership of all pre-existing resources to the admin.
     store.machines.backfillMachineOwners(adminId)

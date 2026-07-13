@@ -105,6 +105,12 @@ export function createAccountRoutes(store: Store, jwtSecret: Uint8Array): Hono<W
         }
         // Default the token's namespace to the account's default namespace.
         const namespace = parsed.data.namespace ?? account?.defaultNamespace ?? c.get('namespace') ?? 'default'
+        if (account && namespace === account.defaultNamespace) {
+            store.identity.addNamespaceMembership(namespace, accountId, account.role === 'admin' ? 'admin' : 'member')
+        }
+        if (account?.role !== 'admin' && !store.identity.hasNamespaceMembership(namespace, accountId)) {
+            return c.json({ error: 'Namespace membership required' }, 403)
+        }
         const plaintext = generateApiToken()
         const created = store.apiTokens.create({
             accountId,
@@ -161,6 +167,7 @@ export function createAccountRoutes(store: Store, jwtSecret: Uint8Array): Hono<W
             role: parsed.data.role ?? 'user',
             defaultNamespace: parsed.data.defaultNamespace ?? 'default'
         })
+        store.identity.addNamespaceMembership(account.defaultNamespace, account.id, account.role === 'admin' ? 'admin' : 'member')
         return c.json({ account: toAccountSummary(account) }, 201)
     })
 
@@ -197,7 +204,10 @@ export function createAccountRoutes(store: Store, jwtSecret: Uint8Array): Hono<W
         if (parsed.data.role) store.accounts.setRole(id, parsed.data.role)
         if (parsed.data.password) store.accounts.setPassword(id, hashPassword(parsed.data.password))
         if (parsed.data.disabled !== undefined) store.accounts.setDisabled(id, parsed.data.disabled)
-        if (parsed.data.defaultNamespace) store.accounts.setDefaultNamespace(id, parsed.data.defaultNamespace)
+        if (parsed.data.defaultNamespace) {
+            store.identity.addNamespaceMembership(parsed.data.defaultNamespace, id, target.role === 'admin' ? 'admin' : 'member')
+            store.accounts.setDefaultNamespace(id, parsed.data.defaultNamespace)
+        }
 
         return c.json({ account: toAccountSummary(store.accounts.getById(id)!) })
     })
@@ -224,6 +234,9 @@ export function createAccountRoutes(store: Store, jwtSecret: Uint8Array): Hono<W
         }
         if (id === c.get('accountId')) {
             return c.json({ error: 'Cannot delete your own account' }, 409)
+        }
+        if (store.identity.accountOwnsResources(id)) {
+            return c.json({ error: 'Transfer owned sessions and machines before deleting this account' }, 409)
         }
         store.accounts.delete(id)
         return c.json({ ok: true })

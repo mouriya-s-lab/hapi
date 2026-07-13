@@ -899,6 +899,7 @@ export class SessionCache {
                 this.store.grants.remove('session', oldSessionId, grant.granteeAccountId)
             }
         }
+        this.store.identity.moveSessionRuntimeBinding(oldSessionId, newSessionId)
 
         const movedMessages = this.store.messages.mergeSessionMessages(oldSessionId, newSessionId)
         if (movedMessages.moved > 0) {

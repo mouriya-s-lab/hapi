@@ -128,7 +128,8 @@ export function createCliRoutes(getSyncEngine: () => SyncEngine | null, store: S
                 machineInput.id,
                 machineInput.metadata,
                 machineInput.runnerState ?? null,
-                namespace
+                namespace,
+                accountId
             )
         }
 

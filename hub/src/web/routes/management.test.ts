@@ -93,6 +93,16 @@ describe('admin account management', () => {
         })
         expect(res.status).toBe(409)
     })
+
+    it('refuses to delete an account while it owns resources', async () => {
+        const owner = store.accounts.create({ username: 'resource-owner', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+        store.sessions.getOrCreateSession('owned-before-delete', {}, null, 'default', undefined, undefined, undefined, undefined, owner.id)
+        const response = await makeApp(store).request(`/api/admin/accounts/${owner.id}`, {
+            method: 'DELETE', headers: { authorization: `Bearer ${await makeJwt(adminId, 'admin')}` }
+        })
+        expect(response.status).toBe(409)
+        expect(store.accounts.getById(owner.id)).not.toBeNull()
+    })
 })
 
 describe('password login', () => {
@@ -162,6 +172,16 @@ describe('api tokens', () => {
         expect(delRes.status).toBe(200)
         const listAfterRevoke = await app.request('/api/tokens', { headers: { authorization: `Bearer ${userJwt}` } })
         expect((await listAfterRevoke.json() as { tokens: unknown[] }).tokens).toHaveLength(0)
+    })
+
+    it('rejects a token for a namespace the account has not joined', async () => {
+        const user = store.accounts.create({ username: 'erin', passwordHash: null, role: 'user', defaultNamespace: 'default' })
+        const response = await makeApp(store).request('/api/tokens', {
+            method: 'POST',
+            headers: { authorization: `Bearer ${await makeJwt(user.id, 'user')}`, 'content-type': 'application/json' },
+            body: JSON.stringify({ namespace: 'victim-space' })
+        })
+        expect(response.status).toBe(403)
     })
 })
 

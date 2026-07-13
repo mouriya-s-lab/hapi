@@ -65,6 +65,11 @@ export function createGrantRoutes(store: Store): Hono<WebAppEnv> {
         if (grantee.id === c.get('accountId')) {
             return c.json({ error: 'Cannot grant access to yourself' }, 400)
         }
+        const resource = resourceType === 'session'
+            ? store.sessions.getSession(resourceId)
+            : store.machines.getMachine(resourceId)
+        if (!resource) throw new Error('Authorized resource disappeared before grant creation')
+        store.identity.addNamespaceMembership(resource.namespace, grantee.id)
         const grant = store.grants.upsert({
             resourceType,
             resourceId,

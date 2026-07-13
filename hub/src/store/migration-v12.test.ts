@@ -21,6 +21,9 @@ describe('Store V11→current migration: multi-user', () => {
             expect(tableExists(store, 'accounts')).toBe(true)
             expect(tableExists(store, 'api_tokens')).toBe(true)
             expect(tableExists(store, 'resource_grants')).toBe(true)
+            expect(tableExists(store, 'namespace_memberships')).toBe(true)
+            expect(tableExists(store, 'system_settings')).toBe(true)
+            expect(tableExists(store, 'session_runtime_bindings')).toBe(true)
         } finally {
             store.close()
         }

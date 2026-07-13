@@ -5,6 +5,7 @@ import { dirname } from 'node:path'
 import { AccountStore } from './accountStore'
 import { ApiTokenStore } from './apiTokenStore'
 import { GrantStore } from './grantStore'
+import { IdentityStore } from './identityStore'
 import { MachineStore } from './machineStore'
 import { MessageStore } from './messageStore'
 import { PushStore } from './pushStore'
@@ -35,7 +36,7 @@ export { PushStore } from './pushStore'
 export { SessionStore } from './sessionStore'
 export { UserStore } from './userStore'
 
-const SCHEMA_VERSION: number = 13
+const SCHEMA_VERSION: number = 14
 const REQUIRED_TABLES = [
     'sessions',
     'machines',
@@ -44,7 +45,11 @@ const REQUIRED_TABLES = [
     'push_subscriptions',
     'accounts',
     'api_tokens',
-    'resource_grants'
+    'resource_grants',
+    'namespaces',
+    'namespace_memberships',
+    'system_settings',
+    'session_runtime_bindings'
 ] as const
 
 export class Store {
@@ -60,6 +65,7 @@ export class Store {
     readonly accounts: AccountStore
     readonly apiTokens: ApiTokenStore
     readonly grants: GrantStore
+    readonly identity: IdentityStore
 
     /**
      * Filesystem path of the underlying SQLite database, or ':memory:' for
@@ -113,6 +119,7 @@ export class Store {
         this.accounts = new AccountStore(this.db)
         this.apiTokens = new ApiTokenStore(this.db)
         this.grants = new GrantStore(this.db)
+        this.identity = new IdentityStore(this.db)
     }
 
     /**
@@ -157,6 +164,7 @@ export class Store {
             10: () => this.migrateFromV10ToV11(),
             11: () => this.migrateFromV11ToV12(legacy),
             12: () => this.migrateFromV12ToV13(),
+            13: () => this.migrateFromV13ToV14(),
         })
 
         if (currentVersion === 0) {
@@ -331,6 +339,20 @@ export class Store {
             );
             CREATE INDEX IF NOT EXISTS idx_grants_grantee ON resource_grants(grantee_account_id);
             CREATE INDEX IF NOT EXISTS idx_grants_resource ON resource_grants(resource_type, resource_id);
+
+            CREATE TABLE IF NOT EXISTS namespaces (name TEXT PRIMARY KEY);
+            CREATE TABLE IF NOT EXISTS namespace_memberships (
+                namespace TEXT NOT NULL, account_id INTEGER NOT NULL, role TEXT NOT NULL DEFAULT 'member',
+                PRIMARY KEY(namespace, account_id),
+                FOREIGN KEY(namespace) REFERENCES namespaces(name) ON DELETE CASCADE,
+                FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS system_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS session_runtime_bindings (
+                session_id TEXT PRIMARY KEY, account_id INTEGER NOT NULL, machine_id TEXT NOT NULL,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+            );
         `)
     }
 
@@ -597,6 +619,40 @@ export class Store {
         if (pushColumns.size > 0 && !pushColumns.has('account_id')) {
             this.db.exec('ALTER TABLE push_subscriptions ADD COLUMN account_id INTEGER')
         }
+    }
+
+    private migrateFromV13ToV14(): void {
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS namespaces (name TEXT PRIMARY KEY);
+            CREATE TABLE IF NOT EXISTS namespace_memberships (
+                namespace TEXT NOT NULL, account_id INTEGER NOT NULL, role TEXT NOT NULL DEFAULT 'member',
+                PRIMARY KEY(namespace, account_id),
+                FOREIGN KEY(namespace) REFERENCES namespaces(name) ON DELETE CASCADE,
+                FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS system_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS session_runtime_bindings (
+                session_id TEXT PRIMARY KEY, account_id INTEGER NOT NULL, machine_id TEXT NOT NULL,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+            );
+            INSERT OR IGNORE INTO namespaces(name) SELECT default_namespace FROM accounts;
+            INSERT OR IGNORE INTO namespaces(name) SELECT namespace FROM api_tokens;
+            INSERT OR IGNORE INTO namespaces(name) SELECT namespace FROM sessions;
+            INSERT OR IGNORE INTO namespaces(name) SELECT namespace FROM machines;
+            INSERT OR IGNORE INTO namespace_memberships(namespace, account_id, role)
+                SELECT default_namespace, id, CASE WHEN role = 'admin' THEN 'admin' ELSE 'member' END FROM accounts;
+            INSERT OR IGNORE INTO namespace_memberships(namespace, account_id, role)
+                SELECT namespace, account_id, 'member' FROM api_tokens;
+            INSERT OR IGNORE INTO namespace_memberships(namespace, account_id, role)
+                SELECT namespace, owner_account_id, 'member' FROM sessions WHERE owner_account_id IS NOT NULL;
+            INSERT OR IGNORE INTO namespace_memberships(namespace, account_id, role)
+                SELECT namespace, owner_account_id, 'member' FROM machines WHERE owner_account_id IS NOT NULL;
+            INSERT OR IGNORE INTO session_runtime_bindings(session_id, account_id, machine_id)
+                SELECT s.id, m.owner_account_id, m.id FROM sessions s
+                JOIN machines m ON m.id = COALESCE(s.machine_id, json_extract(s.metadata, '$.machineId'))
+                WHERE m.owner_account_id IS NOT NULL;
+        `)
     }
 
     private getTableColumnNames(table: 'users' | 'push_subscriptions'): Set<string> {

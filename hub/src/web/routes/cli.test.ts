@@ -261,7 +261,8 @@ describe('cli lazy session creation', () => {
             'machine-1',
             { host: 'localhost' },
             null,
-            'default'
+            'default',
+            adminId
         )
         expect(getOrCreateSession).toHaveBeenCalledWith(
             'lazy-tag',

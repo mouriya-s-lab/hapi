@@ -131,15 +131,14 @@ export function resolveResourceAudience(params: {
 }
 
 export function isSessionRuntimeAccount(store: Store, session: StoredSession, accountId: number): boolean {
-    const metadataMachineId = session.metadata !== null
-        && typeof session.metadata === 'object'
-        && !Array.isArray(session.metadata)
-        && typeof (session.metadata as Record<string, unknown>).machineId === 'string'
-        ? (session.metadata as Record<string, unknown>).machineId as string
-        : null
-    const machineId = session.machineId ?? metadataMachineId
-    return machineId !== null
-        && store.machines.getMachineByNamespace(machineId, session.namespace)?.ownerAccountId === accountId
+    return store.identity.isSessionRuntimeAccount(session.id, accountId)
+}
+
+function sessionMachineId(session: StoredSession): string | null {
+    if (session.machineId) return session.machineId
+    if (!session.metadata || typeof session.metadata !== 'object' || Array.isArray(session.metadata)) return null
+    const machineId = (session.metadata as Record<string, unknown>).machineId
+    return typeof machineId === 'string' ? machineId : null
 }
 
 export function transferSessionOwnership(params: {
@@ -148,18 +147,18 @@ export function transferSessionOwnership(params: {
     requesterAccountId: number
     assignOwner: (sessionId: string, accountId: number) => boolean
 }): void {
-    const session = params.store.sessions.getSession(params.sessionId)
-    if (!session) throw new Error('Session not found for ownership transfer')
-    const daemonAccountId = session.ownerAccountId
-    if (!params.assignOwner(params.sessionId, params.requesterAccountId)) {
-        throw new Error('Failed to transfer session ownership')
-    }
-    if (daemonAccountId !== null && daemonAccountId !== params.requesterAccountId) {
-        params.store.grants.upsert({
-            resourceType: 'session', resourceId: params.sessionId,
-            granteeAccountId: daemonAccountId, role: 'operator'
-        })
-    }
+    params.store.runInTransaction(() => {
+        const session = params.store.sessions.getSession(params.sessionId)
+        if (!session) throw new Error('Session not found for ownership transfer')
+        const daemonAccountId = session.ownerAccountId
+        const machineId = sessionMachineId(session)
+        if (!params.assignOwner(params.sessionId, params.requesterAccountId)) {
+            throw new Error('Failed to transfer session ownership')
+        }
+        if (daemonAccountId !== null && daemonAccountId !== params.requesterAccountId && machineId) {
+            params.store.identity.bindSessionRuntime(params.sessionId, daemonAccountId, machineId)
+        }
+    })
 }
 
 export function listActiveAdminAccountIds(store: Store): number[] {

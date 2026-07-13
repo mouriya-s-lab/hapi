@@ -58,6 +58,17 @@ describe('bootstrapMultiUser', () => {
             store.close()
         }
     })
+
+    it('persists the legacy-token principal instead of selecting another admin on restart', () => {
+        const store = new Store(':memory:')
+        try {
+            const first = bootstrapMultiUser(store, LEGACY_TOKEN)
+            store.accounts.create({ username: 'second-admin', passwordHash: null, role: 'admin', defaultNamespace: 'default' })
+            expect(bootstrapMultiUser(store, LEGACY_TOKEN).legacyAdminAccountId).toBe(first.legacyAdminAccountId)
+        } finally {
+            store.close()
+        }
+    })
 })
 
 describe('resolveAuthToken', () => {

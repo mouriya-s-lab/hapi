@@ -60,7 +60,7 @@ describe('machines routes', () => {
         const daemon = store.accounts.create({ username: 'daemon', passwordHash: null, role: 'user', defaultNamespace: 'default' })
         const requester = store.accounts.create({ username: 'requester', passwordHash: null, role: 'admin', defaultNamespace: 'default' })
         store.machines.getOrCreateMachine('machine-1', {}, null, 'default', daemon.id)
-        const spawned = store.sessions.getOrCreateSession('spawned-session', {}, null, 'default', undefined, undefined, undefined, undefined, daemon.id)
+        const spawned = store.sessions.getOrCreateSession('spawned-session', { machineId: 'machine-1' }, null, 'default', undefined, undefined, undefined, undefined, daemon.id)
         // @ts-expect-error test fixture pins the RPC result id
         store.db.prepare('UPDATE sessions SET id = ? WHERE id = ?').run('spawned-session', spawned.id)
         const machine = createMachine()
@@ -91,7 +91,7 @@ describe('machines routes', () => {
         expect(response.status).toBe(200)
         expect(await response.json()).toEqual({ type: 'success', sessionId: 'spawned-session' })
         expect(assignments).toEqual([{ sessionId: 'spawned-session', accountId: requester.id }])
-        expect(store.grants.get('session', 'spawned-session', daemon.id)?.role).toBe('operator')
+        expect(store.identity.isSessionRuntimeAccount('spawned-session', daemon.id)).toBe(true)
         store.close()
     })
     it('forwards the read-only cc-switch provider list', async () => {
