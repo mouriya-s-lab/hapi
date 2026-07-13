@@ -19,20 +19,25 @@ function appFor(engine: Partial<SyncEngine>) {
 
 describe('importable session routes', () => {
     it('joins provider identity without exposing machine paths beyond cwd', async () => {
+        const requests: unknown[] = []
         const app = appFor({
             getMachine: () => machine,
-            listImportableSessionsForMachine: async () => ({
+            listImportableSessionsForMachine: async (_machineId, request) => {
+                requests.push(request)
+                return ({
                 sessions: [{ provider: 'codex', externalSessionId: 'thread-1', cwd: '/work', title: 'Title', preview: 'Prompt', updatedAt: 1 }],
                 nextCursor: null
-            }),
+                })
+            },
             getSessionsByNamespace: () => [{ id: 'hapi-1', metadata: { codexSessionId: 'thread-1' } }] as never
         })
-        const response = await app.request('/api/machines/machine-1/importable-sessions?provider=codex')
+        const response = await app.request('/api/machines/machine-1/importable-sessions?provider=codex&cwd=%2Fwork&query=needle&cursor=next')
         expect(response.status).toBe(200)
         expect(await response.json()).toEqual({
             sessions: [{ provider: 'codex', externalSessionId: 'thread-1', cwd: '/work', title: 'Title', preview: 'Prompt', updatedAt: 1, importedHapiSessionId: 'hapi-1' }],
             nextCursor: null
         })
+        expect(requests).toEqual([{ provider: 'codex', cwd: '/work', query: 'needle', cursor: 'next' }])
     })
 
     it('returns an existing canonical Hapi session without spawning', async () => {

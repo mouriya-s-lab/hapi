@@ -757,6 +757,14 @@ export default {
   'newSession.import.loading': '加载中…',
   'newSession.import.loadFailed': '加载会话失败',
   'newSession.import.importFailed': '导入会话失败',
+  'newSession.import.directory': 'Session 目录',
+  'newSession.import.content': 'Session 内容',
+  'newSession.import.contentPlaceholder': '搜索提问、回复和工具输出',
+  'newSession.import.search': '搜索',
+  'newSession.import.empty': '没有匹配的会话',
+  'newSession.import.page': '第 {page} 页',
+  'newSession.import.previous': '上一页',
+  'newSession.import.next': '下一页',
 
   // Web Share Target 分享面板
   'share.title': '分享到 HAPI',

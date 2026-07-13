@@ -41,7 +41,12 @@ export function createImportableSessionsRoutes(getSyncEngine: () => SyncEngine |
         const parsed = ProviderSchema.safeParse(c.req.query('provider'))
         if (!parsed.success) return c.json({ error: 'Invalid provider' }, 400)
         const provider = parsed.data
-        const page = await engine.listImportableSessionsForMachine(machineId, provider, c.req.query('cursor'))
+        const page = await engine.listImportableSessionsForMachine(machineId, {
+            provider,
+            cursor: c.req.query('cursor'),
+            cwd: c.req.query('cwd')?.trim() || undefined,
+            query: c.req.query('query')?.trim() || undefined
+        })
         const existing = engine.getSessionsByNamespace(c.get('namespace'))
         return c.json({
             sessions: page.sessions.map((session) => ({

@@ -4,6 +4,8 @@ import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { ImportableSessionSummary, ListImportableSessionsResponse } from '@hapi/protocol/apiTypes'
+import type { ListImportableSessionsRequest } from '@hapi/protocol/apiTypes'
+import { run as runRipgrep } from '@/modules/ripgrep'
 
 const PAGE_SIZE = 50
 
@@ -93,9 +95,25 @@ export async function resolveImportableClaudeSession(externalSessionId: string):
     return null
 }
 
-export async function listImportableClaudeSessions(cursorValue?: string): Promise<ListImportableSessionsResponse> {
+async function matchingTranscriptPaths(root: string, cwd?: string, query?: string): Promise<Set<string> | null> {
+    const patterns = [query, cwd ? JSON.stringify({ cwd }).slice(1, -1) : undefined].filter((value): value is string => Boolean(value))
+    if (patterns.length === 0) return null
+    let matches: Set<string> | null = null
+    for (const pattern of patterns) {
+        const result = await runRipgrep(['--files-with-matches', '--fixed-strings', '--glob', '*.jsonl', '--glob', '!**/subagents/**', '--', pattern, root])
+        if (result.exitCode !== 0 && result.exitCode !== 1) throw new Error(result.stderr.trim() || 'Failed to search Claude sessions')
+        const paths = new Set(result.stdout.split('\n').filter(Boolean))
+        if (matches === null) matches = paths
+        else for (const path of matches) if (!paths.has(path)) matches.delete(path)
+        if (matches.size === 0) return matches
+    }
+    return matches
+}
+
+export async function listImportableClaudeSessions(request: ListImportableSessionsRequest): Promise<ListImportableSessionsResponse> {
     const root = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'projects')
-    const cursor = cursorValue ? decodeCursor(cursorValue) : null
+    const cursor = request.cursor ? decodeCursor(request.cursor) : null
+    const matches = await matchingTranscriptPaths(root, request.cwd, request.query)
     const candidates: Candidate[] = []
     for (const project of await readdir(root, { withFileTypes: true })) {
         if (!project.isDirectory()) continue
@@ -103,6 +121,7 @@ export async function listImportableClaudeSessions(cursorValue?: string): Promis
         for (const entry of await readdir(projectPath, { withFileTypes: true })) {
             if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue
             const path = join(projectPath, entry.name)
+            if (matches && !matches.has(path)) continue
             const candidate = { path, externalSessionId: basename(entry.name, '.jsonl'), updatedAt: (await stat(path)).mtimeMs }
             if (!cursor || isAfterCursor(candidate, cursor)) candidates.push(candidate)
         }

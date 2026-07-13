@@ -8,8 +8,8 @@ export function registerImportableSessionHandlers(rpcHandlerManager: RpcHandlerM
     rpcHandlerManager.registerHandler<ListImportableSessionsRequest, ListImportableSessionsResponse>(
         RPC_METHODS.ListImportableSessions,
         async (request) => request.provider === 'codex'
-            ? listImportableCodexSessions(request.cursor)
-            : listImportableClaudeSessions(request.cursor)
+            ? listImportableCodexSessions(request)
+            : listImportableClaudeSessions(request)
     )
     rpcHandlerManager.registerHandler<ResolveImportableSessionRequest, ResolveImportableSessionResponse>(
         RPC_METHODS.ResolveImportableSession,

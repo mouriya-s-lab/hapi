@@ -753,6 +753,14 @@ export default {
   'newSession.import.loading': 'Loading…',
   'newSession.import.loadFailed': 'Failed to list sessions',
   'newSession.import.importFailed': 'Failed to import session',
+  'newSession.import.directory': 'Session directory',
+  'newSession.import.content': 'Session content',
+  'newSession.import.contentPlaceholder': 'Search prompts, replies, and tool output',
+  'newSession.import.search': 'Search',
+  'newSession.import.empty': 'No matching sessions',
+  'newSession.import.page': 'Page {page}',
+  'newSession.import.previous': 'Previous',
+  'newSession.import.next': 'Next',
 
   // Web Share Target picker
   'share.title': 'Share to HAPI',

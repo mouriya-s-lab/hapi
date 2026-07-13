@@ -144,7 +144,9 @@ export interface ThreadListParams {
     archived?: boolean | null;
     sortKey?: 'created_at' | 'updated_at';
     sortDirection?: 'asc' | 'desc';
+    cwd?: string | string[] | null;
     useStateDbOnly?: boolean;
+    searchTerm?: string | null;
 }
 
 export interface ThreadListItem {

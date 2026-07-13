@@ -26,16 +26,19 @@ describe('listImportableClaudeSessions', () => {
             await utimes(path, timestamp, timestamp)
         }
 
-        const first = await listImportableClaudeSessions()
+        const first = await listImportableClaudeSessions({ provider: 'claude' })
         expect(first.sessions).toHaveLength(50)
         expect(first.nextCursor).not.toBeNull()
         const decodedCursor = Buffer.from(first.nextCursor!, 'base64url').toString('utf8')
         expect(decodedCursor).not.toContain('project-secret')
         expect(decodedCursor).not.toContain('.jsonl')
 
-        const second = await listImportableClaudeSessions(first.nextCursor!)
+        const second = await listImportableClaudeSessions({ provider: 'claude', cursor: first.nextCursor! })
         expect(second.sessions).toHaveLength(1)
         expect(second.nextCursor).toBeNull()
         expect(first.sessions.map((session) => session.externalSessionId)).not.toContain(second.sessions[0]?.externalSessionId)
+
+        const filtered = await listImportableClaudeSessions({ provider: 'claude', cwd: '/workspace', query: 'prompt 50' })
+        expect(filtered.sessions.map((session) => session.preview)).toEqual(['prompt 50'])
     })
 })

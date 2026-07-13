@@ -649,10 +649,12 @@ export class ApiClient {
     async listImportableSessions(
         machineId: string,
         provider: import('@hapi/protocol/apiTypes').ImportableSessionProvider,
-        cursor?: string
+        options?: { cursor?: string; cwd?: string; query?: string }
     ): Promise<import('@hapi/protocol/apiTypes').ImportableSessionsPage> {
         const query = new URLSearchParams({ provider })
-        if (cursor) query.set('cursor', cursor)
+        if (options?.cursor) query.set('cursor', options.cursor)
+        if (options?.cwd) query.set('cwd', options.cwd)
+        if (options?.query) query.set('query', options.query)
         return await this.request(`/api/machines/${encodeURIComponent(machineId)}/importable-sessions?${query}`)
     }
 

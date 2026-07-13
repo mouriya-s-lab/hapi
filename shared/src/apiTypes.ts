@@ -509,6 +509,8 @@ export type ImportableSessionSummary = {
 export type ListImportableSessionsRequest = {
     provider: ImportableSessionProvider
     cursor?: string
+    cwd?: string
+    query?: string
 }
 
 export type ListImportableSessionsResponse = {

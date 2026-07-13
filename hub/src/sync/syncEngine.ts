@@ -1726,8 +1726,8 @@ export class SyncEngine {
         return await this.rpcGateway.listCodexModelsForMachine(machineId)
     }
 
-    async listImportableSessionsForMachine(machineId: string, provider: ImportableSessionProvider, cursor?: string): Promise<ListImportableSessionsResponse> {
-        return await this.rpcGateway.listImportableSessions(machineId, { provider, cursor })
+    async listImportableSessionsForMachine(machineId: string, request: { provider: ImportableSessionProvider; cursor?: string; cwd?: string; query?: string }): Promise<ListImportableSessionsResponse> {
+        return await this.rpcGateway.listImportableSessions(machineId, request)
     }
 
     async resolveImportableSessionForMachine(machineId: string, provider: ImportableSessionProvider, externalSessionId: string): Promise<ResolveImportableSessionResponse> {

@@ -1,9 +1,21 @@
-import type { ListImportableSessionsResponse } from '@hapi/protocol/apiTypes'
+import type { ListImportableSessionsRequest, ListImportableSessionsResponse } from '@hapi/protocol/apiTypes'
 import { CodexAppServerClient } from '../codexAppServerClient'
+import { run as runRipgrep } from '@/modules/ripgrep'
+import { homedir } from 'node:os'
+import { basename, join } from 'node:path'
 
 const PAGE_SIZE = 50
 
-export async function listImportableCodexSessions(cursor?: string): Promise<ListImportableSessionsResponse> {
+async function matchingThreadIds(query: string | undefined): Promise<Set<string> | null> {
+    if (!query) return null
+    const root = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'sessions')
+    const result = await runRipgrep(['--files-with-matches', '--fixed-strings', '--glob', '*.jsonl', '--', query, root])
+    if (result.exitCode !== 0 && result.exitCode !== 1) throw new Error(result.stderr.trim() || 'Failed to search Codex sessions')
+    const ids = result.stdout.split('\n').flatMap((path) => basename(path).match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)?.[0] ?? [])
+    return new Set(ids)
+}
+
+export async function listImportableCodexSessions(request: ListImportableSessionsRequest): Promise<ListImportableSessionsResponse> {
     const client = new CodexAppServerClient()
     try {
         await client.connect()
@@ -11,16 +23,26 @@ export async function listImportableCodexSessions(cursor?: string): Promise<List
             clientInfo: { name: 'hapi-importable-sessions', version: '1.0.0' },
             capabilities: { experimentalApi: true }
         })
-        const response = await client.listThreads({
-            cursor: cursor ?? null,
-            limit: PAGE_SIZE,
-            archived: false,
-            sortKey: 'updated_at',
-            sortDirection: 'desc',
-            useStateDbOnly: true
-        })
+        const matches = await matchingThreadIds(request.query)
+        const threads = []
+        let cursor = request.cursor ?? null
+        let nextCursor: string | null = null
+        do {
+            const response = await client.listThreads({
+                cursor,
+                limit: PAGE_SIZE - threads.length,
+                archived: false,
+                cwd: request.cwd ?? null,
+                sortKey: 'updated_at',
+                sortDirection: 'desc',
+                useStateDbOnly: true
+            })
+            threads.push(...response.data.filter((thread) => !matches || matches.has(thread.id)))
+            nextCursor = response.nextCursor ?? null
+            cursor = nextCursor
+        } while (threads.length < PAGE_SIZE && nextCursor)
         return {
-            sessions: response.data.map((thread) => ({
+            sessions: threads.map((thread) => ({
                 provider: 'codex' as const,
                 externalSessionId: thread.id,
                 cwd: thread.cwd,
@@ -28,7 +50,7 @@ export async function listImportableCodexSessions(cursor?: string): Promise<List
                 preview: thread.preview?.trim() || null,
                 updatedAt: thread.updatedAt
             })),
-            nextCursor: response.nextCursor ?? null
+            nextCursor
         }
     } finally {
         await client.disconnect()
