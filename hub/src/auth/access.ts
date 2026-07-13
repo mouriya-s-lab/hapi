@@ -130,6 +130,18 @@ export function resolveResourceAudience(params: {
     return candidates
 }
 
+export function isSessionRuntimeAccount(store: Store, session: StoredSession, accountId: number): boolean {
+    const metadataMachineId = session.metadata !== null
+        && typeof session.metadata === 'object'
+        && !Array.isArray(session.metadata)
+        && typeof (session.metadata as Record<string, unknown>).machineId === 'string'
+        ? (session.metadata as Record<string, unknown>).machineId as string
+        : null
+    const machineId = session.machineId ?? metadataMachineId
+    return machineId !== null
+        && store.machines.getMachineByNamespace(machineId, session.namespace)?.ownerAccountId === accountId
+}
+
 export function transferSessionOwnership(params: {
     store: Store
     sessionId: string

@@ -228,7 +228,10 @@ describe('cli lazy session creation', () => {
 
     it('creates the machine and requested session identity in one request', async () => {
         const getOrCreateMachine = mock(() => ({ id: 'machine-1' }))
-        const getOrCreateSession = mock(() => ({ id: sessionId }))
+        const adminId = store.accounts.list().find((account) => account.role === 'admin')?.id
+        if (adminId === undefined) throw new Error('bootstrap admin missing')
+        const getOrCreateSession = mock((...args: Parameters<SyncEngine['getOrCreateSession']>) =>
+            store.sessions.getOrCreateSession(...args))
         const app = createApp({
             getMachine: () => null,
             getOrCreateMachine,
@@ -268,7 +271,8 @@ describe('cli lazy session creation', () => {
             undefined,
             undefined,
             undefined,
-            sessionId
+            sessionId,
+            adminId
         )
     })
 

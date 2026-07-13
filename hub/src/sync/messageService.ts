@@ -14,7 +14,7 @@ import type { Server } from 'socket.io'
 import { randomUUID } from 'node:crypto'
 import type { Store, CancelQueuedMessageResult } from '../store'
 import { EventPublisher } from './eventPublisher'
-import { authorizeResource } from '../auth/access'
+import { authorizeResource, isSessionRuntimeAccount } from '../auth/access'
 
 type StoredMessageForDelivery = ReturnType<Store['messages']['getMessages']>[number]
 
@@ -106,8 +106,7 @@ export class MessageService {
                 store: this.store, accountId, namespace: session.namespace,
                 resourceType: 'session', resourceId: sessionId, capability: 'administer'
             }).ok
-            const machine = session.machineId ? this.store.machines.getMachineByNamespace(session.machineId, session.namespace) : null
-            const daemon = typeof accountId === 'number' && machine?.ownerAccountId === accountId
+            const daemon = typeof accountId === 'number' && isSessionRuntimeAccount(this.store, session, accountId)
             const bound = socket?.data.clientType === 'session-scoped' && socket.data.resourceId === sessionId
             if (!socket || !tokenActive || !bound || (!owner && !daemon)) {
                 socket?.leave(roomName)

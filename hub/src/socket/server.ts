@@ -12,7 +12,7 @@ import { SOCKET_MAX_HTTP_BUFFER_SIZE } from './socketLimits'
 import type { SyncEvent } from '../sync/syncEngine'
 import { TerminalRegistry } from './terminalRegistry'
 import type { CliSocketWithData, SocketData, SocketServer } from './socketTypes'
-import { authorizeResource } from '../auth/access'
+import { authorizeResource, isSessionRuntimeAccount } from '../auth/access'
 
 const jwtPayloadSchema = z.object({
     uid: z.number(),
@@ -194,8 +194,7 @@ export function createSocketServer(deps: SocketServerDeps): {
                 resourceType: 'session', resourceId: sessionId, capability: 'administer' })
             if (authorization.ok) return true
             const session = deps.store.sessions.getSessionByNamespace(sessionId, cliNamespace)
-            const machine = session?.machineId ? deps.store.machines.getMachineByNamespace(session.machineId, cliNamespace) : null
-            return machine?.ownerAccountId === cliAccountId
+            return session !== null && isSessionRuntimeAccount(deps.store, session, cliAccountId)
         },
         terminalRegistry,
         maxTerminalsPerSocket,

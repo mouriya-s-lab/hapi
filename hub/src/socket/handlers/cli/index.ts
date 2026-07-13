@@ -5,7 +5,7 @@ import type { SyncEvent } from '../../../sync/syncEngine'
 import type { TerminalRegistry } from '../../terminalRegistry'
 import type { CliSocketWithData, SocketServer } from '../../socketTypes'
 import type { AccessErrorReason, AccessResult } from './types'
-import { authorizeResource } from '../../../auth/access'
+import { authorizeResource, isSessionRuntimeAccount } from '../../../auth/access'
 import { registerMachineHandlers } from './machineHandlers'
 import { registerRpcHandlers } from './rpcHandlers'
 import { registerSessionHandlers } from './sessionHandlers'
@@ -73,8 +73,7 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
         if (authorization.ok) return true
         if (resourceType === 'session') {
             const session = store.sessions.getSessionByNamespace(resourceId, namespace)
-            const machine = session?.machineId ? store.machines.getMachineByNamespace(session.machineId, namespace) : null
-            return machine?.ownerAccountId === accountId
+            return session !== null && isSessionRuntimeAccount(store, session, accountId)
         }
         return false
     }
