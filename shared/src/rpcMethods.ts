@@ -17,6 +17,7 @@ export const RPC_METHODS = {
     GitDiffFile: 'git-diff-file',
     ReadFile: 'readFile',
     ReadGeneratedImage: 'readGeneratedImage',
+    ReadGeneratedFile: 'readGeneratedFile',
     WriteFile: 'writeFile',
     ListDirectory: 'listDirectory',
     GetDirectoryTree: 'getDirectoryTree',
@@ -32,7 +33,9 @@ export const RPC_METHODS = {
     ListPiModels: 'listPiModels',
     ListOpencodeModels: 'listOpencodeModels',
     ListOpencodeModelsForCwd: 'listOpencodeModelsForCwd',
-    ListOpencodeReasoningEffortOptions: 'listOpencodeReasoningEffortOptions'
+    ListOpencodeReasoningEffortOptions: 'listOpencodeReasoningEffortOptions',
+    ListCcSwitchProviders: 'listCcSwitchProviders',
+    ValidateCcSwitchProvider: 'validateCcSwitchProvider'
 } as const
 
 export type RpcMethod = typeof RPC_METHODS[keyof typeof RPC_METHODS]

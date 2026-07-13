@@ -38,6 +38,7 @@ export class SessionStore {
         model?: string,
         effort?: string,
         modelReasoningEffort?: string,
+        requestedId?: string,
         ownerAccountId?: number | null
     ): StoredSession {
         return getOrCreateSession(
@@ -49,6 +50,7 @@ export class SessionStore {
             model,
             effort,
             modelReasoningEffort,
+            requestedId,
             ownerAccountId
         )
     }

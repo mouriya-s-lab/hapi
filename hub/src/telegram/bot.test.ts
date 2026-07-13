@@ -72,7 +72,7 @@ describe('HappyBot account isolation', () => {
         const stranger = store.accounts.create({ username: 'stranger', passwordHash: null, role: 'user', defaultNamespace: 'default' })
         store.users.addUser('telegram', '101', 'default', owner.id)
         store.users.addUser('telegram', '202', 'default', stranger.id)
-        const stored = store.sessions.getOrCreateSession('telegram-session', {}, null, 'default', undefined, undefined, undefined, owner.id)
+        const stored = store.sessions.getOrCreateSession('telegram-session', {}, null, 'default', undefined, undefined, undefined, undefined, owner.id)
         const bot = new HappyBot({
             syncEngine: {} as SyncEngine,
             botToken: '123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11',

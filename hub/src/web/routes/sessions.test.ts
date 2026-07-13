@@ -60,6 +60,7 @@ type ReopenResultMock =
 function createApp(session: Session, opts?: {
     resumeSession?: (sessionId: string, namespace: string, resumeOpts?: { permissionMode?: string }) => Promise<{ type: string; sessionId?: string; message?: string; code?: string }>
     reopenSession?: (sessionId: string, namespace: string) => Promise<ReopenResultMock>
+    restartSession?: SyncEngine['restartSession']
     listSlashCommands?: SyncEngine['listSlashCommands']
     getSessionExport?: (sessionId: string, session: Session) => unknown
     sessionExists?: boolean
@@ -111,6 +112,7 @@ function createApp(session: Session, opts?: {
         listOpencodeReasoningEffortOptionsForSession,
         resumeSession,
         reopenSession,
+        restartSession: opts?.restartSession ?? (async (sessionId: string) => ({ type: 'success' as const, sessionId })),
         archiveSession: archiveSessionMock,
         getSessionExport: opts?.getSessionExport ?? (() => ({
             type: 'success',
@@ -1094,6 +1096,27 @@ describe('sessions routes', () => {
 
         expect(response.status).toBe(503)
         expect((await response.json() as { code: string }).code).toBe('no_machine_online')
+    })
+
+    it('restarts an active session through the ordered engine operation', async () => {
+        const calls: Array<[string, string, string | undefined]> = []
+        const session = createSession({ active: true })
+        const { app } = createApp(session, {
+            restartSession: async (sessionId, namespace, ccSwitchProviderId) => {
+                calls.push([sessionId, namespace, ccSwitchProviderId])
+                return { type: 'success', sessionId }
+            }
+        })
+
+        const response = await app.request('/api/sessions/session-1/restart', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ ccSwitchProviderId: 'provider-1' })
+        })
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ type: 'success', sessionId: 'session-1' })
+        expect(calls).toEqual([['session-1', 'default', 'provider-1']])
     })
 
     it('merges RPC and metadata slash commands without hiding built-ins', async () => {

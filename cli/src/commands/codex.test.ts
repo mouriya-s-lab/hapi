@@ -62,6 +62,20 @@ describe('codexCommand', () => {
         expect(runCodexMock).toHaveBeenCalledWith({})
     })
 
+    it('does not block local Codex startup on Hub auto-start readiness', async () => {
+        maybeAutoStartServerMock.mockImplementationOnce(async () => {
+            await new Promise(() => {})
+        })
+
+        await codexCommand.run(createCommandContext([]))
+
+        expect(runCodexMock).toHaveBeenCalledOnce()
+        expect(maybeAutoStartServerMock).toHaveBeenCalledWith({
+            waitForReady: false,
+            quiet: true
+        })
+    })
+
     it('checks Codex version before resuming a local session', async () => {
         await codexCommand.run(createCommandContext(['resume', 'session-123']))
 

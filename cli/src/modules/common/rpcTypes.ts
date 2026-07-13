@@ -17,6 +17,7 @@ export interface SpawnSessionOptions {
     sessionType?: 'simple' | 'worktree'
     worktreeName?: string
     claudeLaunch?: ClaudeLaunch
+    ccSwitchProviderId?: string
 }
 
 export type SpawnSessionResult =

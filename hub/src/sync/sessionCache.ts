@@ -78,9 +78,20 @@ export class SessionCache {
         model?: string,
         effort?: string,
         modelReasoningEffort?: string,
+        requestedId?: string,
         ownerAccountId?: number | null
     ): Session {
-        const stored = this.store.sessions.getOrCreateSession(tag, metadata, agentState, namespace, model, effort, modelReasoningEffort, ownerAccountId)
+        const stored = this.store.sessions.getOrCreateSession(
+            tag,
+            metadata,
+            agentState,
+            namespace,
+            model,
+            effort,
+            modelReasoningEffort,
+            requestedId,
+            ownerAccountId
+        )
         return this.refreshSession(stored.id) ?? (() => { throw new Error('Failed to load session') })()
     }
 
@@ -1068,6 +1079,10 @@ export class SessionCache {
         }
         if (typeof oldObj.preferredPermissionMode === 'string' && typeof newObj.preferredPermissionMode !== 'string') {
             merged.preferredPermissionMode = oldObj.preferredPermissionMode
+            changed = true
+        }
+        if (typeof oldObj.ccSwitchProviderId === 'string' && typeof newObj.ccSwitchProviderId !== 'string') {
+            merged.ccSwitchProviderId = oldObj.ccSwitchProviderId
             changed = true
         }
 

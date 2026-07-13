@@ -211,7 +211,7 @@ describe('authorizeResource', () => {
         const operator = store.accounts.create({ username: 'matrix-operator', passwordHash: null, role: 'user', defaultNamespace: 'alpha' })
         const admin = store.accounts.create({ username: 'matrix-admin', passwordHash: null, role: 'admin', defaultNamespace: 'alpha' })
         const stranger = store.accounts.create({ username: 'matrix-stranger', passwordHash: null, role: 'user', defaultNamespace: 'alpha' })
-        const session = store.sessions.getOrCreateSession('matrix', {}, null, 'alpha', undefined, undefined, undefined, owner.id)
+        const session = store.sessions.getOrCreateSession('matrix', {}, null, 'alpha', undefined, undefined, undefined, undefined, owner.id)
         store.grants.upsert({ resourceType: 'session', resourceId: session.id, granteeAccountId: viewer.id, role: 'viewer' })
         store.grants.upsert({ resourceType: 'session', resourceId: session.id, granteeAccountId: operator.id, role: 'operator' })
         const check = (accountId: number, capability: 'read' | 'operate' | 'administer', namespace = 'alpha') =>
@@ -236,7 +236,7 @@ describe('authorizeResource', () => {
         const operator = store.accounts.create({ username: 'aud-operator', passwordHash: null, role: 'user', defaultNamespace: 'default' })
         const admin = store.accounts.create({ username: 'aud-admin', passwordHash: null, role: 'admin', defaultNamespace: 'default' })
         const disabled = store.accounts.create({ username: 'aud-disabled', passwordHash: null, role: 'user', defaultNamespace: 'default' })
-        const session = store.sessions.getOrCreateSession('audience', {}, null, 'default', undefined, undefined, undefined, owner.id)
+        const session = store.sessions.getOrCreateSession('audience', {}, null, 'default', undefined, undefined, undefined, undefined, owner.id)
         store.grants.upsert({ resourceType: 'session', resourceId: session.id, granteeAccountId: viewer.id, role: 'viewer' })
         store.grants.upsert({ resourceType: 'session', resourceId: session.id, granteeAccountId: operator.id, role: 'operator' })
         store.grants.upsert({ resourceType: 'session', resourceId: session.id, granteeAccountId: disabled.id, role: 'operator' })
@@ -259,7 +259,7 @@ describe('account resource visibility', () => {
             const viewer = store.accounts.create({ username: 'viewer', passwordHash: null, role: 'user', defaultNamespace: 'default' })
             const stranger = store.accounts.create({ username: 'stranger', passwordHash: null, role: 'user', defaultNamespace: 'default' })
             store.machines.getOrCreateMachine('machine-owned', { host: 'owner-host' }, null, 'default', owner.id)
-            const session = store.sessions.getOrCreateSession('session-owned', { path: '/workspace' }, null, 'default', undefined, undefined, undefined, owner.id)
+            const session = store.sessions.getOrCreateSession('session-owned', { path: '/workspace' }, null, 'default', undefined, undefined, undefined, undefined, owner.id)
             store.grants.upsert({ resourceType: 'machine', resourceId: 'machine-owned', granteeAccountId: viewer.id, role: 'viewer' })
             store.grants.upsert({ resourceType: 'session', resourceId: session.id, granteeAccountId: viewer.id, role: 'operator' })
 

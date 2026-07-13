@@ -35,6 +35,7 @@ import type {
     FileReadResponse,
     FileWriteResponse,
     GitCommandResponse,
+    ListCcSwitchProvidersResponse,
     ListDirectoryResponse,
     MachineListDirectoryResponse,
     MachinePathsExistsResponse,
@@ -413,6 +414,31 @@ export class ApiClient {
         return await res.blob()
     }
 
+    async getGeneratedFileBlob(sessionId: string, fileId: string, attempt: number = 0, overrideToken?: string | null): Promise<Blob> {
+        const headers = new Headers()
+        const liveToken = this.getToken ? this.getToken() : null
+        const authToken = overrideToken !== undefined
+            ? (overrideToken ?? (liveToken ?? this.token))
+            : (liveToken ?? this.token)
+        if (authToken) {
+            headers.set('authorization', `Bearer ${authToken}`)
+        }
+        const res = await fetch(this.buildUrl(`/api/sessions/${encodeURIComponent(sessionId)}/generated-files/${encodeURIComponent(fileId)}`), {
+            headers
+        })
+        if (res.status === 401 && attempt === 0 && this.onUnauthorized) {
+            const refreshed = await this.onUnauthorized()
+            if (refreshed) {
+                this.token = refreshed
+                return await this.getGeneratedFileBlob(sessionId, fileId, attempt + 1, refreshed)
+            }
+        }
+        if (!res.ok) {
+            throw new ApiError(`HTTP ${res.status}`, res.status, undefined, await res.text().catch(() => undefined))
+        }
+        return await res.blob()
+    }
+
     async readSessionFile(sessionId: string, path: string): Promise<FileReadResponse> {
         const params = new URLSearchParams()
         params.set('path', path)
@@ -461,6 +487,14 @@ export class ApiClient {
                     body: JSON.stringify({ permissionMode: opts.permissionMode })
                 })
             }
+        )
+        return response.sessionId
+    }
+
+    async restartSession(sessionId: string, ccSwitchProviderId?: string): Promise<string> {
+        const response = await this.request<{ sessionId: string }>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/restart`,
+            { method: 'POST', body: JSON.stringify({ ccSwitchProviderId }) }
         )
         return response.sessionId
     }
@@ -740,6 +774,12 @@ export class ApiClient {
     async getMachineCodexModels(machineId: string): Promise<CodexModelsResponse> {
         return await this.request<CodexModelsResponse>(
             `/api/machines/${encodeURIComponent(machineId)}/codex-models`
+        )
+    }
+
+    async getMachineCcSwitchProviders(machineId: string): Promise<ListCcSwitchProvidersResponse> {
+        return await this.request<ListCcSwitchProvidersResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/cc-switch/providers`
         )
     }
 

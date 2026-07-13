@@ -106,7 +106,11 @@ export const codexCommand: CommandDefinition = {
             }
 
             await initializeToken()
-            await maybeAutoStartServer()
+            if (options.startedBy === 'runner') {
+                await maybeAutoStartServer()
+            } else {
+                void maybeAutoStartServer({ waitForReady: false, quiet: true })
+            }
             await authAndSetupMachineIfNeeded()
             await runCodex(options)
         } catch (error) {

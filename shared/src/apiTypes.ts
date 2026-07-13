@@ -15,17 +15,6 @@ import type {
 } from './schemas'
 import type { SessionSummary } from './sessionSummary'
 
-export const CreateOrLoadSessionRequestSchema = z.object({
-    tag: z.string().min(1),
-    metadata: z.unknown(),
-    agentState: z.unknown().nullable().optional(),
-    model: z.string().optional(),
-    modelReasoningEffort: z.string().optional(),
-    effort: z.string().optional()
-})
-
-export type CreateOrLoadSessionRequest = z.infer<typeof CreateOrLoadSessionRequestSchema>
-
 export const CreateOrLoadMachineRequestSchema = z.object({
     id: z.string().min(1),
     metadata: z.unknown(),
@@ -33,6 +22,19 @@ export const CreateOrLoadMachineRequestSchema = z.object({
 })
 
 export type CreateOrLoadMachineRequest = z.infer<typeof CreateOrLoadMachineRequestSchema>
+
+export const CreateOrLoadSessionRequestSchema = z.object({
+    id: z.string().uuid().optional(),
+    tag: z.string().min(1),
+    metadata: z.unknown(),
+    agentState: z.unknown().nullable().optional(),
+    model: z.string().optional(),
+    modelReasoningEffort: z.string().optional(),
+    effort: z.string().optional(),
+    machine: CreateOrLoadMachineRequestSchema.optional()
+})
+
+export type CreateOrLoadSessionRequest = z.infer<typeof CreateOrLoadSessionRequestSchema>
 
 export const CliMessagesResponseSchema = z.object({
     messages: z.array(z.object({
@@ -394,6 +396,15 @@ export type GeneratedImageResponse = {
     error?: string
 }
 
+export type GeneratedFileResponse = {
+    success: boolean
+    content?: string
+    mimeType?: string
+    fileName?: string
+    size?: number
+    error?: string
+}
+
 export type UploadFileResponse = {
     success: boolean
     path?: string
@@ -493,6 +504,23 @@ export type CursorModelSummary = OpencodeModelSummary
 export type CursorModelsResponse = OpencodeModelsResponse
 
 export type ListCursorModelsResponse = CursorModelsResponse
+
+export type CcSwitchProviderSummary = {
+    id: string
+    name: string
+    category: string | null
+    websiteUrl: string | null
+    isCurrent: boolean
+}
+
+export type ListCcSwitchProvidersResponse = {
+    success: boolean
+    providers?: CcSwitchProviderSummary[]
+    available?: boolean
+    error?: string
+}
+
+export type ValidateCcSwitchProviderResponse = { success: boolean; error?: string }
 
 /** Maps thinking levels to provider-specific values. null = unsupported. */
 export type PiThinkingLevelMap = Partial<Record<string, string | null>>

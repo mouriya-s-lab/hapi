@@ -80,6 +80,168 @@ function decryptedMessage(id: string, content: unknown, createdAt: number): Decr
 }
 
 describe('reduceChatBlocks', () => {
+    it('renders Codex proposed plan tool messages as a completed plan card', () => {
+        const plan = '# Plan\n\n1. Inspect\n2. Implement'
+        const messages = [
+            decryptedMessage('plan-call', {
+                role: 'agent',
+                content: {
+                    type: 'codex',
+                    data: {
+                        type: 'tool-call',
+                        name: 'ExitPlanMode',
+                        callId: 'codex-proposed-plan:plan-1',
+                        input: { plan },
+                        id: 'plan-1'
+                    }
+                }
+            }, 1),
+            decryptedMessage('plan-result', {
+                role: 'agent',
+                content: {
+                    type: 'codex',
+                    data: {
+                        type: 'tool-call-result',
+                        callId: 'codex-proposed-plan:plan-1',
+                        output: null,
+                        id: 'plan-1:result'
+                    }
+                }
+            }, 2)
+        ].map(message => normalizeDecryptedMessage(message))
+            .filter((message): message is NormalizedMessage => message !== null)
+
+        const reduced = reduceChatBlocks(messages, null)
+
+        expect(reduced.blocks).toContainEqual(expect.objectContaining({
+            kind: 'tool-call',
+            id: 'codex-proposed-plan:plan-1',
+            tool: expect.objectContaining({
+                name: 'ExitPlanMode',
+                state: 'completed',
+                input: { plan },
+                result: null
+            })
+        }))
+    })
+
+    it('surfaces a pending permission when its tool call is trapped in an orphan sidechain', () => {
+        const createdAt = 1_700_000_000_000
+        const messages: NormalizedMessage[] = [{
+            id: 'orphan-sidechain-message',
+            localId: null,
+            createdAt,
+            role: 'agent',
+            isSidechain: true,
+            content: [{
+                type: 'tool-call',
+                id: 'pending-bash',
+                name: 'Bash',
+                input: { command: 'pwd' },
+                description: null,
+                uuid: 'orphan-tool-message-uuid',
+                parentUUID: 'missing-sidechain-parent'
+            }]
+        }]
+        const agentState: AgentState = {
+            requests: {
+                'pending-bash': {
+                    tool: 'Bash',
+                    arguments: { command: 'pwd' },
+                    createdAt
+                }
+            },
+            completedRequests: {}
+        }
+
+        const reduced = reduceChatBlocks(messages, agentState)
+
+        expect(reduced.blocks).toHaveLength(1)
+        expect(reduced.blocks[0]).toMatchObject({
+            kind: 'tool-call',
+            tool: {
+                id: 'pending-bash',
+                permission: { id: 'pending-bash', status: 'pending' }
+            }
+        })
+    })
+
+    it('does not duplicate a pending permission already rendered in a matched sidechain', () => {
+        const createdAt = 1_700_000_000_000
+        const messages: NormalizedMessage[] = [
+            {
+                id: 'task-message',
+                localId: null,
+                createdAt,
+                role: 'agent',
+                isSidechain: false,
+                content: [{
+                    type: 'tool-call',
+                    id: 'task-call',
+                    name: 'Task',
+                    input: { prompt: 'inspect permissions' },
+                    description: null,
+                    uuid: 'task-message-uuid',
+                    parentUUID: null
+                }]
+            },
+            {
+                id: 'sidechain-root',
+                localId: null,
+                createdAt: createdAt + 1,
+                role: 'agent',
+                isSidechain: true,
+                content: [{
+                    type: 'sidechain',
+                    prompt: 'inspect permissions',
+                    uuid: 'sidechain-root-uuid',
+                    parentUUID: null
+                }]
+            },
+            {
+                id: 'sidechain-tool-message',
+                localId: null,
+                createdAt: createdAt + 2,
+                role: 'agent',
+                isSidechain: true,
+                content: [{
+                    type: 'tool-call',
+                    id: 'pending-bash',
+                    name: 'Bash',
+                    input: { command: 'pwd' },
+                    description: null,
+                    uuid: 'sidechain-tool-uuid',
+                    parentUUID: 'sidechain-root-uuid'
+                }]
+            }
+        ]
+        const agentState: AgentState = {
+            requests: {
+                'pending-bash': {
+                    tool: 'Bash',
+                    arguments: { command: 'pwd' },
+                    createdAt: createdAt + 2
+                }
+            },
+            completedRequests: {}
+        }
+
+        const reduced = reduceChatBlocks(messages, agentState)
+        const toolBlocks = reduced.blocks.filter(block => block.kind === 'tool-call')
+
+        expect(toolBlocks).toHaveLength(1)
+        expect(toolBlocks[0]).toMatchObject({
+            tool: { id: 'task-call' },
+            children: [{
+                kind: 'tool-call',
+                tool: {
+                    id: 'pending-bash',
+                    permission: { id: 'pending-bash', status: 'pending' }
+                }
+            }]
+        })
+    })
+
     it('ignores child agent usage when calculating parent latest usage', () => {
         const messages: NormalizedMessage[] = [
             {

@@ -97,6 +97,28 @@ describe('session model', () => {
         expect(merged?.model).toBe('gpt-5.4')
     })
 
+    it('preserves the session-scoped cc-switch provider when resume changes the HAPI id', async () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+        const oldSession = cache.getOrCreateSession(
+            'session-provider-old',
+            { path: '/tmp/project', host: 'localhost', flavor: 'claude', ccSwitchProviderId: 'provider-1' },
+            null,
+            'default'
+        )
+        const newSession = cache.getOrCreateSession(
+            'session-provider-new',
+            { path: '/tmp/project', host: 'localhost', flavor: 'claude' },
+            null,
+            'default'
+        )
+
+        await cache.mergeSessions(oldSession.id, newSession.id, 'default')
+
+        expect(cache.getSession(newSession.id)?.metadata?.ccSwitchProviderId).toBe('provider-1')
+    })
+
     it('preserves service tier from old session when merging into resumed session', async () => {
         const store = new Store(':memory:')
         const events: SyncEvent[] = []
@@ -972,6 +994,74 @@ describe('session model', () => {
 
             expect(result).toEqual({ type: 'success', sessionId: session.id })
             expect(capturedResumeSessionId).toBe('claude-session-1')
+        } finally {
+            engine.stop()
+        }
+    })
+
+    it('retries a deferred Claude fork with its original launch recipe', async () => {
+        const store = new Store(':memory:')
+        const engine = new SyncEngine(
+            store,
+            {} as never,
+            new RpcRegistry(),
+            { broadcast() {} } as never
+        )
+
+        try {
+            const launch = {
+                type: 'resume-at' as const,
+                sourceSessionId: 'source-claude-session',
+                providerMessageId: 'provider-message-id'
+            }
+            const session = engine.getOrCreateSession(
+                'session-deferred-claude-fork',
+                {
+                    path: '/tmp/project',
+                    host: 'localhost',
+                    machineId: 'machine-1',
+                    flavor: 'claude',
+                    pendingClaudeLaunch: {
+                        resumeSessionId: 'new-claude-session',
+                        launch
+                    }
+                },
+                null,
+                'default',
+                'sonnet'
+            )
+            store.messages.addMessage(session.id, {
+                role: 'agent',
+                content: {
+                    type: 'output',
+                    data: { type: 'assistant', sessionId: 'source-claude-session' }
+                }
+            })
+            engine.getOrCreateMachine(
+                'machine-1',
+                { host: 'localhost', platform: 'linux', happyCliVersion: '0.1.0' },
+                null,
+                'default'
+            )
+            engine.handleMachineAlive({ machineId: 'machine-1', time: Date.now() })
+
+            let capturedResumeSessionId: string | undefined
+            let capturedClaudeLaunch: unknown
+            ;(engine as any).rpcGateway.spawnSession = async (...args: unknown[]) => {
+                capturedResumeSessionId = args[8] as string | undefined
+                capturedClaudeLaunch = args[12]
+                return { type: 'success', sessionId: session.id }
+            }
+            ;(engine as any).waitForSessionActive = async () => true
+
+            const result = await engine.resumeSession(session.id, 'default')
+
+            expect(result).toEqual({ type: 'success', sessionId: session.id })
+            expect(capturedResumeSessionId).toBe('new-claude-session')
+            expect(capturedClaudeLaunch).toEqual(launch)
+            expect(store.sessions.getSession(session.id)?.metadata).not.toMatchObject({
+                claudeSessionId: 'source-claude-session'
+            })
         } finally {
             engine.stop()
         }
@@ -2954,6 +3044,7 @@ describe('session ownership', () => {
             undefined,
             undefined,
             undefined,
+            undefined,
             admin
         )
         events.length = 0
@@ -2983,6 +3074,7 @@ describe('session ownership', () => {
             undefined,
             undefined,
             undefined,
+            undefined,
             peter
         )
         const resumed = cache.getOrCreateSession(
@@ -2990,6 +3082,7 @@ describe('session ownership', () => {
             { path: '/tmp/project', host: 'localhost', flavor: 'claude' },
             null,
             'default',
+            undefined,
             undefined,
             undefined,
             undefined,
@@ -3017,6 +3110,7 @@ describe('session ownership', () => {
             undefined,
             undefined,
             undefined,
+            undefined,
             peter
         )
         const resumed = cache.getOrCreateSession(
@@ -3024,6 +3118,7 @@ describe('session ownership', () => {
             { path: '/tmp/project', host: 'localhost', flavor: 'claude' },
             null,
             'default',
+            undefined,
             undefined,
             undefined,
             undefined,

@@ -54,13 +54,33 @@ const PARSE_IDENTITY_FIELDS = ['path', 'host'] as const
 const ROUTING_FIELDS = ['flavor', 'machineId'] as const
 
 const SIMPLE_RESUME_TOKENS = [
-    'claudeSessionId',
     'codexSessionId',
     'geminiSessionId',
     'opencodeSessionId',
     'cursorSessionId',
     'kimiSessionId'
 ] as const
+
+function preservePendingClaudeLaunch(
+    prior: Record<string, unknown>,
+    next: Record<string, unknown>,
+    merged: Record<string, unknown> | null
+): Record<string, unknown> | null {
+    const pending = prior.pendingClaudeLaunch
+    if (!isPlainObject(pending) || typeof pending.resumeSessionId !== 'string') {
+        return carryForwardIfMissing(prior, next, merged, ['claudeSessionId'])
+    }
+
+    const result = merged ?? { ...next }
+    if (next.claudeSessionId === pending.resumeSessionId) {
+        delete result.pendingClaudeLaunch
+        return result
+    }
+
+    delete result.claudeSessionId
+    result.pendingClaudeLaunch = pending
+    return result
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -124,6 +144,7 @@ export function mergeSessionMetadata(prior: unknown, next: unknown): unknown {
     let merged: Record<string, unknown> | null = null
     merged = carryForwardIfMissing(prior, next, merged, PARSE_IDENTITY_FIELDS)
     merged = carryForwardIfMissing(prior, next, merged, ROUTING_FIELDS)
+    merged = preservePendingClaudeLaunch(prior, next, merged)
     merged = carryForwardIfMissing(prior, next, merged, SIMPLE_RESUME_TOKENS)
     merged = preserveCursorProtocolPair(prior, next, merged)
     return merged ?? next
@@ -192,6 +213,7 @@ export function getOrCreateSession(
     model?: string,
     effort?: string,
     modelReasoningEffort?: string,
+    requestedId?: string,
     ownerAccountId?: number | null
 ): StoredSession {
     const existing = db.prepare(
@@ -199,11 +221,24 @@ export function getOrCreateSession(
     ).get(tag, namespace) as DbSessionRow | undefined
 
     if (existing) {
+        if (requestedId && existing.id !== requestedId) {
+            throw new SessionIdentityConflictError('Session tag is already bound to a different id')
+        }
         return toStoredSession(existing)
     }
 
     const now = Date.now()
-    const id = randomUUID()
+    const id = requestedId ?? randomUUID()
+
+    if (requestedId) {
+        const existingById = getSession(db, requestedId)
+        if (existingById) {
+            if (existingById.namespace === namespace && existingById.tag === tag) {
+                return existingById
+            }
+            throw new SessionIdentityConflictError('Session id is already bound to a different session')
+        }
+    }
 
     const metadataJson = JSON.stringify(metadata)
     const agentStateJson = agentState === null || agentState === undefined ? null : JSON.stringify(agentState)
@@ -264,6 +299,13 @@ export function backfillSessionOwners(db: Database, ownerAccountId: number): num
         'UPDATE sessions SET owner_account_id = ? WHERE owner_account_id IS NULL'
     ).run(ownerAccountId)
     return result.changes
+}
+
+export class SessionIdentityConflictError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'SessionIdentityConflictError'
+    }
 }
 
 export function updateSessionMetadata(

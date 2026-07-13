@@ -8,7 +8,7 @@
  */
 
 import { isKnownFlavor, type LocalResumeTarget, type ResumableSession } from '@hapi/protocol'
-import type { CursorMigrateOutcome, CursorMigrateToAcpRequest, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
+import type { CursorMigrateOutcome, CursorMigrateToAcpRequest, ListCcSwitchProvidersResponse, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor, ClaudeLaunch, CodexCollaborationMode, DecryptedMessage, PermissionMode, Session, SyncEvent } from '@hapi/protocol/types'
 import { unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
 import type { Server } from 'socket.io'
@@ -27,6 +27,7 @@ import {
     type RpcCodexModel,
     type RpcCommandResponse,
     type RpcDeleteUploadResponse,
+    type RpcGeneratedFileResponse,
     type RpcGeneratedImageResponse,
     type RpcListDirectoryResponse,
     type RpcListCodexModelsResponse,
@@ -49,6 +50,7 @@ export type {
     RpcCodexModel,
     RpcCommandResponse,
     RpcDeleteUploadResponse,
+    RpcGeneratedFileResponse,
     RpcGeneratedImageResponse,
     RpcListDirectoryResponse,
     RpcListCodexModelsResponse,
@@ -389,9 +391,20 @@ export class SyncEngine {
         model?: string,
         effort?: string,
         modelReasoningEffort?: string,
+        requestedId?: string,
         ownerAccountId?: number | null
     ): Session {
-        return this.sessionCache.getOrCreateSession(tag, metadata, agentState, namespace, model, effort, modelReasoningEffort, ownerAccountId)
+        return this.sessionCache.getOrCreateSession(
+            tag,
+            metadata,
+            agentState,
+            namespace,
+            model,
+            effort,
+            modelReasoningEffort,
+            requestedId,
+            ownerAccountId
+        )
     }
 
     getOrCreateMachine(id: string, metadata: unknown, runnerState: unknown, namespace: string, ownerAccountId?: number | null): Machine {
@@ -456,6 +469,53 @@ export class SyncEngine {
 
     async abortSession(sessionId: string): Promise<void> {
         await this.rpcGateway.abortSession(sessionId)
+    }
+
+    async restartSession(sessionId: string, namespace: string, ccSwitchProviderId?: string): Promise<ResumeSessionResult> {
+        const access = this.sessionCache.resolveSessionAccess(sessionId, namespace)
+        if (!access.ok) {
+            return {
+                type: 'error',
+                message: access.reason === 'access-denied' ? 'Session access denied' : 'Session not found',
+                code: access.reason === 'access-denied' ? 'access_denied' : 'session_not_found'
+            }
+        }
+        const machineId = access.session.metadata?.machineId
+        if (!machineId) {
+            return { type: 'error', message: 'Session machine is unavailable', code: 'resume_unavailable' }
+        }
+
+        if (ccSwitchProviderId) {
+            const validation = await this.rpcGateway.validateCcSwitchProviderForMachine(machineId, ccSwitchProviderId)
+            if (!validation.success) {
+                return { type: 'error', message: validation.error ?? 'Invalid cc-switch provider', code: 'resume_unavailable' }
+            }
+        }
+
+        if (ccSwitchProviderId) {
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+                const latest = this.sessionCache.getSessionByNamespace(access.sessionId, namespace)
+                    ?? this.sessionCache.refreshSession(access.sessionId)
+                if (!latest?.metadata) break
+                const result = this.store.sessions.updateSessionMetadata(
+                    access.sessionId,
+                    { ...latest.metadata, ccSwitchProviderId },
+                    latest.metadataVersion,
+                    namespace,
+                    { touchUpdatedAt: false }
+                )
+                if (result.result === 'success') { this.sessionCache.refreshSession(access.sessionId); break }
+                if (result.result !== 'version-mismatch') break
+                this.sessionCache.refreshSession(access.sessionId)
+            }
+        }
+
+        // Runner 的 stop-session handler 等待整个进程树退出后才应答；之后才允许重新 spawn。
+        await this.rpcGateway.stopSessionOnMachine(machineId, access.sessionId)
+        if (this.getSession(access.sessionId)?.active) {
+            this.handleSessionEnd({ sid: access.sessionId, time: Date.now(), reason: 'terminated' })
+        }
+        return await this.resumeSession(access.sessionId, namespace, { ccSwitchProviderId })
     }
 
     async archiveSession(sessionId: string): Promise<void> {
@@ -767,7 +827,8 @@ export class SyncEngine {
         effort?: string,
         permissionMode?: PermissionMode,
         serviceTier?: string,
-        claudeLaunch?: ClaudeLaunch
+        claudeLaunch?: ClaudeLaunch,
+        ccSwitchProviderId?: string
     ): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }> {
         return await this.rpcGateway.spawnSession(
             machineId,
@@ -782,7 +843,8 @@ export class SyncEngine {
             effort,
             permissionMode,
             serviceTier,
-            claudeLaunch
+            claudeLaunch,
+            ccSwitchProviderId
         )
     }
 
@@ -818,7 +880,9 @@ export class SyncEngine {
         if (flavor === 'pi') return metadata.piSessionId ?? null
         if (flavor === 'omp') return metadata.ompSessionId ?? null
 
-        return metadata.claudeSessionId ?? this.recoverClaudeSessionIdFromMessages(session.id, namespace)
+        return metadata.claudeSessionId
+            ?? metadata.pendingClaudeLaunch?.resumeSessionId
+            ?? this.recoverClaudeSessionIdFromMessages(session.id, namespace)
     }
 
     resolveLocalResumeTarget(sessionId: string, namespace: string): LocalResumeTargetResult {
@@ -1171,7 +1235,7 @@ export class SyncEngine {
         return this.store.messages.getFirstMessages(sessionId, 1).length === 0
     }
 
-    async resumeSession(sessionId: string, namespace: string, opts?: { permissionMode?: PermissionMode }): Promise<ResumeSessionResult> {
+    async resumeSession(sessionId: string, namespace: string, opts?: { permissionMode?: PermissionMode; ccSwitchProviderId?: string }): Promise<ResumeSessionResult> {
         const access = this.sessionCache.resolveSessionAccess(sessionId, namespace)
         if (!access.ok) {
             return {
@@ -1198,11 +1262,15 @@ export class SyncEngine {
         let flavor: AgentFlavor
         let resumeToken: string | undefined
         let directory: string
+        let claudeLaunch: ClaudeLaunch | undefined
 
         if (targetResult.type === 'success') {
             flavor = targetResult.target.flavor
             resumeToken = targetResult.target.agentSessionId
             directory = targetResult.target.directory
+            claudeLaunch = session.metadata?.claudeSessionId
+                ? undefined
+                : session.metadata?.pendingClaudeLaunch?.launch
         } else if (
             targetResult.code === 'resume_unavailable'
             && this.canFreshSpawnNeverStartedSession(session, access.sessionId, namespace)
@@ -1254,7 +1322,9 @@ export class SyncEngine {
             resumeToken,
             includeStoredModelParameters ? session.effort ?? undefined : undefined,
             preferredPermissionMode,
-            includeStoredModelParameters ? session.serviceTier ?? undefined : undefined
+            includeStoredModelParameters ? session.serviceTier ?? undefined : undefined,
+            claudeLaunch,
+            opts?.ccSwitchProviderId ?? metadata.ccSwitchProviderId
         )
 
         if (spawnResult.type !== 'success') {
@@ -1626,6 +1696,10 @@ export class SyncEngine {
         return await this.rpcGateway.readGeneratedImage(sessionId, imageId)
     }
 
+    async readGeneratedFile(sessionId: string, fileId: string): Promise<RpcGeneratedFileResponse> {
+        return await this.rpcGateway.readGeneratedFile(sessionId, fileId)
+    }
+
     async listDirectory(sessionId: string, path: string): Promise<RpcListDirectoryResponse> {
         return await this.rpcGateway.listDirectory(sessionId, path)
     }
@@ -1664,6 +1738,10 @@ export class SyncEngine {
 
     async listCursorModelsForMachine(machineId: string): Promise<RpcListCursorModelsResponse> {
         return await this.rpcGateway.listCursorModelsForMachine(machineId)
+    }
+
+    async listCcSwitchProvidersForMachine(machineId: string): Promise<ListCcSwitchProvidersResponse> {
+        return await this.rpcGateway.listCcSwitchProvidersForMachine(machineId)
     }
 
     async listOpencodeModelsForSession(sessionId: string): Promise<RpcListOpencodeModelsResponse> {

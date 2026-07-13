@@ -169,7 +169,7 @@ describe('resource grants', () => {
     it('rejects missing and cross-namespace grant targets', async () => {
         const admin = store.accounts.create({ username: 'grant-admin', passwordHash: null, role: 'admin', defaultNamespace: 'alpha' })
         const grantee = store.accounts.create({ username: 'grant-target', passwordHash: null, role: 'user', defaultNamespace: 'alpha' })
-        store.sessions.getOrCreateSession('other-ns', {}, null, 'beta', undefined, undefined, undefined, admin.id)
+        store.sessions.getOrCreateSession('other-ns', {}, null, 'beta', undefined, undefined, undefined, undefined, admin.id)
         const app = makeApp(store)
         const jwt = await makeJwt(admin.id, 'admin', 'alpha')
         const post = (resourceId: string) => app.request('/api/grants', {

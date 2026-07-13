@@ -17,7 +17,7 @@ function createFixture() {
     const owner = store.accounts.create({ username: 'owner', passwordHash: null, role: 'user', defaultNamespace: 'default' })
     const stranger = store.accounts.create({ username: 'stranger', passwordHash: null, role: 'user', defaultNamespace: 'default' })
     const admin = store.accounts.create({ username: 'admin', passwordHash: null, role: 'admin', defaultNamespace: 'default' })
-    const stored = store.sessions.getOrCreateSession('owned-session', {}, null, 'default', undefined, undefined, undefined, owner.id)
+    const stored = store.sessions.getOrCreateSession('owned-session', {}, null, 'default', undefined, undefined, undefined, undefined, owner.id)
     const session = { id: stored.id, namespace: 'default', active: true }
     const engine = {
         resolveSessionAccess: () => ({ ok: true, sessionId: stored.id, session }),

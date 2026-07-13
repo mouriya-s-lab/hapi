@@ -11,7 +11,10 @@ import type {
     DirectoryEntry,
     FileReadResponse,
     FileWriteResponse,
+    GeneratedFileResponse,
     GeneratedImageResponse,
+    ListCcSwitchProvidersResponse,
+    ValidateCcSwitchProviderResponse,
     ListDirectoryResponse,
     OpencodeModelsResponse,
     OpencodeModelSummary,
@@ -51,6 +54,7 @@ export type RpcCommandResponse = CommandResponse
 export type RpcReadFileResponse = FileReadResponse
 export type RpcWriteFileResponse = FileWriteResponse
 export type RpcGeneratedImageResponse = GeneratedImageResponse
+export type RpcGeneratedFileResponse = GeneratedFileResponse
 export type RpcUploadFileResponse = UploadFileResponse
 export type RpcDeleteUploadResponse = DeleteUploadResponse
 export type RpcDirectoryEntry = DirectoryEntry
@@ -126,6 +130,10 @@ export class RpcGateway {
         await this.sessionRpc(sessionId, RPC_METHODS.KillSession, {})
     }
 
+    async stopSessionOnMachine(machineId: string, sessionId: string): Promise<void> {
+        await this.machineRpc(machineId, RPC_METHODS.StopSession, { sessionId })
+    }
+
     async handoffSessionToLocal(sessionId: string): Promise<void> {
         await this.sessionRpc(sessionId, RPC_METHODS.HandoffLocal, {})
     }
@@ -143,13 +151,14 @@ export class RpcGateway {
         effort?: string,
         permissionMode?: PermissionMode,
         serviceTier?: string,
-        claudeLaunch?: ClaudeLaunch
+        claudeLaunch?: ClaudeLaunch,
+        ccSwitchProviderId?: string
     ): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }> {
         try {
             const result = await this.machineRpc(
                 machineId,
                 RPC_METHODS.SpawnHappySession,
-                { type: 'spawn-in-directory', directory, agent, model, modelReasoningEffort, yolo, sessionType, worktreeName, resumeSessionId, effort, permissionMode, serviceTier, claudeLaunch }
+                { type: 'spawn-in-directory', directory, agent, model, modelReasoningEffort, yolo, sessionType, worktreeName, resumeSessionId, effort, permissionMode, serviceTier, claudeLaunch, ccSwitchProviderId }
             )
             if (result && typeof result === 'object') {
                 const obj = result as Record<string, unknown>
@@ -259,6 +268,10 @@ export class RpcGateway {
         return await this.sessionRpc(sessionId, RPC_METHODS.ReadGeneratedImage, { id: imageId }) as RpcGeneratedImageResponse
     }
 
+    async readGeneratedFile(sessionId: string, fileId: string): Promise<RpcGeneratedFileResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.ReadGeneratedFile, { id: fileId }) as RpcGeneratedFileResponse
+    }
+
     async listDirectory(sessionId: string, path: string): Promise<RpcListDirectoryResponse> {
         return await this.sessionRpc(sessionId, RPC_METHODS.ListDirectory, { path }) as RpcListDirectoryResponse
     }
@@ -301,6 +314,14 @@ export class RpcGateway {
 
     async listCursorModelsForMachine(machineId: string): Promise<RpcListCursorModelsResponse> {
         return await this.machineRpc(machineId, RPC_METHODS.ListCursorModels, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListCursorModelsResponse
+    }
+
+    async listCcSwitchProvidersForMachine(machineId: string): Promise<ListCcSwitchProvidersResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ListCcSwitchProviders, {}, MODEL_LIST_RPC_TIMEOUT_MS) as ListCcSwitchProvidersResponse
+    }
+
+    async validateCcSwitchProviderForMachine(machineId: string, providerId: string): Promise<ValidateCcSwitchProviderResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ValidateCcSwitchProvider, { providerId }) as ValidateCcSwitchProviderResponse
     }
 
     async listOpencodeModelsForSession(sessionId: string): Promise<RpcListOpencodeModelsResponse> {

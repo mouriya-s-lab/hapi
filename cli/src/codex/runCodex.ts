@@ -7,7 +7,7 @@ import { registerKillSessionHandler } from '@/claude/registerKillSessionHandler'
 import type { AgentState } from '@/api/types';
 import type { CodexSession } from './session';
 import { parseCodexCliOverrides } from './utils/codexCliOverrides';
-import { bootstrapExistingSession, bootstrapSession } from '@/agent/sessionFactory';
+import { bootstrapExistingSession, bootstrapLazySession, bootstrapSession } from '@/agent/sessionFactory';
 import { registerLocalHandoffHandler } from '@/agent/localHandoff';
 import { createModeChangeHandler, createRunnerLifecycle, setControlledByUser } from '@/agent/runnerLifecycle';
 import { isPermissionModeAllowedForFlavor } from '@hapi/protocol';
@@ -44,6 +44,7 @@ export async function runCodex(opts: {
     let state: AgentState = {
         controlledByUser: false
     };
+    const useLazyBootstrap = !opts.existingSessionId && startedBy === 'terminal';
     const bootstrap = opts.existingSessionId
         ? await bootstrapExistingSession({
             sessionId: opts.existingSessionId,
@@ -51,7 +52,7 @@ export async function runCodex(opts: {
             startedBy,
             workingDirectory
         })
-        : await bootstrapSession({
+        : await (useLazyBootstrap ? bootstrapLazySession : bootstrapSession)({
             flavor: 'codex',
             startedBy,
             workingDirectory,
@@ -77,7 +78,7 @@ export async function runCodex(opts: {
     const sessionWrapperRef: { current: CodexSession | null } = { current: null };
     // 中文注释：当用户直接把现成的 Codex thread 导入到一个全新的 Hapi 会话时，
     // 需要在首次附着 transcript 时回放已有历史；恢复已有 Hapi 会话时则保持原来的增量模式，避免重复灌入旧消息。
-    const replayTranscriptHistoryOnStart = Boolean(opts.resumeSessionId && !opts.existingSessionId);
+    const replayTranscriptHistoryOnStart = useLazyBootstrap || Boolean(opts.resumeSessionId && !opts.existingSessionId);
 
     let currentPermissionMode: PermissionMode = opts.permissionMode ?? 'default';
     let currentModel = opts.model;

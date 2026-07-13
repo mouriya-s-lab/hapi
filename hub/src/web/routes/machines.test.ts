@@ -60,7 +60,7 @@ describe('machines routes', () => {
         const daemon = store.accounts.create({ username: 'daemon', passwordHash: null, role: 'user', defaultNamespace: 'default' })
         const requester = store.accounts.create({ username: 'requester', passwordHash: null, role: 'admin', defaultNamespace: 'default' })
         store.machines.getOrCreateMachine('machine-1', {}, null, 'default', daemon.id)
-        const spawned = store.sessions.getOrCreateSession('spawned-session', {}, null, 'default', undefined, undefined, undefined, daemon.id)
+        const spawned = store.sessions.getOrCreateSession('spawned-session', {}, null, 'default', undefined, undefined, undefined, undefined, daemon.id)
         // @ts-expect-error test fixture pins the RPC result id
         store.db.prepare('UPDATE sessions SET id = ? WHERE id = ?').run('spawned-session', spawned.id)
         const machine = createMachine()
@@ -94,7 +94,20 @@ describe('machines routes', () => {
         expect(store.grants.get('session', 'spawned-session', daemon.id)?.role).toBe('operator')
         store.close()
     })
+    it('forwards the read-only cc-switch provider list', async () => {
+        const machine = createMachine()
+        const engine = {
+            getMachine: () => machine,
+            getMachineByNamespace: () => machine,
+            listCcSwitchProvidersForMachine: async () => ({ success: true, available: true, providers: [] })
+        } as Partial<SyncEngine>
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => { c.set('namespace', 'default'); await next() })
+        app.route('/api', createMachinesRoutes(() => engine as SyncEngine))
 
+        expect(await (await app.request('/api/machines/machine-1/cc-switch/providers')).json())
+            .toEqual({ success: true, available: true, providers: [] })
+    })
     it('forwards create-directory requests to the selected machine', async () => {
         const machine = createMachine()
         const calls: Array<{ machineId: string; parentPath: string; name: string }> = []

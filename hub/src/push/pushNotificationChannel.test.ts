@@ -51,7 +51,7 @@ describe('PushNotificationChannel', () => {
     it('does not reuse one replacement tag for all task notifications in a session', async () => {
         const store = new Store(':memory:')
         const owner = store.accounts.create({ username: 'task-owner', passwordHash: null, role: 'user', defaultNamespace: 'default' })
-        const storedSession = store.sessions.getOrCreateSession('session-task-toast', {}, null, 'default', undefined, undefined, undefined, owner.id)
+        const storedSession = store.sessions.getOrCreateSession('session-task-toast', {}, null, 'default', undefined, undefined, undefined, undefined, owner.id)
         const pushed: Array<{ namespace: string; payload: PushPayload }> = []
         const channel = new PushNotificationChannel(
             {
@@ -87,7 +87,7 @@ describe('PushNotificationChannel', () => {
         const store = new Store(':memory:')
         const owner = store.accounts.create({ username: 'owner', passwordHash: null, role: 'user', defaultNamespace: 'default' })
         const grantee = store.accounts.create({ username: 'grantee', passwordHash: null, role: 'user', defaultNamespace: 'default' })
-        const session = store.sessions.getOrCreateSession('toast-audience', {}, null, 'default', undefined, undefined, undefined, owner.id)
+        const session = store.sessions.getOrCreateSession('toast-audience', {}, null, 'default', undefined, undefined, undefined, undefined, owner.id)
         store.grants.upsert({ resourceType: 'session', resourceId: session.id, granteeAccountId: grantee.id, role: 'operator' })
         let pushedAudience = new Set<number>()
         const channel = new PushNotificationChannel(

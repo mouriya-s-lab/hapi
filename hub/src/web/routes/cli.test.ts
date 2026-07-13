@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'bun:test'
+import { beforeAll, describe, expect, it, mock } from 'bun:test'
 import { Hono } from 'hono'
 import type { SyncEngine } from '../../sync/syncEngine'
 import { createConfiguration } from '../../configuration'
@@ -14,6 +14,7 @@ let ownerSessionId: string
 let strangerSessionId: string
 let ownerToken: string
 let strangerToken: string
+import { SessionIdentityConflictError } from '../../store/sessions'
 
 function createApp(engine: Partial<SyncEngine>) {
     const app = new Hono()
@@ -48,7 +49,7 @@ beforeAll(async () => {
     const boot = bootstrapMultiUser(store, 'test-token')
     initAuthContext(store, boot.legacyAdminAccountId)
     sessionId = store.sessions.getOrCreateSession(
-        'session-1', {}, null, 'default', undefined, undefined, undefined, boot.legacyAdminAccountId
+        'session-1', {}, null, 'default', undefined, undefined, undefined, undefined, boot.legacyAdminAccountId
     ).id
     const owner = store.accounts.create({ username: 'owner', passwordHash: null, role: 'user', defaultNamespace: 'default' })
     const stranger = store.accounts.create({ username: 'stranger', passwordHash: null, role: 'user', defaultNamespace: 'default' })
@@ -57,10 +58,10 @@ beforeAll(async () => {
     store.apiTokens.create({ accountId: owner.id, name: 'owner', tokenHash: hashApiToken(ownerToken), namespace: 'default' })
     store.apiTokens.create({ accountId: stranger.id, name: 'stranger', tokenHash: hashApiToken(strangerToken), namespace: 'default' })
     ownerSessionId = store.sessions.getOrCreateSession(
-        'owner-session', {}, null, 'default', undefined, undefined, undefined, owner.id
+        'owner-session', {}, null, 'default', undefined, undefined, undefined, undefined, owner.id
     ).id
     strangerSessionId = store.sessions.getOrCreateSession(
-        'stranger-session', {}, null, 'default', undefined, undefined, undefined, stranger.id
+        'stranger-session', {}, null, 'default', undefined, undefined, undefined, undefined, stranger.id
     ).id
 })
 
@@ -219,5 +220,106 @@ describe('cli resume routes', () => {
             error: 'Session is already controlled by a local terminal',
             code: 'already_local'
         })
+    })
+})
+
+describe('cli lazy session creation', () => {
+    const sessionId = '11111111-1111-4111-8111-111111111111'
+
+    it('creates the machine and requested session identity in one request', async () => {
+        const getOrCreateMachine = mock(() => ({ id: 'machine-1' }))
+        const getOrCreateSession = mock(() => ({ id: sessionId }))
+        const app = createApp({
+            getMachine: () => null,
+            getOrCreateMachine,
+            getOrCreateSession
+        } as never)
+
+        const response = await app.request('/cli/sessions', {
+            method: 'POST',
+            headers: {
+                ...authHeaders(),
+                'content-type': 'application/json'
+            },
+            body: JSON.stringify({
+                id: sessionId,
+                tag: 'lazy-tag',
+                metadata: { path: '/tmp/project' },
+                agentState: { controlledByUser: true },
+                machine: {
+                    id: 'machine-1',
+                    metadata: { host: 'localhost' }
+                }
+            })
+        })
+
+        expect(response.status).toBe(200)
+        expect(getOrCreateMachine).toHaveBeenCalledWith(
+            'machine-1',
+            { host: 'localhost' },
+            null,
+            'default'
+        )
+        expect(getOrCreateSession).toHaveBeenCalledWith(
+            'lazy-tag',
+            { path: '/tmp/project' },
+            { controlledByUser: true },
+            'default',
+            undefined,
+            undefined,
+            undefined,
+            sessionId
+        )
+    })
+
+    it('rejects an embedded machine owned by another namespace', async () => {
+        const getOrCreateMachine = mock(() => ({ id: 'machine-1' }))
+        const getOrCreateSession = mock(() => ({ id: sessionId }))
+        const app = createApp({
+            getMachine: () => ({ id: 'machine-1', namespace: 'other' }),
+            getOrCreateMachine,
+            getOrCreateSession
+        } as never)
+
+        const response = await app.request('/cli/sessions', {
+            method: 'POST',
+            headers: {
+                ...authHeaders(),
+                'content-type': 'application/json'
+            },
+            body: JSON.stringify({
+                id: sessionId,
+                tag: 'lazy-tag',
+                metadata: {},
+                machine: { id: 'machine-1', metadata: {} }
+            })
+        })
+
+        expect(response.status).toBe(403)
+        expect(getOrCreateMachine).not.toHaveBeenCalled()
+        expect(getOrCreateSession).not.toHaveBeenCalled()
+    })
+
+    it('returns 409 for a requested identity conflict', async () => {
+        const app = createApp({
+            getOrCreateSession: () => {
+                throw new SessionIdentityConflictError('Session tag is already bound to a different id')
+            }
+        })
+
+        const response = await app.request('/cli/sessions', {
+            method: 'POST',
+            headers: {
+                ...authHeaders(),
+                'content-type': 'application/json'
+            },
+            body: JSON.stringify({
+                id: sessionId,
+                tag: 'lazy-tag',
+                metadata: {}
+            })
+        })
+
+        expect(response.status).toBe(409)
     })
 })

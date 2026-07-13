@@ -6,11 +6,13 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { ApiSessionClient } from '@/api/apiSession'
 import { clearGeneratedImages, getGeneratedImage } from '@/modules/common/generatedImages'
+import { clearGeneratedFiles, getGeneratedFile } from '@/modules/common/generatedFiles'
 import { startHappyServer } from './startHappyServer'
 
 type AgentMediaMessage = {
-    type: 'generated-image'
-    imageId: string
+    type: 'generated-image' | 'generated-file'
+    imageId?: string
+    fileId?: string
     fileName: string
     mimeType: string
     id: string
@@ -22,6 +24,7 @@ describe('startHappyServer inline media MCP', () => {
     afterEach(async () => {
         for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
         clearGeneratedImages()
+        clearGeneratedFiles()
     })
 
     it('accepts real MCP display_image and display_video calls and registers their bytes', async () => {
@@ -47,7 +50,7 @@ describe('startHappyServer inline media MCP', () => {
         const server = await startHappyServer(sessionClient)
         cleanups.push(server.stop)
         expect(metadata.hapiMcpUrl).toBe(server.url)
-        expect(server.toolNames).toEqual(['change_title', 'display_image', 'display_video'])
+        expect(server.toolNames).toEqual(['change_title', 'display_image', 'display_video', 'send_file'])
 
         const client = new Client({ name: 'inline-media-integration-test', version: '1.0.0' })
         await client.connect(new StreamableHTTPClientTransport(new URL(server.url)))
@@ -68,8 +71,46 @@ describe('startHappyServer inline media MCP', () => {
             { fileName: 'Captured screen.png', mimeType: 'image/png' },
             { fileName: 'Recorded flow.mp4', mimeType: 'video/mp4' }
         ])
-        expect(getGeneratedImage(messages[0]!.imageId)?.content).toEqual(pngBytes)
-        expect(getGeneratedImage(messages[1]!.imageId)?.content).toEqual(mp4Bytes)
+        expect(getGeneratedImage(messages[0]!.imageId!)?.content).toEqual(pngBytes)
+        expect(getGeneratedImage(messages[1]!.imageId!)?.content).toEqual(mp4Bytes)
+    })
+
+    it('accepts a real MCP send_file call, snapshots bytes, and rejects a missing file', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'hapi-send-file-mcp-'))
+        cleanups.push(() => rm(directory, { recursive: true, force: true }))
+        const reportPath = join(directory, 'report.md')
+        await writeFile(reportPath, '# report')
+
+        const messages: AgentMediaMessage[] = []
+        const sessionClient = {
+            sendClaudeSessionMessage: () => undefined,
+            sendAgentMessage: (message: unknown) => messages.push(message as AgentMediaMessage),
+            updateMetadata: () => undefined
+        } as unknown as ApiSessionClient
+        const server = await startHappyServer(sessionClient)
+        cleanups.push(server.stop)
+        const client = new Client({ name: 'send-file-integration-test', version: '1.0.0' })
+        await client.connect(new StreamableHTTPClientTransport(new URL(server.url)))
+        cleanups.push(() => client.close())
+
+        const sent = await client.callTool({
+            name: 'send_file',
+            arguments: { path: reportPath, title: 'Final report' }
+        })
+        const missing = await client.callTool({
+            name: 'send_file',
+            arguments: { path: join(directory, 'missing.md') }
+        })
+
+        expect(sent.isError).toBe(false)
+        expect(missing.isError).toBe(true)
+        expect(messages).toHaveLength(1)
+        expect(messages[0]).toMatchObject({
+            type: 'generated-file',
+            fileName: 'Final_report.md',
+            mimeType: 'text/markdown'
+        })
+        expect(getGeneratedFile(messages[0]!.fileId!)?.size).toBe(Buffer.byteLength('# report'))
     })
 
     it('rejects media sent through the wrong tool without emitting a card', async () => {

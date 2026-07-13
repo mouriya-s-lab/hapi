@@ -27,3 +27,15 @@ export const DISPLAY_VIDEO_PROMPT_CODEX = trimIdent(`
 export const DISPLAY_VIDEO_PROMPT_HAPI_MCP = trimIdent(`
     When you create or find a local mp4 or webm recording the user should see, call the tool "hapi_display_video" with the file path so HAPI can show it inline. If that exact tool name is unavailable, use an equivalent alias such as display_video or mcp__hapi__display_video.
 `);
+
+export const SEND_FILE_PROMPT_CLAUDE = trimIdent(`
+    When you produce a deliverable file the user asked for (a report, document, archive, spreadsheet, etc.), call the tool "mcp__hapi__send_file" with the file path so HAPI can share it in the chat for the user to download.
+`);
+
+export const SEND_FILE_PROMPT_CODEX = trimIdent(`
+    When you produce a deliverable file the user asked for (a report, document, archive, spreadsheet, etc.), call functions.hapi__send_file with the file path so HAPI can share it in the chat for the user to download. If that exact tool name is unavailable, use an equivalent alias such as hapi__send_file, mcp__hapi__send_file, or hapi_send_file.
+`);
+
+export const SEND_FILE_PROMPT_HAPI_MCP = trimIdent(`
+    When you produce a deliverable file the user asked for (a report, document, archive, spreadsheet, etc.), call the tool "hapi_send_file" with the file path so HAPI can share it in the chat for the user to download.
+`);

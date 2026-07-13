@@ -4,13 +4,14 @@ import type { ApiClient } from '@/api/client'
 import { isTelegramApp } from '@/hooks/useTelegram'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
 import { useFlavorCapabilities, getFlavorForkCapability } from '@/hooks/queries/useFlavorCapabilities'
+import { useMachines } from '@/hooks/queries/useMachines'
 import { SessionActionMenu } from '@/components/SessionActionMenu'
 import { SessionExportDialog } from '@/components/SessionExportDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
 import { SessionIdDialog } from '@/components/SessionIdDialog'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { formatReopenError } from '@/lib/reopenError'
-import { getSessionModelLabel } from '@/lib/sessionModelLabel'
+import { formatUsageSnapshotLabel, getSessionModelLabel } from '@/lib/sessionModelLabel'
 import { useTranslation } from '@/lib/use-translation'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 
@@ -114,6 +115,15 @@ export function SessionHeader(props: {
     const title = useMemo(() => getSessionTitle(session), [session])
     const worktreeBranch = session.metadata?.worktree?.branch
     const modelLabel = getSessionModelLabel(session)
+    const sessionMachineId = session.metadata?.machineId ?? null
+    const { machines } = useMachines(api, Boolean(sessionMachineId))
+    const machineUsage = machines.find((machine) => machine.id === sessionMachineId)?.metadata?.usage
+    const usageSnapshot = ['openusage', 'cc-switch']
+        .flatMap((providerId) => machineUsage?.snapshots.find((snapshot) => snapshot.providerId === providerId) ?? [])
+        .at(0)
+    const usageLabel = session.metadata?.flavor === 'claude'
+        ? formatUsageSnapshotLabel(usageSnapshot, t('session.item.remaining'))
+        : null
 
     const [menuOpen, setMenuOpen] = useState(false)
     const [menuAnchorPoint, setMenuAnchorPoint] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
@@ -213,7 +223,9 @@ export function SessionHeader(props: {
                                 <AgentFlavorIcon flavor={session.metadata?.flavor} className="h-3.5 w-3.5 shrink-0" />
                                 {session.metadata?.flavor?.trim() || 'unknown'}
                             </span>
-                            {modelLabel ? (
+                            {usageLabel ? (
+                                <span>{usageLabel}</span>
+                            ) : modelLabel ? (
                                 <span>
                                     {t(modelLabel.key)}: {modelLabel.value}
                                 </span>
