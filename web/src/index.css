@@ -505,6 +505,29 @@ body {
     background-color: transparent !important;
 }
 
+@media (max-width: 639px) {
+    .aui-md-codeblock {
+        overflow-x: hidden;
+    }
+
+    .aui-md-codeblock-grid {
+        display: block;
+        width: 100%;
+        min-width: 0;
+    }
+
+    .aui-md-codeblock-gutter {
+        display: none;
+    }
+
+    .aui-md-codeblock .aui-md-codeblock-content,
+    .aui-md-codeblock .aui-md-codeblock-content code {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+    }
+}
+
 /* Shiki dual theme colors */
 .shiki,
 .shiki span {
