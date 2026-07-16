@@ -49,7 +49,15 @@ import type { Machine, CodexDuplicateSessionGroup, CodexLocalSessionSummary } fr
 import FilesPage from '@/routes/sessions/files'
 import FilePage from '@/routes/sessions/file'
 import TerminalPage from '@/routes/sessions/terminal'
-import SettingsPage from '@/routes/settings'
+import SettingsLayout from '@/routes/settings/layout'
+import SettingsHubPage from '@/routes/settings'
+import SettingsGeneralPage from '@/routes/settings/general'
+import SettingsDisplayPage from '@/routes/settings/display'
+import SettingsChatPage from '@/routes/settings/chat'
+import SettingsVoicePage from '@/routes/settings/voice'
+import SettingsVoiceVoicesPage from '@/routes/settings/voice-voices'
+import SettingsVoiceAdvancedPage from '@/routes/settings/voice-advanced'
+import SettingsAboutPage from '@/routes/settings/about'
 import SharePage from '@/routes/share'
 import { setSharePendingTransfer } from '@/lib/sharePendingState'
 import { deleteShareTransfer } from '@/lib/shareTransfer'
@@ -1241,7 +1249,55 @@ const browseRoute = createRoute({
 const settingsRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/settings',
-    component: SettingsPage,
+    component: SettingsLayout,
+})
+
+const settingsIndexRoute = createRoute({
+    getParentRoute: () => settingsRoute,
+    path: '/',
+    component: SettingsHubPage,
+})
+
+const settingsGeneralRoute = createRoute({
+    getParentRoute: () => settingsRoute,
+    path: 'general',
+    component: SettingsGeneralPage,
+})
+
+const settingsDisplayRoute = createRoute({
+    getParentRoute: () => settingsRoute,
+    path: 'display',
+    component: SettingsDisplayPage,
+})
+
+const settingsChatRoute = createRoute({
+    getParentRoute: () => settingsRoute,
+    path: 'chat',
+    component: SettingsChatPage,
+})
+
+const settingsVoiceRoute = createRoute({
+    getParentRoute: () => settingsRoute,
+    path: 'voice',
+    component: SettingsVoicePage,
+})
+
+const settingsVoiceVoicesRoute = createRoute({
+    getParentRoute: () => settingsRoute,
+    path: 'voice/voices',
+    component: SettingsVoiceVoicesPage,
+})
+
+const settingsVoiceAdvancedRoute = createRoute({
+    getParentRoute: () => settingsRoute,
+    path: 'voice/advanced',
+    component: SettingsVoiceAdvancedPage,
+})
+
+const settingsAboutRoute = createRoute({
+    getParentRoute: () => settingsRoute,
+    path: 'about',
+    component: SettingsAboutPage,
 })
 
 // Web Share Target landing route. Service worker (`web/src/sw.ts`)
@@ -1275,7 +1331,16 @@ export const routeTree = rootRoute.addChildren([
         ]),
     ]),
     browseRoute,
-    settingsRoute,
+    settingsRoute.addChildren([
+        settingsIndexRoute,
+        settingsGeneralRoute,
+        settingsDisplayRoute,
+        settingsChatRoute,
+        settingsVoiceRoute,
+        settingsVoiceVoicesRoute,
+        settingsVoiceAdvancedRoute,
+        settingsAboutRoute,
+    ]),
     shareRoute,
 ])
 

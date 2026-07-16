@@ -161,6 +161,7 @@ export function HappyComposer(props: {
      *  disambiguates when two providers share a modelId). */
     piSelectedModel?: { provider: string; modelId: string } | null
     availableModelReasoningEffortOptions?: Array<{ value: string; name?: string }>
+    availableEffortOptions?: Array<{ value: string; name?: string }>
     /** Cursor: selected base model key (not wire id). */
     selectedModelBase?: string | null
     /** Cursor: selected variant sku/wire for highlight when session stores an ACP wire id. */
@@ -233,6 +234,7 @@ export function HappyComposer(props: {
         piModels,
         piSelectedModel,
         availableModelReasoningEffortOptions,
+        availableEffortOptions,
         selectedModelBase,
         selectedModelVariant,
         modelEffortOptions,
@@ -483,7 +485,7 @@ export function HappyComposer(props: {
             ? getCodexComposerReasoningEffortOptions(
                 modelReasoningEffort,
                 agentFlavor,
-                agentFlavor === 'opencode' ? availableModelReasoningEffortOptions : undefined
+                availableModelReasoningEffortOptions
             )
             : [],
         [agentFlavor, modelReasoningEffort, availableModelReasoningEffortOptions]
@@ -520,8 +522,16 @@ export function HappyComposer(props: {
     const claudeEffortOptions = useMemo(
         () => agentFlavor === 'pi'
             ? getPiThinkingLevelOptions(effort, selectedPiModel?.thinkingLevelMap)
+            : agentFlavor === 'grok' && availableEffortOptions && availableEffortOptions.length > 0
+                ? [
+                    { value: null, label: 'Default' },
+                    ...availableEffortOptions.map((option) => ({
+                        value: option.value,
+                        label: option.name ?? option.value
+                    }))
+                ]
             : getClaudeComposerEffortOptions(effort),
-        [agentFlavor, effort, selectedPiModel]
+        [agentFlavor, effort, selectedPiModel, availableEffortOptions]
     )
     const permissionModes = useMemo(
         () => permissionModeOptions.map((option) => option.mode),

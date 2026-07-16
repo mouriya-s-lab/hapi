@@ -121,6 +121,20 @@ describe('codexCommand', () => {
         }
     })
 
+    it('accepts and normalizes a dynamic model reasoning effort', async () => {
+        await codexCommand.run(createCommandContext([
+            '--started-by',
+            'runner',
+            '--model-reasoning-effort',
+            ' EXTREME '
+        ]))
+
+        expect(runCodexMock).toHaveBeenCalledWith({
+            startedBy: 'runner',
+            modelReasoningEffort: 'extreme'
+        })
+    })
+
     it('prints the upgrade error and exits when the local version check fails', async () => {
         const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
         const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {

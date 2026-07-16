@@ -13,6 +13,8 @@ import type {
     FileWriteResponse,
     GeneratedFileResponse,
     GeneratedImageResponse,
+    GrokModelsResponse,
+    GrokReasoningEffortResponse,
     ListCcSwitchProvidersResponse,
     ValidateCcSwitchProviderResponse,
     ListDirectoryResponse,
@@ -70,6 +72,8 @@ export type RpcCursorModel = CursorModelSummary
 export type RpcListCursorModelsResponse = CursorModelsResponse
 export type RpcOpencodeModel = OpencodeModelSummary
 export type RpcListOpencodeModelsResponse = OpencodeModelsResponse
+export type RpcListGrokModelsResponse = GrokModelsResponse
+export type RpcListGrokReasoningEffortOptionsResponse = GrokReasoningEffortResponse
 export type RpcListOpencodeReasoningEffortOptionsResponse = OpencodeReasoningEffortResponse
 
 export class RpcGateway {
@@ -342,6 +346,18 @@ export class RpcGateway {
 
     async listOpencodeModelsForCwd(machineId: string, cwd: string): Promise<RpcListOpencodeModelsResponse> {
         return await this.machineRpc(machineId, RPC_METHODS.ListOpencodeModelsForCwd, { cwd }) as RpcListOpencodeModelsResponse
+    }
+
+    async listGrokModelsForCwd(machineId: string, cwd: string): Promise<RpcListGrokModelsResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ListGrokModelsForCwd, { cwd }) as RpcListGrokModelsResponse
+    }
+
+    async listGrokModelsForSession(sessionId: string): Promise<RpcListGrokModelsResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.ListGrokModels, {}) as RpcListGrokModelsResponse
+    }
+
+    async listGrokReasoningEffortOptionsForSession(sessionId: string): Promise<RpcListGrokReasoningEffortOptionsResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.ListGrokReasoningEffortOptions, {}) as RpcListGrokReasoningEffortOptionsResponse
     }
 
     /** Generic Pi RPC call — routes all Pi-specific session RPCs through

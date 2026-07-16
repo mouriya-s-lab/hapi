@@ -38,6 +38,7 @@ export const MetadataSchema = z.object({
     codexSessionId: z.string().optional(),
     geminiSessionId: z.string().optional(),
     opencodeSessionId: z.string().optional(),
+    grokSessionId: z.string().optional(),
     cursorSessionId: z.string().optional(),
     cursorSessionProtocol: z.enum(['acp', 'stream-json']).optional(),
     // Drives the web `CursorMigrationBanner`:
@@ -232,7 +233,8 @@ export const SessionSchema = z.object({
     createdAt: z.number(),
     updatedAt: z.number(),
     active: z.boolean(),
-    activeAt: z.number(),
+    // Hub may still emit null for legacy SQLite rows; keep output type number.
+    activeAt: z.number().nullish().transform((value) => value ?? 0),
     metadata: MetadataSchema.nullable(),
     metadataVersion: z.number(),
     agentState: AgentStateSchema.nullable(),

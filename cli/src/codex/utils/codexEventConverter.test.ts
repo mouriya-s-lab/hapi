@@ -2,6 +2,23 @@ import { describe, expect, it } from 'vitest';
 import { convertCodexEvent } from './codexEventConverter';
 
 describe('convertCodexEvent', () => {
+    it('converts compacted transcript records into expandable compact summaries', () => {
+        const result = convertCodexEvent({
+            type: 'compacted',
+            payload: { message: '  ## Handoff Summary\n\n- Continue here.  ' }
+        });
+
+        expect(result?.message).toMatchObject({
+            type: 'compact_summary',
+            summary: '## Handoff Summary\n\n- Continue here.'
+        });
+    });
+
+    it.each([{ message: '' }, { message: '   ' }, { message: 42 }, {}])(
+        'ignores compacted records without summary text: %j',
+        (payload) => expect(convertCodexEvent({ type: 'compacted', payload })).toBeNull()
+    );
+
     it('extracts session_meta id', () => {
         const result = convertCodexEvent({
             type: 'session_meta',

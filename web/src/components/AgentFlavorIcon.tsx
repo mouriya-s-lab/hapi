@@ -19,6 +19,10 @@ const FLAVOR_BADGES: Record<string, { label: string; colors: string }> = {
         label: 'Km',
         colors: 'bg-[#7c3aed] text-white',
     },
+    grok: {
+        label: 'Gr',
+        colors: 'bg-[#111111] text-white',
+    },
     pi: {
         label: 'Pi',
         colors: 'bg-[#5b21b6] text-white',

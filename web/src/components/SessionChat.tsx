@@ -22,6 +22,10 @@ import { buildConversationOutline } from '@/chat/outline'
 import { buildVisibleChatBlocks, isToolGroupBlock, type ToolGroupBlock } from '@/chat/toolGroups'
 import { isQueuedForInvocation, mergeMessages } from '@/lib/messages'
 import { inactiveSessionCanResume } from '@/lib/sessionResume'
+import {
+    getCodexModelReasoningEfforts,
+    supportsCodexReasoningEffort
+} from '@/lib/codexModelCapabilities'
 import { HappyComposer, type ComposerSendError } from '@/components/AssistantChat/HappyComposer'
 import { codexModelAdvertisesFastTier } from '@/components/AssistantChat/codexFastMode'
 import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
@@ -63,11 +67,40 @@ import {
 } from '@/lib/sessionChatCursorModel'
 import { buildCursorEffortPickerOptions, resolveCursorVariantOptions } from '@/lib/cursorModelOptions'
 import { useOpencodeModels } from '@/hooks/queries/useOpencodeModels'
+import { useGrokModels } from '@/hooks/queries/useGrokModels'
+import { useGrokReasoningEffortOptions } from '@/hooks/queries/useGrokReasoningEffortOptions'
 import { usePiModels } from '@/hooks/queries/usePiModels'
 import { useOpencodeReasoningEffortOptions } from '@/hooks/queries/useOpencodeReasoningEffortOptions'
 import { useVoiceOptional } from '@/lib/voice-context'
 import { VoiceBackendSession, registerSessionStore, registerVoiceHooksStore, voiceHooks } from '@/realtime'
 import { isRemoteTerminalSupported } from '@/utils/terminalSupport'
+
+type SessionModelSelection = { provider: string; modelId: string } | string | null
+
+export async function applyModelChangeWithReasoningRollback(args: {
+    model: SessionModelSelection
+    previousModelReasoningEffort: string | null
+    shouldClearReasoningEffort: boolean
+    setModel: (model: SessionModelSelection) => Promise<void>
+    setModelReasoningEffort: (effort: string | null) => Promise<void>
+}): Promise<void> {
+    let clearedReasoningEffort = false
+
+    try {
+        if (args.shouldClearReasoningEffort) {
+            await args.setModelReasoningEffort(null)
+            clearedReasoningEffort = true
+        }
+        await args.setModel(args.model)
+    } catch (error) {
+        if (clearedReasoningEffort && args.previousModelReasoningEffort) {
+            await args.setModelReasoningEffort(args.previousModelReasoningEffort).catch((restoreError) => {
+                console.error('Failed to restore model reasoning effort:', restoreError)
+            })
+        }
+        throw error
+    }
+}
 
 /**
  * Returns whether a PendingSchedule should trigger an auto-clear timer.
@@ -533,6 +566,16 @@ function SessionChatInner(props: SessionChatProps) {
         }
         return options
     }, [agentFlavor, codexModelsState.models])
+    const codexSupportedReasoningEfforts = useMemo(
+        () => agentFlavor === 'codex'
+            ? getCodexModelReasoningEfforts(codexModelsState.models, props.session.model)
+            : undefined,
+        [agentFlavor, codexModelsState.models, props.session.model]
+    )
+    const codexReasoningEffortOptions = useMemo(
+        () => codexSupportedReasoningEfforts?.map((value) => ({ value })),
+        [codexSupportedReasoningEfforts]
+    )
     const opencodeModelsState = useOpencodeModels({
         api: props.api,
         sessionId: props.session.id,
@@ -553,6 +596,27 @@ function SessionChatInner(props: SessionChatProps) {
             label: opencodeModel.name ?? opencodeModel.modelId
         }))
     }, [agentFlavor, opencodeModelsState.availableModels])
+    const grokModelsState = useGrokModels({
+        api: props.api,
+        sessionId: props.session.id,
+        enabled: agentFlavor === 'grok' && props.session.active && !controlledByUser
+    })
+    const grokEffortState = useGrokReasoningEffortOptions({
+        api: props.api,
+        sessionId: props.session.id,
+        enabled: agentFlavor === 'grok' && props.session.active && !controlledByUser
+    })
+    const grokModelOptions = useMemo(() => (
+        agentFlavor === 'grok'
+            ? [
+                { value: null, label: 'Default' },
+                ...grokModelsState.availableModels.map((model) => ({
+                    value: model.modelId,
+                    label: model.name ?? model.modelId
+                }))
+            ]
+            : undefined
+    ), [agentFlavor, grokModelsState.availableModels])
     const cursorModelsState = useCursorModels({
         api: props.api,
         sessionId: props.session.id,
@@ -980,16 +1044,39 @@ function SessionChatInner(props: SessionChatProps) {
     }, [setCollaborationMode, props.onRefresh, haptic])
 
     // Model mode change handler
-    const handleModelChange = useCallback(async (model: { provider: string; modelId: string } | string | null) => {
+    const handleModelChange = useCallback(async (model: SessionModelSelection) => {
+        const previousModelReasoningEffort = props.session.modelReasoningEffort
+        const shouldClearReasoningEffort = agentFlavor === 'codex'
+            && Boolean(previousModelReasoningEffort)
+            && supportsCodexReasoningEffort(
+                codexModelsState.models,
+                model,
+                previousModelReasoningEffort
+            ) === false
+
         try {
-            await setModel(model)
+            await applyModelChangeWithReasoningRollback({
+                model,
+                previousModelReasoningEffort,
+                shouldClearReasoningEffort,
+                setModel,
+                setModelReasoningEffort
+            })
             haptic.notification('success')
             props.onRefresh()
         } catch (e) {
             haptic.notification('error')
             console.error('Failed to set model:', e)
         }
-    }, [setModel, props.onRefresh, haptic])
+    }, [
+        agentFlavor,
+        codexModelsState.models,
+        props.session.modelReasoningEffort,
+        setModelReasoningEffort,
+        setModel,
+        props.onRefresh,
+        haptic
+    ])
 
     const handleResumeWithSessionModelChange = useCallback(async (enabled: boolean) => {
         try {
@@ -1316,6 +1403,8 @@ function SessionChatInner(props: SessionChatProps) {
                                     )
                                     : (agentFlavor === 'opencode' || agentFlavor === 'omp')
                                         ? opencodeModelOptions
+                                        : agentFlavor === 'grok'
+                                            ? grokModelOptions
                                         // Pi uses its own provider-qualified picker (piModels prop).
                                         // Feeding piModelOptions here would make the generic Ctrl/Cmd+M
                                         // cycler (getNextModelForFlavor) post a bare modelId string,
@@ -1327,8 +1416,15 @@ function SessionChatInner(props: SessionChatProps) {
                         piModels={agentFlavor === 'pi' ? (piModelsState.availableModels.length > 0 ? piModelsState.availableModels : piCachedModels) : undefined}
                         piSelectedModel={agentFlavor === 'pi' ? piSelectedModel : undefined}
                         availableModelReasoningEffortOptions={
-                            agentFlavor === 'opencode' && opencodeReasoningEffortState.options.length > 0
-                                ? opencodeReasoningEffortState.options
+                            agentFlavor === 'codex'
+                                ? codexReasoningEffortOptions
+                                : agentFlavor === 'opencode' && opencodeReasoningEffortState.options.length > 0
+                                    ? opencodeReasoningEffortState.options
+                                    : undefined
+                        }
+                        availableEffortOptions={
+                            agentFlavor === 'grok' && grokEffortState.options.length > 0
+                                ? grokEffortState.options
                                 : undefined
                         }
                         active={props.session.active}
@@ -1386,6 +1482,10 @@ function SessionChatInner(props: SessionChatProps) {
                                         : undefined)
                                     : agentFlavor === 'pi'
                                         ? (props.session.active && !piModelsState.error ? handleModelChange : undefined)
+                                        : agentFlavor === 'grok'
+                                            ? (props.session.active && !controlledByUser && !grokModelsState.error
+                                                ? handleModelChange
+                                                : undefined)
                                         : handleModelChange
                         }
                         onResumeWithSessionModelChange={agentFlavor === 'claude' ? handleResumeWithSessionModelChange : undefined}
@@ -1406,7 +1506,13 @@ function SessionChatInner(props: SessionChatProps) {
                                 ? handleModelReasoningEffortChange
                                 : undefined
                         }
-                        onEffortChange={handleEffortChange}
+                        onEffortChange={
+                            agentFlavor === 'grok'
+                                ? (props.session.active && !controlledByUser && grokEffortState.options.length > 0
+                                    ? handleEffortChange
+                                    : undefined)
+                                : handleEffortChange
+                        }
                         serviceTier={agentFlavor === 'codex' ? props.session.serviceTier : undefined}
                         onServiceTierChange={
                             agentFlavor === 'codex'
