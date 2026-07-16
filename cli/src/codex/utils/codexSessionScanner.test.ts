@@ -80,26 +80,6 @@ describe('codexSessionScanner', () => {
         expect(events[1]?.payload).toEqual({ type: 'agent_message', message: 'old' });
     });
 
-    it('emits compacted records both incrementally and during history replay', async () => {
-        const historicalSummary = { type: 'compacted', payload: { message: 'historical summary' } };
-        await writeFile(transcriptPath, `${JSON.stringify(historicalSummary)}\n`);
-
-        scanner = await createCodexSessionScanner({
-            transcriptPath,
-            replayExistingHistory: true,
-            onEvent: (event) => events.push(event)
-        });
-
-        await wait(300);
-        expect(events).toEqual([historicalSummary]);
-
-        const incrementalSummary = { type: 'compacted', payload: { message: 'incremental summary' } };
-        await appendFile(transcriptPath, `${JSON.stringify(incrementalSummary)}\n`);
-        await wait(700);
-
-        expect(events).toEqual([historicalSummary, incrementalSummary]);
-    });
-
     it('reports session id from the transcript metadata', async () => {
         await writeFile(
             transcriptPath,

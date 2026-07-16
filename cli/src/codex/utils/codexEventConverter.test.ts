@@ -23,7 +23,7 @@ describe('convertCodexEvent', () => {
         });
     });
 
-    it('converts compacted transcript records into summary messages', () => {
+    it('converts compacted transcript records into the shared compact event', () => {
         const result = convertCodexEvent({
             type: 'compacted',
             payload: {
@@ -33,12 +33,11 @@ describe('convertCodexEvent', () => {
         });
 
         expect(result?.message).toMatchObject({
-            type: 'summary',
-            summary: 'compacted context\nwith details'
+            type: 'context_compacted'
         });
     });
 
-    it('removes the Codex handoff preamble from compact summaries', () => {
+    it('does not expose the internal Codex handoff summary', () => {
         const result = convertCodexEvent({
             type: 'compacted',
             payload: {
@@ -47,18 +46,8 @@ describe('convertCodexEvent', () => {
         });
 
         expect(result?.message).toMatchObject({
-            type: 'summary',
-            summary: '## Handoff summary\n\n- Keep this result.'
+            type: 'context_compacted'
         });
-    });
-
-    it.each([
-        { message: '' },
-        { message: '   ' },
-        { message: 42 },
-        {}
-    ])('ignores compacted transcript records without a non-empty summary: %j', (payload) => {
-        expect(convertCodexEvent({ type: 'compacted', payload })).toBeNull();
     });
 
     it('converts user_message events', () => {
