@@ -688,6 +688,18 @@ export function normalizeAgentRecord(
             }
         }
 
+        if (data.type === 'compact_summary' && typeof data.summary === 'string' && data.summary.trim().length > 0) {
+            return {
+                id: messageId,
+                localId,
+                createdAt,
+                role: 'event',
+                content: { type: 'compact-summary', summary: data.summary.trim() },
+                isSidechain: false,
+                meta
+            }
+        }
+
         if (data.type === 'token_count') {
             const usage = normalizeCodexTokenUsage(data.info, data)
             return usage ? {
