@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { buildCliArgs } from './run'
 
 describe('buildCliArgs', () => {
+    it('marks provider resume as a history import', () => {
+        expect(buildCliArgs('codex', { directory: '/work', resumeSessionId: 'thread-1', historyImport: true })).toContain('--history-import')
+    })
     it('adds --permission-mode for valid permission mode', () => {
         const args = buildCliArgs('claude', {
             directory: '/tmp',

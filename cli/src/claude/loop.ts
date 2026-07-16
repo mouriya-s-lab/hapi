@@ -43,6 +43,7 @@ interface LoopOptions {
     hookSettingsPath: string
     resumeSessionId?: string
     replayTranscriptHistoryOnStart?: boolean
+    historyImport?: boolean
 }
 
 export async function loop(opts: LoopOptions) {
@@ -73,14 +74,37 @@ export async function loop(opts: LoopOptions) {
     });
 
     if (opts.replayTranscriptHistoryOnStart && session.sessionId) {
-        session.onSessionFound(session.sessionId);
-        const replay = await createSessionScanner({
-            sessionId: session.sessionId,
-            workingDirectory: session.path,
-            replayExistingHistory: true,
-            onMessage: (message) => sendClaudeTranscriptMessage(session, message)
-        });
-        await replay.cleanup();
+        const externalSessionId = session.sessionId;
+        session.onSessionFound(externalSessionId, opts.historyImport ? {
+            historyImport: { type: 'importing', provider: 'claude', externalSessionId, startedAt: Date.now() }
+        } : undefined);
+        let messageCount = 0;
+        try {
+            const replay = await createSessionScanner({
+                sessionId: externalSessionId,
+                workingDirectory: session.path,
+                replayExistingHistory: true,
+                onMessage: (message) => { if (sendClaudeTranscriptMessage(session, message)) messageCount += 1 }
+            });
+            await replay.cleanup();
+            if (opts.historyImport) {
+                session.client.updateMetadata((metadata) => ({
+                    ...metadata,
+                    historyImport: { type: 'completed', provider: 'claude', externalSessionId, completedAt: Date.now(), messageCount }
+                }));
+                await session.client.flushMetadata();
+                return;
+            }
+        } catch (error) {
+            if (opts.historyImport) {
+                session.client.updateMetadata((metadata) => ({
+                    ...metadata,
+                    historyImport: { type: 'failed', provider: 'claude', externalSessionId, failedAt: Date.now(), error: error instanceof Error ? error.message : String(error) }
+                }));
+                await session.client.flushMetadata();
+            }
+            throw error;
+        }
     }
 
     await runLocalRemoteSession({

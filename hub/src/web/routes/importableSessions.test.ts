@@ -29,7 +29,7 @@ describe('importable session routes', () => {
                 nextCursor: null
                 })
             },
-            getSessionsByNamespace: () => [{ id: 'hapi-1', metadata: { codexSessionId: 'thread-1' } }] as never
+            getSessionsByNamespace: () => [{ id: 'hapi-1', metadata: { machineId: 'machine-1', historyImport: { type: 'completed', provider: 'codex', externalSessionId: 'thread-1', completedAt: 1, messageCount: 1 } } }] as never
         })
         const response = await app.request('/api/machines/machine-1/importable-sessions?provider=codex&cwd=%2Fwork&query=needle&cursor=next')
         expect(response.status).toBe(200)
@@ -44,7 +44,7 @@ describe('importable session routes', () => {
         let spawned = false
         const app = appFor({
             getMachine: () => machine,
-            getSessionsByNamespace: () => [{ id: 'hapi-1', metadata: { claudeSessionId: '11111111-1111-4111-8111-111111111111' } }] as never,
+            getSessionsByNamespace: () => [{ id: 'hapi-1', metadata: { machineId: 'machine-1', historyImport: { type: 'completed', provider: 'claude', externalSessionId: '11111111-1111-4111-8111-111111111111', completedAt: 1, messageCount: 1 } } }] as never,
             spawnSession: async () => { spawned = true; return { type: 'success', sessionId: 'new' } }
         })
         const response = await app.request('/api/machines/machine-1/importable-sessions/claude/11111111-1111-4111-8111-111111111111', { method: 'POST' })
@@ -61,7 +61,7 @@ describe('importable session routes', () => {
                 type: 'success',
                 session: { provider: 'claude', externalSessionId: '11111111-1111-4111-8111-111111111111', cwd: '/work', title: 'Title', preview: null, updatedAt: 1 }
             }),
-            getSession: () => ({ active: true, metadata: { claudeSessionId: '11111111-1111-4111-8111-111111111111' } }) as never,
+            getSession: () => ({ active: false, metadata: { historyImport: { type: 'completed', provider: 'claude', externalSessionId: '11111111-1111-4111-8111-111111111111', completedAt: 1, messageCount: 1 } } }) as never,
             spawnSession: async (...args: unknown[]) => { calls.push(args); return { type: 'success', sessionId: 'new-hapi' } }
         })
         const response = await app.request('/api/machines/machine-1/importable-sessions/claude/11111111-1111-4111-8111-111111111111', { method: 'POST' })
@@ -69,6 +69,7 @@ describe('importable session routes', () => {
         expect(calls[0]?.[0]).toBe('machine-1')
         expect(calls[0]?.[1]).toBe('/work')
         expect(calls[0]?.[8]).toBe('11111111-1111-4111-8111-111111111111')
+        expect(calls[0]?.[14]).toBe(true)
     })
 
     it('coalesces concurrent imports of the same provider session', async () => {
@@ -85,7 +86,7 @@ describe('importable session routes', () => {
                     session: { provider: 'codex', externalSessionId: '11111111-1111-4111-8111-111111111111', cwd: '/work', title: 'Title', preview: null, updatedAt: 1 }
                 }
             },
-            getSession: () => ({ active: true, metadata: { codexSessionId: '11111111-1111-4111-8111-111111111111' } }) as never,
+            getSession: () => ({ active: false, metadata: { historyImport: { type: 'completed', provider: 'codex', externalSessionId: '11111111-1111-4111-8111-111111111111', completedAt: 1, messageCount: 1 } } }) as never,
             spawnSession: async () => { spawned += 1; return { type: 'success', sessionId: 'new-hapi' } }
         })
         const url = '/api/machines/machine-1/importable-sessions/codex/11111111-1111-4111-8111-111111111111'
@@ -108,5 +109,34 @@ describe('importable session routes', () => {
 
         expect(response.status).toBe(400)
         expect(resolved).toBe(false)
+    })
+
+    it('does not reuse an import from another machine', async () => {
+        let spawned = 0
+        const externalSessionId = '11111111-1111-4111-8111-111111111111'
+        const app = appFor({
+            getMachine: () => machine,
+            getSessionsByNamespace: () => [{ id: 'other-machine', metadata: { machineId: 'machine-2', historyImport: { type: 'completed', provider: 'codex', externalSessionId, completedAt: 1, messageCount: 1 } } }] as never,
+            resolveImportableSessionForMachine: async () => ({ type: 'success', session: { provider: 'codex', externalSessionId, cwd: '/work', title: 'Title', preview: null, updatedAt: 1 } }),
+            spawnSession: async () => { spawned += 1; return { type: 'success', sessionId: 'machine-1-import' } },
+            getSession: () => ({ active: false, metadata: { historyImport: { type: 'completed', provider: 'codex', externalSessionId, completedAt: 2, messageCount: 1 } } }) as never
+        })
+        const response = await app.request(`/api/machines/machine-1/importable-sessions/codex/${externalSessionId}`, { method: 'POST' })
+        expect(await response.json()).toEqual({ type: 'success', sessionId: 'machine-1-import', alreadyImported: false })
+        expect(spawned).toBe(1)
+    })
+
+    it('surfaces replay failure instead of marking a partial session imported', async () => {
+        const externalSessionId = '11111111-1111-4111-8111-111111111111'
+        const app = appFor({
+            getMachine: () => machine,
+            getSessionsByNamespace: () => [] as never,
+            resolveImportableSessionForMachine: async () => ({ type: 'success', session: { provider: 'claude', externalSessionId, cwd: '/work', title: 'Title', preview: null, updatedAt: 1 } }),
+            spawnSession: async () => ({ type: 'success', sessionId: 'partial' }),
+            getSession: () => ({ active: false, metadata: { historyImport: { type: 'failed', provider: 'claude', externalSessionId, failedAt: 2, error: 'invalid transcript' } } }) as never
+        })
+        const response = await app.request(`/api/machines/machine-1/importable-sessions/claude/${externalSessionId}`, { method: 'POST' })
+        expect(response.status).toBe(500)
+        expect(await response.json()).toEqual({ type: 'error', error: 'invalid transcript' })
     })
 })

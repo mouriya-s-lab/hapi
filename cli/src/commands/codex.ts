@@ -34,6 +34,7 @@ export const codexCommand: CommandDefinition = {
                 model?: string
                 modelReasoningEffort?: ReasoningEffort
                 serviceTier?: string
+                historyImport?: boolean
             } = {}
             const unknownArgs: string[] = []
             let hasExplicitPermissionMode = false
@@ -51,6 +52,8 @@ export const codexCommand: CommandDefinition = {
                 }
                 if (arg === '--started-by') {
                     options.startedBy = commandArgs[++i] as 'runner' | 'terminal'
+                } else if (arg === '--history-import') {
+                    options.historyImport = true
                 } else if (arg === '--permission-mode') {
                     const mode = commandArgs[++i]
                     if (!mode || !(CODEX_PERMISSION_MODES as readonly string[]).includes(mode)) {

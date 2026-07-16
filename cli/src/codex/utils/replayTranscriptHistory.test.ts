@@ -25,9 +25,10 @@ describe('replayCodexTranscriptHistory', () => {
             sendAgentMessage: (value: unknown) => agents.push(value)
         } as unknown as CodexSession
 
-        await replayCodexTranscriptHistory(path, session)
+        const messageCount = await replayCodexTranscriptHistory(path, session)
 
         expect(users).toEqual(['real prompt'])
         expect(agents).toHaveLength(1)
+        expect(messageCount).toBe(2)
     })
 })

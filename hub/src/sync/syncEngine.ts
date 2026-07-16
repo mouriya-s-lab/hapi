@@ -826,7 +826,8 @@ export class SyncEngine {
         permissionMode?: PermissionMode,
         serviceTier?: string,
         claudeLaunch?: ClaudeLaunch,
-        ccSwitchProviderId?: string
+        ccSwitchProviderId?: string,
+        historyImport?: boolean
     ): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }> {
         return await this.rpcGateway.spawnSession(
             machineId,
@@ -842,7 +843,8 @@ export class SyncEngine {
             permissionMode,
             serviceTier,
             claudeLaunch,
-            ccSwitchProviderId
+            ccSwitchProviderId,
+            historyImport
         )
     }
 

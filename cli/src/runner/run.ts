@@ -1128,6 +1128,9 @@ export function buildCliArgs(
       args.push('--resume', options.resumeSessionId);
     }
   }
+  if (options.historyImport) {
+    args.push('--history-import');
+  }
   args.push('--hapi-starting-mode', 'remote', '--started-by', 'runner');
   if (options.model) {
     args.push('--model', options.model);

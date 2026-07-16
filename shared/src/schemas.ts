@@ -15,6 +15,17 @@ const SessionCapabilitiesSchema = z.object({
     terminal: z.boolean().optional()
 })
 
+const HistoryImportSourceSchema = z.object({
+    provider: z.enum(['claude', 'codex']),
+    externalSessionId: z.string()
+})
+
+const HistoryImportSchema = z.discriminatedUnion('type', [
+    HistoryImportSourceSchema.extend({ type: z.literal('importing'), startedAt: z.number() }),
+    HistoryImportSourceSchema.extend({ type: z.literal('completed'), completedAt: z.number(), messageCount: z.number().int().nonnegative() }),
+    HistoryImportSourceSchema.extend({ type: z.literal('failed'), failedAt: z.number(), error: z.string() })
+])
+
 export const WorktreeMetadataSchema = z.object({
     basePath: z.string(),
     branch: z.string(),
@@ -33,6 +44,7 @@ export const MetadataSchema = z.object({
     os: z.string().optional(),
     summary: MetadataSummarySchema.optional(),
     machineId: z.string().optional(),
+    historyImport: HistoryImportSchema.optional(),
     ccSwitchProviderId: z.string().optional(),
     claudeSessionId: z.string().optional(),
     codexSessionId: z.string().optional(),

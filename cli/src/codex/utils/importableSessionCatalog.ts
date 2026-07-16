@@ -66,8 +66,7 @@ export async function resolveImportableCodexSession(externalSessionId: string) {
         await client.connect()
         await client.initialize({ clientInfo: { name: 'hapi-importable-sessions', version: '1.0.0' }, capabilities: { experimentalApi: true } })
         const response = await client.readThreadMetadata(externalSessionId)
-        const thread = response.thread as typeof response.thread & { name?: string | null; preview?: string | null; updatedAt?: number; parentThreadId?: string | null }
-        if (thread.parentThreadId) return null
+        const thread = response.thread as typeof response.thread & { name?: string | null; preview?: string | null; updatedAt?: number }
         return {
             provider: 'codex' as const,
             externalSessionId: thread.id,

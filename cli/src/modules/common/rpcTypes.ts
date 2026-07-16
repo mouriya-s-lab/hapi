@@ -18,6 +18,7 @@ export interface SpawnSessionOptions {
     worktreeName?: string
     claudeLaunch?: ClaudeLaunch
     ccSwitchProviderId?: string
+    historyImport?: boolean
 }
 
 export type SpawnSessionResult =

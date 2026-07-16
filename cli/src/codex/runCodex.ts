@@ -34,6 +34,7 @@ export async function runCodex(opts: {
     collaborationMode?: EnhancedMode['collaborationMode'];
     existingSessionId?: string;
     workingDirectory?: string;
+    historyImport?: boolean;
 }): Promise<void> {
     const workingDirectory = opts.workingDirectory ?? getInvokedCwd();
     const startedBy = opts.startedBy ?? 'terminal';
@@ -402,6 +403,7 @@ export async function runCodex(opts: {
             collaborationMode: currentCollaborationMode,
             resumeSessionId: opts.resumeSessionId,
             replayTranscriptHistoryOnStart,
+            historyImport: opts.historyImport ?? false,
             onModeChange: createModeChangeHandler(session),
             onSessionReady: (instance) => {
                 sessionWrapperRef.current = instance;

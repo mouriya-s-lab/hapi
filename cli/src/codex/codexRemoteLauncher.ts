@@ -3380,12 +3380,34 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
         };
 
         if (session.replayTranscriptHistoryOnStart && session.sessionId) {
-            session.onSessionFound(session.sessionId);
-            const history = await appServerClient.readThreadMetadata(session.sessionId);
-            const thread = asRecord(history.thread);
-            const transcriptPath = asString(thread?.path);
-            if (!transcriptPath) throw new Error(`Codex thread ${session.sessionId} has no transcript path`);
-            await replayCodexTranscriptHistory(transcriptPath, session);
+            const externalSessionId = session.sessionId;
+            session.onSessionFound(externalSessionId, session.historyImport ? {
+                historyImport: { type: 'importing', provider: 'codex', externalSessionId, startedAt: Date.now() }
+            } : undefined);
+            try {
+                const history = await appServerClient.readThreadMetadata(externalSessionId);
+                const thread = asRecord(history.thread);
+                const transcriptPath = asString(thread?.path);
+                if (!transcriptPath) throw new Error(`Codex thread ${externalSessionId} has no transcript path`);
+                const messageCount = await replayCodexTranscriptHistory(transcriptPath, session);
+                if (session.historyImport) {
+                    session.client.updateMetadata((metadata) => ({
+                        ...metadata,
+                        historyImport: { type: 'completed', provider: 'codex', externalSessionId, completedAt: Date.now(), messageCount }
+                    }));
+                    await session.client.flushMetadata();
+                    return;
+                }
+            } catch (error) {
+                if (session.historyImport) {
+                    session.client.updateMetadata((metadata) => ({
+                        ...metadata,
+                        historyImport: { type: 'failed', provider: 'codex', externalSessionId, failedAt: Date.now(), error: error instanceof Error ? error.message : String(error) }
+                    }));
+                    await session.client.flushMetadata();
+                }
+                throw error;
+            }
         }
 
         while (!this.shouldExit) {

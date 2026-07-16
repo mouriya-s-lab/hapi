@@ -35,6 +35,7 @@ export interface StartOptions {
     existingSessionId?: string
     workingDirectory?: string
     resumeSessionId?: string
+    historyImport?: boolean
 }
 
 export async function runClaude(options: StartOptions = {}): Promise<void> {
@@ -438,6 +439,7 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
             startedBy,
             resumeSessionId: options.resumeSessionId,
             replayTranscriptHistoryOnStart: Boolean(options.resumeSessionId && !options.existingSessionId),
+            historyImport: options.historyImport ?? false,
             hookSettingsPath
         });
     } catch (error) {

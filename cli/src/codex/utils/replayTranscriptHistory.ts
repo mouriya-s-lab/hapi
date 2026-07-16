@@ -10,9 +10,10 @@ function isSyntheticUserMessage(value: string): boolean {
         || text.startsWith('<user_instructions>')
 }
 
-export async function replayCodexTranscriptHistory(path: string, session: CodexSession): Promise<void> {
+export async function replayCodexTranscriptHistory(path: string, session: CodexSession): Promise<number> {
     const input = createReadStream(path, { encoding: 'utf8' })
     const lines = createInterface({ input, crlfDelay: Infinity })
+    let messageCount = 0
     try {
         for await (const line of lines) {
             if (!line.trim()) continue
@@ -26,11 +27,12 @@ export async function replayCodexTranscriptHistory(path: string, session: CodexS
                 payload: record.payload
             }
             const converted = convertCodexEvent(event)
-            if (converted?.userMessage && !isSyntheticUserMessage(converted.userMessage)) session.sendUserMessage(converted.userMessage)
-            if (converted?.message) session.sendAgentMessage(converted.message)
+            if (converted?.userMessage && !isSyntheticUserMessage(converted.userMessage)) { session.sendUserMessage(converted.userMessage); messageCount += 1 }
+            if (converted?.message) { session.sendAgentMessage(converted.message); messageCount += 1 }
         }
     } finally {
         lines.close()
         input.destroy()
     }
+    return messageCount
 }
