@@ -61,6 +61,7 @@ import SettingsAboutPage from '@/routes/settings/about'
 import SharePage from '@/routes/share'
 import { setSharePendingTransfer } from '@/lib/sharePendingState'
 import { deleteShareTransfer } from '@/lib/shareTransfer'
+import AdminPage from '@/fork-features/multi-user/AdminPage'
 
 function BackIcon(props: { className?: string }) {
     return (
@@ -168,7 +169,7 @@ function getMachineTitle(machine: Machine): string {
 }
 
 function SessionsPage() {
-    const { api } = useAppContext()
+    const { api, user } = useAppContext()
     const navigate = useNavigate()
     const queryClient = useQueryClient()
     const pathname = useLocation({ select: location => location.pathname })
@@ -501,6 +502,12 @@ function SessionsPage() {
                             {t('sessions.count', { n: visibleSessions.length, m: projectCount })}
                         </div>
                         <div className="flex items-center gap-2">
+                            {user.role === 'admin' && <button
+                                type="button"
+                                onClick={() => navigate({ to: '/admin' })}
+                                className="rounded-full px-2 py-1 text-xs text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)]"
+                                title="管理面板"
+                            >管理</button>}
                             <button
                                 type="button"
                                 onClick={() => void openCodexImportDialog()}
@@ -1252,6 +1259,12 @@ const settingsRoute = createRoute({
     component: SettingsLayout,
 })
 
+const adminRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/admin',
+    component: AdminPage,
+})
+
 const settingsIndexRoute = createRoute({
     getParentRoute: () => settingsRoute,
     path: '/',
@@ -1331,6 +1344,7 @@ export const routeTree = rootRoute.addChildren([
         ]),
     ]),
     browseRoute,
+    adminRoute,
     settingsRoute.addChildren([
         settingsIndexRoute,
         settingsGeneralRoute,

@@ -6,6 +6,31 @@ remove if upstream provided a native register API or the feature is obsolete.
 
 Rule reference: `~/.claude/rules/fork-customization-placement.rule.md`.
 
+## multi-user gateway (2026-07-16)
+
+Account, API-token, ownership, grant, authorization, cross-namespace routing,
+notification fanout, and the admin UI live in `fork-features/multi-user/` or
+`web/src/fork-features/multi-user/`. HAPI's core store and domain model remain
+unchanged. The following upstream-owned files contain only integration hooks
+because the hub and web app do not expose registration APIs for these seams.
+
+| File | Necessary hook |
+|---|---|
+| `hub/src/startHub.ts` | Construct the gateway store and adapters; inject CLI, terminal, notification, and web dependencies. |
+| `hub/src/web/server.ts` | Mount gateway routes, aggregate execution routes, and the resource authorization middleware. |
+| `hub/src/web/routes/cli.ts` | Resolve gateway API tokens to a core namespace for runner HTTP registration. |
+| `hub/src/socket/server.ts`, `hub/src/socket/socketTypes.ts` | Accept namespace resolvers for gateway-authenticated CLI and terminal sockets. |
+| `hub/src/socket/handlers/terminal.ts` | Replace the authenticated account namespace with the dispatcher's authorized resource namespace. |
+| `hub/tsconfig.json` | Include the fork-owned hub modules in the strict TypeScript program. |
+| `web/src/App.tsx`, `web/src/router.tsx` | Mount the fork-owned login/admin screens and admin route. |
+| `web/src/components/LoginPrompt.tsx` | Re-export the fork-owned login component at the existing upstream import seam. |
+| `web/src/api/client.ts` | Send the gateway login shape and expose gateway administration requests. |
+| `web/src/hooks/useAuth.ts`, `web/src/hooks/useAuthSource.ts`, `web/src/lib/app-context.tsx` | Preserve gateway account identity and refresh it through the existing auth context. |
+| `package.json`, `bun.lock` | Make the fork-owned root modules' Hono dependency resolvable. |
+
+Each upstream synchronization must remove a hook if upstream gains an
+equivalent registration seam or native multi-user gateway.
+
 ## session-fork (2026-06-28)
 
 End-to-end session fork feature. Most logic lives in

@@ -34,6 +34,10 @@ import type { WebSocketData } from '@socket.io/bun-engine'
 import { loadEmbeddedAssetMap, type EmbeddedWebAsset } from './embeddedAssets'
 import { isBunCompiled } from '../utils/bunCompiled'
 import type { Store } from '../store'
+import { mountMultiUserGateway } from '../../../fork-features/multi-user/hubMount'
+import type { MultiUserGatewayStore } from '../../../fork-features/multi-user/gatewayStore'
+import { createExecutionMiddleware, mountExecutionRoutes } from '../../../fork-features/multi-user/executionMount'
+import { resolveGatewayCliNamespace } from '../../../fork-features/multi-user/cliAdapter'
 
 // Normalise upstream close codes before forwarding to the browser client.
 // Codes 1005/1006/1015 are reserved and cannot be sent in a close frame;
@@ -219,6 +223,7 @@ function createWebApp(options: {
     embeddedAssetMap: Map<string, EmbeddedWebAsset> | null
     relayMode?: boolean
     officialWebUrl?: string
+    multiUser: { store: MultiUserGatewayStore; coreUserId: number }
 }): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
 
@@ -238,12 +243,25 @@ function createWebApp(options: {
     app.use('/api/*', corsMiddleware)
     app.use('/cli/*', corsMiddleware)
 
-    app.route('/cli', createCliRoutes(options.getSyncEngine))
+    mountMultiUserGateway(app, {
+        ...options.multiUser,
+        jwtSecret: options.jwtSecret
+    })
+    const multiUserStore = options.multiUser.store
+
+    app.route('/cli', createCliRoutes(options.getSyncEngine, token => resolveGatewayCliNamespace(multiUserStore, token)))
 
     app.route('/api', createAuthRoutes(options.jwtSecret, options.store))
     app.route('/api', createBindRoutes(options.jwtSecret, options.store))
 
     app.use('/api/*', createAuthMiddleware(options.jwtSecret))
+    mountExecutionRoutes(app, {
+        store: multiUserStore,
+        jwtSecret: options.jwtSecret,
+        getSyncEngine: options.getSyncEngine,
+        getSseManager: options.getSseManager
+    })
+    app.use('/api/*', createExecutionMiddleware({ store: multiUserStore, jwtSecret: options.jwtSecret }))
     app.route('/api', createEventsRoutes(options.getSseManager, options.getSyncEngine, options.getVisibilityTracker))
     app.route('/api', createSessionsRoutes(options.getSyncEngine))
     app.route('/api', createMessagesRoutes(options.getSyncEngine))
@@ -381,6 +399,7 @@ export async function startWebServer(options: {
     corsOrigins?: string[]
     relayMode?: boolean
     officialWebUrl?: string
+    multiUser: { store: MultiUserGatewayStore; coreUserId: number }
 }): Promise<BunServer<WebSocketData>> {
     const isCompiled = isBunCompiled()
     const embeddedAssetMap = isCompiled ? await loadEmbeddedAssetMap() : null
@@ -394,7 +413,8 @@ export async function startWebServer(options: {
         corsOrigins: options.corsOrigins,
         embeddedAssetMap,
         relayMode: options.relayMode,
-        officialWebUrl: options.officialWebUrl
+        officialWebUrl: options.officialWebUrl,
+        multiUser: options.multiUser
     })
 
     const configuration = getConfiguration()

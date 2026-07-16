@@ -17,6 +17,7 @@
         "../fork-features/session-fork/rpcPayloads.ts",
         "../fork-features/session-fork/hubForkController.ts",
         "../fork-features/session-fork/hubMount.ts",
-        "../fork-features/session-fork/hubSyncEngineAdapter.ts"
+        "../fork-features/session-fork/hubSyncEngineAdapter.ts",
+        "../fork-features/multi-user/**/*.ts"
     ]
 }
