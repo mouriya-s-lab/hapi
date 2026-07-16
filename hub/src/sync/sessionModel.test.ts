@@ -1745,6 +1745,47 @@ describe('session model', () => {
         }
     })
 
+    it('resolves a local resume target for a Grok session', () => {
+        const store = new Store(':memory:')
+        const engine = new SyncEngine(
+            store,
+            {} as never,
+            new RpcRegistry(),
+            { broadcast() {} } as never
+        )
+
+        try {
+            const session = engine.getOrCreateSession(
+                'local-resume-grok',
+                {
+                    path: '/tmp/project',
+                    host: 'localhost',
+                    machineId: 'machine-1',
+                    flavor: 'grok',
+                    grokSessionId: 'grok-session-1'
+                },
+                { controlledByUser: false },
+                'default',
+                'grok-4.5',
+                'low'
+            )
+
+            const result = engine.resolveLocalResumeTarget(session.id, 'default')
+
+            expect(result.type).toBe('success')
+            if (result.type === 'success') {
+                expect(result.target).toMatchObject({
+                    flavor: 'grok',
+                    agentSessionId: 'grok-session-1',
+                    model: 'grok-4.5',
+                    effort: 'low'
+                })
+            }
+        } finally {
+            engine.stop()
+        }
+    })
+
     it('recovers a Claude local resume target from stored messages', () => {
         const store = new Store(':memory:')
         const engine = new SyncEngine(

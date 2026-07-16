@@ -21,6 +21,7 @@ describe('newSessionFormDraft', () => {
             effort: 'auto',
             modelReasoningEffort: 'default',
             yoloMode: false,
+            grokPermissionMode: 'default',
             sessionType: 'simple',
             worktreeName: ''
         })
@@ -33,6 +34,7 @@ describe('newSessionFormDraft', () => {
             effort: 'auto',
             modelReasoningEffort: 'default',
             yoloMode: false,
+            grokPermissionMode: 'default',
             sessionType: 'simple',
             worktreeName: ''
         })
@@ -58,6 +60,7 @@ describe('newSessionFormDraft', () => {
             effort: 'auto',
             modelReasoningEffort: 'default',
             yoloMode: false,
+            grokPermissionMode: 'default',
             sessionType: 'simple',
             worktreeName: ''
         })
@@ -74,6 +77,7 @@ describe('newSessionFormDraft', () => {
             effort: 'auto',
             modelReasoningEffort: 'default',
             yoloMode: false,
+            grokPermissionMode: 'default',
             sessionType: 'simple',
             worktreeName: ''
         })
@@ -90,6 +94,7 @@ describe('newSessionFormDraft', () => {
             effort: 'high',
             modelReasoningEffort: 'high',
             yoloMode: true,
+            grokPermissionMode: 'default',
             sessionType: 'simple',
             worktreeName: ''
         })

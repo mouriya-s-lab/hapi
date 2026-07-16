@@ -95,6 +95,18 @@ describe('listSkills', () => {
         expect(skills.map((skill) => skill.name)).toEqual(['amis', 'helloagents', 'skill-creator'])
     })
 
+    it('lists Grok user and project skills alongside shared .agents skills', async () => {
+        const repoRoot = join(sandboxDir, 'grok-repo')
+        await mkdir(join(repoRoot, '.git'), { recursive: true })
+        await writeSkill(join(homeDir, '.grok', 'skills', 'grok-user'), 'grok-user', 'Grok user skill')
+        await writeSkill(join(homeDir, '.agents', 'skills', 'shared'), 'shared', 'Shared skill')
+        await writeSkill(join(repoRoot, '.grok', 'skills', 'grok-project'), 'grok-project', 'Grok project skill')
+
+        const skills = await listSkills(repoRoot, { flavor: 'grok' })
+
+        expect(skills.map((skill) => skill.name)).toEqual(['grok-project', 'grok-user', 'shared'])
+    })
+
     it('scopes user skills to the requested flavor', async () => {
         await writeSkill(join(homeDir, '.agents', 'skills', 'shared'), 'shared', 'Shared skill')
         await writeSkill(join(homeDir, '.claude', 'skills', 'claude-only'), 'claude-only', 'Claude skill')

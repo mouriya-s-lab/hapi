@@ -10,7 +10,6 @@ import { CliOutputBlock } from '@/components/CliOutputBlock'
 import { CopyIcon, CheckIcon } from '@/components/icons'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { getConversationMessageAnchorId } from '@/chat/outline'
-import { MessageMetadata } from '@/components/AssistantChat/messages/MessageMetadata'
 import { MessageTimestamp } from '@/components/AssistantChat/messages/MessageTimestamp'
 import {
     useFlavorCapabilities,
@@ -43,7 +42,6 @@ function RewindIcon(props: { className?: string }) {
 export function HappyUserMessage() {
     const ctx = useHappyChatContext()
     const { copied, copy } = useCopyToClipboard()
-    const [showMetadata, setShowMetadata] = useState(false)
     const [rewindError, setRewindError] = useState<string | null>(null)
     const navigate = useNavigate()
     const sessionFlavor = ctx.metadata?.flavor ?? null
@@ -94,10 +92,6 @@ export function HappyUserMessage() {
         if (custom?.kind !== 'cli-output') return ''
         return message.content.find((part) => part.type === 'text')?.text ?? ''
     })
-    const invokedAt = useAssistantState(({ message }) => (message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined)?.invokedAt)
-
-    const hasMetadata = invokedAt != null
-
     if (role !== 'user') return null
     const canRetry = status === 'failed' && typeof localId === 'string' && Boolean(ctx.onRetryMessage)
     const onRetry = canRetry ? () => ctx.onRetryMessage!(localId) : undefined
@@ -131,22 +125,7 @@ export function HappyUserMessage() {
             >
                 <div className="ml-auto w-full max-w-[92%]">
                     <CliOutputBlock text={cliText} />
-                    <div className="mt-1 flex items-center justify-end gap-2">
-                        <MessageTimestamp className="text-[10px] leading-none text-[var(--app-hint)]" />
-                        {hasMetadata && (
-                            <button
-                                type="button"
-                                onClick={() => setShowMetadata((open) => !open)}
-                                aria-expanded={showMetadata}
-                                className="text-[10px] text-[var(--app-hint)] underline-offset-2 hover:text-[var(--app-fg)] hover:underline"
-                            >
-                                {showMetadata ? 'Hide info' : 'Show info'}
-                            </button>
-                        )}
-                    </div>
-                    {showMetadata && invokedAt != null && (
-                        <MessageMetadata invokedAt={invokedAt} />
-                    )}
+                    <MessageTimestamp className="mt-1 block text-right text-[10px] leading-none text-[var(--app-hint)]" />
                 </div>
             </MessagePrimitive.Root>
         )
@@ -198,24 +177,11 @@ export function HappyUserMessage() {
                         </button>
                     )}
                     <MessageTimestamp className="text-[10px] leading-none text-[var(--app-hint)]" />
-                    {hasMetadata && (
-                        <button
-                            type="button"
-                            onClick={() => setShowMetadata((open) => !open)}
-                            aria-expanded={showMetadata}
-                            className="text-[10px] text-[var(--app-hint)] underline-offset-2 hover:text-[var(--app-fg)] hover:underline"
-                        >
-                            {showMetadata ? 'Hide info' : 'Show info'}
-                        </button>
-                    )}
                 </div>
                 {rewindError && (
                     <div className="mt-0.5 text-right text-[10px] text-red-500" role="alert">
                         {rewindError}
                     </div>
-                )}
-                {showMetadata && invokedAt != null && (
-                    <MessageMetadata invokedAt={invokedAt} />
                 )}
             </div>
         </MessagePrimitive.Root>

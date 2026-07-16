@@ -111,6 +111,7 @@ vi.mock('./utils/codexCliOverrides', () => ({
 }))
 
 import { runCodex as runCodexImpl } from './runCodex'
+import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 
 describe('runCodex', () => {
     beforeEach(() => {
@@ -241,5 +242,21 @@ describe('runCodex', () => {
             resumeSessionId: 'codex-thread-2',
             replayTranscriptHistoryOnStart: true
         }))
+    })
+
+    it('accepts and normalizes model-reported reasoning efforts from session config', async () => {
+        await runCodexImpl({ workingDirectory: '/tmp/project' })
+
+        const registration = harness.session.rpcHandlerManager.registerHandler.mock.calls.find(
+            ([method]) => method === RPC_METHODS.SetSessionConfig
+        )
+        const handler = registration?.[1] as ((payload: unknown) => Promise<unknown>) | undefined
+        expect(handler).toBeTypeOf('function')
+
+        await handler?.({ modelReasoningEffort: 'max' })
+        await handler?.({ modelReasoningEffort: ' EXTREME ' })
+
+        expect(mockCodexSession.setModelReasoningEffort).toHaveBeenNthCalledWith(2, 'max')
+        expect(mockCodexSession.setModelReasoningEffort).toHaveBeenNthCalledWith(3, 'extreme')
     })
 })
