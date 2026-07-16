@@ -27,6 +27,8 @@ export default function AdminPage() {
     const [role, setRole] = useState<'admin' | 'user'>('user')
     const [tokenName, setTokenName] = useState('')
     const [error, setError] = useState<string | null>(null)
+    const [isLoading, setIsLoading] = useState(true)
+    const [pendingAction, setPendingAction] = useState<string | null>(null)
 
     const request = useCallback<Request>(async (path, init) => {
         const response = await fetch(`${baseUrl}${path}`, {
@@ -39,6 +41,7 @@ export default function AdminPage() {
 
     const refresh = useCallback(async () => {
         setError(null)
+        setIsLoading(true)
         try {
             const [tokenResult, machineResult] = await Promise.all([
                 request<{ tokens: Token[] }>('/api/tokens'), request<{ machines: Machine[] }>('/api/machines')
@@ -47,24 +50,39 @@ export default function AdminPage() {
             setMachines(machineResult.machines)
             if (user.role === 'admin') setAccounts((await request<{ accounts: Account[] }>('/api/accounts')).accounts)
         } catch (cause) { setError(cause instanceof Error ? cause.message : '加载失败') }
+        finally { setIsLoading(false) }
     }, [request, user.role])
 
     useEffect(() => { void refresh() }, [refresh])
 
+    const runAction = async (key: string, action: () => Promise<void>) => {
+        if (pendingAction) return
+        setPendingAction(key); setError(null)
+        try { await action() }
+        catch (cause) { setError(cause instanceof Error ? cause.message : '操作失败') }
+        finally { setPendingAction(null) }
+    }
+
     const updateAccount = async (id: number, body: object) => {
-        await request(`/api/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(body) }); await refresh()
+        await runAction(`account-${id}`, async () => {
+            await request(`/api/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(body) }); await refresh()
+        })
     }
 
     const createAccount = async (event: React.FormEvent) => {
         event.preventDefault()
-        await request('/api/accounts', { method: 'POST', body: JSON.stringify({ username, password, role }) })
-        setCreateOpen(false); setUsername(''); setPassword(''); setRole('user'); await refresh()
+        await runAction('create-account', async () => {
+            await request('/api/accounts', { method: 'POST', body: JSON.stringify({ username, password, role }) })
+            setCreateOpen(false); setUsername(''); setPassword(''); setRole('user'); await refresh()
+        })
     }
 
     const createToken = async (event: React.FormEvent) => {
         event.preventDefault()
-        const result = await request<{ plaintext: string }>('/api/tokens', { method: 'POST', body: JSON.stringify({ name: tokenName || null }) })
-        setCreatedToken(result.plaintext); setTokenName(''); await refresh()
+        await runAction('create-token', async () => {
+            const result = await request<{ plaintext: string }>('/api/tokens', { method: 'POST', body: JSON.stringify({ name: tokenName || null }) })
+            setCreatedToken(result.plaintext); setTokenName(''); await refresh()
+        })
     }
 
     return <div className="h-full min-h-0 overflow-y-auto bg-[var(--app-bg)] text-[var(--app-fg)]">
@@ -73,15 +91,16 @@ export default function AdminPage() {
             <Button variant="outline" size="sm" onClick={() => navigate({ to: '/sessions' })}>返回</Button>
         </header>
         <main className="mx-auto max-w-5xl space-y-4 p-4">
-            {error && <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-500">{error}</div>}
+            {error && <div role="alert" className="rounded-lg bg-red-500/10 p-3 text-sm text-red-500">{error}</div>}
+            {isLoading && <div className="text-sm text-[var(--app-hint)]">加载中…</div>}
             {user.role !== 'admin' && <Card><CardHeader><CardTitle>仅管理员可管理用户</CardTitle><CardDescription>你仍可管理自己的 API Token。</CardDescription></CardHeader></Card>}
             {user.role === 'admin' && <Card>
                 <CardHeader className="flex flex-row items-start justify-between gap-3"><div><CardTitle>用户</CardTitle><CardDescription>创建账号、设置角色、密码和禁用状态。</CardDescription></div><Button size="sm" onClick={() => setCreateOpen(true)}>新建用户</Button></CardHeader>
-                <CardContent className="space-y-2">{accounts.map(account => <div key={account.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3"><div><div className="flex items-center gap-2"><b>{account.username}</b><Badge variant={account.role === 'admin' ? 'success' : 'default'}>{account.role}</Badge>{account.disabledAt && <Badge variant="destructive">disabled</Badge>}</div><div className="text-xs text-[var(--app-hint)]">namespace: {account.defaultNamespace}</div></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => updateAccount(account.id, { role: account.role === 'admin' ? 'user' : 'admin' })}>{account.role === 'admin' ? '降为用户' : '升为管理员'}</Button><Button size="sm" variant="outline" onClick={async () => { const next = window.prompt(`为 ${account.username} 设置新密码（至少 8 位）`); if (next && next.length >= 8) await updateAccount(account.id, { password: next }) }}>设密码</Button><Button size="sm" variant="outline" onClick={() => updateAccount(account.id, { disabled: !account.disabledAt })}>{account.disabledAt ? '启用' : '禁用'}</Button><Button size="sm" variant="destructive" disabled={account.id === user.id} onClick={async () => { if (window.confirm(`确定删除 ${account.username}？`)) { await request(`/api/accounts/${account.id}`, { method: 'DELETE' }); await refresh() } }}>删除</Button></div></div>)}</CardContent>
-                <Dialog open={createOpen} onOpenChange={setCreateOpen}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>新建用户</DialogTitle></DialogHeader><form className="mt-4 space-y-3" onSubmit={createAccount}><input className={inputClass} placeholder="用户名" value={username} onChange={e => setUsername(e.target.value)} /><input className={inputClass} type="password" placeholder="密码（至少 8 位）" value={password} onChange={e => setPassword(e.target.value)} /><select className={inputClass} value={role} onChange={e => setRole(e.target.value as 'admin' | 'user')}><option value="user">普通用户</option><option value="admin">管理员</option></select><div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>取消</Button><Button disabled={!username.trim() || password.length < 8}>创建</Button></div></form></DialogContent></Dialog>
+                <CardContent className="space-y-2">{accounts.map(account => <div key={account.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3"><div><div className="flex items-center gap-2"><b>{account.username}</b><Badge variant={account.role === 'admin' ? 'success' : 'default'}>{account.role}</Badge>{account.disabledAt && <Badge variant="destructive">disabled</Badge>}</div><div className="text-xs text-[var(--app-hint)]">namespace: {account.defaultNamespace}</div></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={pendingAction !== null || account.id === user.id} onClick={() => updateAccount(account.id, { role: account.role === 'admin' ? 'user' : 'admin' })}>{account.role === 'admin' ? '降为用户' : '升为管理员'}</Button><Button size="sm" variant="outline" disabled={pendingAction !== null} onClick={async () => { const next = window.prompt(`为 ${account.username} 设置新密码（至少 8 位）`); if (next && next.length >= 8) await updateAccount(account.id, { password: next }) }}>设密码</Button><Button size="sm" variant="outline" disabled={pendingAction !== null || account.id === user.id} onClick={() => updateAccount(account.id, { disabled: !account.disabledAt })}>{account.disabledAt ? '启用' : '禁用'}</Button><Button size="sm" variant="destructive" disabled={pendingAction !== null || account.id === user.id} onClick={async () => { if (window.confirm(`确定删除 ${account.username}？`)) await runAction(`delete-${account.id}`, async () => { await request(`/api/accounts/${account.id}`, { method: 'DELETE' }); await refresh() }) }}>删除</Button></div></div>)}</CardContent>
+                <Dialog open={createOpen} onOpenChange={open => { if (!pendingAction) setCreateOpen(open) }}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>新建用户</DialogTitle></DialogHeader><form className="mt-4 space-y-3" onSubmit={createAccount}><input className={inputClass} placeholder="用户名" value={username} disabled={pendingAction !== null} onChange={e => { setUsername(e.target.value); setError(null) }} /><input className={inputClass} type="password" placeholder="密码（至少 8 位）" value={password} disabled={pendingAction !== null} onChange={e => { setPassword(e.target.value); setError(null) }} /><select className={inputClass} value={role} disabled={pendingAction !== null} onChange={e => setRole(e.target.value as 'admin' | 'user')}><option value="user">普通用户</option><option value="admin">管理员</option></select>{error && <div role="alert" className="text-sm text-red-500">{error}</div>}<div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={pendingAction !== null} onClick={() => setCreateOpen(false)}>取消</Button><Button disabled={!username.trim() || password.length < 8 || pendingAction !== null}>{pendingAction === 'create-account' ? '创建中…' : '创建'}</Button></div></form></DialogContent></Dialog>
             </Card>}
-            <Card><CardHeader><CardTitle>我的 API Token</CardTitle><CardDescription>给 runner 使用；固定映射到账号 namespace，明文只在创建时显示一次。</CardDescription></CardHeader><CardContent className="space-y-3"><form className="grid gap-2 md:grid-cols-[1fr_1fr_auto]" onSubmit={createToken}><input className={inputClass} placeholder="名称（如 laptop）" value={tokenName} onChange={e => setTokenName(e.target.value)} /><input className={inputClass} value={user.defaultNamespace} disabled aria-label="Token namespace" /><Button>创建 Token</Button></form>{createdToken && <div className="rounded-lg border border-green-500/40 bg-green-500/10 p-3 text-sm"><div className="font-medium">请立即复制保存：</div><code className="mt-2 block break-all rounded bg-[var(--app-bg)] p-2">{createdToken}</code></div>}{tokens.map(item => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3"><div><div className="font-medium">{item.name || `token-${item.id}`}</div><div className="text-xs text-[var(--app-hint)]">namespace: {user.defaultNamespace}</div></div><Button size="sm" variant="destructive" onClick={async () => { if (window.confirm('确认吊销这个 Token？')) { await request(`/api/tokens/${item.id}`, { method: 'DELETE' }); await refresh() } }}>吊销</Button></div>)}</CardContent></Card>
-            <MachineGrants machines={machines} accounts={accounts} request={request} />
+            <Card><CardHeader><CardTitle>我的 API Token</CardTitle><CardDescription>给 runner 使用；固定映射到账号 namespace，明文只在创建时显示一次。</CardDescription></CardHeader><CardContent className="space-y-3"><form className="grid gap-2 md:grid-cols-[1fr_1fr_auto]" onSubmit={createToken}><input className={inputClass} placeholder="名称（如 laptop）" value={tokenName} disabled={pendingAction !== null} onChange={e => { setTokenName(e.target.value); setError(null) }} /><input className={inputClass} value={user.defaultNamespace} readOnly aria-label="Token namespace" /><Button disabled={pendingAction !== null}>{pendingAction === 'create-token' ? '创建中…' : '创建 Token'}</Button></form>{createdToken && <div className="rounded-lg border border-green-500/40 bg-green-500/10 p-3 text-sm"><div className="flex items-center justify-between gap-2"><div className="font-medium">请立即复制保存：</div><Button size="sm" variant="outline" onClick={() => setCreatedToken(null)}>已保存，隐藏</Button></div><code className="mt-2 block break-all rounded bg-[var(--app-bg)] p-2">{createdToken}</code></div>}{tokens.map(item => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3"><div><div className="font-medium">{item.name || `token-${item.id}`}</div><div className="text-xs text-[var(--app-hint)]">namespace: {user.defaultNamespace}</div></div><Button size="sm" variant="destructive" disabled={pendingAction !== null} onClick={async () => { if (window.confirm('确认吊销这个 Token？')) await runAction(`revoke-${item.id}`, async () => { await request(`/api/tokens/${item.id}`, { method: 'DELETE' }); await refresh() }) }}>吊销</Button></div>)}</CardContent></Card>
+            {user.role === 'admin' && <MachineGrants machines={machines} accounts={accounts.filter(account => account.id !== user.id)} request={request} />}
         </main>
     </div>
 }
@@ -97,8 +116,22 @@ function GrantEditor(props: { machine: Machine; accounts: Account[]; request: Re
     const [role, setRole] = useState<'viewer' | 'operator'>('viewer')
     const [grants, setGrants] = useState<Grant[]>([])
     const [error, setError] = useState<string | null>(null)
+    const [isPending, setIsPending] = useState(false)
     const refresh = useCallback(async () => { try { setGrants((await props.request<{ grants: Grant[] }>(`/api/grants/machine/${encodeURIComponent(props.machine.id)}`)).grants); setError(null) } catch (cause) { setError(cause instanceof Error ? cause.message : '加载授权失败') } }, [props.machine.id, props.request])
     useEffect(() => { void refresh() }, [refresh])
-    const grant = async (event: React.FormEvent) => { event.preventDefault(); await props.request(`/api/grants/machine/${encodeURIComponent(props.machine.id)}`, { method: 'POST', body: JSON.stringify({ accountId: Number(accountId), role }) }); setAccountId(''); setRole('viewer'); await refresh() }
-    return <div className="space-y-3"><form className="grid gap-2 md:grid-cols-[1fr_150px_auto]" onSubmit={grant}><select className={inputClass} value={accountId} onChange={e => setAccountId(e.target.value)}><option value="">选择用户</option>{props.accounts.map(account => <option key={account.id} value={account.id}>{account.username}</option>)}</select><select className={inputClass} value={role} onChange={e => setRole(e.target.value as 'viewer' | 'operator')}><option value="viewer">viewer</option><option value="operator">operator</option></select><Button disabled={!accountId}>授权</Button></form>{error && <div className="text-sm text-red-500">{error}</div>}{grants.map(item => <div key={item.accountId} className="flex items-center justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3"><div><div className="font-medium">{props.accounts.find(account => account.id === item.accountId)?.username ?? `#${item.accountId}`}</div><div className="text-xs text-[var(--app-hint)]">role: {item.role}</div></div><Button size="sm" variant="outline" onClick={async () => { await props.request(`/api/grants/machine/${encodeURIComponent(props.machine.id)}/${item.accountId}`, { method: 'DELETE' }); await refresh() }}>移除</Button></div>)}</div>
+    const mutate = async (action: () => Promise<void>) => {
+        if (isPending) return
+        setIsPending(true); setError(null)
+        try { await action(); await refresh() }
+        catch (cause) { setError(cause instanceof Error ? cause.message : '授权操作失败') }
+        finally { setIsPending(false) }
+    }
+    const grant = async (event: React.FormEvent) => {
+        event.preventDefault()
+        await mutate(async () => {
+            await props.request(`/api/grants/machine/${encodeURIComponent(props.machine.id)}`, { method: 'POST', body: JSON.stringify({ accountId: Number(accountId), role }) })
+            setAccountId(''); setRole('viewer')
+        })
+    }
+    return <div className="space-y-3"><form className="grid gap-2 md:grid-cols-[1fr_150px_auto]" onSubmit={grant}><select className={inputClass} value={accountId} disabled={isPending} onChange={e => { setAccountId(e.target.value); setError(null) }}><option value="">选择用户</option>{props.accounts.map(account => <option key={account.id} value={account.id}>{account.username}</option>)}</select><select className={inputClass} value={role} disabled={isPending} onChange={e => setRole(e.target.value as 'viewer' | 'operator')}><option value="viewer">viewer</option><option value="operator">operator</option></select><Button disabled={!accountId || isPending}>{isPending ? '处理中…' : '授权'}</Button></form>{error && <div role="alert" className="text-sm text-red-500">{error}</div>}{grants.map(item => <div key={item.accountId} className="flex items-center justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3"><div><div className="font-medium">{props.accounts.find(account => account.id === item.accountId)?.username ?? `#${item.accountId}`}</div><div className="text-xs text-[var(--app-hint)]">role: {item.role}</div></div><Button size="sm" variant="outline" disabled={isPending} onClick={() => mutate(async () => { await props.request(`/api/grants/machine/${encodeURIComponent(props.machine.id)}/${item.accountId}`, { method: 'DELETE' }) })}>移除</Button></div>)}</div>
 }

@@ -29,6 +29,7 @@ export function LoginPrompt(props: LoginPromptProps) {
     const [loginMode, setLoginMode] = useState<'password' | 'token'>(props.requireServerUrl ? 'token' : 'password')
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [hasInteracted, setHasInteracted] = useState(false)
     const [isServerDialogOpen, setIsServerDialogOpen] = useState(false)
     const [serverInput, setServerInput] = useState(props.serverUrl ?? '')
     const [serverError, setServerError] = useState<string | null>(null)
@@ -46,7 +47,7 @@ export function LoginPrompt(props: LoginPromptProps) {
                 return
             }
         } else if (!trimmedUsername || !trimmedPassword) {
-            setError('Enter username and password')
+            setError(t('login.error.enterCredentials'))
             return
         }
 
@@ -126,7 +127,16 @@ export function LoginPrompt(props: LoginPromptProps) {
         }
     }, [])
 
-    const displayError = error || props.error
+    const clearDisplayedError = useCallback(() => {
+        setError(null)
+        setHasInteracted(true)
+    }, [])
+    const switchLoginMode = useCallback((mode: 'password' | 'token') => {
+        if (isLoading) return
+        setLoginMode(mode)
+        clearDisplayedError()
+    }, [clearDisplayedError, isLoading])
+    const displayError = error ?? (hasInteracted ? null : props.error)
     const serverSummary = props.serverUrl ?? `${props.baseUrl} ${t('login.server.default')}`
     const title = isBindMode ? t('login.bind.title') : t('login.title')
     const subtitle = t('login.subtitle')
@@ -151,20 +161,26 @@ export function LoginPrompt(props: LoginPromptProps) {
                 {/* Form */}
                 <form onSubmit={handleSubmit} className="space-y-4">
                     {!isBindMode && (
-                        <div className="grid grid-cols-2 gap-2 rounded-lg bg-[var(--app-subtle-bg)] p-1 text-sm">
+                        <div className="grid grid-cols-2 gap-1 rounded-lg border border-[var(--app-border)] bg-[var(--app-subtle-bg)] p-1 text-sm" role="tablist" aria-label={t('login.title')}>
                             <button
                                 type="button"
-                                onClick={() => setLoginMode('password')}
-                                className={`rounded-md px-3 py-1.5 transition-colors ${loginMode === 'password' ? 'bg-[var(--app-bg)] text-[var(--app-fg)] shadow-sm' : 'text-[var(--app-hint)]'}`}
+                                role="tab"
+                                aria-selected={loginMode === 'password'}
+                                disabled={isLoading}
+                                onClick={() => switchLoginMode('password')}
+                                className={`rounded-md px-3 py-2 font-medium transition-colors disabled:opacity-50 ${loginMode === 'password' ? 'bg-[var(--app-button)] text-[var(--app-button-text)] shadow-sm' : 'text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)]'}`}
                             >
-                                Password
+                                {t('login.method.password')}
                             </button>
                             <button
                                 type="button"
-                                onClick={() => setLoginMode('token')}
-                                className={`rounded-md px-3 py-1.5 transition-colors ${loginMode === 'token' ? 'bg-[var(--app-bg)] text-[var(--app-fg)] shadow-sm' : 'text-[var(--app-hint)]'}`}
+                                role="tab"
+                                aria-selected={loginMode === 'token'}
+                                disabled={isLoading}
+                                onClick={() => switchLoginMode('token')}
+                                className={`rounded-md px-3 py-2 font-medium transition-colors disabled:opacity-50 ${loginMode === 'token' ? 'bg-[var(--app-button)] text-[var(--app-button-text)] shadow-sm' : 'text-[var(--app-hint)] hover:bg-[var(--app-bg)] hover:text-[var(--app-fg)]'}`}
                             >
-                                API token
+                                {t('login.method.token')}
                             </button>
                         </div>
                     )}
@@ -174,8 +190,8 @@ export function LoginPrompt(props: LoginPromptProps) {
                             <input
                                 type="text"
                                 value={username}
-                                onChange={(e) => setUsername(e.target.value)}
-                                placeholder="Username"
+                                onChange={(e) => { setUsername(e.target.value); clearDisplayedError() }}
+                                placeholder={t('login.username.placeholder')}
                                 autoComplete="username"
                                 disabled={isLoading}
                                 className="w-full px-3 py-2.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"
@@ -183,8 +199,8 @@ export function LoginPrompt(props: LoginPromptProps) {
                             <input
                                 type="password"
                                 value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                placeholder="Password"
+                                onChange={(e) => { setPassword(e.target.value); clearDisplayedError() }}
+                                placeholder={t('login.password.placeholder')}
                                 autoComplete="current-password"
                                 disabled={isLoading}
                                 className="w-full px-3 py-2.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"
@@ -195,7 +211,7 @@ export function LoginPrompt(props: LoginPromptProps) {
                             <input
                                 type="password"
                                 value={accessToken}
-                                onChange={(e) => setAccessToken(e.target.value)}
+                                onChange={(e) => { setAccessToken(e.target.value); clearDisplayedError() }}
                                 placeholder={t('login.placeholder')}
                                 autoComplete="current-password"
                                 disabled={isLoading}
@@ -246,7 +262,7 @@ export function LoginPrompt(props: LoginPromptProps) {
                                         {t('login.server.description')}
                                     </DialogDescription>
                                 </DialogHeader>
-                                <form onSubmit={handleSaveServer} className="space-y-4">
+                                <form onSubmit={handleSaveServer} className="mt-4 space-y-4">
                                     <div className="text-xs text-[var(--app-hint)]">
                                         {t('login.server.current')} {serverSummary}
                                     </div>
