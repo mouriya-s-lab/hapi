@@ -659,6 +659,18 @@ export function normalizeAgentRecord(
             }
         }
 
+        if (data.type === 'summary' && typeof data.summary === 'string' && data.summary.trim().length > 0) {
+            return {
+                id: messageId,
+                localId,
+                createdAt,
+                role: 'agent',
+                isSidechain: false,
+                content: [{ type: 'summary', summary: data.summary.trim() }],
+                meta
+            }
+        }
+
         if (data.type === 'reasoning' && typeof data.message === 'string') {
             const streamId = asString(data.id) ?? messageId
             return {

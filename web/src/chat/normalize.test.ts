@@ -800,6 +800,39 @@ describe('normalizeDecryptedMessage', () => {
         })
     })
 
+    it('normalizes a Codex compact summary for timeline display', () => {
+        const message = makeMessage({
+            role: 'agent',
+            content: {
+                type: 'codex',
+                data: {
+                    type: 'summary',
+                    summary: '  ## Handoff summary\n\n- Continue here.  '
+                }
+            }
+        })
+
+        expect(normalizeDecryptedMessage(message)).toMatchObject({
+            role: 'agent',
+            content: [{
+                type: 'summary',
+                summary: '## Handoff summary\n\n- Continue here.'
+            }]
+        })
+    })
+
+    it('ignores an empty Codex compact summary', () => {
+        const message = makeMessage({
+            role: 'agent',
+            content: {
+                type: 'codex',
+                data: { type: 'summary', summary: '   ' }
+            }
+        })
+
+        expect(normalizeDecryptedMessage(message)).toBeNull()
+    })
+
     it('normalizes Codex agent-run events for timeline aggregation', () => {
         const message = makeMessage({
             role: 'agent',

@@ -15,6 +15,10 @@ export type CodexMessage = {
     message: string;
     id: string;
 } | {
+    type: 'summary';
+    summary: string;
+    id: string;
+} | {
     type: 'proposed_plan';
     plan: string;
     id: string;
@@ -60,6 +64,24 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asString(value: unknown): string | null {
     return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+const COMPACT_SUMMARY_PREAMBLE =
+    'Another language model started to solve this problem and produced a summary of its thinking process.';
+
+function extractCompactSummary(value: unknown): string | null {
+    const message = asString(value)?.trim();
+    if (!message) {
+        return null;
+    }
+    if (!message.startsWith(COMPACT_SUMMARY_PREAMBLE)) {
+        return message;
+    }
+    const firstLineEnd = message.indexOf('\n');
+    if (firstLineEnd < 0) {
+        return null;
+    }
+    return message.slice(firstLineEnd + 1).trim() || null;
 }
 
 function parseArguments(value: unknown): unknown {
@@ -117,6 +139,20 @@ export function convertCodexEvent(rawEvent: unknown): CodexConversionResult | nu
 
     if (!payloadRecord) {
         return null;
+    }
+
+    if (type === 'compacted') {
+        const summary = extractCompactSummary(payloadRecord.message);
+        if (!summary) {
+            return null;
+        }
+        return {
+            message: {
+                type: 'summary',
+                summary,
+                id: randomUUID()
+            }
+        };
     }
 
     if (type === 'event_msg') {

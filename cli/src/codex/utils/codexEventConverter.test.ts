@@ -23,6 +23,44 @@ describe('convertCodexEvent', () => {
         });
     });
 
+    it('converts compacted transcript records into summary messages', () => {
+        const result = convertCodexEvent({
+            type: 'compacted',
+            payload: {
+                message: '  compacted context\nwith details  ',
+                replacement_history: [{ type: 'message', role: 'user' }]
+            }
+        });
+
+        expect(result?.message).toMatchObject({
+            type: 'summary',
+            summary: 'compacted context\nwith details'
+        });
+    });
+
+    it('removes the Codex handoff preamble from compact summaries', () => {
+        const result = convertCodexEvent({
+            type: 'compacted',
+            payload: {
+                message: 'Another language model started to solve this problem and produced a summary of its thinking process. Additional handoff instructions.\n## Handoff summary\n\n- Keep this result.'
+            }
+        });
+
+        expect(result?.message).toMatchObject({
+            type: 'summary',
+            summary: '## Handoff summary\n\n- Keep this result.'
+        });
+    });
+
+    it.each([
+        { message: '' },
+        { message: '   ' },
+        { message: 42 },
+        {}
+    ])('ignores compacted transcript records without a non-empty summary: %j', (payload) => {
+        expect(convertCodexEvent({ type: 'compacted', payload })).toBeNull();
+    });
+
     it('converts user_message events', () => {
         const result = convertCodexEvent({
             type: 'event_msg',
