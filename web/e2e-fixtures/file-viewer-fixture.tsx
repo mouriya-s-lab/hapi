@@ -34,10 +34,15 @@ import type { ApiClient } from '../src/api/client'
 import type { FileReadResponse, GitCommandResponse } from '../src/types/api'
 import FilePage from '../src/routes/sessions/file'
 import { encodeBase64 } from '../src/lib/utils'
+import { ToastProvider } from '../src/lib/toast-context'
 
 const MARKDOWN_SAMPLE = `# Markdown preview heading
 
 A paragraph with **bold** and \`inline code\` to confirm rendering.
+
+\`\`\`ts
+const mobileWrappingProbe = '${'x'.repeat(220)}'
+\`\`\`
 
 \`\`\`mermaid
 graph TD
@@ -112,13 +117,15 @@ function App() {
 
     return (
         <QueryClientProvider client={queryClient}>
-            <I18nProvider>
-                <AppContextProvider value={{ api, token: 'e2e', baseUrl: 'http://localhost' }}>
-                    <div data-testid="file-viewer-host" style={{ height: '100vh' }}>
-                        <RouterProvider router={router} />
-                    </div>
-                </AppContextProvider>
-            </I18nProvider>
+            <ToastProvider>
+                <I18nProvider>
+                    <AppContextProvider value={{ api, token: 'e2e', baseUrl: 'http://localhost' }}>
+                        <div data-testid="file-viewer-host" style={{ height: '100vh' }}>
+                            <RouterProvider router={router} />
+                        </div>
+                    </AppContextProvider>
+                </I18nProvider>
+            </ToastProvider>
         </QueryClientProvider>
     )
 }

@@ -35,6 +35,8 @@ import type {
     FileReadResponse,
     FileWriteResponse,
     GitCommandResponse,
+    GrokModelsResponse,
+    GrokReasoningEffortResponse,
     ListCcSwitchProvidersResponse,
     ListDirectoryResponse,
     MachineListDirectoryResponse,
@@ -763,11 +765,22 @@ export class ApiClient {
         yolo?: boolean,
         sessionType?: 'simple' | 'worktree',
         worktreeName?: string,
-        effort?: string
+        effort?: string,
+        permissionMode?: PermissionMode
     ): Promise<SpawnResponse> {
         return await this.request<SpawnResponse>(`/api/machines/${encodeURIComponent(machineId)}/spawn`, {
             method: 'POST',
-            body: JSON.stringify({ directory, agent, model, modelReasoningEffort, yolo, sessionType, worktreeName, effort })
+            body: JSON.stringify({
+                directory,
+                agent,
+                model,
+                modelReasoningEffort,
+                yolo,
+                sessionType,
+                worktreeName,
+                effort,
+                permissionMode
+            })
         })
     }
 
@@ -818,6 +831,24 @@ export class ApiClient {
     async getMachineOpencodeModelsForCwd(machineId: string, cwd: string): Promise<OpencodeModelsResponse> {
         return await this.request<OpencodeModelsResponse>(
             `/api/machines/${encodeURIComponent(machineId)}/opencode-models?cwd=${encodeURIComponent(cwd)}`
+        )
+    }
+
+    async getMachineGrokModelsForCwd(machineId: string, cwd: string): Promise<GrokModelsResponse> {
+        return await this.request<GrokModelsResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/grok-models?cwd=${encodeURIComponent(cwd)}`
+        )
+    }
+
+    async getSessionGrokModels(sessionId: string): Promise<GrokModelsResponse> {
+        return await this.request<GrokModelsResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/grok-models`
+        )
+    }
+
+    async getSessionGrokReasoningEffortOptions(sessionId: string): Promise<GrokReasoningEffortResponse> {
+        return await this.request<GrokReasoningEffortResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/grok-reasoning-effort-options`
         )
     }
 

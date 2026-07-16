@@ -258,6 +258,7 @@ export const SpawnSessionRequestSchema = z.object({
     effort: z.string().optional(),
     modelReasoningEffort: z.string().optional(),
     yolo: z.boolean().optional(),
+    permissionMode: PermissionModeSchema.optional(),
     sessionType: z.enum(['simple', 'worktree']).optional(),
     worktreeName: z.string().optional()
 })
@@ -486,6 +487,34 @@ export type OpencodeModelsResponse = {
 }
 
 export type ListOpencodeModelsResponse = OpencodeModelsResponse
+
+export type GrokModelSummary = {
+    modelId: string
+    name?: string
+    reasoningEfforts?: GrokReasoningEffortOption[]
+}
+
+export type GrokReasoningEffortOption = {
+    value: string
+    name?: string
+    isDefault?: boolean
+}
+
+export type GrokModelsResponse = {
+    success: boolean
+    availableModels?: GrokModelSummary[]
+    currentModelId?: string | null
+    autoPermissionModeSupported?: boolean
+    error?: string
+}
+export type ListGrokModelsResponse = GrokModelsResponse
+
+export type GrokReasoningEffortResponse = {
+    success: boolean
+    options?: GrokReasoningEffortOption[]
+    currentValue?: string | null
+    error?: string
+}
 
 export type OpencodeReasoningEffortOption = {
     value: string

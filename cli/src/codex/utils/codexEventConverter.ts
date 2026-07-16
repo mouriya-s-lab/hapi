@@ -15,6 +15,10 @@ export type CodexMessage = {
     message: string;
     id: string;
 } | {
+    type: 'compact_summary';
+    summary: string;
+    id: string;
+} | {
     type: 'proposed_plan';
     plan: string;
     id: string;
@@ -113,6 +117,20 @@ export function convertCodexEvent(rawEvent: unknown): CodexConversionResult | nu
             return null;
         }
         return { sessionId };
+    }
+
+    if (type === 'compacted') {
+        const summary = payloadRecord ? asString(payloadRecord.message)?.trim() : null;
+        if (!summary) {
+            return null;
+        }
+        return {
+            message: {
+                type: 'compact_summary',
+                summary,
+                id: randomUUID()
+            }
+        };
     }
 
     if (!payloadRecord) {

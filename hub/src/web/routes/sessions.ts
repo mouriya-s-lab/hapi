@@ -544,6 +544,9 @@ export function createSessionsRoutes(
             if (flavor === 'cursor') {
                 return c.json({ error: 'Model selection can only be changed for remote Cursor sessions' }, 409)
             }
+            if (flavor === 'grok') {
+                return c.json({ error: 'Model selection can only be changed for remote Grok sessions' }, 409)
+            }
         }
 
         try {
@@ -648,6 +651,9 @@ export function createSessionsRoutes(
 
         if (!supportsEffort(flavor)) {
             return c.json({ error: 'Effort selection is not supported for this session type' }, 400)
+        }
+        if (flavor === 'grok' && sessionResult.session.agentState?.controlledByUser === true) {
+            return c.json({ error: 'Effort can only be changed for remote Grok sessions' }, 409)
         }
 
         try {
@@ -880,6 +886,42 @@ export function createSessionsRoutes(
             return c.json({
                 success: false,
                 error: error instanceof Error ? error.message : 'Failed to list OpenCode reasoning effort options'
+            }, 500)
+        }
+    })
+
+    app.get('/sessions/:id/grok-models', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) return sessionResult
+        if (sessionResult.session.metadata?.flavor !== 'grok') {
+            return c.json({ success: false, error: 'Grok models are only available for Grok sessions' }, 400)
+        }
+        try {
+            return c.json(await engine.listGrokModelsForSession(sessionResult.sessionId))
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to list Grok models'
+            }, 500)
+        }
+    })
+
+    app.get('/sessions/:id/grok-reasoning-effort-options', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) return sessionResult
+        if (sessionResult.session.metadata?.flavor !== 'grok') {
+            return c.json({ success: false, error: 'Grok effort options are only available for Grok sessions' }, 400)
+        }
+        try {
+            return c.json(await engine.listGrokReasoningEffortOptionsForSession(sessionResult.sessionId))
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to list Grok effort options'
             }, 500)
         }
     })

@@ -125,6 +125,7 @@ export function toSessionSummary(session: Session): SessionSummary {
             ?? session.metadata.claudeSessionId
             ?? session.metadata.geminiSessionId
             ?? session.metadata.opencodeSessionId
+            ?? session.metadata.grokSessionId
             ?? session.metadata.cursorSessionId
             ?? session.metadata.kimiSessionId
             ?? undefined,

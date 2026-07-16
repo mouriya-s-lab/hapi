@@ -22,6 +22,24 @@ async function gotoFile(page: Page, file: string): Promise<void> {
 }
 
 test.describe('file viewer — markdown preview', () => {
+    test('wraps code without line numbers on mobile while preserving desktop code layout', async ({ page }) => {
+        await page.setViewportSize({ width: 390, height: 844 })
+        await gotoFile(page, 'README.md')
+
+        const codeBlock = page.locator('.aui-md-codeblock').first()
+        const gutter = codeBlock.locator('.aui-md-codeblock-gutter')
+        const content = codeBlock.locator('.aui-md-codeblock-content')
+
+        await expect(gutter).toBeHidden()
+        await expect(content).toHaveCSS('white-space', 'pre-wrap')
+        await expect.poll(() => codeBlock.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+
+        await page.setViewportSize({ width: 1280, height: 800 })
+        await expect(gutter).toBeVisible()
+        await expect(content).toHaveCSS('white-space', 'pre')
+        await expect.poll(() => codeBlock.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+    })
+
     test('renders markdown preview with a mermaid diagram by default', async ({ page }) => {
         await gotoFile(page, 'README.md')
 
@@ -43,7 +61,7 @@ test.describe('file viewer — markdown preview', () => {
 
         const overlay = page.locator('[data-mermaid-zoom-overlay]')
         await expect(overlay).toBeVisible()
-        await expect(overlay.locator('svg')).toBeVisible()
+        await expect(overlay.getByRole('document')).toBeVisible()
 
         // Escape closes it.
         await page.keyboard.press('Escape')

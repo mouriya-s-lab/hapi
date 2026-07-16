@@ -4,6 +4,7 @@ import { registerCodexModelHandlers } from './handlers/codexModels'
 import { registerCcSwitchHandlers } from './handlers/ccSwitch'
 import { registerCursorModelHandlers } from './handlers/cursorModels'
 import { registerOpencodeModelHandlers } from './handlers/opencodeModels'
+import { registerGrokModelHandlers } from './handlers/grokModels'
 import { registerDirectoryHandlers } from './handlers/directories'
 import { registerDifftasticHandlers } from './handlers/difftastic'
 import { registerFileHandlers } from './handlers/files'
@@ -19,6 +20,7 @@ export function registerCommonHandlers(rpcHandlerManager: RpcHandlerManager, wor
     registerCcSwitchHandlers(rpcHandlerManager)
     registerCursorModelHandlers(rpcHandlerManager)
     registerOpencodeModelHandlers(rpcHandlerManager)
+    registerGrokModelHandlers(rpcHandlerManager)
     registerFileHandlers(rpcHandlerManager, workingDirectory)
     registerDirectoryHandlers(rpcHandlerManager, workingDirectory)
     registerRipgrepHandlers(rpcHandlerManager, workingDirectory)

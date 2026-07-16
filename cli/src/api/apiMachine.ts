@@ -22,6 +22,11 @@ import {
     type ListOpencodeModelsForCwdRequest,
     type ListOpencodeModelsForCwdResponse
 } from '../modules/common/opencodeModels'
+import {
+    listGrokModelsForCwd,
+    type ListGrokModelsForCwdRequest,
+    type ListGrokModelsForCwdResponse
+} from '../modules/common/grokModels'
 import type { SpawnSessionOptions, SpawnSessionResult } from '../modules/common/rpcTypes'
 import { applyVersionedAck } from './versionedUpdate'
 import { buildSocketIoExtraHeaderOptions } from './hubExtraHeaders'
@@ -254,6 +259,21 @@ export class ApiMachineClient {
                 }
 
                 return await listOpencodeModelsForCwd(resolvedCwd)
+            }
+        )
+
+        this.rpcHandlerManager.registerHandler<ListGrokModelsForCwdRequest, ListGrokModelsForCwdResponse>(
+            RPC_METHODS.ListGrokModelsForCwd,
+            async (params) => {
+                const rawCwd = typeof params?.cwd === 'string' ? params.cwd.trim() : ''
+                if (!rawCwd) return { success: false, error: 'cwd is required' }
+
+                const resolvedCwd = await this.resolveForWorkspaceCheck(rawCwd)
+                if (!this.isWithinWorkspaceRoots(resolvedCwd)) {
+                    return { success: false, error: 'Path is outside workspace roots' }
+                }
+
+                return await listGrokModelsForCwd(resolvedCwd)
             }
         )
     }
