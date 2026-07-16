@@ -15,7 +15,6 @@ export const queryKeys = {
         staged ? 'staged' : 'unstaged'
     ] as const,
     slashCommands: (sessionId: string) => ['slash-commands', sessionId] as const,
-    sessionCodexModels: (sessionId: string) => ['session-codex-models', sessionId] as const,
     sessionCursorModels: (sessionId: string) => ['session-cursor-models', sessionId] as const,
     sessionPiModels: (sessionId: string) => ['session-pi-models', sessionId] as const,
     machineCursorModels: (machineId: string) => ['machine-cursor-models', machineId] as const,
@@ -25,5 +24,6 @@ export const queryKeys = {
     machineGrokModelsForCwd: (machineId: string, cwd: string) => ['machine-grok-models', machineId, cwd] as const,
     sessionGrokModels: (sessionId: string) => ['session-grok-models', sessionId] as const,
     sessionGrokReasoningEffortOptions: (sessionId: string) => ['session-grok-reasoning-effort-options', sessionId] as const,
+    machineCcSwitchProviders: (machineId: string) => ['machine-cc-switch-providers', machineId] as const,
     skills: (sessionId: string) => ['skills', sessionId] as const,
 }

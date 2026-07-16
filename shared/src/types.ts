@@ -39,6 +39,7 @@ export type {
     GeminiPermissionMode,
     GrokPermissionMode,
     KimiPermissionMode,
+    OmpPermissionMode,
     OpencodePermissionMode,
     PermissionMode,
     PermissionModeOption,
@@ -46,3 +47,7 @@ export type {
 } from './modes'
 
 export type { ClaudeModelPreset, GeminiModelPreset } from './models'
+
+export type ClaudeLaunch =
+    | { type: 'fresh' }
+    | { type: 'resume-at'; sourceSessionId: string; providerMessageId: string }

@@ -518,6 +518,26 @@ export function normalizeAgentRecord(
                 meta
             }
         }
+        if (data.type === 'system' && data.subtype === 'model_refusal_fallback') {
+            const originalModel = asString(data.originalModel)
+            const message = asString(data.content)
+            if (!originalModel || !message) return null
+            return {
+                id: messageId,
+                localId,
+                createdAt,
+                role: 'event',
+                content: {
+                    type: 'model-refusal-fallback',
+                    originalModel,
+                    message,
+                    direction: asString(data.direction) ?? undefined,
+                    trigger: asString(data.trigger) ?? undefined
+                },
+                isSidechain: false,
+                meta
+            }
+        }
         return null
     }
 
@@ -570,6 +590,29 @@ export function normalizeAgentRecord(
                     imageId,
                     fileName: asString(data.fileName ?? data.file_name) ?? 'generated-image',
                     mimeType: asString(data.mimeType ?? data.mime_type),
+                    uuid,
+                    parentUUID: null
+                }],
+                meta
+            }
+        }
+
+        if (data.type === 'generated-file') {
+            const fileId = asString(data.fileId ?? data.file_id)
+            if (!fileId) return null
+            const uuid = asString(data.id) ?? messageId
+            return {
+                id: messageId,
+                localId,
+                createdAt,
+                role: 'agent',
+                isSidechain: false,
+                content: [{
+                    type: 'generated-file',
+                    fileId,
+                    fileName: asString(data.fileName ?? data.file_name) ?? 'file',
+                    mimeType: asString(data.mimeType ?? data.mime_type),
+                    size: typeof data.size === 'number' && Number.isFinite(data.size) ? data.size : null,
                     uuid,
                     parentUUID: null
                 }],
@@ -640,6 +683,18 @@ export function normalizeAgentRecord(
                     trigger: asString(data.trigger) ?? 'auto',
                     preTokens: asNumber(data.preTokens ?? data.pre_tokens) ?? 0
                 },
+                isSidechain: false,
+                meta
+            }
+        }
+
+        if (data.type === 'compact_summary' && typeof data.summary === 'string' && data.summary.trim().length > 0) {
+            return {
+                id: messageId,
+                localId,
+                createdAt,
+                role: 'event',
+                content: { type: 'compact-summary', summary: data.summary.trim() },
                 isSidechain: false,
                 meta
             }

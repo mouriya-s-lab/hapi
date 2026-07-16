@@ -105,11 +105,13 @@ export default {
   'session.item.agent': '代理',
   'session.item.model': '模型',
   'session.item.worktree': '工作树',
+  'session.item.remaining': '余 ',
   'session.item.pending': '待处理',
   'session.item.thinking': '思考中',
   'session.item.permission': '需要权限',
   'session.item.needsInput': '需要输入',
   'session.item.background': '后台任务运行中',
+  'session.item.ready': '已就绪 — 等待你回复',
   'session.item.newActivity': '有新活动',
   'session.item.scheduledMessage': '有待发送的定时消息',
   'session.item.scheduledMessages': '{count} 条定时消息待发送',
@@ -156,11 +158,13 @@ export default {
 
   // Session actions
   'session.action.rename': '重命名',
+  'session.action.sessionId': 'Session ID',
   'session.action.export': '导出对话',
   'session.action.archive': '归档',
   'session.action.reopen': '重新打开',
   'session.action.delete': '删除',
   'session.action.copy': '复制',
+  'session.action.fork': 'Fork 会话',
 
   // Dialogs
   'dialog.uri.title': '打开此链接？',
@@ -172,6 +176,11 @@ export default {
   'dialog.rename.save': '保存',
   'dialog.rename.saving': '保存中…',
   'dialog.rename.error': '重命名失败，请重试。',
+  'dialog.fork.errorTitle': 'Fork 失败',
+  'dialog.fork.dismiss': '好',
+  'dialog.sessionId.title': 'Session ID',
+  'dialog.sessionId.description': '本会话可用于 resume 的 session id。可手动选中文本复制，或点「复制」按钮。',
+  'dialog.sessionId.empty': '本会话暂无可 resume 的 session id。',
 
   'dialog.archive.title': '归档会话',
   'dialog.archive.description': '确定要归档 "{name}" 吗？这将断开活动会话。',
@@ -203,12 +212,6 @@ export default {
   'session.export.toast.success.body': '已下载 {filename}',
   'session.export.toast.error.title': '导出失败',
 
-  // Mermaid diagrams
-  'mermaid.openFullscreen': '全屏查看图表',
-  'mermaid.viewerTitle': '图表',
-  'mermaid.loading': '正在加载图表…',
-  'mermaid.renderError': '无法渲染图表。',
-
   // Common buttons
   'button.cancel': '取消',
   'button.save': '保存',
@@ -216,6 +219,7 @@ export default {
   'button.close': '关闭',
   'button.dismiss': '忽略',
   'button.copy': '复制',
+  'button.copied': '已复制',
   'button.paste': '粘贴',
 
   // New session form
@@ -312,7 +316,9 @@ export default {
 
   // Code block
   'code.copy': '复制',
-  'code.truncated': '预览已截断 — 打开详情查看完整输出',
+  'collapse.expand': '展开',
+  'collapse.collapse': '折叠',
+  'collapse.expandLines': '展开全部（{n} 行）',
 
   // Diff view
   'diff.title': '差异',
@@ -349,10 +355,18 @@ export default {
   'file.page.copyPath': '复制路径',
   'file.page.copyContent': '复制文件内容',
   'file.page.download': '下载文件',
+  'file.page.edit': '编辑',
+  'file.page.save': '保存',
+  'file.page.saving': '保存中…',
+  'file.page.saved': '文件已保存',
+  'file.page.cancel': '取消',
+  'file.page.editorLabel': '文件编辑器',
+  'file.page.discardChanges': '放弃未保存的更改？',
   'file.page.tab.diff': 'Diff',
   'file.page.tab.file': '文件',
-  'file.page.tab.source': '源码',
   'file.page.tab.preview': '预览',
+  'file.page.tab.raw': '原文',
+  'file.page.wordWrap': '换行',
   'file.page.missingPath': '未提供文件路径。',
   'file.page.binary': '该文件看起来是二进制文件，无法显示。',
   'file.page.imagePreviewAlt': '{name} 图片预览',
@@ -362,6 +376,8 @@ export default {
   'file.error.readFailedWithDetail': '读取文件失败：{error}',
   'file.error.diffUnavailable': 'Diff 不可用。',
   'file.error.diffUnavailableWithDetail': 'Diff 不可用：{error}',
+  'file.error.saveFailedWithDetail': '保存文件失败：{error}',
+  'file.error.conflict': '文件在打开后已被修改，请重新加载后再编辑。',
 
   // Tool card
   'tool.askQuestion': '其他',
@@ -447,6 +463,8 @@ export default {
 
   // Composer buttons
   'composer.settings': '设置',
+  'composer.customModel': '自定义模型 ID…',
+  'composer.customModelPlaceholder': '如 claude-opus-4-7，回车确认',
   'composer.terminal': '终端',
   'composer.abort': '中止',
   'composer.switchRemote': '切换到远程模式',
@@ -466,6 +484,7 @@ export default {
 
   // Scratchlist (per-session workbench, issue #11)
   'scratchlist.title': '草稿夹',
+  'todoPanel.title': '任务清单',
   'scratchlist.heldLabel': '暂存 · 未发送',
   'scratchlist.empty': '空',
   'scratchlist.count.one': '1 条',
@@ -497,6 +516,8 @@ export default {
   'composer.codexSlashUnsupported.body': 'HAPI 远程模式暂不支持 {command} 这类 Codex 内建 slash command，请改用自然语言，或在本地 Codex TUI 中执行。',
 
   // Voice assistant
+  'voice.readAloud': '朗读摘要',
+  'voice.readAloudStop': '停止朗读',
   'voice.connecting': '连接中...',
   'voice.active': '活跃',
   'voice.muted': '已静音',
@@ -525,6 +546,9 @@ export default {
   'pwa.update.title': '新版本可用',
   'pwa.update.body': '重新加载以获取最新版 HAPI',
   'pwa.update.reload': '重新加载',
+  'pwa.update.changes': '本次更新内容',
+  'pwa.update.changesLoading': '正在加载版本变更…',
+  'pwa.update.changesFailed': '暂时无法获取版本变更，仍可重新加载完成更新。',
   'pwa.update.whyToggle': '为什么不能关闭此提示？',
   'pwa.update.whyBody': '当你可能有正在运行的智能体、待处理的权限请求或未发送的消息时，HAPI 不会自动重新加载标签页。旧版网页与当前服务器一起运行可能导致同步错误和操作失败。此横幅会一直保持显示，直到你重新加载，以免你在不知情的情况下停留在旧版本 — 但何时点击「重新加载」由你决定，可以先完成手头的工作。',
 
@@ -537,6 +561,8 @@ export default {
   'toast.permission.title': '权限请求',
   'toast.task.completed': '任务完成',
   'toast.task.failed': '任务失败',
+  'toast.modelRefusalFallback.title': '模型已自动切换',
+  'toast.modelRefusalFallback.body': '原模型：{originalModel}。{message}',
 
   // Install prompt
   'install.title': '安装 HAPI',
@@ -589,6 +615,8 @@ export default {
   'settings.display.sessionListStatus.standard': '标准',
   'settings.display.sessionListStatus.detailed': '详细',
   'settings.display.sessionListStatus.detailedDescription': '显示会话停止的原因：权限、输入、后台任务、新活动或定时消息（时钟图标）。',
+  'settings.display.hideArchived': '隐藏归档会话',
+  'settings.display.hideArchived.description': '隐藏你从会话菜单归档的会话。关闭此项后它们会重新显示。',
   'settings.chat.title': '聊天',
   'settings.chat.description': '消息输入、工具卡片和对话颜色。',
   'settings.chat.input': '输入',
@@ -707,6 +735,10 @@ export default {
   'browse.goUp': '返回上层',
   'browse.empty': '未找到子目录',
   'browse.refresh': '刷新',
+  'browse.newDirectory': '新建目录',
+  'browse.newDirectoryPlaceholder': '目录名称',
+  'browse.createDirectory': '创建',
+  'browse.copyPath': '复制路径',
   'browse.startSession': '启动会话',
   'browse.nav': '浏览',
   'browse.noRootTitle': '未启用 workspace 浏览',
@@ -720,7 +752,11 @@ export default {
   'misc.collaborationMode': '协作模式',
   'misc.permissionMode': '权限模式',
   'misc.model': '模型',
+  'misc.provider': '供应商',
+  'misc.resumeWithSessionModel': 'Resume 时使用本会话模型',
+  'misc.resumeWithSessionModelHint': '下次 resume 传入本会话的模型和思考强度。',
   'misc.reasoningEffort': '推理强度',
+  'reasoning.collapseHint': '点击折叠',
   'misc.effort': '思考强度',
   'misc.fastMode': '快速模式',
   'misc.fastModeStandard': '标准',

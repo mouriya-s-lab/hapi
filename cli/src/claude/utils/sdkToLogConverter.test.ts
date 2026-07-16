@@ -1038,4 +1038,16 @@ describe('SDKToLogConverter', () => {
             expect((logMessage as any).mode).toBe('plan')
         })
     })
+
+    it('preserves the Claude provider UUID separately from the HAPI display UUID', () => {
+        const converter = new SDKToLogConverter({ cwd: '/w', sessionId: 's', version: 'v' })
+        const converted = converter.convert({
+            type: 'assistant',
+            uuid: 'claude-provider-uuid',
+            message: { role: 'assistant', content: [{ type: 'text', text: 'hi' }] }
+        } as any)
+        expect(converted?.uuid).not.toBe('claude-provider-uuid')
+        expect(converted?.providerMessageId).toBe('claude-provider-uuid')
+    })
+
 })

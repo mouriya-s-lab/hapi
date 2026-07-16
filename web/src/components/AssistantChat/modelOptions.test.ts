@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { getModelOptionsForFlavor, getNextModelForFlavor } from './modelOptions'
 
+const SPECIFIC_CLAUDE_MODEL_OPTIONS = [
+    { value: 'claude-fable-5', label: 'Fable 5' },
+    { value: 'claude-opus-4-8', label: 'Opus 4.8' },
+    { value: 'claude-opus-4-7', label: 'Opus 4.7' },
+    { value: 'claude-opus-4-6', label: 'Opus 4.6' },
+    { value: 'claude-opus-4-5', label: 'Opus 4.5' },
+    { value: 'claude-sonnet-5', label: 'Sonnet 5' },
+    { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+    { value: 'claude-haiku-4-5', label: 'Haiku 4.5' },
+]
+
 describe('getModelOptionsForFlavor', () => {
     it('returns Gemini model options for gemini flavor', () => {
         const options = getModelOptionsForFlavor('gemini')
@@ -12,8 +23,10 @@ describe('getModelOptionsForFlavor', () => {
     it('returns Claude model options for claude flavor', () => {
         const options = getModelOptionsForFlavor('claude')
         expect(options[0]).toEqual({ value: null, label: 'Default' })
+        expect(options.some((o) => o.value === 'fable')).toBe(true)
         expect(options.some((o) => o.value === 'sonnet')).toBe(true)
         expect(options.some((o) => o.value === 'opus')).toBe(true)
+        expect(options.some((o) => o.value === 'haiku')).toBe(true)
     })
 
     it('keeps Claude presets when explicit options only include Sonnet models', () => {
@@ -24,12 +37,14 @@ describe('getModelOptionsForFlavor', () => {
         ])
         expect(options).toEqual([
             { value: null, label: 'Default' },
+            { value: 'fable', label: 'Fable' },
+            { value: 'fable[1m]', label: 'Fable 1M' },
             { value: 'sonnet', label: 'Sonnet' },
             { value: 'sonnet[1m]', label: 'Sonnet 1M' },
             { value: 'opus', label: 'Opus' },
             { value: 'opus[1m]', label: 'Opus 1M' },
-            { value: 'fable', label: 'Fable' },
-            { value: 'fable[1m]', label: 'Fable 1M' }
+            { value: 'haiku', label: 'Haiku' },
+            ...SPECIFIC_CLAUDE_MODEL_OPTIONS,
         ])
     })
 
@@ -40,12 +55,14 @@ describe('getModelOptionsForFlavor', () => {
         expect(options).toEqual([
             { value: null, label: 'Default' },
             { value: 'claude-opus-4-1-20250805', label: 'Claude Opus 4.1' },
+            { value: 'fable', label: 'Fable' },
+            { value: 'fable[1m]', label: 'Fable 1M' },
             { value: 'sonnet', label: 'Sonnet' },
             { value: 'sonnet[1m]', label: 'Sonnet 1M' },
             { value: 'opus', label: 'Opus' },
             { value: 'opus[1m]', label: 'Opus 1M' },
-            { value: 'fable', label: 'Fable' },
-            { value: 'fable[1m]', label: 'Fable 1M' }
+            { value: 'haiku', label: 'Haiku' },
+            ...SPECIFIC_CLAUDE_MODEL_OPTIONS,
         ])
     })
 
@@ -84,6 +101,22 @@ describe('getModelOptionsForFlavor', () => {
     it('returns an empty list for opencode flavor before models are discovered (no claude fallback)', () => {
         const options = getModelOptionsForFlavor('opencode', null)
         expect(options).toEqual([])
+    })
+
+    it('returns an empty list for omp flavor before models are discovered (no claude fallback)', () => {
+        const options = getModelOptionsForFlavor('omp', null)
+        expect(options).toEqual([])
+    })
+
+    it('returns only the supplied custom options for omp flavor (no claude fallback)', () => {
+        const options = getModelOptionsForFlavor('omp', null, [
+            { value: 'ollama/exaone:4.5-33b-q8', label: 'Ollama EXAONE' },
+            { value: 'mlx/qwen3:0.6b', label: 'MLX Qwen3' }
+        ])
+        expect(options).toEqual([
+            { value: 'ollama/exaone:4.5-33b-q8', label: 'Ollama EXAONE' },
+            { value: 'mlx/qwen3:0.6b', label: 'MLX Qwen3' }
+        ])
     })
 
     it('returns only default/current for cursor before models are discovered (no claude fallback)', () => {

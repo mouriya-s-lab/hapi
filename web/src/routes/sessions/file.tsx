@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams, useSearch } from '@tanstack/react-router'
 import type { GitCommandResponse } from '@/types/api'
 import { FileIcon } from '@/components/FileIcon'
@@ -9,17 +9,14 @@ import { useAppGoBack } from '@/hooks/useAppGoBack'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { formatDiffError, formatReadFileError } from '@/lib/files-i18n'
 import { queryKeys } from '@/lib/query-keys'
-import { langAlias, useShikiHighlighter } from '@/lib/shiki'
+import { useShikiHighlighter } from '@/lib/shiki'
 import { useTranslation } from '@/lib/use-translation'
-import { decodeBase64 } from '@/lib/utils'
+import { decodeBase64, encodeBase64 } from '@/lib/utils'
 import { ImagePreview } from '@/components/ImagePreview'
-import { MarkdownRenderer } from '@/components/MarkdownRenderer'
-import {
-    getInitialMarkdownPreviewMode,
-    isMarkdownFile,
-    persistMarkdownPreviewMode,
-    type MarkdownPreviewMode,
-} from '@/lib/file-markdown-preview'
+import { FileMarkdownView } from '@/components/FileMarkdownView'
+import { useFileWordWrap, useFileMarkdownPreview } from '@/hooks/useFileViewPrefs'
+import { isMarkdownPath, resolveLanguage } from '@/lib/file-preview'
+import { useToast } from '@/lib/toast-context'
 
 const MAX_COPYABLE_FILE_BYTES = 1_000_000
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
@@ -150,14 +147,6 @@ function FileContentSkeleton(props: { label: string }) {
     )
 }
 
-function resolveLanguage(path: string): string | undefined {
-    const parts = path.split('.')
-    if (parts.length <= 1) return undefined
-    const ext = parts[parts.length - 1]?.toLowerCase()
-    if (!ext) return undefined
-    return langAlias[ext] ?? ext
-}
-
 function resolveImageMimeType(path: string): string | null {
     const parts = path.split('.')
     if (parts.length <= 1) return null
@@ -189,6 +178,8 @@ function extractCommandError(result: GitCommandResponse | undefined): string | n
 export default function FilePage() {
     const { api } = useAppContext()
     const { t } = useTranslation()
+    const toast = useToast()
+    const queryClient = useQueryClient()
     const { copied: pathCopied, copy: copyPath } = useCopyToClipboard()
     const { copied: contentCopied, copy: copyContent } = useCopyToClipboard()
     const goBack = useAppGoBack()
@@ -196,11 +187,11 @@ export default function FilePage() {
     const search = useSearch({ from: '/sessions/$sessionId/file' })
     const encodedPath = typeof search.path === 'string' ? search.path : ''
     const staged = search.staged
+    const diffRequested = staged !== undefined
 
     const filePath = useMemo(() => decodePath(encodedPath), [encodedPath])
     const fileName = filePath.split('/').pop() || filePath || t('file.page.fallbackName')
     const imageMimeType = useMemo(() => resolveImageMimeType(filePath), [filePath])
-    const markdownFile = useMemo(() => isMarkdownFile(filePath), [filePath])
 
     const diffQuery = useQuery({
         queryKey: queryKeys.gitFileDiff(sessionId, filePath, staged),
@@ -210,7 +201,7 @@ export default function FilePage() {
             }
             return await api.getGitDiffFile(sessionId, filePath, staged)
         },
-        enabled: Boolean(api && sessionId && filePath)
+        enabled: Boolean(api && sessionId && filePath && diffRequested)
     })
 
     const fileQuery = useQuery({
@@ -242,12 +233,7 @@ export default function FilePage() {
         : null
 
     const language = useMemo(() => imageMimeType ? undefined : resolveLanguage(filePath), [filePath, imageMimeType])
-    const [markdownMode, setMarkdownMode] = useState<MarkdownPreviewMode>(getInitialMarkdownPreviewMode)
-    const showMarkdownSource = !markdownFile || markdownMode === 'source'
-    const highlighted = useShikiHighlighter(
-        imageMimeType || (markdownFile && !showMarkdownSource) ? '' : decodedContent,
-        language
-    )
+    const highlighted = useShikiHighlighter(imageMimeType ? '' : decodedContent, language)
     const contentSizeBytes = useMemo(
         () => (decodedContent ? getUtf8ByteLength(decodedContent) : 0),
         [decodedContent]
@@ -258,16 +244,59 @@ export default function FilePage() {
         && contentSizeBytes <= MAX_COPYABLE_FILE_BYTES
 
     const canDownload = fileContentResult?.success === true && Boolean(fileContentResult.content)
+    const canEdit = fileContentResult?.success === true
+        && typeof fileContentResult.hash === 'string'
+        && !binaryFile
+        && !imagePreviewUrl
 
-    const [displayMode, setDisplayMode] = useState<'diff' | 'file'>('diff')
+    const [displayMode, setDisplayMode] = useState<'diff' | 'file'>(() => diffRequested ? 'diff' : 'file')
+    const [wordWrap, setWordWrap] = useFileWordWrap()
+    const [markdownPreview, setMarkdownPreview] = useFileMarkdownPreview()
+    const [editing, setEditing] = useState(false)
+    const [draft, setDraft] = useState('')
+    const [saveError, setSaveError] = useState<string | null>(null)
+    const dirty = editing && draft !== decodedContent
 
-    const setMarkdownPreviewMode = (mode: MarkdownPreviewMode) => {
-        setMarkdownMode(mode)
-        persistMarkdownPreviewMode(mode)
-    }
+    const saveMutation = useMutation({
+        mutationFn: async () => {
+            if (!api || !fileContentResult?.hash) throw new Error('File version is unavailable')
+            const result = await api.writeSessionFile(sessionId, filePath, encodeBase64(draft), fileContentResult.hash)
+            if (!result.success || !result.hash) throw new Error(result.error ?? 'Failed to save file')
+            return result
+        },
+        onSuccess: async (result) => {
+            queryClient.setQueryData(queryKeys.sessionFile(sessionId, filePath), {
+                success: true,
+                content: encodeBase64(draft),
+                hash: result.hash
+            })
+            setEditing(false)
+            setSaveError(null)
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: queryKeys.gitStatus(sessionId) }),
+                queryClient.invalidateQueries({ queryKey: queryKeys.gitFileDiff(sessionId, filePath, staged) })
+            ])
+            toast.addToast({
+                title: t('file.page.saved'),
+                body: filePath,
+                sessionId,
+                url: `/sessions/${sessionId}/file?path=${encodeURIComponent(encodedPath)}`
+            })
+        },
+        onError: (error) => setSaveError(error instanceof Error ? error.message : String(error))
+    })
+
+    const isMarkdownFile = useMemo(() => isMarkdownPath(filePath), [filePath])
+    const showFileTextContent = displayMode === 'file'
+        && fileContentResult?.success === true
+        && !imagePreviewUrl
+        && !binaryFile
+        && decodedContent.length > 0
+    const renderMarkdownPreview = showFileTextContent && isMarkdownFile && markdownPreview && !editing
+    const showWordWrapToggle = showFileTextContent && !renderMarkdownPreview
 
     useEffect(() => {
-        if (imageMimeType) {
+        if (!diffRequested || imageMimeType) {
             setDisplayMode('file')
             return
         }
@@ -278,9 +307,39 @@ export default function FilePage() {
         if (diffFailed) {
             setDisplayMode('file')
         }
-    }, [diffSuccess, diffFailed, diffContent, imageMimeType])
+    }, [diffRequested, diffSuccess, diffFailed, diffContent, imageMimeType])
 
-    const loading = diffQuery.isLoading || fileQuery.isLoading
+    useEffect(() => {
+        if (!editing) setDraft(decodedContent)
+    }, [decodedContent, editing])
+
+    useEffect(() => {
+        if (!dirty) return
+        const warn = (event: BeforeUnloadEvent) => event.preventDefault()
+        window.addEventListener('beforeunload', warn)
+        return () => window.removeEventListener('beforeunload', warn)
+    }, [dirty])
+
+    const startEditing = () => {
+        setDraft(decodedContent)
+        setSaveError(null)
+        setDisplayMode('file')
+        setMarkdownPreview(false)
+        setEditing(true)
+    }
+
+    const cancelEditing = () => {
+        setDraft(decodedContent)
+        setSaveError(null)
+        setEditing(false)
+    }
+
+    const handleBack = () => {
+        if (dirty && !window.confirm(t('file.page.discardChanges'))) return
+        goBack()
+    }
+
+    const loading = (diffRequested && diffQuery.isLoading) || fileQuery.isLoading
     const fileError = fileContentResult && !fileContentResult.success
         ? (fileContentResult.error ?? 'Failed to read file')
         : null
@@ -294,7 +353,7 @@ export default function FilePage() {
                 <div className="mx-auto w-full max-w-content flex items-center gap-2 p-3 border-b border-[var(--app-border)]">
                     <button
                         type="button"
-                        onClick={goBack}
+                        onClick={handleBack}
                         className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--app-hint)] transition-colors hover:bg-[var(--app-secondary-bg)] hover:text-[var(--app-fg)]"
                     >
                         <BackIcon />
@@ -328,48 +387,96 @@ export default function FilePage() {
                             <DownloadIcon className="h-3.5 w-3.5" />
                         </button>
                     ) : null}
+                    {canEdit && !editing ? (
+                        <button
+                            type="button"
+                            onClick={startEditing}
+                            className="shrink-0 rounded bg-[var(--app-button)] px-3 py-1 text-xs font-semibold text-[var(--app-button-text)]"
+                        >
+                            {t('file.page.edit')}
+                        </button>
+                    ) : null}
+                    {editing ? (
+                        <>
+                            <button
+                                type="button"
+                                onClick={cancelEditing}
+                                disabled={saveMutation.isPending}
+                                className="shrink-0 rounded bg-[var(--app-subtle-bg)] px-3 py-1 text-xs font-semibold text-[var(--app-hint)] disabled:opacity-50"
+                            >
+                                {t('file.page.cancel')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => saveMutation.mutate()}
+                                disabled={!dirty || saveMutation.isPending}
+                                className="shrink-0 rounded bg-[var(--app-button)] px-3 py-1 text-xs font-semibold text-[var(--app-button-text)] disabled:opacity-50"
+                            >
+                                {saveMutation.isPending ? t('file.page.saving') : t('file.page.save')}
+                            </button>
+                        </>
+                    ) : null}
                 </div>
             </div>
 
-            {diffContent || (markdownFile && displayMode === 'file') ? (
+            {diffContent && !editing ? (
                 <div className="bg-[var(--app-bg)]">
                     <div className="mx-auto w-full max-w-content px-3 py-2 flex items-center gap-2 border-b border-[var(--app-divider)]">
-                        {diffContent ? (
-                            <>
+                        <button
+                            type="button"
+                            onClick={() => setDisplayMode('diff')}
+                            className={`rounded px-3 py-1 text-xs font-semibold ${displayMode === 'diff' ? 'bg-[var(--app-button)] text-[var(--app-button-text)] opacity-80' : 'bg-[var(--app-subtle-bg)] text-[var(--app-hint)]'}`}
+                        >
+                            {t('file.page.tab.diff')}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setDisplayMode('file')}
+                            className={`rounded px-3 py-1 text-xs font-semibold ${displayMode === 'file' ? 'bg-[var(--app-button)] text-[var(--app-button-text)] opacity-80' : 'bg-[var(--app-subtle-bg)] text-[var(--app-hint)]'}`}
+                        >
+                            {t('file.page.tab.file')}
+                        </button>
+                    </div>
+                </div>
+            ) : null}
+
+            {showFileTextContent && !editing && (isMarkdownFile || showWordWrapToggle) ? (
+                <div className="bg-[var(--app-bg)]">
+                    <div className="mx-auto w-full max-w-content px-3 py-2 flex items-center gap-2 border-b border-[var(--app-divider)]">
+                        <div className="flex-1" />
+                        {isMarkdownFile ? (
+                            <div className="flex items-center gap-1">
                                 <button
                                     type="button"
-                                    onClick={() => setDisplayMode('diff')}
-                                    className={`rounded px-3 py-1 text-xs font-semibold ${displayMode === 'diff' ? 'bg-[var(--app-button)] text-[var(--app-button-text)] opacity-80' : 'bg-[var(--app-subtle-bg)] text-[var(--app-hint)]'}`}
-                                >
-                                    {t('file.page.tab.diff')}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setDisplayMode('file')}
-                                    className={`rounded px-3 py-1 text-xs font-semibold ${displayMode === 'file' ? 'bg-[var(--app-button)] text-[var(--app-button-text)] opacity-80' : 'bg-[var(--app-subtle-bg)] text-[var(--app-hint)]'}`}
-                                >
-                                    {t('file.page.tab.file')}
-                                </button>
-                            </>
-                        ) : null}
-                        {markdownFile && displayMode === 'file' ? (
-                            <>
-                                {diffContent ? <span className="mx-1 h-4 w-px bg-[var(--app-divider)]" aria-hidden="true" /> : null}
-                                <button
-                                    type="button"
-                                    onClick={() => setMarkdownPreviewMode('source')}
-                                    className={`rounded px-3 py-1 text-xs font-semibold ${showMarkdownSource ? 'bg-[var(--app-button)] text-[var(--app-button-text)] opacity-80' : 'bg-[var(--app-subtle-bg)] text-[var(--app-hint)]'}`}
-                                >
-                                    {t('file.page.tab.source')}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setMarkdownPreviewMode('preview')}
-                                    className={`rounded px-3 py-1 text-xs font-semibold ${!showMarkdownSource ? 'bg-[var(--app-button)] text-[var(--app-button-text)] opacity-80' : 'bg-[var(--app-subtle-bg)] text-[var(--app-hint)]'}`}
+                                    onClick={() => setMarkdownPreview(true)}
+                                    aria-pressed={markdownPreview}
+                                    data-testid="md-preview-toggle"
+                                    className={`rounded px-3 py-1 text-xs font-semibold ${markdownPreview ? 'bg-[var(--app-button)] text-[var(--app-button-text)] opacity-80' : 'bg-[var(--app-subtle-bg)] text-[var(--app-hint)]'}`}
                                 >
                                     {t('file.page.tab.preview')}
                                 </button>
-                            </>
+                                <button
+                                    type="button"
+                                    onClick={() => setMarkdownPreview(false)}
+                                    aria-pressed={!markdownPreview}
+                                    data-testid="md-raw-toggle"
+                                    className={`rounded px-3 py-1 text-xs font-semibold ${!markdownPreview ? 'bg-[var(--app-button)] text-[var(--app-button-text)] opacity-80' : 'bg-[var(--app-subtle-bg)] text-[var(--app-hint)]'}`}
+                                >
+                                    {t('file.page.tab.raw')}
+                                </button>
+                            </div>
+                        ) : null}
+                        {showWordWrapToggle ? (
+                            <button
+                                type="button"
+                                onClick={() => setWordWrap(!wordWrap)}
+                                aria-pressed={wordWrap}
+                                data-testid="word-wrap-toggle"
+                                title={t('file.page.wordWrap')}
+                                className={`rounded px-3 py-1 text-xs font-semibold ${wordWrap ? 'bg-[var(--app-button)] text-[var(--app-button-text)] opacity-80' : 'bg-[var(--app-subtle-bg)] text-[var(--app-hint)]'}`}
+                            >
+                                {t('file.page.wordWrap')}
+                            </button>
                         ) : null}
                     </div>
                 </div>
@@ -382,12 +489,26 @@ export default function FilePage() {
                             {diffErrorMessage}
                         </div>
                     ) : null}
+                    {saveError ? (
+                        <div role="alert" className="mb-3 rounded-md bg-red-500/10 p-2 text-xs text-red-600 dark:text-red-400">
+                            {saveError.includes('hash mismatch') ? t('file.error.conflict') : t('file.error.saveFailedWithDetail', { error: saveError })}
+                        </div>
+                    ) : null}
                     {missingPath ? (
                         <div className="text-sm text-[var(--app-hint)]">{t('file.page.missingPath')}</div>
                     ) : loading ? (
                         <FileContentSkeleton label={t('loading.file')} />
                     ) : fileErrorMessage ? (
                         <div className="text-sm text-[var(--app-hint)]">{fileErrorMessage}</div>
+                    ) : editing ? (
+                        <textarea
+                            value={draft}
+                            onChange={(event) => setDraft(event.target.value)}
+                            autoFocus
+                            spellCheck={false}
+                            aria-label={t('file.page.editorLabel')}
+                            className="min-h-[60vh] w-full resize-y rounded-md border border-[var(--app-border)] bg-[var(--app-code-bg)] p-3 text-xs font-mono text-[var(--app-fg)] outline-none focus:border-[var(--app-button)]"
+                        />
                     ) : displayMode === 'diff' && diffContent ? (
                         <DiffDisplay diffContent={diffContent} />
                     ) : displayMode === 'diff' && diffError ? (
@@ -405,37 +526,34 @@ export default function FilePage() {
                             </div>
                         ) : (
                             decodedContent ? (
-                                markdownFile && !showMarkdownSource ? (
-                                    <div className="markdown-content relative">
-                                        {canCopyContent ? (
-                                            <button
-                                                type="button"
-                                                onClick={() => copyContent(decodedContent)}
-                                                className="absolute right-2 top-2 z-10 rounded p-1 text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)] transition-colors"
-                                                title={t('file.page.copyContent')}
-                                            >
-                                                {contentCopied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
-                                            </button>
-                                        ) : null}
-                                        <MarkdownRenderer content={decodedContent} standalone />
-                                    </div>
-                                ) : (
-                                    <div className="relative">
-                                        {canCopyContent ? (
-                                            <button
-                                                type="button"
-                                                onClick={() => copyContent(decodedContent)}
-                                                className="absolute right-2 top-2 z-10 rounded p-1 text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)] transition-colors"
-                                                title={t('file.page.copyContent')}
-                                            >
-                                                {contentCopied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
-                                            </button>
-                                        ) : null}
-                                        <pre className="shiki overflow-auto rounded-md bg-[var(--app-code-bg)] p-3 pr-8 text-xs font-mono">
+                                <div className="relative">
+                                    {canCopyContent ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => copyContent(decodedContent)}
+                                            className="absolute right-2 top-2 z-10 rounded p-1 text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)] transition-colors"
+                                            title={t('file.page.copyContent')}
+                                        >
+                                            {contentCopied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
+                                        </button>
+                                    ) : null}
+                                    {renderMarkdownPreview ? (
+                                        <div
+                                            data-testid="md-preview"
+                                            className="rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] p-4 pr-8"
+                                        >
+                                            <FileMarkdownView content={decodedContent} />
+                                        </div>
+                                    ) : (
+                                        <pre
+                                            data-testid="file-raw-pre"
+                                            data-word-wrap={wordWrap ? 'on' : 'off'}
+                                            className={`shiki rounded-md bg-[var(--app-code-bg)] p-3 pr-8 text-xs font-mono ${wordWrap ? 'overflow-x-hidden whitespace-pre-wrap break-words' : 'overflow-auto'}`}
+                                        >
                                             <code>{highlighted ?? decodedContent}</code>
                                         </pre>
-                                    </div>
-                                )
+                                    )}
+                                </div>
                             ) : (
                                 <div className="text-sm text-[var(--app-hint)]">{t('file.page.empty')}</div>
                             )

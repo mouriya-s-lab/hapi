@@ -97,6 +97,28 @@ describe('session model', () => {
         expect(merged?.model).toBe('gpt-5.4')
     })
 
+    it('preserves the session-scoped cc-switch provider when resume changes the HAPI id', async () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+        const oldSession = cache.getOrCreateSession(
+            'session-provider-old',
+            { path: '/tmp/project', host: 'localhost', flavor: 'claude', ccSwitchProviderId: 'provider-1' },
+            null,
+            'default'
+        )
+        const newSession = cache.getOrCreateSession(
+            'session-provider-new',
+            { path: '/tmp/project', host: 'localhost', flavor: 'claude' },
+            null,
+            'default'
+        )
+
+        await cache.mergeSessions(oldSession.id, newSession.id, 'default')
+
+        expect(cache.getSession(newSession.id)?.metadata?.ccSwitchProviderId).toBe('provider-1')
+    })
+
     it('preserves service tier from old session when merging into resumed session', async () => {
         const store = new Store(':memory:')
         const events: SyncEvent[] = []
@@ -430,6 +452,38 @@ describe('session model', () => {
         })
     })
 
+    it('does not advance updatedAt on agent_state updates, but message activity does (fork #5/#2)', () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+
+        const session = cache.getOrCreateSession(
+            'session-agent-state-no-touch',
+            { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
+            null,
+            'default'
+        )
+        const before = store.sessions.getSession(session.id)!.updatedAt
+        const versionBefore = store.sessions.getSession(session.id)!.agentStateVersion
+
+        // agent_state churn (thinking / internal request changes) must NOT advance updatedAt
+        const result = store.sessions.updateSessionAgentState(
+            session.id,
+            { requests: { r1: { tool: 'Bash' } } },
+            versionBefore,
+            'default'
+        )
+        expect(result.result).toBe('success')
+        const after = store.sessions.getSession(session.id)!
+        expect(after.agentStateVersion).toBe(versionBefore + 1) // the update really happened
+        expect(after.updatedAt).toBe(before) // ...but updatedAt did not move
+
+        // a real message/reply still advances updatedAt ("time since last reply")
+        const activityAt = before + 60_000
+        cache.recordSessionActivity(session.id, activityAt)
+        expect(store.sessions.getSession(session.id)!.updatedAt).toBe(activityAt)
+    })
+
     it('rejects active session config updates when CLI ignores requested keys', async () => {
         const store = new Store(':memory:')
         const engine = new SyncEngine(
@@ -715,6 +769,179 @@ describe('session model', () => {
         }
     })
 
+    it('omits stored Claude model parameters when resume model setting is disabled', async () => {
+        const store = new Store(':memory:')
+        const engine = new SyncEngine(
+            store,
+            {} as never,
+            new RpcRegistry(),
+            { broadcast() {} } as never
+        )
+
+        try {
+            const session = engine.getOrCreateSession(
+                'session-claude-resume-default-model',
+                {
+                    path: '/tmp/project',
+                    host: 'localhost',
+                    machineId: 'machine-1',
+                    flavor: 'claude',
+                    claudeSessionId: 'claude-session-1'
+                },
+                null,
+                'default',
+                'sonnet',
+                'high'
+            )
+            engine.getOrCreateMachine(
+                'machine-1',
+                { host: 'localhost', platform: 'linux', happyCliVersion: '0.1.0' },
+                null,
+                'default'
+            )
+            engine.handleMachineAlive({ machineId: 'machine-1', time: Date.now() })
+
+            let capturedModel: string | undefined
+            let capturedEffort: string | undefined
+            ;(engine as any).rpcGateway.spawnSession = async (
+                _machineId: string,
+                _directory: string,
+                _agent: string,
+                model?: string,
+                _modelReasoningEffort?: string,
+                _yolo?: boolean,
+                _sessionType?: 'simple' | 'worktree',
+                _worktreeName?: string,
+                _resumeSessionId?: string,
+                effort?: string
+            ) => {
+                capturedModel = model
+                capturedEffort = effort
+                return { type: 'success', sessionId: session.id }
+            }
+            ;(engine as any).waitForSessionActive = async () => true
+
+            const result = await engine.resumeSession(session.id, 'default')
+
+            expect(result).toEqual({ type: 'success', sessionId: session.id })
+            expect(capturedModel).toBeUndefined()
+            expect(capturedEffort).toBeUndefined()
+        } finally {
+            engine.stop()
+        }
+    })
+
+    it('passes stored Claude model parameters when resume model setting is enabled', async () => {
+        const store = new Store(':memory:')
+        const engine = new SyncEngine(
+            store,
+            {} as never,
+            new RpcRegistry(),
+            { broadcast() {} } as never
+        )
+
+        try {
+            const session = engine.getOrCreateSession(
+                'session-claude-resume-session-model',
+                {
+                    path: '/tmp/project',
+                    host: 'localhost',
+                    machineId: 'machine-1',
+                    flavor: 'claude',
+                    claudeSessionId: 'claude-session-1'
+                },
+                null,
+                'default',
+                'sonnet',
+                'high'
+            )
+            await engine.applySessionConfig(session.id, { resumeWithSessionModel: true })
+            engine.getOrCreateMachine(
+                'machine-1',
+                { host: 'localhost', platform: 'linux', happyCliVersion: '0.1.0' },
+                null,
+                'default'
+            )
+            engine.handleMachineAlive({ machineId: 'machine-1', time: Date.now() })
+
+            let capturedModel: string | undefined
+            let capturedEffort: string | undefined
+            ;(engine as any).rpcGateway.spawnSession = async (
+                _machineId: string,
+                _directory: string,
+                _agent: string,
+                model?: string,
+                _modelReasoningEffort?: string,
+                _yolo?: boolean,
+                _sessionType?: 'simple' | 'worktree',
+                _worktreeName?: string,
+                _resumeSessionId?: string,
+                effort?: string
+            ) => {
+                capturedModel = model
+                capturedEffort = effort
+                return { type: 'success', sessionId: session.id }
+            }
+            ;(engine as any).waitForSessionActive = async () => true
+
+            const result = await engine.resumeSession(session.id, 'default')
+
+            expect(result).toEqual({ type: 'success', sessionId: session.id })
+            expect(capturedModel).toBe('sonnet')
+            expect(capturedEffort).toBe('high')
+        } finally {
+            engine.stop()
+        }
+    })
+
+    it('local Claude resume target follows resume model setting', async () => {
+        const store = new Store(':memory:')
+        const engine = new SyncEngine(
+            store,
+            {} as never,
+            new RpcRegistry(),
+            { broadcast() {} } as never
+        )
+
+        try {
+            const session = engine.getOrCreateSession(
+                'session-claude-local-resume-model-setting',
+                {
+                    path: '/tmp/project',
+                    host: 'localhost',
+                    machineId: 'machine-1',
+                    flavor: 'claude',
+                    claudeSessionId: 'claude-session-1'
+                },
+                null,
+                'default',
+                'sonnet',
+                'high'
+            )
+
+            const disabled = engine.resolveLocalResumeTarget(session.id, 'default')
+            expect(disabled).toMatchObject({
+                type: 'success',
+                target: {
+                    model: null,
+                    effort: null
+                }
+            })
+
+            await engine.applySessionConfig(session.id, { resumeWithSessionModel: true })
+            const enabled = engine.resolveLocalResumeTarget(session.id, 'default')
+            expect(enabled).toMatchObject({
+                type: 'success',
+                target: {
+                    model: 'sonnet',
+                    effort: 'high'
+                }
+            })
+        } finally {
+            engine.stop()
+        }
+    })
+
     it('passes resume session ID to rpc gateway when resuming claude session', async () => {
         const store = new Store(':memory:')
         const engine = new SyncEngine(
@@ -767,6 +994,74 @@ describe('session model', () => {
 
             expect(result).toEqual({ type: 'success', sessionId: session.id })
             expect(capturedResumeSessionId).toBe('claude-session-1')
+        } finally {
+            engine.stop()
+        }
+    })
+
+    it('retries a deferred Claude fork with its original launch recipe', async () => {
+        const store = new Store(':memory:')
+        const engine = new SyncEngine(
+            store,
+            {} as never,
+            new RpcRegistry(),
+            { broadcast() {} } as never
+        )
+
+        try {
+            const launch = {
+                type: 'resume-at' as const,
+                sourceSessionId: 'source-claude-session',
+                providerMessageId: 'provider-message-id'
+            }
+            const session = engine.getOrCreateSession(
+                'session-deferred-claude-fork',
+                {
+                    path: '/tmp/project',
+                    host: 'localhost',
+                    machineId: 'machine-1',
+                    flavor: 'claude',
+                    pendingClaudeLaunch: {
+                        resumeSessionId: 'new-claude-session',
+                        launch
+                    }
+                },
+                null,
+                'default',
+                'sonnet'
+            )
+            store.messages.addMessage(session.id, {
+                role: 'agent',
+                content: {
+                    type: 'output',
+                    data: { type: 'assistant', sessionId: 'source-claude-session' }
+                }
+            })
+            engine.getOrCreateMachine(
+                'machine-1',
+                { host: 'localhost', platform: 'linux', happyCliVersion: '0.1.0' },
+                null,
+                'default'
+            )
+            engine.handleMachineAlive({ machineId: 'machine-1', time: Date.now() })
+
+            let capturedResumeSessionId: string | undefined
+            let capturedClaudeLaunch: unknown
+            ;(engine as any).rpcGateway.spawnSession = async (...args: unknown[]) => {
+                capturedResumeSessionId = args[8] as string | undefined
+                capturedClaudeLaunch = args[12]
+                return { type: 'success', sessionId: session.id }
+            }
+            ;(engine as any).waitForSessionActive = async () => true
+
+            const result = await engine.resumeSession(session.id, 'default')
+
+            expect(result).toEqual({ type: 'success', sessionId: session.id })
+            expect(capturedResumeSessionId).toBe('new-claude-session')
+            expect(capturedClaudeLaunch).toEqual(launch)
+            expect(store.sessions.getSession(session.id)?.metadata).not.toMatchObject({
+                claudeSessionId: 'source-claude-session'
+            })
         } finally {
             engine.stop()
         }

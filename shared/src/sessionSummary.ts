@@ -33,11 +33,16 @@ export type SessionSummaryMetadata = {
     name?: string
     path: string
     machineId?: string
+    /** Session-recorded host name. Falls back to displaying an unfriendly-named
+     *  machine's `host` when the sidebar has no `machineLabelsById` entry. */
+    host?: string
     summary?: { text: string }
     flavor?: string | null
     worktree?: WorktreeMetadata
     agentSessionId?: string
     lifecycleState?: string
+    /** Present when the session was explicitly archived via the session menu. */
+    archivedAt?: number
 }
 
 export type SessionSummary = {
@@ -112,6 +117,7 @@ export function toSessionSummary(session: Session): SessionSummary {
         name: session.metadata.name,
         path: session.metadata.path,
         machineId: session.metadata.machineId ?? undefined,
+        host: session.metadata.host,
         summary: session.metadata.summary ? { text: session.metadata.summary.text } : undefined,
         flavor: session.metadata.flavor ?? null,
         worktree: session.metadata.worktree,
@@ -123,7 +129,8 @@ export function toSessionSummary(session: Session): SessionSummary {
             ?? session.metadata.cursorSessionId
             ?? session.metadata.kimiSessionId
             ?? undefined,
-        lifecycleState: session.metadata.lifecycleState
+        lifecycleState: session.metadata.lifecycleState,
+        archivedAt: session.metadata.archivedAt
     } : null
 
     const todoProgress = session.todos?.length ? {

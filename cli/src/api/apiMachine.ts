@@ -3,13 +3,13 @@
  */
 
 import { io, type Socket } from 'socket.io-client'
-import { readdir, realpath, stat } from 'node:fs/promises'
+import { mkdir, readdir, realpath, stat } from 'node:fs/promises'
 import { realpathSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { logger } from '@/ui/logger'
 import { configuration } from '@/configuration'
 import type { ClientToServerEvents, ServerToClientEvents, Update, UpdateMachineBody } from '@hapi/protocol'
-import type { MachineDirectoryEntry, MachineListDirectoryResponse, PathExistsResponse } from '@hapi/protocol/apiTypes'
+import type { MachineCreateDirectoryResponse, MachineDirectoryEntry, MachineListDirectoryResponse, PathExistsResponse } from '@hapi/protocol/apiTypes'
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import type { RunnerState, Machine, MachineMetadata } from './types'
 import { RunnerStateSchema, MachineMetadataSchema } from './types'
@@ -31,10 +31,12 @@ import type { SpawnSessionOptions, SpawnSessionResult } from '../modules/common/
 import { applyVersionedAck } from './versionedUpdate'
 import { buildSocketIoExtraHeaderOptions } from './hubExtraHeaders'
 import { collectMachineHealth } from '@/utils/machineHealth'
+import { handleForkSpawnSession } from '../../../fork-features/session-fork/cliHandler'
+import { RunnerUsageMonitor } from '../modules/common/usage/runnerUsageMonitor'
 
 type MachineRpcHandlers = {
     spawnSession: (options: SpawnSessionOptions) => Promise<SpawnSessionResult>
-    stopSession: (sessionId: string) => boolean
+    stopSession: (sessionId: string) => Promise<boolean>
     requestShutdown: () => void
 }
 
@@ -52,6 +54,11 @@ export function normalizeWindowsDriveRoot(path: string): string {
 
 function canonicalRealpathSync(path: string): string {
     return normalizeWindowsDriveRoot(realpathSync.native(path))
+}
+
+interface CreateMachineDirectoryRequest {
+    parentPath: string
+    name: string
 }
 
 function normalizeWorkspaceRoots(paths?: string[]): string[] | undefined {
@@ -89,6 +96,7 @@ export class ApiMachineClient {
     private keepAliveInterval: NodeJS.Timeout | null = null
     private keepAliveStartTimeout: ReturnType<typeof setTimeout> | null = null
     private rpcHandlerManager: RpcHandlerManager
+    private readonly usageMonitor = new RunnerUsageMonitor()
 
     private readonly normalizedWorkspaceRoots: string[] | undefined
 
@@ -198,6 +206,38 @@ export class ApiMachineClient {
             }
         })
 
+        this.rpcHandlerManager.registerHandler<CreateMachineDirectoryRequest, MachineCreateDirectoryResponse>(RPC_METHODS.CreateMachineDirectory, async (params) => {
+            if (!this.normalizedWorkspaceRoots?.length) {
+                return { success: false, error: 'Workspace browsing is not enabled for this machine' }
+            }
+
+            const rawParentPath = typeof params?.parentPath === 'string' ? params.parentPath.trim() : ''
+            const name = typeof params?.name === 'string' ? params.name.trim() : ''
+            if (!rawParentPath || !name) {
+                return { success: false, error: 'Parent path and directory name are required' }
+            }
+            if (name === '.' || name === '..' || name.includes('/') || name.includes('\\')) {
+                return { success: false, error: 'Directory name must be a single path segment' }
+            }
+
+            const parentPath = await this.resolveForWorkspaceCheck(rawParentPath)
+            if (!this.isWithinWorkspaceRoots(parentPath)) {
+                return { success: false, error: 'Path is outside workspace roots' }
+            }
+
+            const targetPath = join(parentPath, name)
+            if (!this.isWithinWorkspaceRoots(targetPath)) {
+                return { success: false, error: 'Path is outside workspace roots' }
+            }
+
+            try {
+                await mkdir(targetPath)
+                return { success: true, path: targetPath }
+            } catch (error) {
+                return { success: false, error: error instanceof Error ? error.message : 'Failed to create directory' }
+            }
+        })
+
         // OpenCode model discovery spawns an `opencode acp` subprocess scoped to the
         // requested cwd, so it must obey the same workspace-root containment as
         // `list-directory` and `spawn-happy-session`. Re-register the handler that
@@ -279,7 +319,7 @@ export class ApiMachineClient {
 
     setRPCHandlers({ spawnSession, stopSession, requestShutdown }: MachineRpcHandlers): void {
         this.rpcHandlerManager.registerHandler(RPC_METHODS.SpawnHappySession, async (params: any) => {
-            const { directory, sessionId, resumeSessionId, machineId, approvedNewDirectoryCreation, agent, model, effort, modelReasoningEffort, yolo, permissionMode, serviceTier, token, sessionType, worktreeName } = params || {}
+            const { directory, sessionId, resumeSessionId, machineId, approvedNewDirectoryCreation, agent, model, effort, modelReasoningEffort, yolo, permissionMode, serviceTier, token, sessionType, worktreeName, claudeLaunch, ccSwitchProviderId } = params || {}
 
             if (!directory) {
                 throw new Error('Directory is required')
@@ -305,7 +345,9 @@ export class ApiMachineClient {
                 serviceTier,
                 token,
                 sessionType,
-                worktreeName
+                worktreeName,
+                claudeLaunch,
+                ccSwitchProviderId
             })
 
             switch (result.type) {
@@ -318,13 +360,13 @@ export class ApiMachineClient {
             }
         })
 
-        this.rpcHandlerManager.registerHandler(RPC_METHODS.StopSession, (params: any) => {
+        this.rpcHandlerManager.registerHandler(RPC_METHODS.StopSession, async (params: any) => {
             const { sessionId } = params || {}
             if (!sessionId) {
                 throw new Error('Session ID is required')
             }
 
-            const success = stopSession(sessionId)
+            const success = await stopSession(sessionId)
             if (!success) {
                 throw new Error('Session not found or failed to stop')
             }
@@ -335,6 +377,10 @@ export class ApiMachineClient {
         this.rpcHandlerManager.registerHandler(RPC_METHODS.StopRunner, () => {
             setTimeout(() => requestShutdown(), 100)
             return { message: 'Runner stop request acknowledged' }
+        })
+
+        this.rpcHandlerManager.registerHandler(RPC_METHODS.ForkSpawnSession, async (params: any) => {
+            return handleForkSpawnSession(params)
         })
     }
 
@@ -460,12 +506,22 @@ export class ApiMachineClient {
             }
 
             this.startKeepAlive()
+            void this.usageMonitor.connect(async (usage) => {
+                await this.updateMachineMetadata((current) => {
+                    const base = current ?? this.machine.metadata
+                    if (!base) throw new Error('Machine metadata unavailable for usage sync')
+                    return { ...base, usage }
+                })
+            }).catch((error) => {
+                logger.debug('[API MACHINE] Failed to start usage monitor', error)
+            })
         })
 
         this.socket.on('disconnect', () => {
             logger.debug('[API MACHINE] Disconnected from bot')
             this.rpcHandlerManager.onSocketDisconnect()
             this.stopKeepAlive()
+            this.usageMonitor.disconnect()
         })
 
         this.socket.on('rpc-request', async (data: { method: string; params: string }, callback: (response: string) => void) => {

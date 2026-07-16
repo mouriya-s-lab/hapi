@@ -33,6 +33,7 @@ import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePic
 import { AttachmentItem } from '@/components/AssistantChat/AttachmentItem'
 import { useTranslation } from '@/lib/use-translation'
 import { getModelOptionsForFlavor, getNextModelForFlavor } from './modelOptions'
+import { isListedClaudeModel, normalizeCustomClaudeModelId } from './claudeModelOptions'
 import { getClaudeComposerEffortOptions } from './claudeEffortOptions'
 import { getCodexComposerReasoningEffortOptions } from './codexReasoningEffortOptions'
 import { getDisplayedCodexServiceTier } from './codexFastMode'
@@ -142,6 +143,7 @@ export function HappyComposer(props: {
     model?: string | null
     modelReasoningEffort?: string | null
     effort?: string | null
+    resumeWithSessionModel?: boolean
     active?: boolean
     allowSendWhenInactive?: boolean
     thinking?: boolean
@@ -169,6 +171,10 @@ export function HappyComposer(props: {
     onCollaborationModeChange?: (mode: CodexCollaborationMode) => void
     onPermissionModeChange?: (mode: PermissionMode) => void
     onModelChange?: (model: { provider: string; modelId: string } | string | null) => void
+    ccSwitchProviders?: Array<{ id: string; name: string; isCurrent: boolean }>
+    currentCcSwitchProviderId?: string | null
+    onCcSwitchProviderChange?: (providerId: string) => void
+    onResumeWithSessionModelChange?: (enabled: boolean) => void
     /** Cursor: effort/variant wire id (separate from base model change). */
     onModelEffortChange?: (wireId: string | null) => void
     onModelReasoningEffortChange?: (modelReasoningEffort: string | null) => void
@@ -213,6 +219,7 @@ export function HappyComposer(props: {
         model: rawModel,
         modelReasoningEffort: rawModelReasoningEffort,
         effort: rawEffort,
+        resumeWithSessionModel = false,
         active = true,
         allowSendWhenInactive = false,
         thinking = false,
@@ -234,6 +241,10 @@ export function HappyComposer(props: {
         onCollaborationModeChange,
         onPermissionModeChange,
         onModelChange,
+        ccSwitchProviders,
+        currentCcSwitchProviderId,
+        onCcSwitchProviderChange,
+        onResumeWithSessionModelChange,
         onModelEffortChange,
         onModelReasoningEffortChange,
         onEffortChange,
@@ -292,6 +303,7 @@ export function HappyComposer(props: {
         selection: { start: 0, end: 0 }
     })
     const [showSettings, setShowSettings] = useState(false)
+    const [customModelDraft, setCustomModelDraft] = useState('')
     const [showPiModelPanel, setShowPiModelPanel] = useState(false)
     const [showPiThinkingPanel, setShowPiThinkingPanel] = useState(false)
     const [isAborting, setIsAborting] = useState(false)
@@ -529,8 +541,11 @@ export function HappyComposer(props: {
     const handleKeyDown = useCallback((e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
         const key = e.key
 
-        // Avoid intercepting IME composition keystrokes (Enter, arrows, etc.)
-        if (e.nativeEvent.isComposing) {
+        // Avoid intercepting IME composition keystrokes (Enter, arrows, etc.).
+        // `isComposing` covers most browsers; keyCode 229 covers IME-handled
+        // keydowns where isComposing is momentarily false (Safari + some
+        // Windows IMEs on the "confirm candidate with Enter" keystroke).
+        if (e.nativeEvent.isComposing || e.keyCode === 229) {
             return
         }
 
@@ -718,9 +733,56 @@ export function HappyComposer(props: {
     const handleModelChange = useCallback((nextModel: { provider: string; modelId: string } | string | null) => {
         if (!onModelChange || controlsDisabled) return
         onModelChange(nextModel)
+        if (
+            agentFlavor === 'claude'
+            && !active
+            && nextModel !== null
+            && !resumeWithSessionModel
+            && onResumeWithSessionModelChange
+        ) {
+            onResumeWithSessionModelChange(true)
+        }
         setShowSettings(false)
         haptic('light')
-    }, [onModelChange, controlsDisabled, haptic])
+    }, [
+        onModelChange,
+        controlsDisabled,
+        agentFlavor,
+        active,
+        resumeWithSessionModel,
+        onResumeWithSessionModelChange,
+        haptic
+    ])
+
+    useEffect(() => {
+        if (showSettings) {
+            setCustomModelDraft(
+                agentFlavor === 'claude' && model && !isListedClaudeModel(model)
+                    ? model
+                    : ''
+            )
+        }
+    }, [showSettings, agentFlavor, model])
+
+    const handleCustomModelSubmit = useCallback(() => {
+        const modelId = normalizeCustomClaudeModelId(customModelDraft)
+        if (!modelId) return
+        handleModelChange(modelId)
+    }, [customModelDraft, handleModelChange])
+
+    const handleResumeWithSessionModelChange = useCallback(() => {
+        if (!onResumeWithSessionModelChange || controlsDisabled) return
+        onResumeWithSessionModelChange(!resumeWithSessionModel)
+        setShowSettings(false)
+        haptic('light')
+    }, [onResumeWithSessionModelChange, controlsDisabled, haptic, resumeWithSessionModel])
+
+    const handleCcSwitchProviderChange = useCallback((providerId: string) => {
+        if (!onCcSwitchProviderChange || controlsDisabled) return
+        if (providerId !== currentCcSwitchProviderId) onCcSwitchProviderChange(providerId)
+        setShowSettings(false)
+        haptic('light')
+    }, [onCcSwitchProviderChange, currentCcSwitchProviderId, controlsDisabled, haptic])
 
     const handleModelEffortChange = useCallback((nextWireId: string | null) => {
         const handler = onModelEffortChange ?? onModelChange
@@ -760,7 +822,10 @@ export function HappyComposer(props: {
 
     const showCollaborationSettings = Boolean(onCollaborationModeChange && collaborationModeOptions.length > 0)
     const showPermissionSettings = Boolean(onPermissionModeChange && permissionModeOptions.length > 0)
+    const showCcSwitchSettings = Boolean(onCcSwitchProviderChange && ccSwitchProviders?.length)
     const showModelSettings = Boolean(onModelChange && supportsModelChange(agentFlavor) && (piModels && piModels.length > 0 || modelOptions.length > 0))
+    const showCustomModelInput = showModelSettings && agentFlavor === 'claude'
+    const showResumeModelSettings = Boolean(agentFlavor === 'claude' && onResumeWithSessionModelChange)
     const showModelEffortSettings = Boolean(
         (onModelEffortChange ?? onModelChange)
         && modelEffortOptions
@@ -774,7 +839,9 @@ export function HappyComposer(props: {
     const showSettingsButton = Boolean(
         showCollaborationSettings
         || showPermissionSettings
+        || showCcSwitchSettings
         || showModelSettings
+        || showResumeModelSettings
         || showModelEffortSettings
         || showModelReasoningEffortSettings
         || showEffortSettings
@@ -880,7 +947,7 @@ export function HappyComposer(props: {
         }
 
         // Non-Pi flavors: original unified gear menu
-        if (showSettings && (showCollaborationSettings || showPermissionSettings || showModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings || showFastModeSettings)) {
+        if (showSettings && (showCollaborationSettings || showPermissionSettings || showCcSwitchSettings || showModelSettings || showResumeModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings || showFastModeSettings)) {
             return (
                 <div className="absolute bottom-[100%] mb-2 w-full">
                     <FloatingOverlay maxHeight={320}>
@@ -921,7 +988,7 @@ export function HappyComposer(props: {
                             </div>
                         ) : null}
 
-                        {showCollaborationSettings && (showPermissionSettings || showModelSettings || showModelReasoningEffortSettings || showEffortSettings) ? (
+                        {showCollaborationSettings && (showPermissionSettings || showModelSettings || showResumeModelSettings || showModelReasoningEffortSettings || showEffortSettings) ? (
                             <div className="mx-3 h-px bg-[var(--app-divider)]" />
                         ) : null}
 
@@ -962,7 +1029,30 @@ export function HappyComposer(props: {
                             </div>
                         ) : null}
 
-                        {(showCollaborationSettings || showPermissionSettings) && (showModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings) ? (
+                        {(showCollaborationSettings || showPermissionSettings) && (showCcSwitchSettings || showModelSettings || showResumeModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings) ? (
+                            <div className="mx-3 h-px bg-[var(--app-divider)]" />
+                        ) : null}
+
+                        {showCcSwitchSettings ? (
+                            <div className="py-2">
+                                <div className="px-3 pb-1 text-xs font-semibold text-[var(--app-hint)]">{t('misc.provider')}</div>
+                                {ccSwitchProviders!.map((provider) => {
+                                    const selected = currentCcSwitchProviderId === provider.id
+                                    return (
+                                        <button key={provider.id} type="button" disabled={controlsDisabled}
+                                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--app-secondary-bg)] disabled:opacity-50"
+                                            onClick={() => handleCcSwitchProviderChange(provider.id)} onMouseDown={(event) => event.preventDefault()}>
+                                            <span className={`flex h-4 w-4 items-center justify-center rounded-full border-2 ${selected ? 'border-[var(--app-link)]' : 'border-[var(--app-hint)]'}`}>
+                                                {selected ? <span className="h-2 w-2 rounded-full bg-[var(--app-link)]" /> : null}
+                                            </span>
+                                            <span className={selected ? 'text-[var(--app-link)]' : ''}>{provider.name}</span>
+                                        </button>
+                                    )
+                                })}
+                            </div>
+                        ) : null}
+
+                        {showCcSwitchSettings && (showModelSettings || showResumeModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings) ? (
                             <div className="mx-3 h-px bg-[var(--app-divider)]" />
                         ) : null}
 
@@ -1044,10 +1134,87 @@ export function HappyComposer(props: {
                                         )
                                     })
                                 )}
+                                {showCustomModelInput ? (
+                                    <div className="flex items-center gap-2 px-3 py-2">
+                                        <button
+                                            type="button"
+                                            role="radio"
+                                            aria-checked={Boolean(model && !isListedClaudeModel(model))}
+                                            aria-label={t('composer.customModel')}
+                                            disabled={controlsDisabled}
+                                            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${
+                                                model && !isListedClaudeModel(model)
+                                                    ? 'border-[var(--app-link)]'
+                                                    : 'border-[var(--app-hint)]'
+                                            }`}
+                                            onClick={handleCustomModelSubmit}
+                                            onMouseDown={(event) => event.preventDefault()}
+                                        >
+                                            {model && !isListedClaudeModel(model) ? (
+                                                <div className="h-2 w-2 rounded-full bg-[var(--app-link)]" />
+                                            ) : null}
+                                        </button>
+                                        <input
+                                            type="text"
+                                            value={customModelDraft}
+                                            disabled={controlsDisabled}
+                                            spellCheck={false}
+                                            autoCapitalize="off"
+                                            autoCorrect="off"
+                                            aria-label={t('composer.customModel')}
+                                            placeholder={t('composer.customModelPlaceholder')}
+                                            data-testid="custom-model-input"
+                                            className="min-w-0 flex-1 rounded-md border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-2 py-1.5 text-sm text-[var(--app-fg)] outline-none placeholder:text-[var(--app-hint)] focus:border-[var(--app-link)]"
+                                            onChange={(event) => setCustomModelDraft(event.target.value)}
+                                            onKeyDown={(event) => {
+                                                if (event.key === 'Enter') {
+                                                    event.preventDefault()
+                                                    handleCustomModelSubmit()
+                                                }
+                                            }}
+                                        />
+                                    </div>
+                                ) : null}
                             </div>
                         ) : null}
 
-                        {showModelSettings && showModelEffortSettings ? (
+                        {showResumeModelSettings ? (
+                            <div className="py-2">
+                                <button
+                                    type="button"
+                                    role="checkbox"
+                                    aria-checked={resumeWithSessionModel}
+                                    disabled={controlsDisabled}
+                                    className={`flex w-full items-start gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                                        controlsDisabled
+                                            ? 'cursor-not-allowed opacity-50'
+                                            : 'cursor-pointer hover:bg-[var(--app-secondary-bg)]'
+                                    }`}
+                                    onClick={handleResumeWithSessionModelChange}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                >
+                                    <div
+                                        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 ${
+                                            resumeWithSessionModel
+                                                ? 'border-[var(--app-link)] bg-[var(--app-link)] text-white'
+                                                : 'border-[var(--app-hint)]'
+                                        }`}
+                                    >
+                                        {resumeWithSessionModel ? (
+                                            <span className="text-[10px] leading-none">✓</span>
+                                        ) : null}
+                                    </div>
+                                    <span className={resumeWithSessionModel ? 'text-[var(--app-link)]' : ''}>
+                                        <span className="block">{t('misc.resumeWithSessionModel')}</span>
+                                        <span className="block text-xs text-[var(--app-hint)]">
+                                            {t('misc.resumeWithSessionModelHint')}
+                                        </span>
+                                    </span>
+                                </button>
+                            </div>
+                        ) : null}
+
+                        {(showModelSettings || showResumeModelSettings) && showModelEffortSettings ? (
                             <div className="mx-3 h-px bg-[var(--app-divider)]" />
                         ) : null}
 
@@ -1061,9 +1228,10 @@ export function HappyComposer(props: {
                             />
                         ) : null}
 
-                        {(showModelSettings || showModelEffortSettings) && showModelReasoningEffortSettings ? (
+                        {(showModelSettings || showResumeModelSettings || showModelEffortSettings) && showModelReasoningEffortSettings ? (
                             <div className="mx-3 h-px bg-[var(--app-divider)]" />
                         ) : null}
+
 
                         {(showModelSettings || showModelEffortSettings || showModelReasoningEffortSettings) && showEffortSettings ? (
                             <div className="mx-3 h-px bg-[var(--app-divider)]" />
@@ -1218,6 +1386,9 @@ export function HappyComposer(props: {
         showCollaborationSettings,
         showPermissionSettings,
         showModelSettings,
+        showCustomModelInput,
+        customModelDraft,
+        showResumeModelSettings,
         showModelEffortSettings,
         modelEffortOptions,
         selectedModelBase,
@@ -1235,6 +1406,7 @@ export function HappyComposer(props: {
         collaborationMode,
         permissionMode,
         model,
+        resumeWithSessionModel,
         modelReasoningEffort,
         effort,
         displayedServiceTier,
@@ -1243,6 +1415,8 @@ export function HappyComposer(props: {
         handleCollaborationChange,
         handlePermissionChange,
         handleModelChange,
+        handleCustomModelSubmit,
+        handleResumeWithSessionModelChange,
         handleModelReasoningEffortChange,
         handleEffortChange,
         handleServiceTierChange,

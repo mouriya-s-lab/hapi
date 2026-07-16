@@ -1,4 +1,4 @@
-import type { AgentFlavor, CodexCollaborationMode, PermissionMode } from '@hapi/protocol/types'
+import type { AgentFlavor, ClaudeLaunch, CodexCollaborationMode, PermissionMode } from '@hapi/protocol/types'
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import type {
     CodexModelSummary,
@@ -6,12 +6,17 @@ import type {
     CommandResponse,
     CursorModelSummary,
     CursorModelsResponse,
+    MachineCreateDirectoryResponse,
     DeleteUploadResponse,
     DirectoryEntry,
     FileReadResponse,
+    FileWriteResponse,
+    GeneratedFileResponse,
     GeneratedImageResponse,
     GrokModelsResponse,
     GrokReasoningEffortResponse,
+    ListCcSwitchProvidersResponse,
+    ValidateCcSwitchProviderResponse,
     ListDirectoryResponse,
     OpencodeModelsResponse,
     OpencodeModelSummary,
@@ -49,7 +54,9 @@ export class RpcTargetMissingError extends Error {
 
 export type RpcCommandResponse = CommandResponse
 export type RpcReadFileResponse = FileReadResponse
+export type RpcWriteFileResponse = FileWriteResponse
 export type RpcGeneratedImageResponse = GeneratedImageResponse
+export type RpcGeneratedFileResponse = GeneratedFileResponse
 export type RpcUploadFileResponse = UploadFileResponse
 export type RpcDeleteUploadResponse = DeleteUploadResponse
 export type RpcDirectoryEntry = DirectoryEntry
@@ -127,6 +134,10 @@ export class RpcGateway {
         await this.sessionRpc(sessionId, RPC_METHODS.KillSession, {})
     }
 
+    async stopSessionOnMachine(machineId: string, sessionId: string): Promise<void> {
+        await this.machineRpc(machineId, RPC_METHODS.StopSession, { sessionId })
+    }
+
     async handoffSessionToLocal(sessionId: string): Promise<void> {
         await this.sessionRpc(sessionId, RPC_METHODS.HandoffLocal, {})
     }
@@ -143,13 +154,15 @@ export class RpcGateway {
         resumeSessionId?: string,
         effort?: string,
         permissionMode?: PermissionMode,
-        serviceTier?: string
+        serviceTier?: string,
+        claudeLaunch?: ClaudeLaunch,
+        ccSwitchProviderId?: string
     ): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }> {
         try {
             const result = await this.machineRpc(
                 machineId,
                 RPC_METHODS.SpawnHappySession,
-                { type: 'spawn-in-directory', directory, agent, model, modelReasoningEffort, yolo, sessionType, worktreeName, resumeSessionId, effort, permissionMode, serviceTier }
+                { type: 'spawn-in-directory', directory, agent, model, modelReasoningEffort, yolo, sessionType, worktreeName, resumeSessionId, effort, permissionMode, serviceTier, claudeLaunch, ccSwitchProviderId }
             )
             if (result && typeof result === 'object') {
                 const obj = result as Record<string, unknown>
@@ -184,12 +197,37 @@ export class RpcGateway {
         }
     }
 
+    /**
+     * Trigger a provider-native session fork on the target machine.
+     * Used by fork-features/session-fork to clone a session into a new
+     * provider session id. Returns the raw RPC result (typed by the caller
+     * via ForkSpawnResult); status code mapping happens in hubForkController.
+     */
+    async forkProviderSessionOnMachine(
+        machineId: string,
+        request: { flavor: string; payload: unknown }
+    ): Promise<unknown> {
+        return await this.machineRpc(machineId, RPC_METHODS.ForkSpawnSession, request)
+    }
+
     async listMachineDirectory(machineId: string, path: string): Promise<RpcListDirectoryResponse> {
         const result = await this.machineRpc(machineId, RPC_METHODS.ListMachineDirectory, { path }) as RpcListDirectoryResponse | unknown
         if (!result || typeof result !== 'object') {
             return { success: false, error: 'Unexpected list-directory result' }
         }
         return result as RpcListDirectoryResponse
+    }
+
+    async createMachineDirectory(machineId: string, parentPath: string, name: string): Promise<MachineCreateDirectoryResponse> {
+        const result = await this.machineRpc(
+            machineId,
+            RPC_METHODS.CreateMachineDirectory,
+            { parentPath, name }
+        ) as MachineCreateDirectoryResponse | unknown
+        if (!result || typeof result !== 'object') {
+            return { success: false, error: 'Unexpected create-directory result' }
+        }
+        return result as MachineCreateDirectoryResponse
     }
 
     async checkPathsExist(machineId: string, paths: string[]): Promise<Record<string, boolean>> {
@@ -226,8 +264,16 @@ export class RpcGateway {
         return await this.sessionRpc(sessionId, RPC_METHODS.ReadFile, { path }) as RpcReadFileResponse
     }
 
+    async writeSessionFile(sessionId: string, path: string, content: string, expectedHash: string): Promise<RpcWriteFileResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.WriteFile, { path, content, expectedHash }) as RpcWriteFileResponse
+    }
+
     async readGeneratedImage(sessionId: string, imageId: string): Promise<RpcGeneratedImageResponse> {
         return await this.sessionRpc(sessionId, RPC_METHODS.ReadGeneratedImage, { id: imageId }) as RpcGeneratedImageResponse
+    }
+
+    async readGeneratedFile(sessionId: string, fileId: string): Promise<RpcGeneratedFileResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.ReadGeneratedFile, { id: fileId }) as RpcGeneratedFileResponse
     }
 
     async listDirectory(sessionId: string, path: string): Promise<RpcListDirectoryResponse> {
@@ -262,10 +308,6 @@ export class RpcGateway {
         }
     }
 
-    async listCodexModelsForSession(sessionId: string): Promise<RpcListCodexModelsResponse> {
-        return await this.sessionRpc(sessionId, RPC_METHODS.ListCodexModels, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListCodexModelsResponse
-    }
-
     async listCodexModelsForMachine(machineId: string): Promise<RpcListCodexModelsResponse> {
         return await this.machineRpc(machineId, RPC_METHODS.ListCodexModels, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListCodexModelsResponse
     }
@@ -276,6 +318,14 @@ export class RpcGateway {
 
     async listCursorModelsForMachine(machineId: string): Promise<RpcListCursorModelsResponse> {
         return await this.machineRpc(machineId, RPC_METHODS.ListCursorModels, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListCursorModelsResponse
+    }
+
+    async listCcSwitchProvidersForMachine(machineId: string): Promise<ListCcSwitchProvidersResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ListCcSwitchProviders, {}, MODEL_LIST_RPC_TIMEOUT_MS) as ListCcSwitchProvidersResponse
+    }
+
+    async validateCcSwitchProviderForMachine(machineId: string, providerId: string): Promise<ValidateCcSwitchProviderResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ValidateCcSwitchProvider, { providerId }) as ValidateCcSwitchProviderResponse
     }
 
     async listOpencodeModelsForSession(sessionId: string): Promise<RpcListOpencodeModelsResponse> {

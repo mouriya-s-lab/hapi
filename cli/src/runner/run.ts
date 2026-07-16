@@ -14,6 +14,7 @@ import { spawnHappyCLI } from '@/utils/spawnHappyCLI';
 import { writeRunnerState, RunnerLocallyPersistedState, readRunnerState, acquireRunnerLock, releaseRunnerLock } from '@/persistence';
 import { getCliArgs } from '@/utils/cliArgs';
 import { isProcessAlive, isWindows, killProcess, killProcessByChildProcess } from '@/utils/process';
+import { getCcSwitchProviderLaunchEnv } from '@/modules/common/ccSwitch';
 import { PERMISSION_MODES } from '@hapi/protocol/modes';
 import { withRetry } from '@/utils/time';
 import { isRetryableConnectionError } from '@/utils/errorUtils';
@@ -442,13 +443,17 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
           logger.debug('[RUNNER RUN] Child stderr tail', trimmed);
         };
 
+        const providerEnv = agent === 'claude' && options.ccSwitchProviderId
+          ? getCcSwitchProviderLaunchEnv(options.ccSwitchProviderId)
+          : {};
         happyProcess = spawnHappyCLI(args, {
           cwd: spawnDirectory,
           detached: true,  // Sessions stay alive when runner stops
           stdio: ['ignore', 'pipe', 'pipe'],  // Capture stdout/stderr for debugging
           env: {
             ...process.env,
-            ...extraEnv
+            ...extraEnv,
+            ...providerEnv
           }
         });
 
@@ -648,7 +653,7 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
     };
 
     // Stop a session by sessionId or PID fallback
-    const stopSession = (sessionId: string): boolean => {
+    const stopSession = async (sessionId: string): Promise<boolean> => {
       logger.debug(`[RUNNER RUN] Attempting to stop session ${sessionId}`);
 
       // Try to find by sessionId first
@@ -658,16 +663,18 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
 
           if (session.startedBy === 'runner' && session.childProcess) {
             try {
-              void killProcessByChildProcess(session.childProcess);
-              logger.debug(`[RUNNER RUN] Requested termination for runner-spawned session ${sessionId}`);
+              const stopped = await killProcessByChildProcess(session.childProcess);
+              if (!stopped) return false;
+              logger.debug(`[RUNNER RUN] Terminated runner-spawned session ${sessionId}`);
             } catch (error) {
               logger.debug(`[RUNNER RUN] Failed to kill session ${sessionId}:`, error);
             }
           } else {
             // For externally started sessions, try to kill by PID
             try {
-              void killProcess(pid);
-              logger.debug(`[RUNNER RUN] Requested termination for external session PID ${pid}`);
+              const stopped = await killProcess(pid);
+              if (!stopped) return false;
+              logger.debug(`[RUNNER RUN] Terminated external session PID ${pid}`);
             } catch (error) {
               logger.debug(`[RUNNER RUN] Failed to kill external session PID ${pid}:`, error);
             }
@@ -1098,9 +1105,18 @@ export function buildCliArgs(
             ? 'opencode'
             : agent === 'pi'
               ? 'pi'
-              : 'claude';
+              : agent === 'omp'
+                ? 'omp'
+                : 'claude';
   const args = [agentCommand];
-  if (options.resumeSessionId) {
+  if (agent === 'claude' && options.claudeLaunch) {
+    if (!options.resumeSessionId) throw new Error('Claude fork launch requires resumeSessionId')
+    if (options.claudeLaunch.type === 'resume-at') {
+      args.push('--resume', options.claudeLaunch.sourceSessionId)
+      args.push('--fork-session', '--resume-session-at', options.claudeLaunch.providerMessageId)
+    }
+    args.push('--session-id', options.resumeSessionId)
+  } else if (options.resumeSessionId) {
     if (agent === 'codex') {
       args.push('resume', options.resumeSessionId);
     } else if (agent === 'cursor') {

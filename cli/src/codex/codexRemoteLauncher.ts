@@ -20,6 +20,9 @@ import { buildThreadStartParams, buildTurnStartParams } from './utils/appServerC
 import type { ThreadGoal, ThreadGoalStatus } from './appServerTypes';
 import { shouldIgnoreTerminalEvent } from './utils/terminalEventGuard';
 import { parseCodexSpecialCommand } from './codexSpecialCommands';
+import { createCodexSessionScanner, type CodexSessionScanner } from './utils/codexSessionScanner';
+import { createCodexTranscriptLocator, type CodexTranscriptLocator } from './utils/codexTranscriptLocator';
+import { convertCodexEvent } from './utils/codexEventConverter';
 import {
     RemoteLauncherBase,
     type RemoteLauncherDisplayContext,
@@ -213,6 +216,9 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
     private currentThreadId: string | null = null;
     private currentTurnId: string | null = null;
     private readonly activeChildTurns = new Map<string, string>();
+    private transcriptLocator: CodexTranscriptLocator | null = null;
+    private transcriptScanner: CodexSessionScanner | null = null;
+    private transcriptScannerSetup: Promise<void> | null = null;
 
     constructor(session: CodexSession) {
         super(process.env.DEBUG ? session.logPath : undefined);
@@ -325,6 +331,35 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
         const messageBuffer = this.messageBuffer;
         const appServerClient = this.appServerClient;
         const appServerEventConverter = new AppServerEventConverter();
+        const startupTimestampMs = Date.now();
+
+        const attachTranscriptScanner = async (transcriptPath: string): Promise<void> => {
+            if (this.transcriptScanner) {
+                await this.transcriptScanner.setTranscriptPath(transcriptPath);
+                return;
+            }
+            this.transcriptScanner = await createCodexSessionScanner({
+                transcriptPath,
+                onEvent: (event) => {
+                    const converted = convertCodexEvent(event);
+                    if (converted?.message?.type === 'compact_summary') {
+                        session.sendAgentMessage(converted.message);
+                    }
+                }
+            });
+        };
+
+        this.transcriptLocator = createCodexTranscriptLocator({
+            cwd: session.path,
+            startupTimestampMs,
+            resumeSessionId: session.sessionId,
+            onLocated: ({ transcriptPath }) => {
+                this.transcriptScannerSetup = attachTranscriptScanner(transcriptPath).catch((error) => {
+                    logger.debug('[codex-remote]: Failed to attach compact-summary transcript scanner', error);
+                });
+            }
+        });
+        await this.transcriptLocator.ready;
 
         const normalizeCommand = (value: unknown): string | undefined => {
             if (typeof value === 'string') {
@@ -2433,6 +2468,9 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 && Boolean(activeMessage)
                 && Boolean(this.currentThreadId)
                 && sameThreadRetryAttempt < SAME_THREAD_MAX_RETRIES;
+            const allowSameThreadTerminalRecovery = msg.terminal_source === 'thread_status'
+                || sameThreadRetryAttempt > 0
+                || sameThreadCompactAttempt > 0;
 
             const suppressReadyForThisTerminalEvent = isTerminalEvent
                 ? consumeInterruptedTurnReadySuppression(eventTurnId)
@@ -2446,7 +2484,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     allowAnonymousTerminalEvent,
                     eventThreadId,
                     currentThreadId: this.currentThreadId,
-                    allowMatchingThreadIdTerminalEvent: msg.terminal_source === 'thread_status'
+                    allowMatchingThreadIdTerminalEvent: allowSameThreadTerminalRecovery
                 })) {
                     logger.debug(
                         `[Codex] Ignoring terminal event ${msgType} without matching turn context; ` +
@@ -3571,6 +3609,12 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
     protected async cleanup(): Promise<void> {
         logger.debug('[codex-remote]: cleanup start');
         this.appServerClient.setStderrHandler(null);
+        await this.transcriptLocator?.cleanup();
+        this.transcriptLocator = null;
+        await this.transcriptScannerSetup;
+        this.transcriptScannerSetup = null;
+        await this.transcriptScanner?.cleanup();
+        this.transcriptScanner = null;
         try {
             await this.appServerClient.disconnect();
         } catch (error) {

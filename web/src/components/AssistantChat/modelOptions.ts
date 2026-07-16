@@ -137,6 +137,12 @@ export function getModelOptionsForFlavor(
     if (flavor === 'pi') {
         return withCurrentModelOption([{ value: null, label: 'Default' }], currentModel)
     }
+    // omp discovers models dynamically via the listOpencodeModels RPC (reused for
+    // omp). Until those options arrive, render an empty list rather than the
+    // Claude fallback — the latter would surface unrelated Claude models.
+    if (flavor === 'omp') {
+        return []
+    }
     return getClaudeModelOptions(currentModel)
 }
 
@@ -184,6 +190,9 @@ export function getNextModelForFlavor(
     // Pi model list is provided dynamically via piModels prop — pressing
     // Ctrl/Cmd+M must not fall through to the Claude preset cycler.
     if (flavor === 'pi') {
+        return normalizeCurrentModel(currentModel)
+    }
+    if (flavor === 'omp') {
         return normalizeCurrentModel(currentModel)
     }
     return getNextClaudeComposerModel(currentModel)

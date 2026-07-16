@@ -1,13 +1,20 @@
 const FILE_PATH_HREF_PREFIX = 'hapi-file:'
 
-const PATH_PATTERN = /(?:\.\/|[A-Za-z0-9_.-]+\/)[^\s`"\'<>]*?\.(?:[A-Za-z0-9]{1,12}|lock)(?::\d+(?::\d+)?)?|(?:[A-Za-z0-9_.-]+\.(?:[A-Za-z0-9]{1,12}|lock))(?::\d+(?::\d+)?)?/g
+// Path prefixes recognized by the match pattern:
+//   ~/            — home-relative absolute path
+//   /             — POSIX absolute path
+//   C:\ / C:/     — Windows drive absolute path
+//   ./            — explicit relative
+//   foo/ or foo\  — bare-relative starting with a name segment (POSIX or Windows)
+const PATH_PATTERN = /(?:~\/|\/|[A-Za-z]:[\\/]|\.\/|[A-Za-z0-9_.-]+[\\/])[^\s`"\'<>]*?\.(?:[A-Za-z0-9]{1,12}|lock)(?::\d+(?::\d+)?)?|(?:[A-Za-z0-9_.-]+\.(?:[A-Za-z0-9]{1,12}|lock))(?::\d+(?::\d+)?)?/g
 
 const TRAILING_PUNCTUATION = new Set(['.', ',', ';', ':', '!', '?'])
 const COMMON_FILE_EXTENSIONS = new Set([
-    'avif', 'bmp', 'c', 'cjs', 'cpp', 'css', 'gif', 'go', 'h', 'hpp', 'html', 'ico', 'java',
-    'jpeg', 'jpg', 'js', 'json', 'jsx', 'kt', 'lock', 'md', 'mdx', 'mjs', 'png', 'py', 'rs',
-    'scss', 'sh', 'sql', 'svg', 'swift', 'toml', 'ts', 'tsx', 'txt', 'vue', 'webp', 'xml',
-    'yaml', 'yml', 'zsh'
+    'avif', 'bmp', 'c', 'cjs', 'cpp', 'css', 'csv', 'doc', 'docx', 'gif', 'go', 'gz', 'h',
+    'hpp', 'html', 'ico', 'java', 'jpeg', 'jpg', 'js', 'json', 'jsx', 'kt', 'lock', 'log',
+    'md', 'mdx', 'mjs', 'pdf', 'png', 'ppt', 'pptx', 'py', 'rs', 'scss', 'sh', 'sql', 'svg',
+    'swift', 'tar', 'toml', 'ts', 'tsx', 'txt', 'vue', 'webp', 'xls', 'xlsx', 'xml', 'yaml',
+    'yml', 'zip', 'zsh'
 ])
 
 type MarkdownNode = {
@@ -72,10 +79,9 @@ function shouldLinkPath(value: string): boolean {
     if (value.includes('://')) return false
     const path = stripLineSuffix(value)
     if (path.length < 3) return false
-    if (path.startsWith('/') || path.startsWith('~/')) return false
     if (path.startsWith('../') || path.includes('/../')) return false
-    if (/^[A-Za-z]:[\\/]/.test(path)) return false
     if (path.includes('/')) return hasKnownFileExtension(path)
+    if (path.includes('\\')) return hasKnownFileExtension(path)
     return hasKnownFileExtension(path)
 }
 
@@ -88,6 +94,18 @@ function linkTextNode(node: MarkdownNode): MarkdownNode[] {
     let match: RegExpExecArray | null
     while ((match = PATH_PATTERN.exec(value)) !== null) {
         const rawMatch = match[0]
+        // Skip matches that sit inside a URL. The current token (from the
+        // nearest whitespace back) containing `://` means the match is a
+        // hostname/path fragment of a URL and shouldn't be turned into a link.
+        const prefix = value.slice(0, match.index)
+        const tokenStart = Math.max(
+            prefix.lastIndexOf(' '),
+            prefix.lastIndexOf('\n'),
+            prefix.lastIndexOf('\t')
+        ) + 1
+        if (prefix.slice(tokenStart).includes('://')) {
+            continue
+        }
         const previousChar = match.index > 0 ? value[match.index - 1] : ''
         if (previousChar === ':' || previousChar === '/' || previousChar === '\\' || previousChar === '.') {
             continue

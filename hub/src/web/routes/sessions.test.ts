@@ -32,6 +32,7 @@ function createSession(overrides?: Partial<Session>): Session {
         modelReasoningEffort: null,
         effort: null,
         serviceTier: null,
+        resumeWithSessionModel: false,
         permissionMode: 'default',
         collaborationMode: 'default'
     }
@@ -59,6 +60,7 @@ type ReopenResultMock =
 function createApp(session: Session, opts?: {
     resumeSession?: (sessionId: string, namespace: string, resumeOpts?: { permissionMode?: string }) => Promise<{ type: string; sessionId?: string; message?: string; code?: string }>
     reopenSession?: (sessionId: string, namespace: string) => Promise<ReopenResultMock>
+    restartSession?: SyncEngine['restartSession']
     listSlashCommands?: SyncEngine['listSlashCommands']
     getSessionExport?: (sessionId: string, session: Session) => unknown
     sessionExists?: boolean
@@ -68,12 +70,6 @@ function createApp(session: Session, opts?: {
     const applySessionConfig = async (sessionId: string, config: Record<string, unknown>) => {
         applySessionConfigCalls.push([sessionId, config])
     }
-    const listCodexModelsForSession = async () => ({
-        success: true,
-        models: [
-            { id: 'gpt-5.5', displayName: 'GPT-5.5', isDefault: true }
-        ]
-    })
     const listOpencodeModelsForSession = async () => ({
         success: true,
         availableModels: [
@@ -98,22 +94,6 @@ function createApp(session: Session, opts?: {
         ],
         currentModelId: 'composer-2.5'
     })
-    const listGrokModelsForSession = async () => ({
-        success: true,
-        availableModels: [
-            {
-                modelId: 'grok-4.5',
-                name: 'Grok 4.5',
-                reasoningEfforts: [{ value: 'low', name: 'Low' }]
-            }
-        ],
-        currentModelId: 'grok-4.5'
-    })
-    const listGrokReasoningEffortOptionsForSession = async () => ({
-        success: true,
-        options: [{ value: 'low', name: 'Low' }],
-        currentValue: 'low'
-    })
     const resumeSession = opts?.resumeSession ?? (async (sessionId: string) => ({ type: 'success', sessionId }))
     const reopenSession = opts?.reopenSession ?? (async (sessionId: string) => ({
         type: 'success' as const,
@@ -127,14 +107,12 @@ function createApp(session: Session, opts?: {
             ? { ok: true, sessionId: session.id, session }
             : { ok: false, reason: 'not-found' },
         applySessionConfig,
-        listCodexModelsForSession,
         listCursorModelsForSession,
         listOpencodeModelsForSession,
         listOpencodeReasoningEffortOptionsForSession,
-        listGrokModelsForSession,
-        listGrokReasoningEffortOptionsForSession,
         resumeSession,
         reopenSession,
+        restartSession: opts?.restartSession ?? (async (sessionId: string) => ({ type: 'success' as const, sessionId })),
         archiveSession: archiveSessionMock,
         getSessionExport: opts?.getSessionExport ?? (() => ({
             type: 'success',
@@ -468,6 +446,92 @@ describe('sessions routes', () => {
         ])
     })
 
+    it('applies model changes for inactive Claude sessions before resume', async () => {
+        const session = createSession({
+            active: false,
+            metadata: {
+                path: '/tmp/project',
+                host: 'localhost',
+                flavor: 'claude'
+            }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/model', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ model: 'fable' })
+        })
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ ok: true })
+        expect(applySessionConfigCalls).toEqual([
+            ['session-1', { model: 'fable' }]
+        ])
+    })
+
+    it('keeps inactive non-Claude model changes rejected', async () => {
+        const session = createSession({
+            active: false,
+            metadata: {
+                path: '/tmp/project',
+                host: 'localhost',
+                flavor: 'codex'
+            }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/model', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ model: 'gpt-5.5' })
+        })
+
+        expect(response.status).toBe(409)
+        expect(await response.json()).toEqual({ error: 'Session is inactive' })
+        expect(applySessionConfigCalls).toEqual([])
+    })
+
+    it('applies resume model setting for Claude sessions', async () => {
+        const session = createSession({
+            active: false,
+            metadata: {
+                path: '/tmp/project',
+                host: 'localhost',
+                flavor: 'claude'
+            }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/resume-model', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ resumeWithSessionModel: true })
+        })
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ ok: true })
+        expect(applySessionConfigCalls).toEqual([
+            ['session-1', { resumeWithSessionModel: true }]
+        ])
+    })
+
+    it('rejects resume model setting for non-Claude sessions', async () => {
+        const { app, applySessionConfigCalls } = createApp(createSession())
+
+        const response = await app.request('/api/sessions/session-1/resume-model', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ resumeWithSessionModel: true })
+        })
+
+        expect(response.status).toBe(400)
+        expect(await response.json()).toEqual({
+            error: 'Resume model selection is only supported for Claude sessions'
+        })
+        expect(applySessionConfigCalls).toEqual([])
+    })
+
     it('rejects model changes for local Codex sessions', async () => {
         const session = createSession({
             agentState: {
@@ -586,41 +650,6 @@ describe('sessions routes', () => {
         expect(applySessionConfigCalls).toEqual([])
     })
 
-    it('applies model changes for remote Grok sessions', async () => {
-        const session = createSession({
-            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'grok' }
-        })
-        const { app, applySessionConfigCalls } = createApp(session)
-
-        const response = await app.request('/api/sessions/session-1/model', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ model: 'grok-4.5' })
-        })
-
-        expect(response.status).toBe(200)
-        expect(applySessionConfigCalls).toEqual([
-            ['session-1', { model: 'grok-4.5' }]
-        ])
-    })
-
-    it('rejects model changes for local Grok sessions', async () => {
-        const session = createSession({
-            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'grok' },
-            agentState: { controlledByUser: true, requests: {}, completedRequests: {} }
-        })
-        const { app, applySessionConfigCalls } = createApp(session)
-
-        const response = await app.request('/api/sessions/session-1/model', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ model: 'grok-4.5' })
-        })
-
-        expect(response.status).toBe(409)
-        expect(applySessionConfigCalls).toEqual([])
-    })
-
     it('rejects effort changes for non-Claude sessions', async () => {
         const { app, applySessionConfigCalls } = createApp(createSession())
 
@@ -660,47 +689,50 @@ describe('sessions routes', () => {
         ])
     })
 
-    it('applies effort changes for remote Grok sessions and rejects local control', async () => {
-        const remote = createSession({
-            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'grok' }
+    it('applies effort changes for inactive Claude sessions before resume', async () => {
+        const session = createSession({
+            active: false,
+            metadata: {
+                path: '/tmp/project',
+                host: 'localhost',
+                flavor: 'claude'
+            }
         })
-        const remoteApp = createApp(remote)
-        const remoteResponse = await remoteApp.app.request('/api/sessions/session-1/effort', {
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/effort', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ effort: 'low' })
+            body: JSON.stringify({ effort: 'max' })
         })
-        expect(remoteResponse.status).toBe(200)
-        expect(remoteApp.applySessionConfigCalls).toEqual([
-            ['session-1', { effort: 'low' }]
-        ])
-
-        const local = createSession({
-            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'grok' },
-            agentState: { controlledByUser: true, requests: {}, completedRequests: {} }
-        })
-        const localApp = createApp(local)
-        const localResponse = await localApp.app.request('/api/sessions/session-1/effort', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ effort: 'low' })
-        })
-        expect(localResponse.status).toBe(409)
-        expect(localApp.applySessionConfigCalls).toEqual([])
-    })
-
-    it('returns Codex models for active Codex sessions', async () => {
-        const { app } = createApp(createSession())
-
-        const response = await app.request('/api/sessions/session-1/codex-models')
 
         expect(response.status).toBe(200)
-        expect(await response.json()).toEqual({
-            success: true,
-            models: [
-                { id: 'gpt-5.5', displayName: 'GPT-5.5', isDefault: true }
-            ]
+        expect(await response.json()).toEqual({ ok: true })
+        expect(applySessionConfigCalls).toEqual([
+            ['session-1', { effort: 'max' }]
+        ])
+    })
+
+    it('keeps inactive non-Claude effort changes rejected', async () => {
+        const session = createSession({
+            active: false,
+            metadata: {
+                path: '/tmp/project',
+                host: 'localhost',
+                flavor: 'codex'
+            }
         })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/effort', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ effort: 'high' })
+        })
+
+        expect(response.status).toBe(409)
+        expect(await response.json()).toEqual({ error: 'Session is inactive' })
+        expect(applySessionConfigCalls).toEqual([])
     })
 
     it('returns OpenCode reasoning effort options for active OpenCode sessions', async () => {
@@ -718,28 +750,6 @@ describe('sessions routes', () => {
                 { value: 'low', name: 'Low' },
                 { value: 'medium', name: 'Medium' }
             ],
-            currentValue: 'low'
-        })
-    })
-
-    it('returns Grok model and effort catalogs for active Grok sessions', async () => {
-        const session = createSession({
-            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'grok' }
-        })
-        const { app } = createApp(session)
-
-        const modelsResponse = await app.request('/api/sessions/session-1/grok-models')
-        expect(modelsResponse.status).toBe(200)
-        expect(await modelsResponse.json()).toMatchObject({
-            success: true,
-            currentModelId: 'grok-4.5'
-        })
-
-        const effortResponse = await app.request('/api/sessions/session-1/grok-reasoning-effort-options')
-        expect(effortResponse.status).toBe(200)
-        expect(await effortResponse.json()).toEqual({
-            success: true,
-            options: [{ value: 'low', name: 'Low' }],
             currentValue: 'low'
         })
     })
@@ -1086,6 +1096,27 @@ describe('sessions routes', () => {
 
         expect(response.status).toBe(503)
         expect((await response.json() as { code: string }).code).toBe('no_machine_online')
+    })
+
+    it('restarts an active session through the ordered engine operation', async () => {
+        const calls: Array<[string, string, string | undefined]> = []
+        const session = createSession({ active: true })
+        const { app } = createApp(session, {
+            restartSession: async (sessionId, namespace, ccSwitchProviderId) => {
+                calls.push([sessionId, namespace, ccSwitchProviderId])
+                return { type: 'success', sessionId }
+            }
+        })
+
+        const response = await app.request('/api/sessions/session-1/restart', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ ccSwitchProviderId: 'provider-1' })
+        })
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ type: 'success', sessionId: 'session-1' })
+        expect(calls).toEqual([['session-1', 'default', 'provider-1']])
     })
 
     it('merges RPC and metadata slash commands without hiding built-ins', async () => {
