@@ -800,6 +800,21 @@ describe('normalizeDecryptedMessage', () => {
         })
     })
 
+    it('normalizes Codex compact summary as an expandable compact-summary event', () => {
+        const message = makeMessage({
+            role: 'agent',
+            content: {
+                type: 'codex',
+                data: { type: 'compact_summary', summary: '  ## Summary\n\n- Continue.  ' }
+            }
+        })
+
+        expect(normalizeDecryptedMessage(message)).toMatchObject({
+            role: 'event',
+            content: { type: 'compact-summary', summary: '## Summary\n\n- Continue.' }
+        })
+    })
+
     it('normalizes Codex agent-run events for timeline aggregation', () => {
         const message = makeMessage({
             role: 'agent',
