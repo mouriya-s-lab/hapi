@@ -43,9 +43,23 @@ export async function runGrok(opts: {
         controlledByUser: false
     };
 
-    const runtimeConfig = resolveGrokRuntimeConfig({ model: opts.model });
-    const persistedModel = runtimeConfig.model;
-    const initialReasoningEffort = resolveGrokReasoningEffort(persistedModel, opts.modelReasoningEffort);
+    const startingMode: 'local' | 'remote' = opts.startingMode
+        ?? (startedBy === 'runner' ? 'remote' : 'local');
+    const launch = opts.resumeSessionId !== undefined
+        ? { kind: 'resume' as const, sessionId: opts.resumeSessionId }
+        : (() => {
+            const creationModel = resolveGrokRuntimeConfig({ model: opts.model }).model;
+            return {
+                kind: 'fresh' as const,
+                model: creationModel,
+                effort: resolveGrokReasoningEffort(creationModel, opts.modelReasoningEffort)
+            };
+        })();
+    const creationModel = launch.kind === 'fresh' ? launch.model : undefined;
+    const initialReasoningEffort = launch.kind === 'fresh' ? launch.effort : null;
+    const initialPermissionMode: PermissionMode = startingMode === 'local'
+        ? 'default'
+        : opts.permissionMode ?? 'default';
 
     const bootstrap = opts.existingSessionId
         ? await bootstrapExistingSession({
@@ -59,13 +73,10 @@ export async function runGrok(opts: {
             startedBy,
             workingDirectory,
             agentState: initialState,
-            model: persistedModel,
+            model: creationModel,
             modelReasoningEffort: initialReasoningEffort ?? undefined
         });
     const { api, session } = bootstrap;
-
-    const startingMode: 'local' | 'remote' = opts.startingMode
-        ?? (startedBy === 'runner' ? 'remote' : 'local');
 
     setControlledByUser(session, startingMode);
 
@@ -76,8 +87,8 @@ export async function runGrok(opts: {
     }));
 
     const sessionWrapperRef: { current: GrokSession | null } = { current: null };
-    let currentPermissionMode: PermissionMode = opts.permissionMode ?? 'default';
-    let requestedModel: string | null = persistedModel ?? null;
+    let currentPermissionMode: PermissionMode = initialPermissionMode;
+    let requestedModel: string | null = creationModel ?? null;
     let requestedReasoningEffort = initialReasoningEffort;
     const controller = new GrokSessionController({
         sessionId: opts.resumeSessionId,
@@ -173,7 +184,7 @@ export async function runGrok(opts: {
             session,
             api,
             permissionMode: currentPermissionMode,
-            model: persistedModel,
+            model: creationModel,
             modelReasoningEffort: requestedReasoningEffort,
             resumeSessionId: opts.resumeSessionId,
             controller,

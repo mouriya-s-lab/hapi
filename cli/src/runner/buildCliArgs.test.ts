@@ -77,6 +77,20 @@ describe('buildCliArgs', () => {
         expect(args).toContain('default')
     })
 
+    it('does not replay Grok creation model or effort when resuming', () => {
+        const args = buildCliArgs('grok', {
+            directory: '/tmp',
+            resumeSessionId: 'grok-session',
+            model: 'grok-4.5',
+            modelReasoningEffort: 'medium',
+            permissionMode: 'yolo',
+        })
+        expect(args).toContain('grok-session')
+        expect(args).not.toContain('grok-4.5')
+        expect(args).not.toContain('medium')
+        expect(args).toContain('yolo')
+    })
+
 
 
     it('passes --model-reasoning-effort through for opencode', () => {

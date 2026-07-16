@@ -22,9 +22,10 @@ export async function grokLocalLauncher(
             const createSession = identity.createSession;
             if (session.sessionId !== identity.sessionId) session.onSessionFound(identity.sessionId);
             opts.controller.commitSessionId(identity.sessionId);
-            if (session.getPermissionMode() !== 'default') {
-                throw new Error('Grok yolo mode is only available under HAPI remote control');
-            }
+            // HAPI yolo is a remote ACP permission overlay, not native Grok
+            // session state. Local control always returns to Grok's native policy.
+            session.setPermissionMode('default');
+            opts.controller.setControl({ kind: 'local' });
             await grokLocal({
                 path: session.path,
                 sessionId: session.sessionId,

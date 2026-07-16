@@ -146,7 +146,7 @@ describe('resumeCommand', () => {
         })
     })
 
-    it('preserves Grok model reasoning effort on local resume', async () => {
+    it('resumes Grok locally without replaying remote overlays or creation config', async () => {
         getLocalResumeTargetMock.mockResolvedValue({
             sessionId: 'hapi-session-grok',
             flavor: 'grok',
@@ -158,7 +158,7 @@ describe('resumeCommand', () => {
             agentSessionId: 'grok-thread-1',
             model: 'grok-4.5',
             modelReasoningEffort: 'medium',
-            permissionMode: 'default'
+            permissionMode: 'yolo'
         })
 
         await resumeCommand.run(createContext(['hapi-session-grok']))
@@ -170,8 +170,6 @@ describe('resumeCommand', () => {
             startedBy: 'terminal',
             permissionMode: 'default',
             startingMode: 'local',
-            model: 'grok-4.5',
-            modelReasoningEffort: 'medium'
         })
     })
 

@@ -2,6 +2,15 @@ import { describe, expect, it, vi } from 'vitest'
 import { GrokSessionController } from './sessionController'
 
 describe('GrokSessionController', () => {
+    it('drops the remote permission overlay when local control takes over', () => {
+        const controller = new GrokSessionController({
+            sessionId: 'persisted', control: { kind: 'remote' }, permissionMode: 'yolo'
+        })
+        controller.setControl({ kind: 'local' })
+        expect(controller.snapshot().control).toEqual({ kind: 'local' })
+        expect(controller.snapshot().permissionMode).toBe('default')
+    })
+
     it('owns fresh local identity and commits the same reserved id', () => {
         const controller = new GrokSessionController({
             control: { kind: 'local' }, permissionMode: 'default', effort: 'medium'

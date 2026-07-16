@@ -129,10 +129,8 @@ async function dispatchLocalResume(target: LocalResumeTarget): Promise<void> {
             workingDirectory: base.workingDirectory,
             resumeSessionId: base.resumeSessionId,
             startedBy: base.startedBy,
-            permissionMode: base.permissionMode as GrokPermissionMode | undefined,
+            permissionMode: 'default' as GrokPermissionMode,
             startingMode: 'local',
-            model: target.model ?? undefined,
-            modelReasoningEffort: target.modelReasoningEffort ?? undefined
         })
         return
     }

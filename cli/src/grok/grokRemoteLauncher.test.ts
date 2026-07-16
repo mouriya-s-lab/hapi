@@ -7,6 +7,7 @@ const harness = vi.hoisted(() => ({
     loadSessionIds: [] as string[],
     setModelIds: [] as string[],
     setModeIds: [] as string[],
+    backendOptions: [] as Array<{ model?: string; reasoningEffort?: string | null }>,
     promptCount: 0,
     currentModel: 'grok-4.5' as string | null,
     loadSessionError: null as Error | null,
@@ -15,7 +16,9 @@ const harness = vi.hoisted(() => ({
 }));
 
 vi.mock('./utils/grokBackend', () => ({
-    createGrokBackend: vi.fn(() => ({
+    createGrokBackend: vi.fn((options: { model?: string; reasoningEffort?: string | null }) => {
+        harness.backendOptions.push(options);
+        return ({
         initialize: vi.fn(async () => {}),
         authenticateFirstAvailable: vi.fn(async () => {}),
         newSession: vi.fn(async () => {
@@ -48,7 +51,8 @@ vi.mock('./utils/grokBackend', () => ({
         onStderrError: vi.fn(),
         onPermissionRequest: vi.fn(),
         disconnect: vi.fn(async () => {})
-    }))
+        });
+    })
 }));
 
 vi.mock('@/codex/utils/buildHapiMcpBridge', () => ({
@@ -107,6 +111,7 @@ describe('Grok remote session state transitions', () => {
         harness.loadSessionIds = [];
         harness.setModelIds = [];
         harness.setModeIds = [];
+        harness.backendOptions = [];
         harness.promptCount = 0;
         harness.currentModel = 'grok-4.5';
         harness.loadSessionError = null;
@@ -141,6 +146,15 @@ describe('Grok remote session state transitions', () => {
         })).rejects.toThrow('session not found');
         expect(harness.newSessionCalls).toBe(0);
         expect(resumed.session.sessionId).toBe('grok-stale-session');
+    });
+
+    it('does not pass a launch model to the backend before loading an existing session', async () => {
+        const resumed = createSession([], 'grok-existing-session');
+        await grokRemoteLauncher(resumed.session as never, {
+            model: 'grok-4.5',
+            controller: controller('grok-existing-session')
+        });
+        expect(harness.backendOptions.at(-1)?.model).toBeUndefined();
     });
 
     it('never mutates reasoning effort through ACP mode calls', async () => {

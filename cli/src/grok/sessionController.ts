@@ -65,7 +65,11 @@ export class GrokSessionController {
     }
 
     setControl(control: GrokControl): void {
-        this.state = { ...this.state, control }
+        this.state = {
+            ...this.state,
+            control,
+            permissionMode: control.kind === 'local' ? 'default' : this.state.permissionMode
+        }
         if (control.kind === 'local') this.remoteModelTransport = null
     }
 

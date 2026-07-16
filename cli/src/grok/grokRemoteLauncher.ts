@@ -53,11 +53,12 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
         const { server: happyServer, mcpServers } = await buildHapiMcpBridge(session.client);
         this.happyServer = happyServer;
 
-        this.displayModel = this.model ?? null;
-        if (this.model) messageBuffer.addMessage(`[MODEL:${this.model}]`, 'system');
+        const creationModel = session.sessionId === null ? this.model : undefined;
+        this.displayModel = creationModel ?? null;
+        if (creationModel) messageBuffer.addMessage(`[MODEL:${creationModel}]`, 'system');
 
         const backend = createGrokBackend({
-            model: this.model,
+            model: creationModel,
             cwd: session.path,
             permissionMode: session.getPermissionMode() as string | undefined,
             reasoningEffort: session.sessionId === null ? session.getModelReasoningEffort() : null

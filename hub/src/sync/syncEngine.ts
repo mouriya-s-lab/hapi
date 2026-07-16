@@ -1310,7 +1310,7 @@ export class SyncEngine {
             directory,
             flavor,
             includeStoredModelParameters ? session.model ?? undefined : undefined,
-            session.modelReasoningEffort ?? undefined,
+            flavor === 'grok' ? undefined : session.modelReasoningEffort ?? undefined,
             undefined,
             undefined,
             undefined,

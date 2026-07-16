@@ -1122,13 +1122,14 @@ export function buildCliArgs(
     }
   }
   args.push('--hapi-starting-mode', 'remote', '--started-by', 'runner');
-  if (options.model) {
+  const isGrokResume = agent === 'grok' && options.resumeSessionId !== undefined;
+  if (options.model && !isGrokResume) {
     args.push('--model', options.model);
   }
   if (options.effort && (agent === 'claude' || agent === 'pi')) {
     args.push('--effort', options.effort);
   }
-  if (options.modelReasoningEffort && (agent === 'codex' || agent === 'grok' || agent === 'opencode')) {
+  if (options.modelReasoningEffort && (agent === 'codex' || (agent === 'grok' && !isGrokResume) || agent === 'opencode')) {
     args.push('--model-reasoning-effort', options.modelReasoningEffort);
   }
   if (options.serviceTier && agent === 'codex') {
