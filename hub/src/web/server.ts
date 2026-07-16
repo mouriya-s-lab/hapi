@@ -22,6 +22,7 @@ import { createGitRoutes } from './routes/git'
 import { createCliRoutes } from './routes/cli'
 import { createPushRoutes } from './routes/push'
 import { createVoiceRoutes } from './routes/voice'
+import { createImportableSessionsRoutes } from './routes/importableSessions'
 import { mountForkRoutes } from '../../../fork-features/session-fork/hubMount'
 import { buildForkDeps } from '../../../fork-features/session-fork/hubSyncEngineAdapter'
 import type { SSEManager } from '../sse/sseManager'
@@ -266,6 +267,7 @@ function createWebApp(options: {
     app.route('/api', createMessagesRoutes(options.getSyncEngine))
     app.route('/api', createPermissionsRoutes(options.getSyncEngine))
     app.route('/api', createMachinesRoutes(options.getSyncEngine))
+    app.route('/api', createImportableSessionsRoutes(options.getSyncEngine))
     app.route('/api', createGitRoutes(options.getSyncEngine))
     app.route('/api', createPushRoutes(options.store, options.vapidPublicKey))
     app.route('/api', createVoiceRoutes())

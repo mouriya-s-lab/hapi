@@ -530,3 +530,45 @@ export type SlashCommandsResponse = {
     commands?: SlashCommand[]
     error?: string
 }
+
+export type ImportableSessionProvider = 'claude' | 'codex'
+
+export type ImportableSessionSummary = {
+    provider: ImportableSessionProvider
+    externalSessionId: string
+    cwd: string
+    title: string
+    preview: string | null
+    updatedAt: number
+}
+
+export type ListImportableSessionsRequest = {
+    provider: ImportableSessionProvider
+    cursor?: string
+    cwd?: string
+    query?: string
+}
+
+export type ListImportableSessionsResponse = {
+    sessions: ImportableSessionSummary[]
+    nextCursor: string | null
+}
+
+export type ImportProviderSessionRequest = {
+    provider: ImportableSessionProvider
+    externalSessionId: string
+}
+
+export type ImportProviderSessionResponse =
+    | { type: 'success'; sessionId: string; messageCount: number }
+    | { type: 'not-found' }
+    | { type: 'error'; error: string; sessionId?: string }
+
+export type ImportableSessionsPage = {
+    sessions: Array<ImportableSessionSummary & { importedHapiSessionId: string | null }>
+    nextCursor: string | null
+}
+
+export type ImportExistingSessionResponse =
+    | { type: 'success'; sessionId: string; alreadyImported: boolean }
+    | { type: 'error'; error: string }

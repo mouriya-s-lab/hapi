@@ -13,6 +13,7 @@ import { registerRipgrepHandlers } from './handlers/ripgrep'
 import { registerSlashCommandHandlers } from './handlers/slashCommands'
 import { registerSkillsHandlers } from './handlers/skills'
 import { registerUploadHandlers } from './handlers/uploads'
+import { registerImportableSessionHandlers } from './handlers/importableSessions'
 
 export function registerCommonHandlers(rpcHandlerManager: RpcHandlerManager, workingDirectory: string): void {
     registerBashHandlers(rpcHandlerManager, workingDirectory)
@@ -29,4 +30,5 @@ export function registerCommonHandlers(rpcHandlerManager: RpcHandlerManager, wor
     registerSkillsHandlers(rpcHandlerManager, workingDirectory)
     registerGitHandlers(rpcHandlerManager, workingDirectory)
     registerUploadHandlers(rpcHandlerManager)
+    registerImportableSessionHandlers(rpcHandlerManager)
 }

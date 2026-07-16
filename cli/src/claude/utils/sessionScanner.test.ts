@@ -144,4 +144,28 @@ describe('sessionScanner', () => {
       expect(content).toContain('readme.md')
     }
   })
+
+  it('streams existing history when explicitly requested', async () => {
+    const sessionId = '11111111-1111-4111-8111-111111111111'
+    const sessionFile = join(projectDir, `${sessionId}.jsonl`)
+    await writeFile(sessionFile, [
+      JSON.stringify({
+        type: 'user', uuid: 'user-1', cwd: testDir,
+        message: { role: 'user', content: 'existing prompt' }
+      }),
+      JSON.stringify({
+        type: 'assistant', uuid: 'assistant-1', cwd: testDir,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'existing answer' }], usage: { input_tokens: 1, output_tokens: 1 } }
+      })
+    ].join('\n') + '\n')
+
+    scanner = await createSessionScanner({
+      sessionId,
+      workingDirectory: testDir,
+      replayExistingHistory: true,
+      onMessage: (message) => collectedMessages.push(message)
+    })
+
+    expect(collectedMessages.map((message) => message.type)).toEqual(['user', 'assistant'])
+  })
 })
