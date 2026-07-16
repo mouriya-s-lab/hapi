@@ -5,6 +5,7 @@ type AppContextValue = {
     api: ApiClient
     token: string
     baseUrl: string
+    user: { id: number; username?: string; role?: 'admin' | 'user'; defaultNamespace?: string }
 }
 
 const AppContext = createContext<AppContextValue | null>(null)

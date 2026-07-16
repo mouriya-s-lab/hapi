@@ -34,6 +34,7 @@
     "devDependencies": {
         "@playwright/test": "^1.60.0",
         "concurrently": "^9.2.1",
+        "hono": "^4.11.2",
         "playwright": "1.60.0",
         "react-devtools-core": "^7.0.1",
         "vite-plugin-pwa": "^1.2.0"

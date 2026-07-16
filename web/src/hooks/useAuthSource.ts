@@ -3,6 +3,7 @@ import { getTelegramWebApp, isTelegramEnvironment } from './useTelegram'
 import type { AuthSource } from './useAuth'
 
 const ACCESS_TOKEN_PREFIX = 'hapi_access_token::'
+const PASSWORD_JWT_PREFIX = 'hapi_password_jwt::'
 
 function getTelegramInitData(): string | null {
     const tg = getTelegramWebApp()
@@ -29,6 +30,10 @@ function getTokenFromUrlParams(): string | null {
 
 function getAccessTokenKey(baseUrl: string): string {
     return `${ACCESS_TOKEN_PREFIX}${baseUrl}`
+}
+
+function getPasswordJwtKey(baseUrl: string): string {
+    return `${PASSWORD_JWT_PREFIX}${baseUrl}`
 }
 
 function getStoredAccessToken(key: string): string | null {
@@ -60,6 +65,9 @@ export function useAuthSource(baseUrl: string): {
     isLoading: boolean
     isTelegram: boolean
     setAccessToken: (token: string) => void
+    setPasswordToken: (token: string) => void
+    persistPasswordToken: (token: string) => void
+    clearStoredPasswordToken: () => void
     clearAuth: () => void
 } {
     const [authSource, setAuthSource] = useState<AuthSource | null>(null)
@@ -67,6 +75,7 @@ export function useAuthSource(baseUrl: string): {
     const [isTelegram, setIsTelegram] = useState(false)
     const retryCountRef = useRef(0)
     const accessTokenKey = useMemo(() => getAccessTokenKey(baseUrl), [baseUrl])
+    const passwordJwtKey = useMemo(() => getPasswordJwtKey(baseUrl), [baseUrl])
 
     // Initialize auth source on mount, with retry for delayed Telegram initData
     useEffect(() => {
@@ -102,6 +111,13 @@ export function useAuthSource(baseUrl: string): {
             return
         }
 
+        const storedPasswordToken = getStoredAccessToken(passwordJwtKey)
+        if (storedPasswordToken) {
+            setAuthSource({ type: 'password', token: storedPasswordToken })
+            setIsLoading(false)
+            return
+        }
+
         // Check if we're in a Telegram environment before polling
         if (!isTelegramEnvironment()) {
             // Plain browser - show login prompt immediately
@@ -133,23 +149,37 @@ export function useAuthSource(baseUrl: string): {
         return () => {
             clearInterval(interval)
         }
-    }, [accessTokenKey])
+    }, [accessTokenKey, passwordJwtKey])
 
     const setAccessToken = useCallback((token: string) => {
+        clearStoredAccessToken(passwordJwtKey)
         storeAccessToken(accessTokenKey, token)
         setAuthSource({ type: 'accessToken', token })
-    }, [accessTokenKey])
+    }, [accessTokenKey, passwordJwtKey])
+
+    const setPasswordToken = useCallback((token: string) => {
+        clearStoredAccessToken(accessTokenKey)
+        storeAccessToken(passwordJwtKey, token)
+        setAuthSource({ type: 'password', token })
+    }, [accessTokenKey, passwordJwtKey])
+
+    const persistPasswordToken = useCallback((token: string) => storeAccessToken(passwordJwtKey, token), [passwordJwtKey])
+    const clearStoredPasswordToken = useCallback(() => clearStoredAccessToken(passwordJwtKey), [passwordJwtKey])
 
     const clearAuth = useCallback(() => {
         clearStoredAccessToken(accessTokenKey)
+        clearStoredAccessToken(passwordJwtKey)
         setAuthSource(null)
-    }, [accessTokenKey])
+    }, [accessTokenKey, passwordJwtKey])
 
     return {
         authSource,
         isLoading,
         isTelegram,
         setAccessToken,
+        setPasswordToken,
+        persistPasswordToken,
+        clearStoredPasswordToken,
         clearAuth
     }
 }

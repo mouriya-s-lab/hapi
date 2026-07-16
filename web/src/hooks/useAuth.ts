@@ -5,6 +5,7 @@ import type { AuthResponse } from '@/types/api'
 export type AuthSource =
     | { type: 'telegram'; initData: string }
     | { type: 'accessToken'; token: string }
+    | { type: 'password'; token: string }
 
 function decodeJwtExpMs(token: string): number | null {
     const parts = token.split('.')
@@ -26,7 +27,7 @@ function decodeJwtExpMs(token: string): number | null {
     }
 }
 
-function getAuthPayload(source: AuthSource): { initData: string } | { accessToken: string } {
+function getAuthPayload(source: Exclude<AuthSource, { type: 'password' }>): { initData: string } | { accessToken: string } {
     if (source.type === 'telegram') {
         return { initData: source.initData }
     }
@@ -90,8 +91,10 @@ export function useAuth(authSource: AuthSource | null, baseUrl: string): {
             lastRefreshAttemptRef.current = now
 
             try {
-                const client = new ApiClient('', { baseUrl })
-                const auth = await client.authenticate(getAuthPayload(currentSource))
+                const client = new ApiClient(currentSource.type === 'password' ? (currentToken ?? currentSource.token) : '', { baseUrl })
+                const auth = currentSource.type === 'password'
+                    ? await client.refreshAuth()
+                    : await client.authenticate(getAuthPayload(currentSource))
                 tokenRef.current = auth.token
                 setToken(auth.token)
                 setUser(auth.user)
@@ -187,8 +190,10 @@ export function useAuth(authSource: AuthSource | null, baseUrl: string): {
             setError(null)
             setNeedsBinding(false)
             try {
-                const client = new ApiClient('', { baseUrl }) // temporary for auth call
-                const auth = await client.authenticate(getAuthPayload(authSource))
+                const client = new ApiClient(authSource.type === 'password' ? authSource.token : '', { baseUrl })
+                const auth = authSource.type === 'password'
+                    ? await client.refreshAuth()
+                    : await client.authenticate(getAuthPayload(authSource))
                 if (isCancelled) return
                 setToken(auth.token)
                 setUser(auth.user)
