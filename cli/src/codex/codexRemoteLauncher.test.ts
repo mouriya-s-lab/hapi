@@ -14,7 +14,9 @@ const harness = vi.hoisted(() => ({
     collaborationModeResponse: { data: [{ mode: 'default' }, { mode: 'plan' }] } as unknown,
     failListCollaborationModes: false,
     startThreadIds: [] as string[],
+    startThreadParams: [] as Array<Record<string, unknown>>,
     resumeThreadIds: [] as string[],
+    resumeThreadParams: [] as Array<Record<string, unknown>>,
     startTurnThreadIds: [] as string[],
     startTurnParams: [] as Array<Record<string, unknown>>,
     startTurnErrors: [] as Error[],
@@ -110,15 +112,17 @@ vi.mock('./codexAppServerClient', () => {
             harness.requestHandlers.set(method, handler);
         }
 
-        async startThread(): Promise<{ thread: { id: string }; model: string }> {
+        async startThread(params?: Record<string, unknown>): Promise<{ thread: { id: string }; model: string }> {
             const id = `thread-${harness.startThreadIds.length + 1}`;
             harness.startThreadIds.push(id);
+            harness.startThreadParams.push(params ?? {});
             return { thread: { id }, model: 'gpt-5.4' };
         }
 
-        async resumeThread(params?: { threadId?: string }): Promise<{ thread: { id: string }; model: string }> {
-            const id = params?.threadId ?? 'thread-resumed';
+        async resumeThread(params?: Record<string, unknown>): Promise<{ thread: { id: string }; model: string }> {
+            const id = typeof params?.threadId === 'string' ? params.threadId : 'thread-resumed';
             harness.resumeThreadIds.push(id);
+            harness.resumeThreadParams.push(params ?? {});
             if (harness.failResumeThreadIds.includes(id)) {
                 throw new Error('resume failed');
             }
@@ -1051,7 +1055,9 @@ describe('codexRemoteLauncher', () => {
         harness.collaborationModeResponse = { data: [{ mode: 'default' }, { mode: 'plan' }] };
         harness.failListCollaborationModes = false;
         harness.startThreadIds = [];
+        harness.startThreadParams = [];
         harness.resumeThreadIds = [];
+        harness.resumeThreadParams = [];
         harness.startTurnThreadIds = [];
         harness.startTurnParams = [];
         harness.startTurnErrors = [];
@@ -1119,6 +1125,8 @@ describe('codexRemoteLauncher', () => {
         expect(exitReason).toBe('exit');
         expect(foundSessionIds).toContain('thread-1');
         expect(getModel()).toBe('gpt-5.4');
+        expect(harness.startThreadParams).toHaveLength(1);
+        expect(harness.startThreadParams[0]?.threadSource).toBe('user');
         expect(harness.initializeCalls).toEqual([{
             clientInfo: {
                 name: 'hapi-codex-client',
@@ -1344,6 +1352,8 @@ describe('codexRemoteLauncher', () => {
 
         expect(exitReason).toBe('exit');
         expect(foundSessionIds).toEqual(['thread-1']);
+        expect(harness.startThreadParams).toHaveLength(1);
+        expect(harness.startThreadParams[0]?.threadSource).toBe('user');
         expect(harness.startTurnParams).toHaveLength(0);
         expect(harness.goalSetCalls).toEqual([{
             threadId: 'thread-1',
@@ -1967,6 +1977,8 @@ describe('codexRemoteLauncher', () => {
 
         expect(exitReason).toBe('exit');
         expect(harness.resumeThreadIds).toEqual(['thread-old']);
+        expect(harness.resumeThreadParams).toHaveLength(1);
+        expect(harness.resumeThreadParams[0]?.threadSource).toBeUndefined();
         expect(harness.startThreadIds).toEqual([]);
         expect(harness.startTurnThreadIds).toEqual([]);
         expect(session.sessionId).toBe('thread-old');
