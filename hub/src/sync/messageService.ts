@@ -14,6 +14,7 @@ import type { Server } from 'socket.io'
 import { randomUUID } from 'node:crypto'
 import type { Store, CancelQueuedMessageResult } from '../store'
 import { EventPublisher } from './eventPublisher'
+import { decorateMessageForGatewayMemory } from '../../../fork-features/multi-user/memoryAdapter'
 
 type StoredMessageForDelivery = ReturnType<Store['messages']['getMessages']>[number]
 
@@ -227,7 +228,7 @@ export class MessageService {
             id: message.id,
             seq: message.seq,
             localId: message.localId,
-            content: message.content,
+            content: decorateMessageForGatewayMemory(message.content),
             createdAt: message.createdAt,
             invokedAt: message.invokedAt,
             scheduledAt: message.scheduledAt
@@ -438,6 +439,7 @@ export class MessageService {
             attachments?: AttachmentMetadata[]
             sentFrom?: 'telegram-bot' | 'webapp'
             scheduledAt?: number | null
+            gatewayAccountId?: number | null
         }
     ): Promise<void> {
         // Defence-in-depth invariant for non-REST callers (Telegram bot, MCP,
@@ -462,7 +464,8 @@ export class MessageService {
                 attachments: payload.attachments
             },
             meta: {
-                sentFrom
+                sentFrom,
+                ...(typeof payload.gatewayAccountId === 'number' ? { gatewayAccountId: payload.gatewayAccountId } : {})
             }
         }
 
@@ -494,7 +497,7 @@ export class MessageService {
                         seq: msg.seq,
                         createdAt: msg.createdAt,
                         localId: msg.localId,
-                        content: msg.content
+                        content: decorateMessageForGatewayMemory(msg.content)
                     }
                 }
             }
@@ -584,7 +587,7 @@ export class MessageService {
                         seq: msg.seq,
                         createdAt: msg.createdAt,
                         localId: msg.localId,
-                        content: msg.content
+                        content: decorateMessageForGatewayMemory(msg.content)
                     }
                 }
             }

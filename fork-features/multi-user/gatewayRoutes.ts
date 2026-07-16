@@ -22,6 +22,7 @@ const updateAccountSchema = z.object({
     role: z.enum(['admin', 'user']).optional(),
     disabled: z.boolean().optional()
 })
+const updateMemorySchema = z.object({ memory: z.string().max(4000).nullable() })
 const createTokenSchema = z.object({ name: z.string().trim().max(80).nullable().optional() })
 const resourceTypeSchema = z.enum(['session', 'machine'])
 const grantSchema = z.object({ accountId: z.number().int().positive(), role: z.enum(['viewer', 'operator']) })
@@ -158,6 +159,17 @@ export function createMultiUserGatewayRoutes(deps: {
             passwordHash: parsed.data.password ? hashPassword(parsed.data.password) : undefined
         })
         return account ? c.json({ account: publicAccount(account) }) : c.json({ error: 'Not found' }, 404)
+    })
+
+    app.get('/memory', (c) => {
+        const account = deps.store.getAccount(c.get('gatewayAccountId'))!
+        return c.json({ memory: account.memory })
+    })
+    app.patch('/memory', async (c) => {
+        const parsed = updateMemorySchema.safeParse(await c.req.json().catch(() => null))
+        if (!parsed.success) return c.json({ error: 'Invalid body' }, 400)
+        const account = deps.store.updateAccount(c.get('gatewayAccountId'), { memory: parsed.data.memory })!
+        return c.json({ memory: account.memory })
     })
 
     app.delete('/accounts/:id', (c) => {

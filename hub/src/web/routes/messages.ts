@@ -4,7 +4,10 @@ import type { SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import { requireSessionFromParam, requireSyncEngine } from './guards'
 
-export function createMessagesRoutes(getSyncEngine: () => SyncEngine | null): Hono<WebAppEnv> {
+export function createMessagesRoutes(
+    getSyncEngine: () => SyncEngine | null,
+    resolveGatewayAccountId?: (request: Request) => Promise<number | null>
+): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
 
     app.get('/sessions/:id/messages', async (c) => {
@@ -71,12 +74,14 @@ export function createMessagesRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({ error: 'Message requires text or attachments' }, 400)
         }
 
+        const gatewayAccountId = await resolveGatewayAccountId?.(c.req.raw) ?? null
         await engine.sendMessage(sessionId, {
             text: parsed.data.text,
             localId: parsed.data.localId,
             attachments: parsed.data.attachments,
             sentFrom: 'webapp',
-            scheduledAt: parsed.data.scheduledAt
+            scheduledAt: parsed.data.scheduledAt,
+            gatewayAccountId
         })
         return c.json({ ok: true })
     })

@@ -1,7 +1,7 @@
 import { Database } from 'bun:sqlite'
 import type { Account, AccountRole, ApiToken, GrantRole, ResourceBinding, ResourceType } from './domain'
 
-type AccountRow = { id: number; username: string; password_hash: string | null; role: string; default_namespace: string; disabled_at: number | null }
+type AccountRow = { id: number; username: string; password_hash: string | null; role: string; default_namespace: string; disabled_at: number | null; memory: string | null }
 type BindingRow = { resource_type: string; resource_id: string; owner_account_id: number; core_namespace: string }
 type TokenRow = { id: number; account_id: number; name: string | null; token_hash: string; created_at: number; revoked_at: number | null }
 
@@ -11,7 +11,8 @@ const toAccount = (row: AccountRow): Account => ({
     passwordHash: row.password_hash,
     role: row.role === 'admin' ? 'admin' : 'user',
     defaultNamespace: row.default_namespace,
-    disabledAt: row.disabled_at
+    disabledAt: row.disabled_at,
+    memory: row.memory ?? null
 })
 
 const toBinding = (row: BindingRow): ResourceBinding => ({
@@ -43,7 +44,8 @@ export class MultiUserGatewayStore {
                 password_hash TEXT,
                 role TEXT NOT NULL CHECK(role IN ('admin', 'user')),
                 default_namespace TEXT NOT NULL,
-                disabled_at INTEGER
+                disabled_at INTEGER,
+                memory TEXT
             );
             CREATE TABLE IF NOT EXISTS gateway_resources (
                 resource_type TEXT NOT NULL CHECK(resource_type IN ('session', 'machine')),
@@ -69,6 +71,8 @@ export class MultiUserGatewayStore {
                 FOREIGN KEY(resource_type, resource_id) REFERENCES gateway_resources(resource_type, resource_id) ON DELETE CASCADE
             );
         `)
+        const accountColumns = this.db.prepare('PRAGMA table_info(gateway_accounts)').all() as Array<{ name: string }>
+        if (!accountColumns.some(column => column.name === 'memory')) this.db.exec('ALTER TABLE gateway_accounts ADD COLUMN memory TEXT')
     }
 
     close(): void { this.db.close() }
@@ -97,11 +101,12 @@ export class MultiUserGatewayStore {
         return (this.db.prepare('SELECT * FROM gateway_accounts ORDER BY id').all() as AccountRow[]).map(toAccount)
     }
 
-    updateAccount(id: number, input: { role?: AccountRole; passwordHash?: string; disabled?: boolean }): Account | null {
+    updateAccount(id: number, input: { role?: AccountRole; passwordHash?: string; disabled?: boolean; memory?: string | null }): Account | null {
         this.db.transaction(() => {
             if (input.role) this.db.prepare('UPDATE gateway_accounts SET role=? WHERE id=?').run(input.role, id)
             if (input.passwordHash) this.db.prepare('UPDATE gateway_accounts SET password_hash=? WHERE id=?').run(input.passwordHash, id)
             if (input.disabled !== undefined) this.db.prepare('UPDATE gateway_accounts SET disabled_at=? WHERE id=?').run(input.disabled ? Date.now() : null, id)
+            if (input.memory !== undefined) this.db.prepare('UPDATE gateway_accounts SET memory=? WHERE id=?').run(input.memory?.trim() || null, id)
         })()
         return this.getAccount(id)
     }

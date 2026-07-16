@@ -15,6 +15,8 @@ import { MessageService } from './messageService'
 import { Store } from '../store'
 import type { Server } from 'socket.io'
 import type { Session, SyncEvent } from '@hapi/protocol/types'
+import { MultiUserGatewayStore } from '../../../fork-features/multi-user/gatewayStore'
+import { configureGatewayMemory } from '../../../fork-features/multi-user/memoryAdapter'
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -88,6 +90,43 @@ function makePublisher() {
         events
     }
 }
+
+describe('MessageService gateway account memory', () => {
+    it('keeps persisted and SSE text raw while decorating immediate, reconnect, and mature CLI delivery', async () => {
+        const gatewayStore = new MultiUserGatewayStore(':memory:')
+        const alice = gatewayStore.createAccount('alice', 'user', 'alice-ns')
+        gatewayStore.updateAccount(alice.id, { memory: 'ALICE-ONLY-CONTEXT' })
+        configureGatewayMemory(gatewayStore)
+        const store = makeStore()
+        const session = makeSession(store, 'gateway-memory-delivery')
+        const updates: unknown[] = []
+        const io = {
+            of: () => ({
+                to: () => ({ emit: (_event: string, update: unknown) => { updates.push(update) } }),
+                adapter: { rooms: { get: () => new Set(['socket-1']) } }
+            })
+        } as unknown as Server
+        const publisher = makePublisher()
+        const service = new MessageService(store, io, publisher as any)
+
+        await service.sendMessage(session.id, { text: 'raw immediate', localId: 'immediate', gatewayAccountId: alice.id })
+        const immediate = updates[0] as { body: { message: { content: { content: { text: string } } } } }
+        expect(immediate.body.message.content.content.text).toContain('ALICE-ONLY-CONTEXT')
+        expect(service.getMessagesPage(session.id, { limit: 10, before: null }).messages[0]?.content).toMatchObject({ content: { text: 'raw immediate' } })
+        expect(publisher.events.find(event => event.type === 'message-received')).toMatchObject({ message: { content: { content: { text: 'raw immediate' } } } })
+
+        const backfill = service.getDeliverableMessagesAfter(session.id, { afterSeq: 0, limit: 10, now: Date.now() })
+        expect((backfill[0]?.content as { content: { text: string } }).content.text).toContain('ALICE-ONLY-CONTEXT')
+
+        await service.sendMessage(session.id, { text: 'raw scheduled', localId: 'scheduled', scheduledAt: Date.now() + 50, gatewayAccountId: alice.id })
+        await Bun.sleep(60)
+        service.releaseMatureScheduledMessages(Date.now())
+        const mature = updates.at(-1) as { body: { message: { content: { content: { text: string } } } } }
+        expect(mature.body.message.content.content.text).toContain('ALICE-ONLY-CONTEXT')
+        expect(mature.body.message.content.content.text).toContain('raw scheduled')
+        gatewayStore.close()
+    })
+})
 
 // ---------------------------------------------------------------------------
 // Tests
