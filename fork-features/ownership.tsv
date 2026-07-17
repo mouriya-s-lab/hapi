@@ -1,0 +1,440 @@
+.claude/rules/hapi-fork-cd-release.rule.md	fork-owned	#179	origin-only delta; fork commits 33352055,d698e6df
+.dockerignore	fork-owned	#179	origin-only delta; fork commits 6da30689
+.github/workflows/publish-image.yml	fork-owned	#179	origin-only delta; fork commits 85e0f8f1,bc97f3cc,8edeeef3,0661377c,ccf37a01,54c4ac4f,6da30689
+.github/workflows/release.yml	upstream-fix	#179	origin-only delta; fork commits 69c5250d,78b888ec
+.github/workflows/sync-upstream.yml	fork-owned	#179	origin-only delta; fork commits 9f8f9e97
+Dockerfile	fork-owned	#179	origin-only delta; fork commits 8edeeef3,6da30689
+bun.lock	open-child	#171	origin-only delta; fork commits a6f9e3f9,45b07ac7,c36d2daf,d3199037
+cli/README.md	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/agent/backends/acp/AcpMessageHandler.test.ts	open-child	#175	origin-only delta; fork commits d28853c7
+cli/src/agent/backends/acp/AcpMessageHandler.ts	open-child	#175	origin-only delta; fork commits d28853c7
+cli/src/agent/backends/acp/AcpSdkBackend.ts	open-child	#175	origin-only delta; fork commits d28853c7
+cli/src/agent/messageConverter.test.ts	open-child	#175	origin-only delta; fork commits d28853c7
+cli/src/agent/messageConverter.ts	open-child	#175	origin-only delta; fork commits d28853c7
+cli/src/agent/runners/runAgentSession.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/agent/runners/runAgentSession.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/agent/sessionFactory.test.ts	open-child	#174	origin-only delta; fork commits 413e76cc
+cli/src/agent/sessionFactory.ts	open-child	#174	origin-only delta; fork commits 6ba438a1,3686370a
+cli/src/agent/types.ts	open-child	#175	origin-only delta; fork commits d28853c7
+cli/src/api/api.extraHeaders.test.ts	open-child	#174	origin-only delta; fork commits 413e76cc
+cli/src/api/api.ts	open-child	#174	origin-only delta; fork commits 413e76cc
+cli/src/api/apiMachine.test.ts	open-child	#177	both refs changed; fork commits c853bcbf,7e3edb0f
+cli/src/api/apiMachine.ts	open-child	#173	both refs changed; fork commits 51929072,9e76994b,3994ee9a,c853bcbf,fc377386,e1611788
+cli/src/api/apiSession.test.ts	open-child	#174	origin-only delta; fork commits 6ba438a1
+cli/src/claude/claudeLocalLauncher.test.ts	upstream-fix	#179	origin-only delta; fork commits d1f9f394
+cli/src/claude/claudeRemote.ts	open-child	#170	origin-only delta; fork commits e009becc,fc377386
+cli/src/claude/model.test.ts	open-child	#174	origin-only delta; fork commits 7e3edb0f
+cli/src/claude/sdk/query.test.ts	open-child	#170	origin-only delta; fork commits fc377386
+cli/src/claude/sdk/query.ts	open-child	#170	origin-only delta; fork commits fc377386
+cli/src/claude/sdk/types.ts	open-child	#170	origin-only delta; fork commits fc377386
+cli/src/claude/session.ts	open-child	#170	origin-only delta; fork commits fc377386
+cli/src/claude/types.ts	open-child	#170	origin-only delta; fork commits fc377386
+cli/src/claude/utils/chatVisibility.test.ts	upstream-fix	#179	origin-only delta; fork commits d1f9f394
+cli/src/claude/utils/sdkToLogConverter.test.ts	open-child	#170	origin-only delta; fork commits fc377386
+cli/src/claude/utils/sdkToLogConverter.ts	open-child	#170	origin-only delta; fork commits fc377386
+cli/src/claude/utils/startHappyServer.test.ts	open-child	#176	both refs changed; fork commits b4c31e88,d28853c7
+cli/src/claude/utils/startHappyServer.ts	open-child	#176	both refs changed; fork commits b4c31e88,d28853c7
+cli/src/claude/utils/systemPrompt.ts	open-child	#176	origin-only delta; fork commits b4c31e88,d28853c7
+cli/src/codex/appServerTypes.ts	open-child	#170	both refs changed; fork commits 837647b2,752c3147
+cli/src/codex/codexAppServerClient.ts	open-child	#170	origin-only delta; fork commits 837647b2,752c3147
+cli/src/codex/codexRemoteLauncher.test.ts	upstream-fix	#179	both refs changed; fork commits 2975dd81
+cli/src/codex/codexRemoteLauncher.ts	upstream-fix	#179	both refs changed; fork commits 2975dd81,92f048f7,6c675985
+cli/src/codex/happyMcpStdioBridge.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/codex/happyMcpStdioBridge.ts	open-child	#176	both refs changed; fork commits b4c31e88,d28853c7
+cli/src/codex/utils/appServerEventConverter.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/codex/utils/appServerEventConverter.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/codex/utils/buildHapiMcpBridge.test.ts	open-child	#176	both refs changed; fork commits b4c31e88,d28853c7
+cli/src/codex/utils/buildHapiMcpBridge.ts	open-child	#176	both refs changed; fork commits b4c31e88,d28853c7
+cli/src/codex/utils/codexEventConverter.test.ts	upstream-fix	#179	origin-only delta; fork commits 92f048f7
+cli/src/codex/utils/codexEventConverter.ts	upstream-fix	#179	origin-only delta; fork commits 92f048f7
+cli/src/codex/utils/codexMcpConfig.test.ts	open-child	#176	origin-only delta; fork commits b4c31e88,d28853c7
+cli/src/codex/utils/systemPrompt.ts	open-child	#176	origin-only delta; fork commits b4c31e88,d28853c7
+cli/src/codex/utils/terminalEventGuard.test.ts	upstream-fix	#179	origin-only delta; fork commits 6c675985
+cli/src/codex/utils/terminalEventGuard.ts	upstream-fix	#179	origin-only delta; fork commits 6c675985
+cli/src/commands/agentCommandOptions.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/commands/agentCommandOptions.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/commands/omp.ts	fork-owned	#172	origin-only delta; fork commits 3686370a
+cli/src/commands/registry.ts	open-child	#172	origin-only delta; fork commits 3686370a
+cli/src/commands/resume.test.ts	open-child	#174	origin-only delta; fork commits 413e76cc
+cli/src/commands/resume.ts	open-child	#172	origin-only delta; fork commits 3686370a
+cli/src/configuration.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/cursor/cursorAcpRemoteLauncher.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/cursor/cursorAcpRemoteLauncher.ts	open-child	#175	both refs changed; fork commits d28853c7
+cli/src/cursor/cursorChatStoreStatus.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/cursor/cursorChatStoreStatus.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/grok/grokRemoteLauncher.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/grok/grokRemoteLauncher.ts	upstream-fix	#179	both refs changed; fork commits merge-resolution
+cli/src/grok/utils/systemPrompt.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/index.ts	open-child	#170	origin-only delta; fork commits 206da967
+cli/src/kimi/kimiRemoteLauncher.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/kimi/kimiRemoteLauncher.ts	open-child	#175	both refs changed; fork commits d28853c7
+cli/src/modules/common/ccSwitch.ts	fork-owned	#173	origin-only delta; fork commits 51929072,92e8a6e1,9e76994b,faec872c,fc7d7b4a,a8815d47
+cli/src/modules/common/displayImagePrompt.ts	fork-owned	#176	origin-only delta; fork commits b4c31e88,d28853c7
+cli/src/modules/common/generatedFiles.test.ts	fork-owned	#176	origin-only delta; fork commits 3edb7db8,b4c31e88
+cli/src/modules/common/generatedFiles.ts	fork-owned	#176	origin-only delta; fork commits 3edb7db8,b4c31e88
+cli/src/modules/common/generatedImages.test.ts	open-child	#175	origin-only delta; fork commits d28853c7
+cli/src/modules/common/generatedImages.ts	open-child	#175	origin-only delta; fork commits d28853c7
+cli/src/modules/common/handlers/ccSwitch.ts	fork-owned	#173	origin-only delta; fork commits 8d828436,51929072,fc7d7b4a,a8815d47
+cli/src/modules/common/handlers/files.test.ts	fork-owned	#177	origin-only delta; fork commits bfa252da
+cli/src/modules/common/handlers/files.ts	open-child	#176	origin-only delta; fork commits b4c31e88,bfa252da
+cli/src/modules/common/hooks/generateHookSettings.test.ts	fork-owned	#174	origin-only delta; fork commits 8a621492
+cli/src/modules/common/hooks/generateHookSettings.ts	open-child	#174	origin-only delta; fork commits 8a621492
+cli/src/modules/common/permission/BasePermissionHandler.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/modules/common/permission/BasePermissionHandler.ts	open-child	#176	both refs changed; fork commits b4c31e88,d28853c7
+cli/src/modules/common/registerCommonHandlers.ts	open-child	#173	origin-only delta; fork commits 3994ee9a,fc7d7b4a,a8815d47
+cli/src/modules/common/rpcTypes.ts	open-child	#173	origin-only delta; fork commits 51929072,e009becc,fc377386
+cli/src/modules/common/skillLookupInstruction.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/modules/common/skills.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/modules/common/skills.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/modules/common/usage/openUsageProvider.test.ts	fork-owned	#173	origin-only delta; fork commits 78f3ffef,fc7d7b4a
+cli/src/modules/common/usage/openUsageProvider.ts	fork-owned	#173	origin-only delta; fork commits 78f3ffef,3994ee9a,fc7d7b4a
+cli/src/modules/common/usage/registry.ts	fork-owned	#173	origin-only delta; fork commits 92e8a6e1,fc7d7b4a
+cli/src/modules/common/usage/runnerUsageMonitor.test.ts	fork-owned	#173	origin-only delta; fork commits 3994ee9a
+cli/src/modules/common/usage/runnerUsageMonitor.ts	fork-owned	#173	origin-only delta; fork commits 3994ee9a
+cli/src/modules/common/usage/types.ts	fork-owned	#173	origin-only delta; fork commits 3994ee9a,fc7d7b4a
+cli/src/omp/loop.ts	fork-owned	#172	origin-only delta; fork commits 7e0010b8,3686370a
+cli/src/omp/ompLocal.ts	fork-owned	#172	origin-only delta; fork commits 3686370a
+cli/src/omp/ompLocalLauncher.ts	fork-owned	#172	origin-only delta; fork commits 7e0010b8,3686370a
+cli/src/omp/ompRemoteLauncher.test.ts	fork-owned	#172	origin-only delta; fork commits 7e0010b8
+cli/src/omp/ompRemoteLauncher.ts	fork-owned	#172	origin-only delta; fork commits d28853c7,7e0010b8,3686370a
+cli/src/omp/runOmp.ts	fork-owned	#172	origin-only delta; fork commits 3686370a
+cli/src/omp/session.ts	fork-owned	#172	origin-only delta; fork commits 3686370a
+cli/src/omp/types.ts	fork-owned	#172	origin-only delta; fork commits 7e0010b8,3686370a
+cli/src/omp/utils/config.ts	fork-owned	#172	origin-only delta; fork commits 3686370a
+cli/src/omp/utils/ompBackend.ts	fork-owned	#172	origin-only delta; fork commits 7e0010b8,3686370a
+cli/src/omp/utils/permissionHandler.ts	fork-owned	#172	origin-only delta; fork commits 7e0010b8,3686370a
+cli/src/omp/utils/systemPrompt.ts	fork-owned	#172	origin-only delta; fork commits 7e0010b8
+cli/src/opencode/opencodeLocalLauncher.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/opencode/opencodeRemoteLauncher.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/opencode/opencodeRemoteLauncher.ts	open-child	#175	both refs changed; fork commits d28853c7
+cli/src/opencode/utils/systemPrompt.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/opencode/utils/systemPrompt.ts	open-child	#176	both refs changed; fork commits b4c31e88,d28853c7
+cli/src/persistence.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/runner/buildCliArgs.test.ts	open-child	#170	origin-only delta; fork commits e009becc,fc377386,3686370a
+cli/src/runner/controlClient.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/runner/controlServer.ts	open-child	#173	origin-only delta; fork commits 9e76994b
+cli/src/runner/run.ts	open-child	#173	both refs changed; fork commits 51929072,9e76994b,e009becc,fc377386,3686370a
+cli/src/runner/runnerIdentity.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/runner/runnerIdentity.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/ui/doctor.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/ui/doctor.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/ui/extraHeadersInit.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/ui/ink/OmpDisplay.tsx	fork-owned	#172	origin-only delta; fork commits 3686370a
+cli/src/ui/tokenInit.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/src/ui/tokenInit.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+cli/tsconfig.json	open-child	#170	origin-only delta; fork commits 206da967
+docs/evidence/109-multi-user-gateway/pr159-b3922ef4-fresh/01-password-login.jpg	fork-owned	#171	origin-only delta; fork commits 7e004cc7,d36af3c5
+docs/evidence/109-multi-user-gateway/pr159-b3922ef4-fresh/02-wrong-password.jpg	fork-owned	#171	origin-only delta; fork commits 7e004cc7,d36af3c5
+docs/evidence/109-multi-user-gateway/pr159-b3922ef4-fresh/03-api-token-login.jpg	fork-owned	#171	origin-only delta; fork commits d36af3c5
+docs/evidence/109-multi-user-gateway/pr159-b3922ef4-fresh/04-create-account-dialog.jpg	fork-owned	#171	origin-only delta; fork commits 8cae045d,d36af3c5
+docs/evidence/109-multi-user-gateway/pr159-b3922ef4-fresh/05-token-plaintext-once.jpg	fork-owned	#171	origin-only delta; fork commits d36af3c5
+docs/evidence/109-multi-user-gateway/pr159-b3922ef4-fresh/06-machine-operator-grant.jpg	fork-owned	#171	origin-only delta; fork commits d36af3c5
+docs/evidence/109-multi-user-gateway/pr159-b3922ef4-fresh/07-regular-user-restricted.jpg	fork-owned	#171	origin-only delta; fork commits d36af3c5
+docs/evidence/109-multi-user-gateway/pr159-b3922ef4-fresh/08-operator-shared-machine.jpg	fork-owned	#171	origin-only delta; fork commits d36af3c5
+docs/evidence/109-multi-user-gateway/pr159-b3922ef4-fresh/09-mobile-regular-user.jpg	fork-owned	#171	origin-only delta; fork commits d36af3c5
+docs/evidence/109-multi-user-gateway/pr159-b3922ef4-fresh/10-create-account-dialog-mobile.jpg	fork-owned	#171	origin-only delta; fork commits 8cae045d
+docs/evidence/109-multi-user-gateway/pr159-b3922ef4-fresh/11-login-state-audit.jpg	fork-owned	#171	origin-only delta; fork commits ba37bcfb
+docs/evidence/109-multi-user-gateway/pr159-b3922ef4-fresh/12-regular-user-clean-admin.jpg	fork-owned	#171	origin-only delta; fork commits ba37bcfb
+docs/guide/installation.md	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+docs/public/schemas/settings.schema.json	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+docs/superpowers/evidence/2026-06-28-session-fork-claude/01-sessions-list-after-fork.jpg	fork-owned	#170	origin-only delta; fork commits aee648ee
+docs/superpowers/evidence/2026-06-28-session-fork-claude/02-fork-session-opened.jpg	fork-owned	#170	origin-only delta; fork commits aee648ee
+docs/superpowers/evidence/2026-06-28-session-fork-claude/03-fork-replied-FORKED.jpg	fork-owned	#170	origin-only delta; fork commits aee648ee
+docs/superpowers/evidence/2026-06-28-session-fork-claude/04-original-session-unaffected.jpg	fork-owned	#170	origin-only delta; fork commits aee648ee
+docs/superpowers/evidence/2026-06-28-session-fork-claude/README.md	fork-owned	#170	origin-only delta; fork commits bd9ede20,416dddf8,aee648ee
+docs/superpowers/plans/2026-06-28-session-fork.md	fork-owned	#170	origin-only delta; fork commits cea30319
+docs/superpowers/specs/2026-06-28-session-fork-design.md	fork-owned	#170	origin-only delta; fork commits cea30319
+e2e/bob-fork-customizations.spec.ts	fork-owned	#179	origin-only delta; fork commits 473d69b4
+e2e/file-viewer.spec.ts	fork-owned	#177	origin-only delta; fork commits a2d26372,d3199037
+e2e/mermaid-zoom.spec.ts	fork-owned	#179	origin-only delta; fork commits c36d2daf
+e2e/model-refusal-toast.spec.ts	fork-owned	#179	origin-only delta; fork commits d1f9f394
+e2e/session-id.spec.ts	fork-owned	#179	origin-only delta; fork commits 291c8db0
+e2e/session-list.spec.ts	fork-owned	#179	origin-only delta; fork commits 3582e989
+e2e/tool-file-preview.spec.ts	fork-owned	#177	origin-only delta; fork commits e2a200a8,f00c8228,e737b4b3
+fork-features/generate-ownership.py	fork-owned	#169	#169 closing PR inventory implementation
+fork-features/multi-user/cliAdapter.test.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
+fork-features/multi-user/cliAdapter.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
+fork-features/multi-user/domain.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
+fork-features/multi-user/executionDispatcher.test.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
+fork-features/multi-user/executionDispatcher.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
+fork-features/multi-user/executionMount.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
+fork-features/multi-user/gatewayRoutes.test.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
+fork-features/multi-user/gatewayRoutes.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
+fork-features/multi-user/gatewayStore.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
+fork-features/multi-user/hubMount.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
+fork-features/multi-user/notificationAdapter.test.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
+fork-features/multi-user/notificationAdapter.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
+fork-features/multi-user/password.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
+fork-features/multi-user/socketAdapter.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
+fork-features/multi-user/token.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
+fork-features/ownership.tsv	fork-owned	#169	#169 closing PR inventory implementation
+fork-features/session-fork/cliHandler.test.ts	fork-owned	#170	origin-only delta; fork commits aee648ee,e1611788
+fork-features/session-fork/cliHandler.ts	fork-owned	#170	origin-only delta; fork commits e1611788
+fork-features/session-fork/forkCapabilities.test.ts	fork-owned	#170	origin-only delta; fork commits 837647b2,9e867c21,7dca6478
+fork-features/session-fork/forkCapabilities.ts	fork-owned	#170	origin-only delta; fork commits 837647b2,9e867c21,7dca6478,aee648ee
+fork-features/session-fork/hubForkController.test.ts	fork-owned	#170	origin-only delta; fork commits 17e79d08,ae9f932a,d1373a53,92fa6ad3,e009becc,fc377386,d5b095d1,aee648ee,d840284a,61d4f0c3
+fork-features/session-fork/hubForkController.ts	fork-owned	#170	origin-only delta; fork commits 17e79d08,ae9f932a,d1373a53,92fa6ad3,e009becc,fc377386,d5b095d1,7dca6478,aee648ee,d840284a,61d4f0c3
+fork-features/session-fork/hubMount.test.ts	fork-owned	#170	origin-only delta; fork commits 92fa6ad3,2939fcc6,d5b095d1,9e867c21,7dca6478,aee648ee,d840284a,ddf6df18
+fork-features/session-fork/hubMount.ts	fork-owned	#170	origin-only delta; fork commits 2939fcc6,d5b095d1,7dca6478,aee648ee,f3c58338,ddf6df18
+fork-features/session-fork/hubSyncEngineAdapter.test.ts	fork-owned	#170	origin-only delta; fork commits 92fa6ad3,e009becc,fc377386,d5b095d1,aee648ee,a0c02d7f
+fork-features/session-fork/hubSyncEngineAdapter.ts	fork-owned	#170	origin-only delta; fork commits 92fa6ad3,fc377386,d5b095d1,aee648ee,a0c02d7f
+fork-features/session-fork/metadataSchemaFork.test.ts	fork-owned	#170	origin-only delta; fork commits dec48514
+fork-features/session-fork/providerRegistry.test.ts	fork-owned	#170	origin-only delta; fork commits 4ffb89d7
+fork-features/session-fork/providerRegistry.ts	fork-owned	#170	origin-only delta; fork commits 4ffb89d7
+fork-features/session-fork/providers/claudeFork.test.ts	fork-owned	#170	origin-only delta; fork commits 17e79d08,92fa6ad3,e009becc,fc377386,11c9a08a,f4ef5a48,aee648ee,4fbe9567
+fork-features/session-fork/providers/claudeFork.ts	fork-owned	#170	origin-only delta; fork commits 17e79d08,92fa6ad3,e009becc,fc377386,11c9a08a,f4ef5a48,aee648ee,4fbe9567
+fork-features/session-fork/providers/claudeForkSpawn.test.ts	fork-owned	#170	origin-only delta; fork commits 11c9a08a,aee648ee,752c3147
+fork-features/session-fork/providers/claudeForkSpawn.ts	fork-owned	#170	origin-only delta; fork commits 11c9a08a,aee648ee,752c3147
+fork-features/session-fork/providers/codexFork.test.ts	fork-owned	#170	origin-only delta; fork commits 837647b2,4bbe2a18,aee648ee,a1a7d0aa,7c0cb8d9
+fork-features/session-fork/providers/codexFork.ts	fork-owned	#170	origin-only delta; fork commits 837647b2,4bbe2a18,a1a7d0aa,7c0cb8d9
+fork-features/session-fork/providers/codexForkClient.test.ts	fork-owned	#170	origin-only delta; fork commits 837647b2,4bbe2a18,752c3147
+fork-features/session-fork/providers/codexForkClient.ts	fork-owned	#170	origin-only delta; fork commits 837647b2,4bbe2a18,a1a7d0aa,752c3147
+fork-features/session-fork/providers/legacyClaudeAnchor.test.ts	fork-owned	#170	origin-only delta; fork commits 92fa6ad3
+fork-features/session-fork/providers/legacyClaudeAnchor.ts	fork-owned	#170	origin-only delta; fork commits 92fa6ad3
+fork-features/session-fork/register.test.ts	fork-owned	#170	origin-only delta; fork commits 7dca6478,aee648ee,206da967
+fork-features/session-fork/register.ts	fork-owned	#170	origin-only delta; fork commits 206da967
+fork-features/session-fork/rpcPayloads.test.ts	fork-owned	#170	origin-only delta; fork commits 92fa6ad3,e009becc,9e867c21,7dca6478,aee648ee,165ae59d
+fork-features/session-fork/rpcPayloads.ts	fork-owned	#170	origin-only delta; fork commits 92fa6ad3,e009becc,fc377386,837647b2,9e867c21,7dca6478,aee648ee,165ae59d
+fork-features/trunk-patches.md	fork-owned	#171	origin-only delta; fork commits 2975dd81,a6f9e3f9,dc36d46e,ff574b67,5262a261,7dca6478,473d69b4,1313f055,b64ed204,aee648ee,f8b27e3a
+hub/src/notifications/notificationHub.test.ts	open-child	#174	origin-only delta; fork commits 413e76cc
+hub/src/serverchan/channel.test.ts	open-child	#174	origin-only delta; fork commits 413e76cc
+hub/src/socket/handlers/cli/sessionHandlers.ts	open-child	#181	origin-only delta; fork commits 85743eb7
+hub/src/socket/handlers/terminal.ts	open-child	#171	origin-only delta; fork commits a6f9e3f9
+hub/src/socket/server.ts	open-child	#171	origin-only delta; fork commits a6f9e3f9
+hub/src/socket/socketLimits.test.ts	open-child	#176	origin-only delta; fork commits 3edb7db8
+hub/src/socket/socketLimits.ts	open-child	#176	origin-only delta; fork commits 3edb7db8
+hub/src/socket/socketTypes.ts	open-child	#171	origin-only delta; fork commits a6f9e3f9
+hub/src/startHub.ts	open-child	#171	origin-only delta; fork commits a6f9e3f9
+hub/src/store/index.ts	open-child	#170	origin-only delta; fork commits d840284a,413e76cc
+hub/src/store/sessionStore.ts	open-child	#174	origin-only delta; fork commits 413e76cc
+hub/src/store/sessions.test.ts	open-child	#170	origin-only delta; fork commits 17e79d08,413e76cc
+hub/src/store/sessions.ts	open-child	#170	origin-only delta; fork commits 17e79d08,413e76cc,89c7f579
+hub/src/store/types.ts	open-child	#174	origin-only delta; fork commits 413e76cc
+hub/src/sync/archivePersistence.test.ts	fork-owned	#179	origin-only delta; fork commits 3582e989
+hub/src/sync/messageService.test.ts	open-child	#174	origin-only delta; fork commits 413e76cc
+hub/src/sync/rpcGateway.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+hub/src/sync/rpcGateway.ts	open-child	#173	both refs changed; fork commits 8d828436,51929072,9e76994b,3994ee9a,fc7d7b4a,b4c31e88,a8815d47,bfa252da,c853bcbf,c58622c2,e009becc,fc377386,d840284a
+hub/src/sync/sessionCache.ts	open-child	#173	origin-only delta; fork commits 44f2bce5,85743eb7,413e76cc
+hub/src/sync/sessionModel.test.ts	open-child	#173	both refs changed; fork commits 44f2bce5,17e79d08,413e76cc,89c7f579
+hub/src/sync/syncEngine.ts	open-child	#173	both refs changed; fork commits 8d828436,17e79d08,51929072,9e76994b,3994ee9a,fc7d7b4a,b4c31e88,a8815d47,bfa252da,c853bcbf,c58622c2,e009becc,fc377386,d840284a,413e76cc,3582e989,3686370a
+hub/src/sync/todos.test.ts	fork-owned	#181	origin-only delta; fork commits 85743eb7
+hub/src/sync/todos.ts	open-child	#181	origin-only delta; fork commits 85743eb7
+hub/src/telegram/sessionView.test.ts	open-child	#174	origin-only delta; fork commits 413e76cc
+hub/src/web/routes/cli.ts	open-child	#171	origin-only delta; fork commits a6f9e3f9
+hub/src/web/routes/git.test.ts	open-child	#176	origin-only delta; fork commits 3edb7db8,b4c31e88,bfa252da,d28853c7
+hub/src/web/routes/git.ts	open-child	#176	origin-only delta; fork commits 3edb7db8,b4c31e88,bfa252da
+hub/src/web/routes/machines.test.ts	open-child	#173	origin-only delta; fork commits 51929072,3994ee9a,fc7d7b4a,a8815d47,c853bcbf
+hub/src/web/routes/machines.ts	open-child	#173	origin-only delta; fork commits 51929072,3994ee9a,fc7d7b4a,a8815d47,c853bcbf
+hub/src/web/routes/sessions.test.ts	open-child	#173	both refs changed; fork commits 51929072,9e76994b,c58622c2,bec12318,413e76cc
+hub/src/web/routes/sessions.ts	open-child	#173	both refs changed; fork commits 51929072,9e76994b,c58622c2,bec12318,413e76cc,7e0010b8
+hub/src/web/server.ts	open-child	#171	origin-only delta; fork commits a6f9e3f9,f3c58338
+hub/tsconfig.json	open-child	#171	origin-only delta; fork commits a6f9e3f9,f3c58338
+package.json	open-child	#171	origin-only delta; fork commits a6f9e3f9
+shared/package.json	open-child	#176	origin-only delta; fork commits 3edb7db8
+shared/src/apiTypes.ts	open-child	#173	both refs changed; fork commits 8d828436,51929072,92e8a6e1,3994ee9a,fc7d7b4a,b4c31e88,a8815d47,bfa252da,c853bcbf,413e76cc
+shared/src/flavors.test.ts	open-child	#172	origin-only delta; fork commits 3686370a
+shared/src/flavors.ts	open-child	#172	origin-only delta; fork commits 3686370a
+shared/src/messages.test.ts	fork-owned	#179	origin-only delta; fork commits d1f9f394
+shared/src/messages.ts	upstream-fix	#179	origin-only delta; fork commits d1f9f394
+shared/src/models.test.ts	open-child	#174	origin-only delta; fork commits 606c6579,7e3edb0f
+shared/src/models.ts	open-child	#174	origin-only delta; fork commits 606c6579,7e3edb0f
+shared/src/modes.ts	open-child	#172	origin-only delta; fork commits 7e0010b8,3686370a
+shared/src/piThinkingLevel.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+shared/src/rpcMethods.test.ts	fork-owned	#170	origin-only delta; fork commits 2138d84b
+shared/src/rpcMethods.ts	open-child	#173	both refs changed; fork commits 8d828436,51929072,3994ee9a,fc7d7b4a,b4c31e88,a8815d47,c853bcbf,2138d84b
+shared/src/schemas.test.ts	fork-owned	#170	origin-only delta; fork commits 17e79d08,ddd6927a
+shared/src/schemas.ts	open-child	#170	origin-only delta; fork commits 17e79d08,51929072,3994ee9a,7dca6478,ddd6927a,413e76cc,3582e989,3686370a
+shared/src/sessionSummary.ts	upstream-fix	#179	origin-only delta; fork commits 473d69b4,3582e989
+shared/src/socketLimits.ts	fork-owned	#176	origin-only delta; fork commits 3edb7db8
+shared/src/types.ts	open-child	#170	origin-only delta; fork commits e009becc,3686370a
+web/changelog-build.ts	fork-owned	#179	origin-only delta; fork commits 4a0c5f0b
+web/e2e-fixtures/bob-fork-customizations-fixture.html	fork-owned	#179	origin-only delta; fork commits 473d69b4
+web/e2e-fixtures/bob-fork-customizations-fixture.tsx	fork-owned	#179	origin-only delta; fork commits 473d69b4
+web/e2e-fixtures/file-viewer-fixture.html	fork-owned	#177	origin-only delta; fork commits d3199037
+web/e2e-fixtures/file-viewer-fixture.tsx	fork-owned	#177	origin-only delta; fork commits a2d26372,d3199037
+web/e2e-fixtures/mermaid-fixture.html	fork-owned	#179	origin-only delta; fork commits c36d2daf
+web/e2e-fixtures/mermaid-fixture.tsx	fork-owned	#179	origin-only delta; fork commits c36d2daf
+web/e2e-fixtures/model-refusal-toast-fixture.html	fork-owned	#179	origin-only delta; fork commits d1f9f394
+web/e2e-fixtures/model-refusal-toast-fixture.tsx	fork-owned	#179	origin-only delta; fork commits d1f9f394
+web/e2e-fixtures/reasoning-sticky-fixture.html	fork-owned	#179	origin-only delta; fork commits 7b197fec
+web/e2e-fixtures/reasoning-sticky-fixture.tsx	fork-owned	#179	origin-only delta; fork commits 7b197fec
+web/e2e-fixtures/session-id-fixture.html	fork-owned	#179	origin-only delta; fork commits 291c8db0
+web/e2e-fixtures/session-id-fixture.tsx	fork-owned	#179	origin-only delta; fork commits 291c8db0
+web/e2e-fixtures/session-list-fixture.html	fork-owned	#179	origin-only delta; fork commits 3582e989
+web/e2e-fixtures/session-list-fixture.tsx	fork-owned	#179	origin-only delta; fork commits 3582e989
+web/e2e-fixtures/tool-file-preview-fixture.html	fork-owned	#177	origin-only delta; fork commits e737b4b3
+web/e2e-fixtures/tool-file-preview-fixture.tsx	fork-owned	#177	origin-only delta; fork commits e2a200a8,f00c8228,e737b4b3
+web/e2e/reasoning-sticky.spec.ts	fork-owned	#179	origin-only delta; fork commits 7b197fec
+web/index.html	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/package.json	open-child	#177	origin-only delta; fork commits 4a0c5f0b,c36d2daf,d3199037
+web/src/App.tsx	open-child	#171	origin-only delta; fork commits a6f9e3f9
+web/src/api/client.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/api/client.ts	open-child	#171	both refs changed; fork commits a6f9e3f9,51929072,9e76994b,3994ee9a,fc7d7b4a,b4c31e88,a8815d47,bfa252da,d28853c7,c853bcbf,c58622c2,5262a261,7dca6478,2ef4c618,413e76cc
+web/src/chat/agentTimestamp.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/chat/agentTimestamp.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/chat/normalize.test.ts	upstream-fix	#179	origin-only delta; fork commits 92f048f7,d1f9f394
+web/src/chat/normalizeAgent.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/chat/normalizeAgent.ts	open-child	#176	both refs changed; fork commits 92f048f7,b4c31e88,d1f9f394
+web/src/chat/presentation.test.ts	upstream-fix	#179	origin-only delta; fork commits d1f9f394
+web/src/chat/presentation.ts	upstream-fix	#179	both refs changed; fork commits 92f048f7,d1f9f394
+web/src/chat/reconcile.ts	open-child	#176	both refs changed; fork commits b4c31e88
+web/src/chat/reducer.test.ts	upstream-fix	#179	origin-only delta; fork commits 022cfa1a,eb8683c0
+web/src/chat/reducer.ts	upstream-fix	#179	origin-only delta; fork commits 022cfa1a,eb8683c0
+web/src/chat/reducerTimeline.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/chat/reducerTimeline.ts	open-child	#176	both refs changed; fork commits b4c31e88
+web/src/chat/reducerTools.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/chat/toolGroups.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/chat/types.ts	open-child	#176	both refs changed; fork commits 92f048f7,b4c31e88,d1f9f394
+web/src/components/AssistantChat/HappyComposer.test.tsx	fork-owned	#174	origin-only delta; fork commits 8240268f,bec12318,413e76cc
+web/src/components/AssistantChat/HappyComposer.tsx	open-child	#174	origin-only delta; fork commits 8240268f,606c6579,a8815d47,473d69b4,413e76cc
+web/src/components/AssistantChat/HappyThread.tsx	upstream-fix	#179	origin-only delta; fork commits 0bc807dc
+web/src/components/AssistantChat/PiThinkingLevelPanel.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/components/AssistantChat/TodoPanel.test.tsx	fork-owned	#181	origin-only delta; fork commits 85743eb7
+web/src/components/AssistantChat/TodoPanel.tsx	fork-owned	#181	origin-only delta; fork commits 85743eb7
+web/src/components/AssistantChat/claudeModelOptions.test.ts	open-child	#174	origin-only delta; fork commits 8240268f,606c6579,7e3edb0f
+web/src/components/AssistantChat/claudeModelOptions.ts	open-child	#174	origin-only delta; fork commits 8240268f,606c6579
+web/src/components/AssistantChat/messages/AssistantMessage.tsx	open-child	#178	origin-only delta; fork commits 302180e5,7faed2eb
+web/src/components/AssistantChat/messages/GeneratedFileCard.test.ts	fork-owned	#176	origin-only delta; fork commits 3edb7db8
+web/src/components/AssistantChat/messages/GeneratedImageCard.test.tsx	fork-owned	#175	origin-only delta; fork commits d28853c7
+web/src/components/AssistantChat/messages/MessageActions.test.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/components/AssistantChat/messages/MessageActions.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/components/AssistantChat/messages/MessageAttachments.tsx	open-child	#176	origin-only delta; fork commits b4c31e88
+web/src/components/AssistantChat/messages/SpeakSummaryButton.tsx	fork-owned	#179	origin-only delta; fork commits 7faed2eb
+web/src/components/AssistantChat/messages/SystemMessage.tsx	upstream-fix	#179	origin-only delta; fork commits 92f048f7
+web/src/components/AssistantChat/messages/ToolMessage.tsx	open-child	#176	origin-only delta; fork commits 3edb7db8,302180e5,b4c31e88,d28853c7
+web/src/components/AssistantChat/messages/UserMessage.test.tsx	fork-owned	#170	origin-only delta; fork commits 253e5184,5262a261
+web/src/components/AssistantChat/messages/UserMessage.tsx	open-child	#178	origin-only delta; fork commits 302180e5,253e5184,5262a261
+web/src/components/AssistantChat/messages/user-bubble.test.tsx	open-child	#178	origin-only delta; fork commits 302180e5
+web/src/components/AssistantChat/messages/user-bubble.tsx	open-child	#178	origin-only delta; fork commits 302180e5
+web/src/components/AssistantChat/modelOptions.test.ts	open-child	#174	origin-only delta; fork commits 606c6579,7e3edb0f,7e0010b8
+web/src/components/AssistantChat/modelOptions.ts	open-child	#172	origin-only delta; fork commits 7e0010b8,3686370a
+web/src/components/AssistantChat/piThinkingLevelOptions.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/components/CliOutputBlock.test.tsx	open-child	#178	origin-only delta; fork commits 302180e5
+web/src/components/CliOutputBlock.tsx	open-child	#178	origin-only delta; fork commits 302180e5
+web/src/components/CodeBlock.test.tsx	open-child	#178	origin-only delta; fork commits 302180e5
+web/src/components/CodeBlock.tsx	open-child	#178	origin-only delta; fork commits 302180e5
+web/src/components/CollapsibleContent.tsx	fork-owned	#178	origin-only delta; fork commits 302180e5
+web/src/components/FileContentToggleView.tsx	fork-owned	#177	origin-only delta; fork commits e2a200a8,e737b4b3
+web/src/components/FileMarkdownView.tsx	fork-owned	#177	origin-only delta; fork commits dc1844cd,d3199037
+web/src/components/ImagePreview.tsx	upstream-fix	#179	origin-only delta; fork commits 0aba2643
+web/src/components/LoginPrompt.test.tsx	open-child	#171	origin-only delta; fork commits ba37bcfb
+web/src/components/LoginPrompt.tsx	open-child	#171	origin-only delta; fork commits a6f9e3f9
+web/src/components/NewSession/types.test.ts	open-child	#174	origin-only delta; fork commits 606c6579,7e3edb0f
+web/src/components/NewSession/types.ts	open-child	#174	origin-only delta; fork commits 606c6579,3686370a
+web/src/components/OfflineBanner.tsx	upstream-fix	#179	origin-only delta; fork commits 0aba2643
+web/src/components/PwaUpdateBanner.test.tsx	upstream-fix	#179	origin-only delta; fork commits 4a0c5f0b,0aba2643
+web/src/components/PwaUpdateBanner.tsx	upstream-fix	#179	origin-only delta; fork commits 4a0c5f0b,0aba2643
+web/src/components/ReconnectingBanner.tsx	upstream-fix	#179	origin-only delta; fork commits 0aba2643
+web/src/components/SessionActionMenu.test.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/components/SessionActionMenu.tsx	open-child	#170	both refs changed; fork commits 0aba2643,bf1a6b9a,291c8db0
+web/src/components/SessionAttentionIndicator.tsx	upstream-fix	#179	origin-only delta; fork commits 3582e989
+web/src/components/SessionChat.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/components/SessionChat.tsx	open-child	#173	both refs changed; fork commits 44f2bce5,51929072,78f3ffef,7faed2eb,85743eb7,a8815d47,c58622c2,d1f9f394,413e76cc,7e0010b8
+web/src/components/SessionHeader.tsx	open-child	#173	both refs changed; fork commits 3994ee9a,fc7d7b4a,a8815d47,7dca6478,bf1a6b9a,291c8db0
+web/src/components/SessionIdDialog.test.tsx	fork-owned	#179	origin-only delta; fork commits 291c8db0
+web/src/components/SessionIdDialog.tsx	fork-owned	#179	origin-only delta; fork commits 291c8db0
+web/src/components/SessionList.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/components/SessionList.tsx	open-child	#170	both refs changed; fork commits 37fb5e9a,7dca6478,473d69b4,bf1a6b9a
+web/src/components/SyncingBanner.tsx	upstream-fix	#179	origin-only delta; fork commits 0aba2643
+web/src/components/ToastContainer.tsx	upstream-fix	#179	origin-only delta; fork commits d1f9f394
+web/src/components/ToolCard/ToolCard.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/components/ToolCard/ToolCard.tsx	open-child	#178	both refs changed; fork commits 498aefb3,e9e7dbd7,302180e5,72c96399
+web/src/components/ToolCard/ToolDetailDialogContent.test.tsx	fork-owned	#179	origin-only delta; fork commits 498aefb3
+web/src/components/ToolCard/ToolGroupCard.test.tsx	open-child	#175	both refs changed; fork commits 72c96399
+web/src/components/ToolCard/ToolGroupCard.tsx	open-child	#178	origin-only delta; fork commits 498aefb3,302180e5,72c96399
+web/src/components/ToolCard/checklist.test.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/components/ToolCard/groupedPresentation.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/components/ToolCard/toolDetailDuration.test.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/components/ToolCard/toolDuration.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/components/ToolCard/toolDuration.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/components/ToolCard/trace.test.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/components/ToolCard/views/WriteView.tsx	open-child	#177	origin-only delta; fork commits f00c8228
+web/src/components/ToolCard/views/_results.test.tsx	open-child	#177	both refs changed; fork commits e2a200a8,72c96399,e737b4b3
+web/src/components/ToolCard/views/_results.tsx	open-child	#177	origin-only delta; fork commits e2a200a8,302180e5,72c96399,473d69b4,e737b4b3
+web/src/components/ToolCard/views/readImageDetection.test.ts	fork-owned	#179	origin-only delta; fork commits 473d69b4
+web/src/components/ToolCard/views/readImageDetection.ts	fork-owned	#179	origin-only delta; fork commits 473d69b4
+web/src/components/VoiceErrorBanner.tsx	upstream-fix	#179	origin-only delta; fork commits 0aba2643
+web/src/components/WorkspaceBrowser.tsx	open-child	#177	origin-only delta; fork commits c853bcbf
+web/src/components/assistant-ui/MermaidZoomViewer.tsx	fork-owned	#179	origin-only delta; fork commits 16321159,c36d2daf
+web/src/components/assistant-ui/markdown-a.test.tsx	open-child	#174	origin-only delta; fork commits 7e3edb0f
+web/src/components/assistant-ui/markdown-text.tsx	upstream-fix	#179	origin-only delta; fork commits dc1844cd,473d69b4
+web/src/components/assistant-ui/mermaid-diagram.live.test.tsx	upstream-fix	#179	origin-only delta; fork commits merge-resolution
+web/src/components/assistant-ui/mermaid-diagram.test.tsx	upstream-fix	#179	origin-only delta; fork commits merge-resolution
+web/src/components/assistant-ui/mermaid-diagram.tsx	open-child	#177	origin-only delta; fork commits 67dd9700,16321159,c36d2daf,d3199037
+web/src/components/assistant-ui/reasoning-group.tsx	fork-owned	#179	origin-only delta; fork commits 7b197fec
+web/src/components/assistant-ui/reasoning.test.tsx	fork-owned	#179	origin-only delta; fork commits 7b197fec
+web/src/components/assistant-ui/reasoning.tsx	upstream-fix	#179	origin-only delta; fork commits 7b197fec
+web/src/components/assistant-ui/shiki-highlighter.tsx	upstream-fix	#179	origin-only delta; fork commits a2d26372
+web/src/components/icons.tsx	upstream-fix	#179	origin-only delta; fork commits 7faed2eb,16321159
+web/src/components/ui/Toast.tsx	upstream-fix	#179	origin-only delta; fork commits d1f9f394
+web/src/fork-features/multi-user/AdminPage.tsx	fork-owned	#171	origin-only delta; fork commits ba37bcfb,8cae045d,b3922ef4,a6f9e3f9
+web/src/fork-features/multi-user/LoginPrompt.tsx	fork-owned	#171	origin-only delta; fork commits ba37bcfb,a6f9e3f9
+web/src/hooks/mutations/useCcSwitchProvider.test.tsx	fork-owned	#173	origin-only delta; fork commits 44f2bce5,51929072,9e76994b,faec872c
+web/src/hooks/mutations/useCcSwitchProvider.ts	fork-owned	#173	origin-only delta; fork commits 44f2bce5,51929072,9e76994b,faec872c,3994ee9a,fc7d7b4a,a8815d47
+web/src/hooks/mutations/useSessionActions.test.tsx	open-child	#170	origin-only delta; fork commits 2ef4c618
+web/src/hooks/mutations/useSessionActions.ts	open-child	#170	origin-only delta; fork commits 5262a261,2ef4c618,413e76cc
+web/src/hooks/queries/useCcSwitchProviders.ts	fork-owned	#173	origin-only delta; fork commits a8815d47
+web/src/hooks/queries/useCodexModels.test.tsx	fork-owned	#179	origin-only delta; fork commits c58622c2
+web/src/hooks/queries/useCodexModels.ts	upstream-fix	#179	origin-only delta; fork commits c58622c2
+web/src/hooks/queries/useCursorChatStoreStatus.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/hooks/queries/useFlavorCapabilities.test.tsx	fork-owned	#170	origin-only delta; fork commits 7dca6478,2ef4c618
+web/src/hooks/queries/useFlavorCapabilities.ts	fork-owned	#170	origin-only delta; fork commits 7dca6478,2ef4c618
+web/src/hooks/useAuth.ts	open-child	#171	origin-only delta; fork commits a6f9e3f9
+web/src/hooks/useAuthSource.ts	open-child	#171	origin-only delta; fork commits a6f9e3f9
+web/src/hooks/useColorTheme.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/hooks/useColorTheme.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/hooks/useComposerDraft.forkRestore.test.ts	fork-owned	#170	origin-only delta; fork commits ff574b67
+web/src/hooks/useComposerDraft.ts	open-child	#170	origin-only delta; fork commits ff574b67
+web/src/hooks/useFileViewPrefs.ts	fork-owned	#177	origin-only delta; fork commits d3199037
+web/src/hooks/useHideArchivedSessions.ts	fork-owned	#179	origin-only delta; fork commits 3582e989
+web/src/hooks/useLongPress.test.tsx	fork-owned	#179	origin-only delta; fork commits 5e3d135a,1bbfcc20
+web/src/hooks/useLongPress.ts	upstream-fix	#179	origin-only delta; fork commits 5e3d135a,1bbfcc20
+web/src/hooks/usePreserveSidebarScroll.ts	fork-owned	#179	origin-only delta; fork commits 0894d3d2
+web/src/hooks/useSessionBrowserTitle.test.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/hooks/useSessionBrowserTitle.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/hooks/useTheme.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/hooks/useTheme.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/hooks/useThemeColors.test.ts	upstream-fix	#179	both refs changed; fork commits 4513dd1e
+web/src/hooks/useThemeColors.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/index.css	upstream-fix	#179	both refs changed; fork commits a2d26372
+web/src/lib/app-context.tsx	open-child	#171	origin-only delta; fork commits a6f9e3f9
+web/src/lib/assistant-runtime.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/lib/assistant-runtime.ts	open-child	#176	origin-only delta; fork commits b4c31e88,253e5184
+web/src/lib/changelog.test.ts	fork-owned	#179	origin-only delta; fork commits 4a0c5f0b
+web/src/lib/changelog.ts	fork-owned	#179	origin-only delta; fork commits 4a0c5f0b
+web/src/lib/file-preview.ts	fork-owned	#177	origin-only delta; fork commits e737b4b3
+web/src/lib/fork-restore.test.ts	fork-owned	#170	origin-only delta; fork commits fbfd26f5,5262a261
+web/src/lib/fork-restore.ts	fork-owned	#170	origin-only delta; fork commits fbfd26f5,5262a261
+web/src/lib/generatedInlineMedia.test.ts	fork-owned	#175	origin-only delta; fork commits d28853c7
+web/src/lib/generatedInlineMedia.ts	fork-owned	#175	origin-only delta; fork commits d28853c7
+web/src/lib/locales/en.ts	open-child	#171	both refs changed; fork commits ba37bcfb,606c6579,302180e5,7faed2eb,85743eb7,4a0c5f0b,7b197fec,a8815d47,bfa252da,c853bcbf,aee648ee,d1f9f394,413e76cc,291c8db0,3582e989,d3199037
+web/src/lib/locales/zh-CN.ts	open-child	#171	both refs changed; fork commits ba37bcfb,606c6579,302180e5,7faed2eb,85743eb7,4a0c5f0b,7b197fec,a8815d47,bfa252da,c853bcbf,aee648ee,d1f9f394,413e76cc,291c8db0,3582e989,d3199037
+web/src/lib/message-window-store.test.ts	upstream-fix	#179	origin-only delta; fork commits 7a5232bf
+web/src/lib/message-window-store.ts	upstream-fix	#179	origin-only delta; fork commits 7a5232bf
+web/src/lib/query-keys.ts	open-child	#173	both refs changed; fork commits 3994ee9a,fc7d7b4a,a8815d47,c58622c2
+web/src/lib/remark-file-path-links.test.ts	upstream-fix	#179	origin-only delta; fork commits 473d69b4
+web/src/lib/remark-file-path-links.ts	upstream-fix	#179	origin-only delta; fork commits 473d69b4
+web/src/lib/remark-latex-bracket-math.test.ts	fork-owned	#179	origin-only delta; fork commits dc1844cd
+web/src/lib/remark-latex-bracket-math.ts	fork-owned	#179	origin-only delta; fork commits dc1844cd
+web/src/lib/sessionAttention.test.ts	upstream-fix	#179	origin-only delta; fork commits 3582e989
+web/src/lib/sessionAttention.ts	upstream-fix	#179	origin-only delta; fork commits 3582e989
+web/src/lib/sessionExport/markdown.test.ts	open-child	#174	origin-only delta; fork commits 413e76cc
+web/src/lib/sessionExport/markdown.ts	open-child	#176	origin-only delta; fork commits b4c31e88
+web/src/lib/sessionListFilters.test.ts	fork-owned	#179	origin-only delta; fork commits 3582e989
+web/src/lib/sessionListFilters.ts	fork-owned	#179	origin-only delta; fork commits 3582e989
+web/src/lib/sessionModelLabel.test.ts	open-child	#173	origin-only delta; fork commits fc7d7b4a,a8815d47,7e3edb0f
+web/src/lib/sessionModelLabel.ts	open-child	#173	origin-only delta; fork commits 3994ee9a,fc7d7b4a,a8815d47
+web/src/lib/sessionResume.test.ts	upstream-fix	#179	both refs changed; fork commits 291c8db0
+web/src/lib/sessionResume.ts	upstream-fix	#179	both refs changed; fork commits 291c8db0
+web/src/lib/sessionTitle.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/lib/toast-context.tsx	upstream-fix	#179	origin-only delta; fork commits d1f9f394
+web/src/realtime/messageSummarySpeaker.test.ts	fork-owned	#179	origin-only delta; fork commits 7faed2eb
+web/src/realtime/messageSummarySpeaker.ts	fork-owned	#179	origin-only delta; fork commits 7faed2eb
+web/src/router.tsx	open-child	#171	both refs changed; fork commits a6f9e3f9,0894d3d2,3582e989
+web/src/routes/sessions/file.test.tsx	upstream-fix	#179	origin-only delta; fork commits merge-resolution
+web/src/routes/sessions/file.tsx	open-child	#177	origin-only delta; fork commits bfa252da,7a5232bf,e737b4b3,d3199037
+web/src/routes/settings/display.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/routes/settings/index.test.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/types/api.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/types/global.d.ts	upstream-fix	#179	origin-only delta; fork commits 4a0c5f0b
+web/vite.config.ts	upstream-fix	#179	origin-only delta; fork commits 4a0c5f0b,69c5250d
