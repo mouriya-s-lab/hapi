@@ -62,7 +62,10 @@ export function mountForkRoutes(
             return c.json(result)
         } catch (err) {
             if (err instanceof HttpError) {
-                return c.json({ error: err.message }, err.status as StatusCode)
+                return c.json(
+                    err.code ? { error: err.message, code: err.code } : { error: err.message },
+                    err.status as StatusCode
+                )
             }
             const message = err instanceof Error ? err.message : 'fork failed'
             return c.json({ error: message }, 500 as StatusCode)
