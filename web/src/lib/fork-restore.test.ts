@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
     setForkedFromText,
     consumeForkedFromText,
@@ -36,6 +36,19 @@ describe('fork-restore', () => {
         setForkedFromText('b', 'text-b')
         expect(consumeForkedFromText('a')).toBe('text-a')
         expect(consumeForkedFromText('b')).toBe('text-b')
+    })
+
+    it('roundtrips through memory when sessionStorage quota is exceeded', () => {
+        const setItem = vi.spyOn(Storage.prototype, 'setItem')
+            .mockImplementation(() => {
+                throw new DOMException('Storage quota exceeded', 'QuotaExceededError')
+            })
+
+        expect(() => setForkedFromText('large-session', 'large message')).not.toThrow()
+        expect(consumeForkedFromText('large-session')).toBe('large message')
+        expect(consumeForkedFromText('large-session')).toBeNull()
+
+        setItem.mockRestore()
     })
 
     it('consume returns null after namespace reset', () => {
