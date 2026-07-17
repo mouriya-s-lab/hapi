@@ -198,11 +198,11 @@ fork-features/session-fork/rpcPayloads.test.ts	fork-owned	#170	origin-only delta
 fork-features/session-fork/rpcPayloads.ts	fork-owned	#170	origin-only delta; fork commits 92fa6ad3,e009becc,fc377386,837647b2,9e867c21,7dca6478,aee648ee,165ae59d
 fork-features/trunk-patches.md	fork-owned	#171	fork trunk-patch registry; updated by boundary children
 fork-features/upstream-fix-dispositions.tsv	fork-owned	#179	#179 upstream-fix disposition ledger
-hub/src/fork-features/task-panel/taskProjection.test.ts	fork-owned	#181	origin-only delta; fork commits 7e910a28
-hub/src/fork-features/task-panel/taskProjection.ts	fork-owned	#181	origin-only delta; fork commits 7e910a28
+hub/src/fork-features/task-panel/taskProjection.test.ts	fork-owned	#181	origin-only delta; fork commits 17fee65e
+hub/src/fork-features/task-panel/taskProjection.ts	fork-owned	#181	origin-only delta; fork commits 17fee65e
 hub/src/notifications/notificationHub.test.ts	trunk-patch	#174	origin-only delta; fork commits 413e76cc
 hub/src/serverchan/channel.test.ts	trunk-patch	#174	origin-only delta; fork commits 413e76cc
-hub/src/socket/handlers/cli/sessionHandlers.ts	trunk-patch	#181	origin-only delta; fork commits 7e910a28,85743eb7
+hub/src/socket/handlers/cli/sessionHandlers.ts	trunk-patch	#181	origin-only delta; fork commits 17fee65e,85743eb7
 hub/src/socket/handlers/terminal.ts	trunk-patch	#171	origin-only delta; fork commits a6f9e3f9
 hub/src/socket/server.ts	trunk-patch	#171	origin-only delta; fork commits a6f9e3f9
 hub/src/socket/socketLimits.test.ts	trunk-patch	#176	origin-only delta; fork commits 3edb7db8
@@ -218,7 +218,7 @@ hub/src/sync/archivePersistence.test.ts	fork-owned	#179	origin-only delta; fork 
 hub/src/sync/messageService.test.ts	trunk-patch	#174	origin-only delta; fork commits 413e76cc
 hub/src/sync/rpcGateway.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 hub/src/sync/rpcGateway.ts	trunk-patch	#173	both refs changed; fork commits 8d828436,51929072,9e76994b,3994ee9a,fc7d7b4a,b4c31e88,a8815d47,bfa252da,c853bcbf,c58622c2,e009becc,fc377386,d840284a
-hub/src/sync/sessionCache.ts	trunk-patch	#173	origin-only delta; fork commits 7e910a28,44f2bce5,85743eb7,413e76cc
+hub/src/sync/sessionCache.ts	trunk-patch	#173	origin-only delta; fork commits 17fee65e,44f2bce5,85743eb7,413e76cc
 hub/src/sync/sessionModel.test.ts	trunk-patch	#173	both refs changed; fork commits 44f2bce5,17e79d08,413e76cc,89c7f579
 hub/src/sync/syncEngine.ts	trunk-patch	#173	both refs changed; fork commits 8d828436,17e79d08,51929072,9e76994b,3994ee9a,fc7d7b4a,b4c31e88,a8815d47,bfa252da,c853bcbf,c58622c2,e009becc,fc377386,d840284a,413e76cc,3582e989,3686370a
 hub/src/telegram/sessionView.test.ts	trunk-patch	#174	origin-only delta; fork commits 413e76cc
@@ -329,7 +329,7 @@ web/src/components/SessionActionMenu.test.tsx	upstream-sync	#180	merge-base 87f5
 web/src/components/SessionActionMenu.tsx	trunk-patch	#170	both refs changed; fork commits 0aba2643,bf1a6b9a,291c8db0
 web/src/components/SessionAttentionIndicator.tsx	trunk-patch	#179	origin-only delta; fork commits 3582e989; disposition fork-specific #179: archive visibility and session attention feature
 web/src/components/SessionChat.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-web/src/components/SessionChat.tsx	trunk-patch	#173	both refs changed; fork commits 7e910a28,44f2bce5,51929072,78f3ffef,7faed2eb,85743eb7,a8815d47,c58622c2,d1f9f394,413e76cc,7e0010b8
+web/src/components/SessionChat.tsx	trunk-patch	#173	both refs changed; fork commits 17fee65e,44f2bce5,51929072,78f3ffef,7faed2eb,85743eb7,a8815d47,c58622c2,d1f9f394,413e76cc,7e0010b8
 web/src/components/SessionHeader.tsx	trunk-patch	#170	both refs changed; fork commits 3994ee9a,fc7d7b4a,a8815d47,7dca6478,bf1a6b9a,291c8db0
 web/src/components/SessionIdDialog.test.tsx	fork-owned	#179	origin-only delta; fork commits 291c8db0
 web/src/components/SessionIdDialog.tsx	fork-owned	#179	origin-only delta; fork commits 291c8db0
@@ -370,8 +370,8 @@ web/src/components/icons.tsx	trunk-patch	#179	origin-only delta; fork commits 7f
 web/src/components/ui/Toast.tsx	upstream-fix	#179	origin-only delta; fork commits d1f9f394; disposition upstream-issue https://github.com/tiann/hapi/issues/1077: general fix reported against latest upstream main
 web/src/fork-features/multi-user/AdminPage.tsx	fork-owned	#171	origin-only delta; fork commits ba37bcfb,8cae045d,b3922ef4,a6f9e3f9
 web/src/fork-features/multi-user/LoginPrompt.tsx	fork-owned	#171	origin-only delta; fork commits ba37bcfb,a6f9e3f9
-web/src/fork-features/task-panel/TodoPanel.test.tsx	fork-owned	#181	origin-only delta; fork commits 7e910a28
-web/src/fork-features/task-panel/TodoPanel.tsx	fork-owned	#181	origin-only delta; fork commits 7e910a28
+web/src/fork-features/task-panel/TodoPanel.test.tsx	fork-owned	#181	origin-only delta; fork commits 17fee65e
+web/src/fork-features/task-panel/TodoPanel.tsx	fork-owned	#181	origin-only delta; fork commits 17fee65e
 web/src/hooks/mutations/useCcSwitchProvider.test.tsx	fork-owned	#173	origin-only delta; fork commits 44f2bce5,51929072,9e76994b,faec872c
 web/src/hooks/mutations/useCcSwitchProvider.ts	fork-owned	#173	origin-only delta; fork commits 44f2bce5,51929072,9e76994b,faec872c,3994ee9a,fc7d7b4a,a8815d47
 web/src/hooks/mutations/useSessionActions.test.tsx	trunk-patch	#170	origin-only delta; fork commits 2ef4c618
