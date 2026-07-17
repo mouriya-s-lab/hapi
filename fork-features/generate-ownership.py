@@ -8,6 +8,12 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+CLOSING_PR_PATHS = {
+    "fork-features/generate-ownership.py",
+    "fork-features/ownership.tsv",
+    "fork-features/trunk-patches.md",
+    "hub/src/store/index.ts",
+}
 
 
 def git(*args: str) -> str:
@@ -60,6 +66,27 @@ COMMIT_OWNERS: dict[str, str] = {
 PATH_OWNER_OVERRIDES: tuple[tuple[str, str], ...] = (
     ("fork-features/generate-ownership.py", "#169"),
     ("fork-features/ownership.tsv", "#169"),
+    ("hub/src/store/index.ts", "#174"),
+    ("cli/src/claude/claudeRemote.ts", "#170"),
+    ("cli/src/claude/sdk/query", "#170"),
+    ("cli/src/claude/sdk/types.ts", "#170"),
+    ("cli/src/claude/session.ts", "#170"),
+    ("cli/src/claude/types.ts", "#170"),
+    ("cli/src/claude/utils/sdkToLogConverter", "#170"),
+    ("cli/src/codex/appServerTypes.ts", "#170"),
+    ("cli/src/codex/codexAppServerClient.ts", "#170"),
+    ("cli/src/index.ts", "#170"),
+    ("cli/src/runner/buildCliArgs.test.ts", "#170"),
+    ("cli/tsconfig.json", "#170"),
+    ("hub/src/store/sessions", "#170"),
+    ("shared/src/rpcMethods.ts", "#170"),
+    ("shared/src/schemas.ts", "#170"),
+    ("shared/src/types.ts", "#170"),
+    ("web/src/components/SessionActionMenu.tsx", "#170"),
+    ("web/src/components/SessionHeader.tsx", "#170"),
+    ("web/src/components/SessionList.tsx", "#170"),
+    ("web/src/hooks/mutations/useSessionActions", "#170"),
+    ("web/src/hooks/useComposerDraft.ts", "#170"),
     ("fork-features/session-fork/", "#170"),
     ("fork-features/multi-user/", "#171"),
     ("web/src/fork-features/multi-user/", "#171"),
@@ -108,10 +135,19 @@ def main() -> None:
             "log", "--no-merges", "--format=%h", f"upstream/main..{target}", "--", path
         ).splitlines()
 
-        if path in {"fork-features/generate-ownership.py", "fork-features/ownership.tsv"}:
-            classification = "fork-owned"
-            owner = "#169"
-            evidence = "#169 closing PR inventory implementation"
+        if path in CLOSING_PR_PATHS:
+            if path in {"fork-features/generate-ownership.py", "fork-features/ownership.tsv"}:
+                classification = "fork-owned"
+                owner = "#169"
+                evidence = "#169 closing PR inventory implementation"
+            elif path == "fork-features/trunk-patches.md":
+                classification = "fork-owned"
+                owner = "#171"
+                evidence = "fork trunk-patch registry; updated by boundary children"
+            else:
+                classification = "open-child"
+                owner = "#174"
+                evidence = "#170 removed unused helper; remaining delta belongs to #174"
         elif path in upstream_changed and path not in origin_changed:
             classification = "upstream-sync"
             owner = "#180"
@@ -120,6 +156,8 @@ def main() -> None:
             owner = owner_for(path, fork_log)
             if not exists("upstream/main", path) and exists(target, path):
                 classification = "fork-owned"
+            elif owner == "#170":
+                classification = "trunk-patch"
             elif owner == "#179":
                 classification = "upstream-fix"
             else:

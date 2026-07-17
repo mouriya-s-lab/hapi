@@ -110,6 +110,7 @@ export interface ForkDeps {
         flavor: string
     ): ForkPoint['providerAnchor']
     updateMetadata(sessionId: string, metadataPatch: Record<string, any>): void
+    registerCreatedSession?(sessionId: string): void
 }
 
 export interface ResolvedForkPoint {
@@ -258,6 +259,7 @@ export async function forkSession(args: {
         throw new HttpError(500, `fork spawn failed: ${spawnResult.message}`)
     }
     const newSessionId = spawnResult.sessionId
+    deps.registerCreatedSession?.(newSessionId)
 
     // Step 3 — clone visible message history. Independent of provider fork
     // (Claude's --fork-session already branches the on-disk JSONL; this is

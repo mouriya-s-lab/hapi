@@ -12,6 +12,7 @@ interface MakeDepsOpts {
     captured?: any[]
     messages?: ForkMessage[]
     resolveProviderMessageIdImpl?: (sessionId: string, targetSeq: number, flavor: string) => any
+    registerCreatedSession?: boolean
 }
 
 function makeDeps(opts: MakeDepsOpts = {}): ForkDeps {
@@ -54,6 +55,9 @@ function makeDeps(opts: MakeDepsOpts = {}): ForkDeps {
             captured.push(['updateMetadata', sessionId, patch])
             if (opts.updateShouldThrow) throw opts.updateShouldThrow
         },
+        ...(opts.registerCreatedSession
+            ? { registerCreatedSession(sessionId: string) { captured.push(['registerCreatedSession', sessionId]) } }
+            : {}),
         resolveProviderMessageId(sessionId, targetSeq, flavor) {
             captured.push(['resolveProviderMessageId', sessionId, targetSeq, flavor])
             return opts.resolveProviderMessageIdImpl
@@ -101,6 +105,22 @@ describe('forkSession', () => {
         expect(typeof updateCall[2].forkedAt).toBe('number')
         expect(updateCall[2].claudeSessionId).toBe('new-prov-id')
         expect(updateCall[2].name).toMatch(/^f[1-9]: Hello$/)
+    })
+
+    it('registers the created session before transcript work exposes it', async () => {
+        const captured: any[] = []
+        await forkSession({
+            srcSessionId: 'src',
+            deps: makeDeps({ captured, registerCreatedSession: true })
+        })
+
+        expect(captured.map((call) => call[0])).toEqual([
+            'forkProvider',
+            'spawnSession',
+            'registerCreatedSession',
+            'copy',
+            'updateMetadata'
+        ])
     })
 
     it('returns 404 when source missing', async () => {
