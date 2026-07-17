@@ -52,10 +52,12 @@ export function createExecutionMiddleware(deps: {
         })) as never)
         await next()
         const isMachineSpawn = resource.type === 'machine' && c.req.method === 'POST' && c.req.path.endsWith('/spawn')
-        const isSessionFork = resource.type === 'session' && c.req.method === 'POST' && c.req.path.endsWith('/fork')
-        if ((isMachineSpawn || isSessionFork) && c.res.ok) {
+        const sessionCreatesReplacement = resource.type === 'session'
+            && c.req.method === 'POST'
+            && ['/fork', '/resume', '/reopen', '/restart'].some(suffix => c.req.path.endsWith(suffix))
+        if ((isMachineSpawn || sessionCreatesReplacement) && c.res.ok) {
             const body = await c.res.clone().json().catch(() => null) as { sessionId?: unknown } | null
-            const createdSessionId = isSessionFork
+            const createdSessionId = c.req.path.endsWith('/fork')
                 ? (body as { newSessionId?: unknown } | null)?.newSessionId
                 : body?.sessionId
             if (typeof createdSessionId === 'string') {
@@ -131,7 +133,7 @@ export function mountExecutionRoutes(app: Hono<WebAppEnv>, deps: {
         }
         const sessions = deps.store.listAccessibleResources('session', account.id)
             .map(binding => engine.getSession(binding.resourceId))
-            .filter(session => session !== null)
+            .filter(session => session != null)
             .map(session => toSessionSummary(session!))
         return c.json({ sessions })
     })
