@@ -6,6 +6,26 @@ remove if upstream provided a native register API or the feature is obsolete.
 
 Rule reference: `~/.claude/rules/fork-customization-placement.rule.md`.
 
+## cc-switch and OpenUsage provider integration (2026-07-18)
+
+Provider discovery, cc-switch handlers, and OpenUsage polling live in the
+fork-owned `cli/src/modules/common/` modules. The following closed upstream
+surfaces have no provider, RPC, session-metadata, or composer registration
+API, so they retain the minimum typed hooks needed by that implementation.
+
+| Files | Missing upstream seam | Why it cannot move out | Runtime path | Sync verification |
+|---|---|---|---|---|
+| `cli/src/api/apiMachine.ts`, `cli/src/modules/common/registerCommonHandlers.ts`, `cli/src/modules/common/rpcTypes.ts` | No external common-handler or machine-RPC registration API | Provider list/switch and usage queries must be installed in the existing machine RPC table with its closed request/result types | Web query/mutation → hub gateway → machine RPC → fork-owned cc-switch/OpenUsage handler | Read providers, switch provider, and observe usage through a live runner |
+| `cli/src/runner/controlServer.ts`, `cli/src/runner/run.ts` | No runner lifecycle callback registry | Usage monitoring and provider state must start and stop with the owning runner process; a sibling module cannot observe that lifecycle without one explicit hook | Runner start → provider/usage monitor → session metadata updates → runner shutdown cleanup | Start a real runner, create a session, verify usage refresh, then stop it without a leaked monitor |
+| `hub/src/sync/rpcGateway.ts`, `hub/src/sync/syncEngine.ts`, `hub/src/sync/sessionCache.ts`, `hub/src/sync/sessionModel.test.ts` | No external RPC gateway or session-derived-model registration surface | Provider changes and usage updates cross the hub's private machine gateway and cached session projection; parallel state would diverge from SSE/session reads | CLI RPC/update → sync engine/cache → SSE and REST session model | Switch a live session provider and verify the same provider/usage in REST, SSE, and refreshed Web UI |
+| `hub/src/web/routes/machines.ts`, `hub/src/web/routes/machines.test.ts`, `hub/src/web/routes/sessions.ts`, `hub/src/web/routes/sessions.test.ts` | No route-extension registry for machine provider operations or session usage | Existing authenticated route factories own the machine/session resource checks and response contracts | Web provider/usage request → authenticated route → sync engine/RPC | Exercise successful reads/switches and a failed switch through the browser |
+| `shared/src/apiTypes.ts` | No cross-package API contract extension registry | The provider, switch result, and usage payloads must remain one validated contract across CLI, hub, and Web | CLI domain result → shared API type → hub response → Web query | Typecheck plus live response inspection for every provider/usage variant |
+| `web/src/components/SessionChat.tsx`, `web/src/lib/query-keys.ts`, `web/src/lib/sessionModelLabel.ts`, `web/src/lib/sessionModelLabel.test.ts` | No composer toolbar, query-key, or model-label provider registry | Session-scoped provider control and usage display occupy existing chat state/render slots; extracting their logic still requires these imports and typed props | Session chat → provider query/switch mutation → cache invalidation → model label and usage refresh | Switch provider in a real session and confirm the label and usage refresh without navigation |
+
+Every upstream sync must re-check for native provider/usage registration,
+runner lifecycle callbacks, and composer extension slots. When one exists,
+remove the corresponding trunk patch and self-register the fork-owned module.
+
 ## OMP flavor (2026-07-18)
 
 OMP launch, transport, configuration, model, permission, prompt, and display
