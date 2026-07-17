@@ -889,9 +889,9 @@ export function SessionList(props: {
     )
     const autoExpandedSelectedSessionKeyRef = useRef<string | null>(null)
     const isGroupCollapsed = (group: SessionGroup): boolean => {
-        if (isSearching) return false
         const override = collapseOverrides.get(group.key)
         if (override !== undefined) return override
+        if (isSearching) return false
         const hasSelectedSession = selectedSessionId
             ? group.sessions.some(session => session.id === selectedSessionId)
             : false
@@ -951,10 +951,10 @@ export function SessionList(props: {
     )
 
     const isMachineCollapsed = (mg: MachineGroup): boolean => {
-        if (isSearching) return false
         const key = `machine::${mg.machineId ?? UNKNOWN_MACHINE_ID}`
         const override = collapseOverrides.get(key)
         if (override !== undefined) return override
+        if (isSearching) return false
         const hasSelected = selectedSessionId
             ? mg.projectGroups.some(pg => pg.sessions.some(s => s.id === selectedSessionId))
             : false
