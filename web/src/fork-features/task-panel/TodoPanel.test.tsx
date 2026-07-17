@@ -48,7 +48,7 @@ describe('TodoPanel', () => {
             { id: '1', content: '仅属于 session A', status: 'in_progress', priority: 'medium' }
         ]
         const view = renderPanel(firstSession)
-        expect(screen.getByText('仅属于 session A')).toBeInTheDocument()
+        expect(screen.getByTestId('todo-panel')).toHaveTextContent('仅属于 session A')
 
         view.rerender(
             <I18nProvider>
@@ -63,6 +63,6 @@ describe('TodoPanel', () => {
             </I18nProvider>
         )
         expect(screen.getAllByTestId('todo-panel')).toHaveLength(1)
-        expect(screen.getByText('仅属于 session A')).toBeInTheDocument()
+        expect(screen.getByTestId('todo-panel')).toHaveTextContent('仅属于 session A')
     })
 })
