@@ -44,12 +44,23 @@ export function createExecutionMiddleware(deps: {
         const decision = dispatcher.authorize({ accountId, capability: capabilityFor(c.req.method), resource })
         if (decision.kind === 'deny') return c.json({ error: 'Insufficient permissions' }, 403)
         c.set('namespace', decision.context.namespace)
+        c.set('registerCreatedSession' as never, ((sessionId: string) => deps.store.bindResource({
+            resourceType: 'session',
+            resourceId: sessionId,
+            ownerAccountId: accountId,
+            coreNamespace: decision.context.namespace
+        })) as never)
         await next()
-        if (resource.type === 'machine' && c.req.method === 'POST' && c.req.path.endsWith('/spawn') && c.res.ok) {
+        const isMachineSpawn = resource.type === 'machine' && c.req.method === 'POST' && c.req.path.endsWith('/spawn')
+        const isSessionFork = resource.type === 'session' && c.req.method === 'POST' && c.req.path.endsWith('/fork')
+        if ((isMachineSpawn || isSessionFork) && c.res.ok) {
             const body = await c.res.clone().json().catch(() => null) as { sessionId?: unknown } | null
-            if (typeof body?.sessionId === 'string') {
+            const createdSessionId = isSessionFork
+                ? (body as { newSessionId?: unknown } | null)?.newSessionId
+                : body?.sessionId
+            if (typeof createdSessionId === 'string') {
                 deps.store.bindResource({
-                    resourceType: 'session', resourceId: body.sessionId,
+                    resourceType: 'session', resourceId: createdSessionId,
                     ownerAccountId: accountId, coreNamespace: decision.context.namespace
                 })
             }

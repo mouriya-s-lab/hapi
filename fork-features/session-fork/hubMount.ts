@@ -29,10 +29,12 @@ export function mountForkRoutes(
 
     app.post('/api/sessions/:id/fork', async (c) => {
         const namespace = (c.get('namespace' as never) as string | undefined) ?? 'default'
-        const deps = getDeps(namespace)
-        if (!deps) {
+        const baseDeps = getDeps(namespace)
+        if (!baseDeps) {
             return c.json({ error: 'sync engine unavailable' }, 503 as StatusCode)
         }
+        const registerCreatedSession = c.get('registerCreatedSession' as never) as ((sessionId: string) => void) | undefined
+        const deps = registerCreatedSession ? { ...baseDeps, registerCreatedSession } : baseDeps
         const srcSessionId = c.req.param('id')
 
         // Empty body means the existing HEAD-fork operation. Any non-empty

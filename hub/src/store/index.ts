@@ -94,15 +94,6 @@ export class Store {
         this.push = new PushStore(this.db)
     }
 
-    /**
-     * Run a synchronous function inside a SQLite transaction. Used by
-     * fork-features/session-fork to atomically insert the forked session
-     * row + clone its messages without exposing the raw db handle.
-     */
-    runInTransaction<T>(fn: () => T): T {
-        return this.db.transaction(fn)() as T
-    }
-
     close(): void {
         if (this.closed) return
         this.db.close()
