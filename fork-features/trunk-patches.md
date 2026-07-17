@@ -6,6 +6,26 @@ remove if upstream provided a native register API or the feature is obsolete.
 
 Rule reference: `~/.claude/rules/fork-customization-placement.rule.md`.
 
+## Workspace file browser and editor (2026-07-18)
+
+File-view preferences, Markdown/content toggles, preview classification, and
+browser E2E fixtures are fork-owned modules. The existing machine RPC and
+Web file surfaces expose no action or viewer registration API, leaving these
+minimum integration hooks.
+
+| Files | Missing upstream seam | Why it cannot move out | Runtime path | Sync verification |
+|---|---|---|---|---|
+| `cli/src/api/apiMachine.test.ts` | No machine file-RPC handler registry | Directory creation, write, and download must remain covered at the closed machine RPC boundary used by the hub | Web file action → hub → machine RPC → workspace filesystem | Create a directory/file and persist an edit through a real runner |
+| `web/package.json` | No external E2E fixture/script registration surface | Browser fixtures and their Playwright entrypoints must be resolvable by the Web workspace package | Web test command → fixture bundle → browser assertions | Run the file-viewer E2E suite after dependency changes |
+| `web/src/components/ToolCard/views/WriteView.tsx`, `_results.tsx`, `_results.test.tsx` | No tool-result viewer registry | Write/read tool results need one dispatch hook into the fork-owned preview classifier without duplicating the tool-card reducer | Tool result → preview classification → text/Markdown/media/file view | Open a real tool-produced file and verify ordinary results remain ordinary |
+| `web/src/components/WorkspaceBrowser.tsx` | No workspace action/toolbar registration API | New-folder and copy-path actions must use the existing selected-directory state and browser refresh lifecycle | Workspace browser → create/copy action → machine RPC → refreshed tree | Create nested directory/file and copy the exact path in the browser |
+| `web/src/components/assistant-ui/mermaid-diagram.tsx` | No Markdown renderer-extension registry for file preview | Mermaid preview uses the existing assistant Markdown provider; parallel mounting would duplicate theme and lightbox state | Markdown file → preview renderer → Mermaid diagram | Preview a Markdown file containing Mermaid and switch raw/rendered modes |
+| `web/src/routes/sessions/file.tsx` | No file-route tab/action/provider registry | Edit, save, download, raw/preview mode, and route refresh share the existing file query and navigation state | File route → edit/save/download mutation → runner filesystem → refreshed query | Edit, refresh, re-read persisted bytes, then download and compare |
+
+Every upstream sync must re-check for native workspace-action, tool-viewer,
+Markdown-renderer, and file-route extension APIs and remove hooks when those
+seams become available.
+
 ## Generated artifact files (2026-07-18)
 
 Artifact discovery, validation, storage, and socket-limit constants live in
