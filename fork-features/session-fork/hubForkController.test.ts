@@ -151,13 +151,12 @@ describe('forkSession', () => {
         })
     })
 
-    it('returns a retryable conflict when the selected Codex turn is still in progress', async () => {
+    it('returns a blocked domain result when the selected Codex turn is still in progress', async () => {
         const deps = makeDeps({
             forkShouldThrow: new Error("lastTurnId 'turn-1' identifies an in-progress turn")
         })
         await expect(forkSession({ srcSessionId: 'src', deps })).rejects.toMatchObject({
-            status: 409,
-            code: 'fork_turn_in_progress',
+            name: 'ForkBlockedError',
             message: 'The selected message is still being processed. Wait for the turn to finish, then try again.'
         })
     })

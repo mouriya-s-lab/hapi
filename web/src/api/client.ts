@@ -45,6 +45,7 @@ import type {
 } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor } from '@hapi/protocol'
 import type { CancelMessageResponse } from '@hapi/protocol/schemas'
+import type { ForkRouteResult } from '../../../fork-features/session-fork/rpcPayloads'
 
 type ApiClientOptions = {
     baseUrl?: string
@@ -492,10 +493,10 @@ export class ApiClient {
     async forkSession(
         sessionId: string,
         opts?: { forkPoint?: { messageId: string } }
-    ): Promise<{ newSessionId: string }> {
+    ): Promise<ForkRouteResult> {
         const body: Record<string, unknown> = {}
         if (opts?.forkPoint) body.forkPoint = opts.forkPoint
-        return await this.request<{ newSessionId: string }>(
+        return await this.request<ForkRouteResult>(
             `/api/sessions/${encodeURIComponent(sessionId)}/fork`,
             { method: 'POST', body: JSON.stringify(body) }
         )

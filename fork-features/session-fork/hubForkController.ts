@@ -4,9 +4,16 @@ import type { ForkPoint } from './rpcPayloads'
 import { randomInt } from 'node:crypto'
 
 export class HttpError extends Error {
-    constructor(public status: number, message: string, public code?: string) {
+    constructor(public status: number, message: string) {
         super(message)
         this.name = 'HttpError'
+    }
+}
+
+export class ForkBlockedError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'ForkBlockedError'
     }
 }
 
@@ -240,10 +247,8 @@ export async function forkSession(args: {
     } catch (err) {
         const message = err instanceof Error ? err.message : 'unknown provider error'
         if (message.includes('identifies an in-progress turn')) {
-            throw new HttpError(
-                409,
-                'The selected message is still being processed. Wait for the turn to finish, then try again.',
-                'fork_turn_in_progress'
+            throw new ForkBlockedError(
+                'The selected message is still being processed. Wait for the turn to finish, then try again.'
             )
         }
         throw new HttpError(502, `provider fork failed: ${message}`)

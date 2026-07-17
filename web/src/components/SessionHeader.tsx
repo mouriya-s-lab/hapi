@@ -176,8 +176,10 @@ export function SessionHeader(props: {
     const handleFork = async () => {
         setForkError(null)
         try {
-            const { newSessionId } = await forkSession()
-            onSessionForked?.(newSessionId)
+            const result = await forkSession()
+            if (result.type === 'success') {
+                onSessionForked?.(result.newSessionId)
+            }
         } catch (error) {
             setForkError(error instanceof Error ? error.message : 'Fork failed')
         }

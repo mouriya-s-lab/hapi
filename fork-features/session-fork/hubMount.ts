@@ -1,9 +1,14 @@
 import type { Hono } from 'hono'
 import { z } from 'zod'
-import { forkSession, HttpError, type ForkDeps } from './hubForkController'
+import { forkSession, ForkBlockedError, HttpError, type ForkDeps } from './hubForkController'
+import type { SyncEvent } from '../../shared/src/schemas'
 import { getAllForkCapabilities } from './forkCapabilities'
+import type { ForkRouteResult } from './rpcPayloads'
 
 export type ForkSyncEngineLike = ForkDeps
+export interface ForkToastSender {
+    sendToast(namespace: string, event: Extract<SyncEvent, { type: 'toast' }>): Promise<number>
+}
 
 type StatusCode = 200 | 400 | 404 | 409 | 500 | 502 | 503
 
@@ -21,7 +26,8 @@ const ForkRequestBodySchema = z.object({
  */
 export function mountForkRoutes(
     app: Hono<any>,
-    getDeps: (namespace: string) => ForkSyncEngineLike | null
+    getDeps: (namespace: string) => ForkSyncEngineLike | null,
+    getToastSender: () => ForkToastSender | null = () => null
 ): void {
     app.get('/api/flavors/capabilities', (c) => {
         return c.json({ capabilities: getAllForkCapabilities() })
@@ -59,13 +65,22 @@ export function mountForkRoutes(
 
         try {
             const result = await forkSession({ srcSessionId, deps, forkPoint })
-            return c.json(result)
+            return c.json({ type: 'success', ...result } satisfies ForkRouteResult)
         } catch (err) {
+            if (err instanceof ForkBlockedError) {
+                await getToastSender()?.sendToast(namespace, {
+                    type: 'toast',
+                    data: {
+                        title: 'Fork unavailable',
+                        body: err.message,
+                        sessionId: srcSessionId,
+                        url: `/sessions/${encodeURIComponent(srcSessionId)}`
+                    }
+                })
+                return c.json({ type: 'blocked' } satisfies ForkRouteResult)
+            }
             if (err instanceof HttpError) {
-                return c.json(
-                    err.code ? { error: err.message, code: err.code } : { error: err.message },
-                    err.status as StatusCode
-                )
+                return c.json({ error: err.message }, err.status as StatusCode)
             }
             const message = err instanceof Error ? err.message : 'fork failed'
             return c.json({ error: message }, 500 as StatusCode)

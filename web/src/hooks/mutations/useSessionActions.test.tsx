@@ -27,8 +27,8 @@ afterEach(() => {
 })
 
 describe('useSessionActions - forkSession', () => {
-    it('invokes api.forkSession with sessionId and returns newSessionId', async () => {
-        const forkSpy = vi.fn(async (_sessionId: string) => ({ newSessionId: 'forked-id' }))
+    it('invokes api.forkSession with sessionId and returns the server result', async () => {
+        const forkSpy = vi.fn(async (_sessionId: string) => ({ type: 'success' as const, newSessionId: 'forked-id' }))
         const api = { forkSession: forkSpy } as unknown as ApiClient
 
         const { result } = renderHook(
@@ -36,13 +36,13 @@ describe('useSessionActions - forkSession', () => {
             { wrapper: createWrapper() }
         )
 
-        let response: { newSessionId: string } | undefined
+        let response: { type: 'success'; newSessionId: string } | { type: 'blocked' } | undefined
         await act(async () => {
             response = await result.current.forkSession()
         })
 
         expect(forkSpy).toHaveBeenCalledWith('src-session')
-        expect(response).toEqual({ newSessionId: 'forked-id' })
+        expect(response).toEqual({ type: 'success', newSessionId: 'forked-id' })
     })
 
     it('throws when api or sessionId is missing', async () => {
