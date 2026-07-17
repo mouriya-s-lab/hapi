@@ -156,7 +156,7 @@ def main() -> None:
             owner = owner_for(path, fork_log)
             if not exists("upstream/main", path) and exists(target, path):
                 classification = "fork-owned"
-            elif owner == "#170":
+            elif owner in {"#170", "#171"}:
                 classification = "trunk-patch"
             elif owner == "#179":
                 classification = "upstream-fix"
