@@ -6,6 +6,29 @@ remove if upstream provided a native register API or the feature is obsolete.
 
 Rule reference: `~/.claude/rules/fork-customization-placement.rule.md`.
 
+## Classified fork-specific fixes and small features (2026-07-18)
+
+`fork-features/upstream-fix-dispositions.tsv` is the path-level source of
+truth for issue #179. General fixes remain `upstream-fix` and link their
+upstream issue. The rows below are the paths that cannot be contributed as a
+standalone general fix because they carry fork-specific behavior.
+
+| Files | Missing upstream seam | Why it cannot move out | Runtime path | Sync verification |
+|---|---|---|---|---|
+| `.github/workflows/release.yml`, `web/vite.config.ts`, `web/src/types/global.d.ts` | No fork build-metadata or release-policy provider | Release inputs and compile-time changelog constants are consumed directly by upstream-owned workflow/Vite entrypoints | release env → Vite define → settings/update banner | Build web with fork release env and inspect rendered version/changelog; inspect release job graph |
+| `cli/src/codex/codexRemoteLauncher.ts`, `codexEventConverter.ts` and tests; `web/src/chat/normalize.test.ts`, `presentation.ts`, `SystemMessage.tsx` | No Codex compact-summary event/renderer registry | Compact events must traverse the existing launcher, normalized chat ADT, and system-message renderer | Codex compact event → normalized expandable system message | Trigger real Codex compaction/retry and expand the resulting summary; re-run linked upstream retry issues |
+| `cli/src/grok/grokRemoteLauncher.ts` | No flavor launcher conflict-resolution registry | The upstream launcher is the dispatch implementation; the fork keeps only the resolved Grok-specific delta | Grok session start → launcher → ACP backend | Start a real Grok session after every upstream sync |
+| `shared/src/sessionSummary.ts`, `SessionAttentionIndicator.tsx`, `sessionAttention.ts` and tests | No session-summary field/provider registry | Fork archive visibility and ready-attention data must cross the shared summary boundary and existing list renderer | archive/ready update → session summary → filtered list/attention dot | Archive/unarchive and ready-state transitions in a real session list |
+| `PwaUpdateBanner.tsx` and test | No PWA update-banner content slot | Fork changelog content is rendered inside the existing upstream update lifecycle component | service-worker update → update banner → version/changelog details | Build two versions, trigger update, expand changelog, then reload |
+| `markdown-text.tsx`, `remark-file-path-links.ts` and tests, `routes/sessions/file.test.tsx` | No Markdown plugin/file-view behavior registry | Imported fork Markdown/file-path behavior must be installed in the upstream-owned renderer and file route | assistant/file Markdown → path link/plugin → workspace file route | Render a real path link, open it, edit/save/download, then refresh |
+| `mermaid-diagram.live.test.tsx`, `mermaid-diagram.test.tsx`, `icons.tsx` | No Mermaid control/icon registration seam | Fork zoom behavior and Qwen playback share the upstream-owned icon/diagram surfaces | Mermaid render → zoom controls; assistant reply → summary playback control | Render real Mermaid, zoom/reset/close; play a real generated reply summary |
+| `reasoning.tsx` | No reasoning-group renderer registry | Sticky collapse state wraps the upstream reasoning renderer and must remain adjacent to its lifecycle | streamed reasoning → expanded/collapsed group → sticky control | Stream reasoning, scroll, collapse/expand, and refresh |
+| `sessionResume.ts` and test | No resume-metadata field registry | The fork session-ID affordance reads the native resume token from the upstream resume helper | session menu → Session ID dialog → copy | Open a real session menu and copy the displayed native ID |
+
+Every upstream sync must compare these groups with the path-level disposition
+ledger and the linked upstream issues. Remove a patch when upstream absorbs
+the fix or exposes a registration seam; do not retain both implementations.
+
 ## Long message and tool-result collapsing (2026-07-18)
 
 The shared threshold, measurement, fade, and expand/collapse state live in

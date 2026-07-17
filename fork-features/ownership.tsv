@@ -1,7 +1,7 @@
 .claude/rules/hapi-fork-cd-release.rule.md	fork-owned	#179	origin-only delta; fork commits 33352055,d698e6df
 .dockerignore	fork-owned	#179	origin-only delta; fork commits 6da30689
 .github/workflows/publish-image.yml	fork-owned	#179	origin-only delta; fork commits 85e0f8f1,bc97f3cc,8edeeef3,0661377c,ccf37a01,54c4ac4f,6da30689
-.github/workflows/release.yml	upstream-fix	#179	origin-only delta; fork commits 69c5250d,78b888ec
+.github/workflows/release.yml	trunk-patch	#179	origin-only delta; fork commits 69c5250d,78b888ec; disposition fork-specific #179: fork release/build metadata; fork release publishing policy
 .github/workflows/sync-upstream.yml	fork-owned	#179	origin-only delta; fork commits 9f8f9e97
 Dockerfile	fork-owned	#179	origin-only delta; fork commits 8edeeef3,6da30689
 bun.lock	trunk-patch	#171	origin-only delta; fork commits a6f9e3f9,45b07ac7,c36d2daf,d3199037
@@ -21,7 +21,7 @@ cli/src/api/api.ts	trunk-patch	#174	origin-only delta; fork commits 413e76cc
 cli/src/api/apiMachine.test.ts	trunk-patch	#177	both refs changed; fork commits c853bcbf,7e3edb0f
 cli/src/api/apiMachine.ts	trunk-patch	#173	both refs changed; fork commits 51929072,9e76994b,3994ee9a,c853bcbf,fc377386,e1611788
 cli/src/api/apiSession.test.ts	trunk-patch	#174	origin-only delta; fork commits 6ba438a1
-cli/src/claude/claudeLocalLauncher.test.ts	upstream-fix	#179	origin-only delta; fork commits d1f9f394
+cli/src/claude/claudeLocalLauncher.test.ts	upstream-fix	#179	origin-only delta; fork commits d1f9f394; disposition upstream-issue https://github.com/tiann/hapi/issues/1077: general fix reported against latest upstream main
 cli/src/claude/claudeRemote.ts	trunk-patch	#170	origin-only delta; fork commits e009becc,fc377386
 cli/src/claude/model.test.ts	trunk-patch	#174	origin-only delta; fork commits 7e3edb0f
 cli/src/claude/sdk/query.test.ts	trunk-patch	#170	origin-only delta; fork commits fc377386
@@ -29,7 +29,7 @@ cli/src/claude/sdk/query.ts	trunk-patch	#170	origin-only delta; fork commits fc3
 cli/src/claude/sdk/types.ts	trunk-patch	#170	origin-only delta; fork commits fc377386
 cli/src/claude/session.ts	trunk-patch	#170	origin-only delta; fork commits fc377386
 cli/src/claude/types.ts	trunk-patch	#170	origin-only delta; fork commits fc377386
-cli/src/claude/utils/chatVisibility.test.ts	upstream-fix	#179	origin-only delta; fork commits d1f9f394
+cli/src/claude/utils/chatVisibility.test.ts	upstream-fix	#179	origin-only delta; fork commits d1f9f394; disposition upstream-issue https://github.com/tiann/hapi/issues/1077: general fix reported against latest upstream main
 cli/src/claude/utils/sdkToLogConverter.test.ts	trunk-patch	#170	origin-only delta; fork commits fc377386
 cli/src/claude/utils/sdkToLogConverter.ts	trunk-patch	#170	origin-only delta; fork commits fc377386
 cli/src/claude/utils/startHappyServer.test.ts	trunk-patch	#176	both refs changed; fork commits b4c31e88,d28853c7
@@ -37,20 +37,20 @@ cli/src/claude/utils/startHappyServer.ts	trunk-patch	#176	both refs changed; for
 cli/src/claude/utils/systemPrompt.ts	trunk-patch	#176	origin-only delta; fork commits b4c31e88,d28853c7
 cli/src/codex/appServerTypes.ts	trunk-patch	#170	both refs changed; fork commits 837647b2,752c3147
 cli/src/codex/codexAppServerClient.ts	trunk-patch	#170	origin-only delta; fork commits 837647b2,752c3147
-cli/src/codex/codexRemoteLauncher.test.ts	upstream-fix	#179	both refs changed; fork commits 2975dd81
-cli/src/codex/codexRemoteLauncher.ts	upstream-fix	#179	both refs changed; fork commits 2975dd81,92f048f7,6c675985
+cli/src/codex/codexRemoteLauncher.test.ts	upstream-fix	#179	both refs changed; fork commits 2975dd81; disposition upstream-issue https://github.com/tiann/hapi/issues/1069: general fix reported against latest upstream main
+cli/src/codex/codexRemoteLauncher.ts	trunk-patch	#179	both refs changed; fork commits 2975dd81,92f048f7,6c675985; disposition fork-specific #179,https://github.com/tiann/hapi/issues/1069,https://github.com/tiann/hapi/issues/1070: Codex compact summary feature; shared path also carries separately reported upstream fix
 cli/src/codex/happyMcpStdioBridge.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/codex/happyMcpStdioBridge.ts	trunk-patch	#176	both refs changed; fork commits b4c31e88,d28853c7
 cli/src/codex/utils/appServerEventConverter.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/codex/utils/appServerEventConverter.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/codex/utils/buildHapiMcpBridge.test.ts	trunk-patch	#176	both refs changed; fork commits b4c31e88,d28853c7
 cli/src/codex/utils/buildHapiMcpBridge.ts	trunk-patch	#176	both refs changed; fork commits b4c31e88,d28853c7
-cli/src/codex/utils/codexEventConverter.test.ts	upstream-fix	#179	origin-only delta; fork commits 92f048f7
-cli/src/codex/utils/codexEventConverter.ts	upstream-fix	#179	origin-only delta; fork commits 92f048f7
+cli/src/codex/utils/codexEventConverter.test.ts	trunk-patch	#179	origin-only delta; fork commits 92f048f7; disposition fork-specific #179: Codex compact summary feature
+cli/src/codex/utils/codexEventConverter.ts	trunk-patch	#179	origin-only delta; fork commits 92f048f7; disposition fork-specific #179: Codex compact summary feature
 cli/src/codex/utils/codexMcpConfig.test.ts	trunk-patch	#176	origin-only delta; fork commits b4c31e88,d28853c7
 cli/src/codex/utils/systemPrompt.ts	trunk-patch	#176	origin-only delta; fork commits b4c31e88,d28853c7
-cli/src/codex/utils/terminalEventGuard.test.ts	upstream-fix	#179	origin-only delta; fork commits 6c675985
-cli/src/codex/utils/terminalEventGuard.ts	upstream-fix	#179	origin-only delta; fork commits 6c675985
+cli/src/codex/utils/terminalEventGuard.test.ts	upstream-fix	#179	origin-only delta; fork commits 6c675985; disposition upstream-issue https://github.com/tiann/hapi/issues/1070: general fix reported against latest upstream main
+cli/src/codex/utils/terminalEventGuard.ts	upstream-fix	#179	origin-only delta; fork commits 6c675985; disposition upstream-issue https://github.com/tiann/hapi/issues/1070: general fix reported against latest upstream main
 cli/src/commands/agentCommandOptions.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/commands/agentCommandOptions.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/commands/omp.ts	fork-owned	#172	origin-only delta; fork commits 3686370a
@@ -63,7 +63,7 @@ cli/src/cursor/cursorAcpRemoteLauncher.ts	trunk-patch	#175	both refs changed; fo
 cli/src/cursor/cursorChatStoreStatus.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/cursor/cursorChatStoreStatus.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/grok/grokRemoteLauncher.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-cli/src/grok/grokRemoteLauncher.ts	upstream-fix	#179	both refs changed; fork commits merge-resolution
+cli/src/grok/grokRemoteLauncher.ts	trunk-patch	#179	both refs changed; fork commits merge-resolution; disposition fork-specific #179: fork Grok launcher merge resolution
 cli/src/grok/utils/systemPrompt.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/index.ts	trunk-patch	#170	origin-only delta; fork commits 206da967
 cli/src/kimi/kimiRemoteLauncher.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
@@ -197,6 +197,7 @@ fork-features/session-fork/register.ts	fork-owned	#170	origin-only delta; fork c
 fork-features/session-fork/rpcPayloads.test.ts	fork-owned	#170	origin-only delta; fork commits 92fa6ad3,e009becc,9e867c21,7dca6478,aee648ee,165ae59d
 fork-features/session-fork/rpcPayloads.ts	fork-owned	#170	origin-only delta; fork commits 92fa6ad3,e009becc,fc377386,837647b2,9e867c21,7dca6478,aee648ee,165ae59d
 fork-features/trunk-patches.md	fork-owned	#171	fork trunk-patch registry; updated by boundary children
+fork-features/upstream-fix-dispositions.tsv	fork-owned	#179	origin-only delta; fork commits c08dc165
 hub/src/notifications/notificationHub.test.ts	trunk-patch	#174	origin-only delta; fork commits 413e76cc
 hub/src/serverchan/channel.test.ts	trunk-patch	#174	origin-only delta; fork commits 413e76cc
 hub/src/socket/handlers/cli/sessionHandlers.ts	open-child	#181	origin-only delta; fork commits 85743eb7
@@ -236,7 +237,7 @@ shared/src/apiTypes.ts	trunk-patch	#173	both refs changed; fork commits 8d828436
 shared/src/flavors.test.ts	trunk-patch	#172	origin-only delta; fork commits 3686370a
 shared/src/flavors.ts	trunk-patch	#172	origin-only delta; fork commits 3686370a
 shared/src/messages.test.ts	fork-owned	#179	origin-only delta; fork commits d1f9f394
-shared/src/messages.ts	upstream-fix	#179	origin-only delta; fork commits d1f9f394
+shared/src/messages.ts	upstream-fix	#179	origin-only delta; fork commits d1f9f394; disposition upstream-issue https://github.com/tiann/hapi/issues/1077: general fix reported against latest upstream main
 shared/src/models.test.ts	trunk-patch	#174	origin-only delta; fork commits 606c6579,7e3edb0f
 shared/src/models.ts	trunk-patch	#174	origin-only delta; fork commits 606c6579,7e3edb0f
 shared/src/modes.ts	trunk-patch	#172	origin-only delta; fork commits 7e0010b8,3686370a
@@ -245,7 +246,7 @@ shared/src/rpcMethods.test.ts	fork-owned	#170	origin-only delta; fork commits 21
 shared/src/rpcMethods.ts	trunk-patch	#170	both refs changed; fork commits 8d828436,51929072,3994ee9a,fc7d7b4a,b4c31e88,a8815d47,c853bcbf,2138d84b
 shared/src/schemas.test.ts	fork-owned	#170	origin-only delta; fork commits 17e79d08,ddd6927a
 shared/src/schemas.ts	trunk-patch	#170	origin-only delta; fork commits 17e79d08,51929072,3994ee9a,7dca6478,ddd6927a,413e76cc,3582e989,3686370a
-shared/src/sessionSummary.ts	upstream-fix	#179	origin-only delta; fork commits 473d69b4,3582e989
+shared/src/sessionSummary.ts	trunk-patch	#179	origin-only delta; fork commits 473d69b4,3582e989; disposition fork-specific #179: bob fork customization import; archive visibility and session attention feature
 shared/src/socketLimits.ts	fork-owned	#176	origin-only delta; fork commits 3edb7db8
 shared/src/types.ts	trunk-patch	#170	origin-only delta; fork commits e009becc,3686370a
 web/changelog-build.ts	fork-owned	#179	origin-only delta; fork commits 4a0c5f0b
@@ -273,14 +274,14 @@ web/src/api/client.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only 
 web/src/api/client.ts	trunk-patch	#171	both refs changed; fork commits a6f9e3f9,51929072,9e76994b,3994ee9a,fc7d7b4a,b4c31e88,a8815d47,bfa252da,d28853c7,c853bcbf,c58622c2,5262a261,7dca6478,2ef4c618,413e76cc
 web/src/chat/agentTimestamp.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/chat/agentTimestamp.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-web/src/chat/normalize.test.ts	upstream-fix	#179	origin-only delta; fork commits 92f048f7,d1f9f394
+web/src/chat/normalize.test.ts	trunk-patch	#179	origin-only delta; fork commits 92f048f7,d1f9f394; disposition fork-specific #179,https://github.com/tiann/hapi/issues/1077: Codex compact summary feature; shared path also carries separately reported upstream fix
 web/src/chat/normalizeAgent.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/chat/normalizeAgent.ts	trunk-patch	#176	both refs changed; fork commits 92f048f7,b4c31e88,d1f9f394
-web/src/chat/presentation.test.ts	upstream-fix	#179	origin-only delta; fork commits d1f9f394
-web/src/chat/presentation.ts	upstream-fix	#179	both refs changed; fork commits 92f048f7,d1f9f394
+web/src/chat/presentation.test.ts	upstream-fix	#179	origin-only delta; fork commits d1f9f394; disposition upstream-issue https://github.com/tiann/hapi/issues/1077: general fix reported against latest upstream main
+web/src/chat/presentation.ts	trunk-patch	#179	both refs changed; fork commits 92f048f7,d1f9f394; disposition fork-specific #179,https://github.com/tiann/hapi/issues/1077: Codex compact summary feature; shared path also carries separately reported upstream fix
 web/src/chat/reconcile.ts	trunk-patch	#176	both refs changed; fork commits b4c31e88
-web/src/chat/reducer.test.ts	upstream-fix	#179	origin-only delta; fork commits 022cfa1a,eb8683c0
-web/src/chat/reducer.ts	upstream-fix	#179	origin-only delta; fork commits 022cfa1a,eb8683c0
+web/src/chat/reducer.test.ts	upstream-fix	#179	origin-only delta; fork commits 022cfa1a,eb8683c0; disposition upstream-issue https://github.com/tiann/hapi/issues/1073: general fix reported against latest upstream main
+web/src/chat/reducer.ts	upstream-fix	#179	origin-only delta; fork commits 022cfa1a,eb8683c0; disposition upstream-issue https://github.com/tiann/hapi/issues/1073: general fix reported against latest upstream main
 web/src/chat/reducerTimeline.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/chat/reducerTimeline.ts	trunk-patch	#176	both refs changed; fork commits b4c31e88
 web/src/chat/reducerTools.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
@@ -288,7 +289,7 @@ web/src/chat/toolGroups.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed 
 web/src/chat/types.ts	trunk-patch	#176	both refs changed; fork commits 92f048f7,b4c31e88,d1f9f394
 web/src/components/AssistantChat/HappyComposer.test.tsx	fork-owned	#174	origin-only delta; fork commits 8240268f,bec12318,413e76cc
 web/src/components/AssistantChat/HappyComposer.tsx	trunk-patch	#174	origin-only delta; fork commits 8240268f,606c6579,a8815d47,473d69b4,413e76cc
-web/src/components/AssistantChat/HappyThread.tsx	upstream-fix	#179	origin-only delta; fork commits 0bc807dc
+web/src/components/AssistantChat/HappyThread.tsx	upstream-fix	#179	origin-only delta; fork commits 0bc807dc; disposition upstream-issue https://github.com/tiann/hapi/issues/1067: general fix reported against latest upstream main
 web/src/components/AssistantChat/PiThinkingLevelPanel.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/components/AssistantChat/TodoPanel.test.tsx	fork-owned	#181	origin-only delta; fork commits 85743eb7
 web/src/components/AssistantChat/TodoPanel.tsx	fork-owned	#181	origin-only delta; fork commits 85743eb7
@@ -301,7 +302,7 @@ web/src/components/AssistantChat/messages/MessageActions.test.tsx	upstream-sync	
 web/src/components/AssistantChat/messages/MessageActions.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/components/AssistantChat/messages/MessageAttachments.tsx	trunk-patch	#176	origin-only delta; fork commits b4c31e88
 web/src/components/AssistantChat/messages/SpeakSummaryButton.tsx	fork-owned	#179	origin-only delta; fork commits 7faed2eb
-web/src/components/AssistantChat/messages/SystemMessage.tsx	upstream-fix	#179	origin-only delta; fork commits 92f048f7
+web/src/components/AssistantChat/messages/SystemMessage.tsx	trunk-patch	#179	origin-only delta; fork commits 92f048f7; disposition fork-specific #179: Codex compact summary feature
 web/src/components/AssistantChat/messages/ToolMessage.tsx	trunk-patch	#176	origin-only delta; fork commits 3edb7db8,302180e5,b4c31e88,d28853c7
 web/src/components/AssistantChat/messages/UserMessage.test.tsx	fork-owned	#170	origin-only delta; fork commits 253e5184,5262a261
 web/src/components/AssistantChat/messages/UserMessage.tsx	trunk-patch	#178	origin-only delta; fork commits 302180e5,253e5184,5262a261
@@ -317,28 +318,28 @@ web/src/components/CodeBlock.tsx	trunk-patch	#178	origin-only delta; fork commit
 web/src/components/CollapsibleContent.tsx	fork-owned	#178	origin-only delta; fork commits 302180e5
 web/src/components/FileContentToggleView.tsx	fork-owned	#177	origin-only delta; fork commits e2a200a8,e737b4b3
 web/src/components/FileMarkdownView.tsx	fork-owned	#177	origin-only delta; fork commits dc1844cd,d3199037
-web/src/components/ImagePreview.tsx	upstream-fix	#179	origin-only delta; fork commits 0aba2643
+web/src/components/ImagePreview.tsx	upstream-fix	#179	origin-only delta; fork commits 0aba2643; disposition upstream-issue https://github.com/tiann/hapi/issues/1066: general fix reported against latest upstream main
 web/src/components/LoginPrompt.test.tsx	trunk-patch	#171	origin-only delta; fork commits ba37bcfb
 web/src/components/LoginPrompt.tsx	trunk-patch	#171	origin-only delta; fork commits a6f9e3f9
 web/src/components/NewSession/types.test.ts	trunk-patch	#174	origin-only delta; fork commits 606c6579,7e3edb0f
 web/src/components/NewSession/types.ts	trunk-patch	#174	origin-only delta; fork commits 606c6579,3686370a
-web/src/components/OfflineBanner.tsx	upstream-fix	#179	origin-only delta; fork commits 0aba2643
-web/src/components/PwaUpdateBanner.test.tsx	upstream-fix	#179	origin-only delta; fork commits 4a0c5f0b,0aba2643
-web/src/components/PwaUpdateBanner.tsx	upstream-fix	#179	origin-only delta; fork commits 4a0c5f0b,0aba2643
-web/src/components/ReconnectingBanner.tsx	upstream-fix	#179	origin-only delta; fork commits 0aba2643
+web/src/components/OfflineBanner.tsx	upstream-fix	#179	origin-only delta; fork commits 0aba2643; disposition upstream-issue https://github.com/tiann/hapi/issues/1066: general fix reported against latest upstream main
+web/src/components/PwaUpdateBanner.test.tsx	trunk-patch	#179	origin-only delta; fork commits 4a0c5f0b,0aba2643; disposition fork-specific #179,https://github.com/tiann/hapi/issues/1066: fork PWA changelog feature; shared path also carries separately reported upstream fix
+web/src/components/PwaUpdateBanner.tsx	trunk-patch	#179	origin-only delta; fork commits 4a0c5f0b,0aba2643; disposition fork-specific #179,https://github.com/tiann/hapi/issues/1066: fork PWA changelog feature; shared path also carries separately reported upstream fix
+web/src/components/ReconnectingBanner.tsx	upstream-fix	#179	origin-only delta; fork commits 0aba2643; disposition upstream-issue https://github.com/tiann/hapi/issues/1066: general fix reported against latest upstream main
 web/src/components/SessionActionMenu.test.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/components/SessionActionMenu.tsx	trunk-patch	#170	both refs changed; fork commits 0aba2643,bf1a6b9a,291c8db0
-web/src/components/SessionAttentionIndicator.tsx	upstream-fix	#179	origin-only delta; fork commits 3582e989
+web/src/components/SessionAttentionIndicator.tsx	trunk-patch	#179	origin-only delta; fork commits 3582e989; disposition fork-specific #179: archive visibility and session attention feature
 web/src/components/SessionChat.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/components/SessionChat.tsx	trunk-patch	#173	both refs changed; fork commits 44f2bce5,51929072,78f3ffef,7faed2eb,85743eb7,a8815d47,c58622c2,d1f9f394,413e76cc,7e0010b8
 web/src/components/SessionHeader.tsx	trunk-patch	#170	both refs changed; fork commits 3994ee9a,fc7d7b4a,a8815d47,7dca6478,bf1a6b9a,291c8db0
 web/src/components/SessionIdDialog.test.tsx	fork-owned	#179	origin-only delta; fork commits 291c8db0
 web/src/components/SessionIdDialog.tsx	fork-owned	#179	origin-only delta; fork commits 291c8db0
-web/src/components/SessionList.directory-action.test.tsx	upstream-fix	#179	origin-only delta; fork commits 167af3dc
+web/src/components/SessionList.directory-action.test.tsx	upstream-fix	#179	origin-only delta; fork commits 167af3dc; disposition upstream-issue https://github.com/tiann/hapi/issues/1068: general fix reported against latest upstream main
 web/src/components/SessionList.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/components/SessionList.tsx	trunk-patch	#170	both refs changed; fork commits 167af3dc,37fb5e9a,7dca6478,473d69b4,bf1a6b9a
-web/src/components/SyncingBanner.tsx	upstream-fix	#179	origin-only delta; fork commits 0aba2643
-web/src/components/ToastContainer.tsx	upstream-fix	#179	origin-only delta; fork commits d1f9f394
+web/src/components/SyncingBanner.tsx	upstream-fix	#179	origin-only delta; fork commits 0aba2643; disposition upstream-issue https://github.com/tiann/hapi/issues/1066: general fix reported against latest upstream main
+web/src/components/ToastContainer.tsx	upstream-fix	#179	origin-only delta; fork commits d1f9f394; disposition upstream-issue https://github.com/tiann/hapi/issues/1077: general fix reported against latest upstream main
 web/src/components/ToolCard/ToolCard.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/components/ToolCard/ToolCard.tsx	trunk-patch	#178	both refs changed; fork commits 498aefb3,e9e7dbd7,302180e5,72c96399
 web/src/components/ToolCard/ToolDetailDialogContent.test.tsx	fork-owned	#179	origin-only delta; fork commits 498aefb3
@@ -355,20 +356,20 @@ web/src/components/ToolCard/views/_results.test.tsx	trunk-patch	#177	both refs c
 web/src/components/ToolCard/views/_results.tsx	trunk-patch	#177	origin-only delta; fork commits e2a200a8,302180e5,72c96399,473d69b4,e737b4b3
 web/src/components/ToolCard/views/readImageDetection.test.ts	fork-owned	#179	origin-only delta; fork commits 473d69b4
 web/src/components/ToolCard/views/readImageDetection.ts	fork-owned	#179	origin-only delta; fork commits 473d69b4
-web/src/components/VoiceErrorBanner.tsx	upstream-fix	#179	origin-only delta; fork commits 0aba2643
+web/src/components/VoiceErrorBanner.tsx	upstream-fix	#179	origin-only delta; fork commits 0aba2643; disposition upstream-issue https://github.com/tiann/hapi/issues/1066: general fix reported against latest upstream main
 web/src/components/WorkspaceBrowser.tsx	trunk-patch	#177	origin-only delta; fork commits c853bcbf
 web/src/components/assistant-ui/MermaidZoomViewer.tsx	fork-owned	#179	origin-only delta; fork commits 16321159,c36d2daf
 web/src/components/assistant-ui/markdown-a.test.tsx	trunk-patch	#174	origin-only delta; fork commits 7e3edb0f
-web/src/components/assistant-ui/markdown-text.tsx	upstream-fix	#179	origin-only delta; fork commits dc1844cd,473d69b4
-web/src/components/assistant-ui/mermaid-diagram.live.test.tsx	upstream-fix	#179	origin-only delta; fork commits merge-resolution
-web/src/components/assistant-ui/mermaid-diagram.test.tsx	upstream-fix	#179	origin-only delta; fork commits merge-resolution
+web/src/components/assistant-ui/markdown-text.tsx	trunk-patch	#179	origin-only delta; fork commits dc1844cd,473d69b4; disposition fork-specific #179,https://github.com/tiann/hapi/issues/1078: bob fork customization import; shared path also carries separately reported upstream fix
+web/src/components/assistant-ui/mermaid-diagram.live.test.tsx	trunk-patch	#179	origin-only delta; fork commits merge-resolution; disposition fork-specific #179: fork Mermaid behavior merge resolution
+web/src/components/assistant-ui/mermaid-diagram.test.tsx	trunk-patch	#179	origin-only delta; fork commits merge-resolution; disposition fork-specific #179: fork Mermaid behavior merge resolution
 web/src/components/assistant-ui/mermaid-diagram.tsx	trunk-patch	#177	origin-only delta; fork commits 67dd9700,16321159,c36d2daf,d3199037
 web/src/components/assistant-ui/reasoning-group.tsx	fork-owned	#179	origin-only delta; fork commits 7b197fec
 web/src/components/assistant-ui/reasoning.test.tsx	fork-owned	#179	origin-only delta; fork commits 7b197fec
-web/src/components/assistant-ui/reasoning.tsx	upstream-fix	#179	origin-only delta; fork commits 7b197fec
-web/src/components/assistant-ui/shiki-highlighter.tsx	upstream-fix	#179	origin-only delta; fork commits a2d26372
-web/src/components/icons.tsx	upstream-fix	#179	origin-only delta; fork commits 7faed2eb,16321159
-web/src/components/ui/Toast.tsx	upstream-fix	#179	origin-only delta; fork commits d1f9f394
+web/src/components/assistant-ui/reasoning.tsx	trunk-patch	#179	origin-only delta; fork commits 7b197fec; disposition fork-specific #179: reasoning collapse feature
+web/src/components/assistant-ui/shiki-highlighter.tsx	upstream-fix	#179	origin-only delta; fork commits a2d26372; disposition upstream-issue https://github.com/tiann/hapi/issues/1074: general fix reported against latest upstream main
+web/src/components/icons.tsx	trunk-patch	#179	origin-only delta; fork commits 7faed2eb,16321159; disposition fork-specific #179,https://github.com/tiann/hapi/issues/1076: Qwen summary speech feature; shared path also carries separately reported upstream fix
+web/src/components/ui/Toast.tsx	upstream-fix	#179	origin-only delta; fork commits d1f9f394; disposition upstream-issue https://github.com/tiann/hapi/issues/1077: general fix reported against latest upstream main
 web/src/fork-features/multi-user/AdminPage.tsx	fork-owned	#171	origin-only delta; fork commits ba37bcfb,8cae045d,b3922ef4,a6f9e3f9
 web/src/fork-features/multi-user/LoginPrompt.tsx	fork-owned	#171	origin-only delta; fork commits ba37bcfb,a6f9e3f9
 web/src/hooks/mutations/useCcSwitchProvider.test.tsx	fork-owned	#173	origin-only delta; fork commits 44f2bce5,51929072,9e76994b,faec872c
@@ -377,7 +378,7 @@ web/src/hooks/mutations/useSessionActions.test.tsx	trunk-patch	#170	origin-only 
 web/src/hooks/mutations/useSessionActions.ts	trunk-patch	#170	origin-only delta; fork commits 5262a261,2ef4c618,413e76cc
 web/src/hooks/queries/useCcSwitchProviders.ts	fork-owned	#173	origin-only delta; fork commits a8815d47
 web/src/hooks/queries/useCodexModels.test.tsx	fork-owned	#179	origin-only delta; fork commits c58622c2
-web/src/hooks/queries/useCodexModels.ts	upstream-fix	#179	origin-only delta; fork commits c58622c2
+web/src/hooks/queries/useCodexModels.ts	upstream-fix	#179	origin-only delta; fork commits c58622c2; disposition upstream-issue https://github.com/tiann/hapi/issues/1072: general fix reported against latest upstream main
 web/src/hooks/queries/useCursorChatStoreStatus.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/hooks/queries/useFlavorCapabilities.test.tsx	fork-owned	#170	origin-only delta; fork commits 7dca6478,2ef4c618
 web/src/hooks/queries/useFlavorCapabilities.ts	fork-owned	#170	origin-only delta; fork commits 7dca6478,2ef4c618
@@ -390,15 +391,15 @@ web/src/hooks/useComposerDraft.ts	trunk-patch	#170	origin-only delta; fork commi
 web/src/hooks/useFileViewPrefs.ts	fork-owned	#177	origin-only delta; fork commits d3199037
 web/src/hooks/useHideArchivedSessions.ts	fork-owned	#179	origin-only delta; fork commits 3582e989
 web/src/hooks/useLongPress.test.tsx	fork-owned	#179	origin-only delta; fork commits 5e3d135a,1bbfcc20
-web/src/hooks/useLongPress.ts	upstream-fix	#179	origin-only delta; fork commits 5e3d135a,1bbfcc20
+web/src/hooks/useLongPress.ts	upstream-fix	#179	origin-only delta; fork commits 5e3d135a,1bbfcc20; disposition upstream-issue https://github.com/tiann/hapi/issues/1065: general fix reported against latest upstream main
 web/src/hooks/usePreserveSidebarScroll.ts	fork-owned	#179	origin-only delta; fork commits 0894d3d2
 web/src/hooks/useSessionBrowserTitle.test.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/hooks/useSessionBrowserTitle.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/hooks/useTheme.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/hooks/useTheme.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-web/src/hooks/useThemeColors.test.ts	upstream-fix	#179	both refs changed; fork commits 4513dd1e
+web/src/hooks/useThemeColors.test.ts	upstream-fix	#179	both refs changed; fork commits 4513dd1e; disposition upstream-issue https://github.com/tiann/hapi/issues/1075: general fix reported against latest upstream main
 web/src/hooks/useThemeColors.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-web/src/index.css	upstream-fix	#179	both refs changed; fork commits a2d26372
+web/src/index.css	upstream-fix	#179	both refs changed; fork commits a2d26372; disposition upstream-issue https://github.com/tiann/hapi/issues/1074: general fix reported against latest upstream main
 web/src/lib/app-context.tsx	trunk-patch	#171	origin-only delta; fork commits a6f9e3f9
 web/src/lib/assistant-runtime.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/lib/assistant-runtime.ts	trunk-patch	#176	origin-only delta; fork commits b4c31e88,253e5184
@@ -411,32 +412,32 @@ web/src/lib/generatedInlineMedia.test.ts	fork-owned	#175	origin-only delta; fork
 web/src/lib/generatedInlineMedia.ts	fork-owned	#175	origin-only delta; fork commits d28853c7
 web/src/lib/locales/en.ts	trunk-patch	#171	both refs changed; fork commits ba37bcfb,606c6579,302180e5,7faed2eb,85743eb7,4a0c5f0b,7b197fec,a8815d47,bfa252da,c853bcbf,aee648ee,d1f9f394,413e76cc,291c8db0,3582e989,d3199037
 web/src/lib/locales/zh-CN.ts	trunk-patch	#171	both refs changed; fork commits ba37bcfb,606c6579,302180e5,7faed2eb,85743eb7,4a0c5f0b,7b197fec,a8815d47,bfa252da,c853bcbf,aee648ee,d1f9f394,413e76cc,291c8db0,3582e989,d3199037
-web/src/lib/message-window-store.test.ts	upstream-fix	#179	origin-only delta; fork commits 7a5232bf
-web/src/lib/message-window-store.ts	upstream-fix	#179	origin-only delta; fork commits 7a5232bf
+web/src/lib/message-window-store.test.ts	upstream-fix	#179	origin-only delta; fork commits 7a5232bf; disposition upstream-issue https://github.com/tiann/hapi/issues/1071: general fix reported against latest upstream main
+web/src/lib/message-window-store.ts	upstream-fix	#179	origin-only delta; fork commits 7a5232bf; disposition upstream-issue https://github.com/tiann/hapi/issues/1071: general fix reported against latest upstream main
 web/src/lib/query-keys.ts	trunk-patch	#173	both refs changed; fork commits 3994ee9a,fc7d7b4a,a8815d47,c58622c2
-web/src/lib/remark-file-path-links.test.ts	upstream-fix	#179	origin-only delta; fork commits 473d69b4
-web/src/lib/remark-file-path-links.ts	upstream-fix	#179	origin-only delta; fork commits 473d69b4
+web/src/lib/remark-file-path-links.test.ts	trunk-patch	#179	origin-only delta; fork commits 473d69b4; disposition fork-specific #179: bob fork customization import
+web/src/lib/remark-file-path-links.ts	trunk-patch	#179	origin-only delta; fork commits 473d69b4; disposition fork-specific #179: bob fork customization import
 web/src/lib/remark-latex-bracket-math.test.ts	fork-owned	#179	origin-only delta; fork commits dc1844cd
 web/src/lib/remark-latex-bracket-math.ts	fork-owned	#179	origin-only delta; fork commits dc1844cd
-web/src/lib/sessionAttention.test.ts	upstream-fix	#179	origin-only delta; fork commits 3582e989
-web/src/lib/sessionAttention.ts	upstream-fix	#179	origin-only delta; fork commits 3582e989
+web/src/lib/sessionAttention.test.ts	trunk-patch	#179	origin-only delta; fork commits 3582e989; disposition fork-specific #179: archive visibility and session attention feature
+web/src/lib/sessionAttention.ts	trunk-patch	#179	origin-only delta; fork commits 3582e989; disposition fork-specific #179: archive visibility and session attention feature
 web/src/lib/sessionExport/markdown.test.ts	trunk-patch	#174	origin-only delta; fork commits 413e76cc
 web/src/lib/sessionExport/markdown.ts	trunk-patch	#176	origin-only delta; fork commits b4c31e88
 web/src/lib/sessionListFilters.test.ts	fork-owned	#179	origin-only delta; fork commits 3582e989
 web/src/lib/sessionListFilters.ts	fork-owned	#179	origin-only delta; fork commits 3582e989
 web/src/lib/sessionModelLabel.test.ts	trunk-patch	#173	origin-only delta; fork commits fc7d7b4a,a8815d47,7e3edb0f
 web/src/lib/sessionModelLabel.ts	trunk-patch	#173	origin-only delta; fork commits 3994ee9a,fc7d7b4a,a8815d47
-web/src/lib/sessionResume.test.ts	upstream-fix	#179	both refs changed; fork commits 291c8db0
-web/src/lib/sessionResume.ts	upstream-fix	#179	both refs changed; fork commits 291c8db0
+web/src/lib/sessionResume.test.ts	trunk-patch	#179	both refs changed; fork commits 291c8db0; disposition fork-specific #179: session ID feature
+web/src/lib/sessionResume.ts	trunk-patch	#179	both refs changed; fork commits 291c8db0; disposition fork-specific #179: session ID feature
 web/src/lib/sessionTitle.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-web/src/lib/toast-context.tsx	upstream-fix	#179	origin-only delta; fork commits d1f9f394
+web/src/lib/toast-context.tsx	upstream-fix	#179	origin-only delta; fork commits d1f9f394; disposition upstream-issue https://github.com/tiann/hapi/issues/1077: general fix reported against latest upstream main
 web/src/realtime/messageSummarySpeaker.test.ts	fork-owned	#179	origin-only delta; fork commits 7faed2eb
 web/src/realtime/messageSummarySpeaker.ts	fork-owned	#179	origin-only delta; fork commits 7faed2eb
 web/src/router.tsx	trunk-patch	#171	both refs changed; fork commits a6f9e3f9,0894d3d2,3582e989
-web/src/routes/sessions/file.test.tsx	upstream-fix	#179	origin-only delta; fork commits merge-resolution
+web/src/routes/sessions/file.test.tsx	trunk-patch	#179	origin-only delta; fork commits merge-resolution; disposition fork-specific #179: fork file viewer behavior merge resolution
 web/src/routes/sessions/file.tsx	trunk-patch	#177	origin-only delta; fork commits bfa252da,7a5232bf,e737b4b3,d3199037
 web/src/routes/settings/display.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/routes/settings/index.test.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/types/api.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-web/src/types/global.d.ts	upstream-fix	#179	origin-only delta; fork commits 4a0c5f0b
-web/vite.config.ts	upstream-fix	#179	origin-only delta; fork commits 4a0c5f0b,69c5250d
+web/src/types/global.d.ts	trunk-patch	#179	origin-only delta; fork commits 4a0c5f0b; disposition fork-specific #179: fork PWA changelog feature
+web/vite.config.ts	trunk-patch	#179	origin-only delta; fork commits 4a0c5f0b,69c5250d; disposition fork-specific #179: fork PWA changelog feature; fork release/build metadata
