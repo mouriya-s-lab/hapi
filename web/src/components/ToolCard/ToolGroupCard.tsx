@@ -344,7 +344,11 @@ export function ToolGroupCard(props: {
                             <DialogHeader>
                                 <DialogTitle>{selectedPresentation.title}</DialogTitle>
                             </DialogHeader>
-                            <ToolDetailDialogContent block={selectedTool} metadata={props.metadata} />
+                            <ToolDetailDialogContent
+                                block={selectedTool}
+                                metadata={props.metadata}
+                                onClose={() => setSelectedToolId(null)}
+                            />
                         </>
                     ) : null}
                 </DialogContent>

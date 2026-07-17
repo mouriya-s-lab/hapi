@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/use-translation'
 import { TraceSection } from '@/components/ToolCard/trace'
 import { isSubagentToolName } from '@/chat/subagentTool'
+import { useOptionalHappyChatContext } from '@/components/AssistantChat/context'
 
 const ELAPSED_INTERVAL_MS = 1000
 const TERMINAL_RELATED_TOOL_NAMES = new Set(['Bash', 'CodexBash', 'shell_command', 'run_shell_command'])
@@ -210,6 +211,7 @@ type ToolCardProps = {
 export function ToolDetailDialogContent(props: {
     block: ToolCallBlock
     metadata: SessionMetadataSummary | null
+    onClose?: () => void
 }) {
     const { t } = useTranslation()
     const toolName = props.block.tool.name
@@ -222,6 +224,38 @@ export function ToolDetailDialogContent(props: {
     const isQuestionToolWithAnswers = isQuestionTool
         && permission?.answers
         && Object.keys(permission.answers).length > 0
+    const chatCtx = useOptionalHappyChatContext()
+    const isPendingQuestion = isQuestionTool
+        && permission?.status === 'pending'
+        && chatCtx !== null
+
+    if (isPendingQuestion && chatCtx) {
+        const handleDone = () => {
+            chatCtx.onRefresh()
+            props.onClose?.()
+        }
+        return (
+            <div className="mt-3 flex max-h-[75vh] flex-col gap-4 overflow-auto">
+                {isAskUserQuestion ? (
+                    <AskUserQuestionFooter
+                        api={chatCtx.api}
+                        sessionId={chatCtx.sessionId}
+                        tool={props.block.tool}
+                        disabled={chatCtx.disabled}
+                        onDone={handleDone}
+                    />
+                ) : (
+                    <RequestUserInputFooter
+                        api={chatCtx.api}
+                        sessionId={chatCtx.sessionId}
+                        tool={props.block.tool}
+                        disabled={chatCtx.disabled}
+                        onDone={handleDone}
+                    />
+                )}
+            </div>
+        )
+    }
 
     return (
         <div className="mt-3 flex max-h-[75vh] flex-col gap-4 overflow-auto">
@@ -366,7 +400,11 @@ function ToolCardInner(props: ToolCardProps) {
                         <DialogHeader>
                             <DialogTitle>{toolTitle}</DialogTitle>
                         </DialogHeader>
-                        <ToolDetailDialogContent block={props.block} metadata={props.metadata} />
+                        <ToolDetailDialogContent
+                            block={props.block}
+                            metadata={props.metadata}
+                            onClose={() => setDetailsOpen(false)}
+                        />
                     </DialogContent>
                 </Dialog>
             </CardHeader>
