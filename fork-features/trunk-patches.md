@@ -6,6 +6,23 @@ remove if upstream provided a native register API or the feature is obsolete.
 
 Rule reference: `~/.claude/rules/fork-customization-placement.rule.md`.
 
+## Long message and tool-result collapsing (2026-07-18)
+
+The shared threshold, measurement, fade, and expand/collapse state live in
+the fork-owned `web/src/components/CollapsibleContent.tsx`. Upstream message,
+code, CLI-output, and tool-card renderers expose no content-wrapper registry,
+so they retain only typed mount hooks and adjacent behavior tests.
+
+| Files | Missing upstream seam | Why it cannot move out | Runtime path | Sync verification |
+|---|---|---|---|---|
+| `web/src/components/AssistantChat/messages/AssistantMessage.tsx`, `UserMessage.tsx`, `user-bubble.tsx` and test | No assistant/user message content-wrapper registration API | Long-message policy must wrap the existing Markdown/user-bubble render output while preserving streaming and message actions | Normalized message → message renderer → CollapsibleContent → expand/collapse | Stream short and long assistant/user messages, expand/collapse, then refresh |
+| `web/src/components/CliOutputBlock.tsx`, `CodeBlock.tsx` and tests | No CLI/code output decorator registry | These renderers own line layout, copy actions, and syntax output; a sibling cannot wrap them without one explicit mount | CLI/code block → measured content → collapsed or full render | Render short and long CLI/code results and verify copy/content fidelity |
+| `web/src/components/ToolCard/ToolCard.tsx`, `ToolGroupCard.tsx` | No tool-card body/artifact wrapper registry | Tool lifecycle headers and grouped artifacts must remain outside the collapsible body while long textual results share one policy | Tool result reduction → card/group body → CollapsibleContent | Produce a long real tool result, expand/collapse, and verify grouped artifacts remain visible |
+
+Every upstream sync must re-check for native message/content decorators and
+tool-result renderer registration. If a seam exists, self-register the
+fork-owned wrapper and remove the corresponding trunk hook.
+
 ## Workspace file browser and editor (2026-07-18)
 
 File-view preferences, Markdown/content toggles, preview classification, and

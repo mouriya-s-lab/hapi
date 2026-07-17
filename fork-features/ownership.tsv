@@ -294,7 +294,7 @@ web/src/components/AssistantChat/TodoPanel.test.tsx	fork-owned	#181	origin-only 
 web/src/components/AssistantChat/TodoPanel.tsx	fork-owned	#181	origin-only delta; fork commits 85743eb7
 web/src/components/AssistantChat/claudeModelOptions.test.ts	trunk-patch	#174	origin-only delta; fork commits 8240268f,606c6579,7e3edb0f
 web/src/components/AssistantChat/claudeModelOptions.ts	trunk-patch	#174	origin-only delta; fork commits 8240268f,606c6579
-web/src/components/AssistantChat/messages/AssistantMessage.tsx	open-child	#178	origin-only delta; fork commits 302180e5,7faed2eb
+web/src/components/AssistantChat/messages/AssistantMessage.tsx	trunk-patch	#178	origin-only delta; fork commits 302180e5,7faed2eb
 web/src/components/AssistantChat/messages/GeneratedFileCard.test.ts	fork-owned	#176	origin-only delta; fork commits 3edb7db8
 web/src/components/AssistantChat/messages/GeneratedImageCard.test.tsx	fork-owned	#175	origin-only delta; fork commits d28853c7
 web/src/components/AssistantChat/messages/MessageActions.test.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
@@ -304,16 +304,16 @@ web/src/components/AssistantChat/messages/SpeakSummaryButton.tsx	fork-owned	#179
 web/src/components/AssistantChat/messages/SystemMessage.tsx	upstream-fix	#179	origin-only delta; fork commits 92f048f7
 web/src/components/AssistantChat/messages/ToolMessage.tsx	trunk-patch	#176	origin-only delta; fork commits 3edb7db8,302180e5,b4c31e88,d28853c7
 web/src/components/AssistantChat/messages/UserMessage.test.tsx	fork-owned	#170	origin-only delta; fork commits 253e5184,5262a261
-web/src/components/AssistantChat/messages/UserMessage.tsx	open-child	#178	origin-only delta; fork commits 302180e5,253e5184,5262a261
-web/src/components/AssistantChat/messages/user-bubble.test.tsx	open-child	#178	origin-only delta; fork commits 302180e5
-web/src/components/AssistantChat/messages/user-bubble.tsx	open-child	#178	origin-only delta; fork commits 302180e5
+web/src/components/AssistantChat/messages/UserMessage.tsx	trunk-patch	#178	origin-only delta; fork commits 302180e5,253e5184,5262a261
+web/src/components/AssistantChat/messages/user-bubble.test.tsx	trunk-patch	#178	origin-only delta; fork commits 302180e5
+web/src/components/AssistantChat/messages/user-bubble.tsx	trunk-patch	#178	origin-only delta; fork commits 302180e5
 web/src/components/AssistantChat/modelOptions.test.ts	trunk-patch	#174	origin-only delta; fork commits 606c6579,7e3edb0f,7e0010b8
 web/src/components/AssistantChat/modelOptions.ts	trunk-patch	#172	origin-only delta; fork commits 7e0010b8,3686370a
 web/src/components/AssistantChat/piThinkingLevelOptions.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-web/src/components/CliOutputBlock.test.tsx	open-child	#178	origin-only delta; fork commits 302180e5
-web/src/components/CliOutputBlock.tsx	open-child	#178	origin-only delta; fork commits 302180e5
-web/src/components/CodeBlock.test.tsx	open-child	#178	origin-only delta; fork commits 302180e5
-web/src/components/CodeBlock.tsx	open-child	#178	origin-only delta; fork commits 302180e5
+web/src/components/CliOutputBlock.test.tsx	trunk-patch	#178	origin-only delta; fork commits 302180e5
+web/src/components/CliOutputBlock.tsx	trunk-patch	#178	origin-only delta; fork commits 302180e5
+web/src/components/CodeBlock.test.tsx	trunk-patch	#178	origin-only delta; fork commits 302180e5
+web/src/components/CodeBlock.tsx	trunk-patch	#178	origin-only delta; fork commits 302180e5
 web/src/components/CollapsibleContent.tsx	fork-owned	#178	origin-only delta; fork commits 302180e5
 web/src/components/FileContentToggleView.tsx	fork-owned	#177	origin-only delta; fork commits e2a200a8,e737b4b3
 web/src/components/FileMarkdownView.tsx	fork-owned	#177	origin-only delta; fork commits dc1844cd,d3199037
@@ -340,10 +340,10 @@ web/src/components/SessionList.tsx	trunk-patch	#170	both refs changed; fork comm
 web/src/components/SyncingBanner.tsx	upstream-fix	#179	origin-only delta; fork commits 0aba2643
 web/src/components/ToastContainer.tsx	upstream-fix	#179	origin-only delta; fork commits d1f9f394
 web/src/components/ToolCard/ToolCard.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-web/src/components/ToolCard/ToolCard.tsx	open-child	#178	both refs changed; fork commits 498aefb3,e9e7dbd7,302180e5,72c96399
+web/src/components/ToolCard/ToolCard.tsx	trunk-patch	#178	both refs changed; fork commits 498aefb3,e9e7dbd7,302180e5,72c96399
 web/src/components/ToolCard/ToolDetailDialogContent.test.tsx	fork-owned	#179	origin-only delta; fork commits 498aefb3
 web/src/components/ToolCard/ToolGroupCard.test.tsx	trunk-patch	#175	both refs changed; fork commits 72c96399
-web/src/components/ToolCard/ToolGroupCard.tsx	open-child	#178	origin-only delta; fork commits 498aefb3,302180e5,72c96399
+web/src/components/ToolCard/ToolGroupCard.tsx	trunk-patch	#178	origin-only delta; fork commits 498aefb3,302180e5,72c96399
 web/src/components/ToolCard/checklist.test.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/components/ToolCard/groupedPresentation.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/components/ToolCard/toolDetailDuration.test.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
