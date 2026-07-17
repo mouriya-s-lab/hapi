@@ -19,7 +19,7 @@ cli/src/agent/types.ts	open-child	#175	origin-only delta; fork commits d28853c7
 cli/src/api/api.extraHeaders.test.ts	open-child	#174	origin-only delta; fork commits 413e76cc
 cli/src/api/api.ts	open-child	#174	origin-only delta; fork commits 413e76cc
 cli/src/api/apiMachine.test.ts	open-child	#177	both refs changed; fork commits c853bcbf,7e3edb0f
-cli/src/api/apiMachine.ts	open-child	#173	both refs changed; fork commits 51929072,9e76994b,3994ee9a,c853bcbf,fc377386,e1611788
+cli/src/api/apiMachine.ts	trunk-patch	#173	both refs changed; fork commits 51929072,9e76994b,3994ee9a,c853bcbf,fc377386,e1611788
 cli/src/api/apiSession.test.ts	open-child	#174	origin-only delta; fork commits 6ba438a1
 cli/src/claude/claudeLocalLauncher.test.ts	upstream-fix	#179	origin-only delta; fork commits d1f9f394
 cli/src/claude/claudeRemote.ts	trunk-patch	#170	origin-only delta; fork commits e009becc,fc377386
@@ -81,8 +81,8 @@ cli/src/modules/common/hooks/generateHookSettings.test.ts	fork-owned	#174	origin
 cli/src/modules/common/hooks/generateHookSettings.ts	open-child	#174	origin-only delta; fork commits 8a621492
 cli/src/modules/common/permission/BasePermissionHandler.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/modules/common/permission/BasePermissionHandler.ts	open-child	#176	both refs changed; fork commits b4c31e88,d28853c7
-cli/src/modules/common/registerCommonHandlers.ts	open-child	#173	origin-only delta; fork commits 3994ee9a,fc7d7b4a,a8815d47
-cli/src/modules/common/rpcTypes.ts	open-child	#173	origin-only delta; fork commits 51929072,e009becc,fc377386
+cli/src/modules/common/registerCommonHandlers.ts	trunk-patch	#173	origin-only delta; fork commits 3994ee9a,fc7d7b4a,a8815d47
+cli/src/modules/common/rpcTypes.ts	trunk-patch	#173	origin-only delta; fork commits 51929072,e009becc,fc377386
 cli/src/modules/common/skillLookupInstruction.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/modules/common/skills.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/modules/common/skills.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
@@ -112,8 +112,8 @@ cli/src/opencode/utils/systemPrompt.ts	open-child	#176	both refs changed; fork c
 cli/src/persistence.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/runner/buildCliArgs.test.ts	trunk-patch	#170	origin-only delta; fork commits e009becc,fc377386,3686370a
 cli/src/runner/controlClient.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-cli/src/runner/controlServer.ts	open-child	#173	origin-only delta; fork commits 9e76994b
-cli/src/runner/run.ts	open-child	#173	both refs changed; fork commits 51929072,9e76994b,e009becc,fc377386,3686370a
+cli/src/runner/controlServer.ts	trunk-patch	#173	origin-only delta; fork commits 9e76994b
+cli/src/runner/run.ts	trunk-patch	#173	both refs changed; fork commits 51929072,9e76994b,e009becc,fc377386,3686370a
 cli/src/runner/runnerIdentity.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/runner/runnerIdentity.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/ui/doctor.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
@@ -214,25 +214,25 @@ hub/src/store/types.ts	open-child	#174	origin-only delta; fork commits 413e76cc
 hub/src/sync/archivePersistence.test.ts	fork-owned	#179	origin-only delta; fork commits 3582e989
 hub/src/sync/messageService.test.ts	open-child	#174	origin-only delta; fork commits 413e76cc
 hub/src/sync/rpcGateway.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-hub/src/sync/rpcGateway.ts	open-child	#173	both refs changed; fork commits 8d828436,51929072,9e76994b,3994ee9a,fc7d7b4a,b4c31e88,a8815d47,bfa252da,c853bcbf,c58622c2,e009becc,fc377386,d840284a
-hub/src/sync/sessionCache.ts	open-child	#173	origin-only delta; fork commits 44f2bce5,85743eb7,413e76cc
-hub/src/sync/sessionModel.test.ts	open-child	#173	both refs changed; fork commits 44f2bce5,17e79d08,413e76cc,89c7f579
-hub/src/sync/syncEngine.ts	open-child	#173	both refs changed; fork commits 8d828436,17e79d08,51929072,9e76994b,3994ee9a,fc7d7b4a,b4c31e88,a8815d47,bfa252da,c853bcbf,c58622c2,e009becc,fc377386,d840284a,413e76cc,3582e989,3686370a
+hub/src/sync/rpcGateway.ts	trunk-patch	#173	both refs changed; fork commits 8d828436,51929072,9e76994b,3994ee9a,fc7d7b4a,b4c31e88,a8815d47,bfa252da,c853bcbf,c58622c2,e009becc,fc377386,d840284a
+hub/src/sync/sessionCache.ts	trunk-patch	#173	origin-only delta; fork commits 44f2bce5,85743eb7,413e76cc
+hub/src/sync/sessionModel.test.ts	trunk-patch	#173	both refs changed; fork commits 44f2bce5,17e79d08,413e76cc,89c7f579
+hub/src/sync/syncEngine.ts	trunk-patch	#173	both refs changed; fork commits 8d828436,17e79d08,51929072,9e76994b,3994ee9a,fc7d7b4a,b4c31e88,a8815d47,bfa252da,c853bcbf,c58622c2,e009becc,fc377386,d840284a,413e76cc,3582e989,3686370a
 hub/src/sync/todos.test.ts	fork-owned	#181	origin-only delta; fork commits 85743eb7
 hub/src/sync/todos.ts	open-child	#181	origin-only delta; fork commits 85743eb7
 hub/src/telegram/sessionView.test.ts	open-child	#174	origin-only delta; fork commits 413e76cc
 hub/src/web/routes/cli.ts	trunk-patch	#171	origin-only delta; fork commits a6f9e3f9
 hub/src/web/routes/git.test.ts	open-child	#176	origin-only delta; fork commits 3edb7db8,b4c31e88,bfa252da,d28853c7
 hub/src/web/routes/git.ts	open-child	#176	origin-only delta; fork commits 3edb7db8,b4c31e88,bfa252da
-hub/src/web/routes/machines.test.ts	open-child	#173	origin-only delta; fork commits 51929072,3994ee9a,fc7d7b4a,a8815d47,c853bcbf
-hub/src/web/routes/machines.ts	open-child	#173	origin-only delta; fork commits 51929072,3994ee9a,fc7d7b4a,a8815d47,c853bcbf
-hub/src/web/routes/sessions.test.ts	open-child	#173	both refs changed; fork commits 51929072,9e76994b,c58622c2,bec12318,413e76cc
-hub/src/web/routes/sessions.ts	open-child	#173	both refs changed; fork commits 51929072,9e76994b,c58622c2,bec12318,413e76cc,7e0010b8
+hub/src/web/routes/machines.test.ts	trunk-patch	#173	origin-only delta; fork commits 51929072,3994ee9a,fc7d7b4a,a8815d47,c853bcbf
+hub/src/web/routes/machines.ts	trunk-patch	#173	origin-only delta; fork commits 51929072,3994ee9a,fc7d7b4a,a8815d47,c853bcbf
+hub/src/web/routes/sessions.test.ts	trunk-patch	#173	both refs changed; fork commits 51929072,9e76994b,c58622c2,bec12318,413e76cc
+hub/src/web/routes/sessions.ts	trunk-patch	#173	both refs changed; fork commits 51929072,9e76994b,c58622c2,bec12318,413e76cc,7e0010b8
 hub/src/web/server.ts	trunk-patch	#171	origin-only delta; fork commits a6f9e3f9,f3c58338
 hub/tsconfig.json	trunk-patch	#171	origin-only delta; fork commits a6f9e3f9,f3c58338
 package.json	trunk-patch	#171	origin-only delta; fork commits a6f9e3f9
 shared/package.json	open-child	#176	origin-only delta; fork commits 3edb7db8
-shared/src/apiTypes.ts	open-child	#173	both refs changed; fork commits 8d828436,51929072,92e8a6e1,3994ee9a,fc7d7b4a,b4c31e88,a8815d47,bfa252da,c853bcbf,413e76cc
+shared/src/apiTypes.ts	trunk-patch	#173	both refs changed; fork commits 8d828436,51929072,92e8a6e1,3994ee9a,fc7d7b4a,b4c31e88,a8815d47,bfa252da,c853bcbf,413e76cc
 shared/src/flavors.test.ts	trunk-patch	#172	origin-only delta; fork commits 3686370a
 shared/src/flavors.ts	trunk-patch	#172	origin-only delta; fork commits 3686370a
 shared/src/messages.test.ts	fork-owned	#179	origin-only delta; fork commits d1f9f394
@@ -330,7 +330,7 @@ web/src/components/SessionActionMenu.test.tsx	upstream-sync	#180	merge-base 87f5
 web/src/components/SessionActionMenu.tsx	trunk-patch	#170	both refs changed; fork commits 0aba2643,bf1a6b9a,291c8db0
 web/src/components/SessionAttentionIndicator.tsx	upstream-fix	#179	origin-only delta; fork commits 3582e989
 web/src/components/SessionChat.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-web/src/components/SessionChat.tsx	open-child	#173	both refs changed; fork commits 44f2bce5,51929072,78f3ffef,7faed2eb,85743eb7,a8815d47,c58622c2,d1f9f394,413e76cc,7e0010b8
+web/src/components/SessionChat.tsx	trunk-patch	#173	both refs changed; fork commits 44f2bce5,51929072,78f3ffef,7faed2eb,85743eb7,a8815d47,c58622c2,d1f9f394,413e76cc,7e0010b8
 web/src/components/SessionHeader.tsx	trunk-patch	#170	both refs changed; fork commits 3994ee9a,fc7d7b4a,a8815d47,7dca6478,bf1a6b9a,291c8db0
 web/src/components/SessionIdDialog.test.tsx	fork-owned	#179	origin-only delta; fork commits 291c8db0
 web/src/components/SessionIdDialog.tsx	fork-owned	#179	origin-only delta; fork commits 291c8db0
@@ -412,7 +412,7 @@ web/src/lib/locales/en.ts	trunk-patch	#171	both refs changed; fork commits ba37b
 web/src/lib/locales/zh-CN.ts	trunk-patch	#171	both refs changed; fork commits ba37bcfb,606c6579,302180e5,7faed2eb,85743eb7,4a0c5f0b,7b197fec,a8815d47,bfa252da,c853bcbf,aee648ee,d1f9f394,413e76cc,291c8db0,3582e989,d3199037
 web/src/lib/message-window-store.test.ts	upstream-fix	#179	origin-only delta; fork commits 7a5232bf
 web/src/lib/message-window-store.ts	upstream-fix	#179	origin-only delta; fork commits 7a5232bf
-web/src/lib/query-keys.ts	open-child	#173	both refs changed; fork commits 3994ee9a,fc7d7b4a,a8815d47,c58622c2
+web/src/lib/query-keys.ts	trunk-patch	#173	both refs changed; fork commits 3994ee9a,fc7d7b4a,a8815d47,c58622c2
 web/src/lib/remark-file-path-links.test.ts	upstream-fix	#179	origin-only delta; fork commits 473d69b4
 web/src/lib/remark-file-path-links.ts	upstream-fix	#179	origin-only delta; fork commits 473d69b4
 web/src/lib/remark-latex-bracket-math.test.ts	fork-owned	#179	origin-only delta; fork commits dc1844cd
@@ -423,8 +423,8 @@ web/src/lib/sessionExport/markdown.test.ts	open-child	#174	origin-only delta; fo
 web/src/lib/sessionExport/markdown.ts	open-child	#176	origin-only delta; fork commits b4c31e88
 web/src/lib/sessionListFilters.test.ts	fork-owned	#179	origin-only delta; fork commits 3582e989
 web/src/lib/sessionListFilters.ts	fork-owned	#179	origin-only delta; fork commits 3582e989
-web/src/lib/sessionModelLabel.test.ts	open-child	#173	origin-only delta; fork commits fc7d7b4a,a8815d47,7e3edb0f
-web/src/lib/sessionModelLabel.ts	open-child	#173	origin-only delta; fork commits 3994ee9a,fc7d7b4a,a8815d47
+web/src/lib/sessionModelLabel.test.ts	trunk-patch	#173	origin-only delta; fork commits fc7d7b4a,a8815d47,7e3edb0f
+web/src/lib/sessionModelLabel.ts	trunk-patch	#173	origin-only delta; fork commits 3994ee9a,fc7d7b4a,a8815d47
 web/src/lib/sessionResume.test.ts	upstream-fix	#179	both refs changed; fork commits 291c8db0
 web/src/lib/sessionResume.ts	upstream-fix	#179	both refs changed; fork commits 291c8db0
 web/src/lib/sessionTitle.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
