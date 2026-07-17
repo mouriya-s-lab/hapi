@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { applyTaskTodoEvents, applyTodoMessageContent, extractTaskTodoEventsFromMessageContent } from './todos'
+import { applyTaskTodoEvents, applyTodoMessageContent, extractTaskTodoEventsFromMessageContent } from './taskProjection'
 
 function claudeMessage(type: 'assistant' | 'user', content: unknown[]) {
     return { role: 'agent', content: { type: 'output', data: { type, message: { role: type, content } } } }

@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { I18nProvider } from '@/lib/i18n-context'
+import type { TodoItem } from '@hapi/protocol/types'
 import { TodoPanel } from './TodoPanel'
 
-function renderPanel(todos: unknown) {
+function renderPanel(todos: TodoItem[]) {
     return render(
         <I18nProvider>
             <TodoPanel sessionId="session-117" todos={todos} />
@@ -30,7 +31,7 @@ describe('TodoPanel', () => {
     })
 
     it('persists collapse state and exposes the active task in the header', () => {
-        const todos = [{ id: '2', content: '运行 smoke', status: 'in_progress', priority: 'medium' }]
+        const todos: TodoItem[] = [{ id: '2', content: '运行 smoke', status: 'in_progress', priority: 'medium' }]
         const first = renderPanel(todos)
         const toggle = screen.getByRole('button', { name: /Tasks/ })
         fireEvent.click(toggle)
@@ -40,5 +41,28 @@ describe('TodoPanel', () => {
 
         renderPanel(todos)
         expect(screen.getByRole('button', { name: /Tasks/ })).toHaveAttribute('aria-expanded', 'false')
+    })
+
+    it('renders only the currently selected session projection', () => {
+        const firstSession: TodoItem[] = [
+            { id: '1', content: '仅属于 session A', status: 'in_progress', priority: 'medium' }
+        ]
+        const view = renderPanel(firstSession)
+        expect(screen.getByText('仅属于 session A')).toBeInTheDocument()
+
+        view.rerender(
+            <I18nProvider>
+                <TodoPanel sessionId="session-B" todos={[]} />
+            </I18nProvider>
+        )
+        expect(screen.queryByTestId('todo-panel')).toBeNull()
+
+        view.rerender(
+            <I18nProvider>
+                <TodoPanel sessionId="session-A" todos={firstSession} />
+            </I18nProvider>
+        )
+        expect(screen.getAllByTestId('todo-panel')).toHaveLength(1)
+        expect(screen.getByText('仅属于 session A')).toBeInTheDocument()
     })
 })

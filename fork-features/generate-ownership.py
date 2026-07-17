@@ -100,8 +100,9 @@ PATH_OWNER_OVERRIDES: tuple[tuple[str, str], ...] = (
     ("cli/src/modules/common/generatedFiles", "#176"),
     ("web/src/components/AssistantChat/messages/GeneratedFileCard", "#176"),
     ("web/src/components/CollapsibleContent", "#178"),
-    ("web/src/components/AssistantChat/TodoPanel", "#181"),
-    ("hub/src/sync/todos", "#181"),
+    ("web/src/fork-features/task-panel/", "#181"),
+    ("hub/src/fork-features/task-panel/", "#181"),
+    ("hub/src/socket/handlers/cli/sessionHandlers.ts", "#181"),
 )
 
 
@@ -181,7 +182,7 @@ def main() -> None:
             owner = owner_for(path, fork_log)
             if not exists("upstream/main", path) and exists(target, path):
                 classification = "fork-owned"
-            elif owner in {"#170", "#171", "#172", "#173", "#174", "#175", "#176", "#177", "#178"}:
+            elif owner in {"#170", "#171", "#172", "#173", "#174", "#175", "#176", "#177", "#178", "#181"}:
                 classification = "trunk-patch"
             elif owner == "#179":
                 disposition = upstream_fix_dispositions.get(path)
