@@ -107,6 +107,18 @@ session-fork precedent for web-side integrations).
 Total: 6 files, ~45 lines of trunk patch, plus 1 new fork-owned helper file
 under `web/src/components/ToolCard/views/`.
 
+## Codex retry status (2026-07-17)
+
+Codex remote-turn retry state is owned by the upstream launcher closure; it
+does not expose a retry handler registration API. Moving the implementation
+out would require exporting mutable turn state or duplicating the launcher
+state machine, so the narrow fix remains in the upstream-owned files.
+
+| File | Necessary patch |
+|---|---|
+| `cli/src/codex/codexRemoteLauncher.ts` | Roll back each failed turn before resubmitting the same user action, label retryable failures as attempt failures, and emit a final task failure if rollback cannot preserve single-action history. |
+| `cli/src/codex/codexRemoteLauncher.test.ts` | Cover recovery after three failures, exhausted retries, rollback failure, and single-turn rollback calls. |
+
 ## Verification record
 
 | Date | Operation | Result |
