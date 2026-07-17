@@ -8,10 +8,12 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+UPSTREAM_FIX_DISPOSITIONS_PATH = ROOT / "fork-features" / "upstream-fix-dispositions.tsv"
 CLOSING_PR_PATHS = {
     "fork-features/generate-ownership.py",
     "fork-features/ownership.tsv",
     "fork-features/trunk-patches.md",
+    "fork-features/upstream-fix-dispositions.tsv",
     "hub/src/store/index.ts",
 }
 
@@ -122,15 +124,34 @@ def exists(ref: str, path: str) -> bool:
     ).returncode == 0
 
 
+def load_upstream_fix_dispositions() -> dict[str, tuple[str, str, str]]:
+    lines = UPSTREAM_FIX_DISPOSITIONS_PATH.read_text().splitlines()
+    if not lines or lines[0] != "path\tdisposition\treference\trationale":
+        raise ValueError("invalid upstream fix disposition header")
+
+    dispositions: dict[str, tuple[str, str, str]] = {}
+    for line in lines[1:]:
+        path, disposition, reference, rationale = line.split("\t", 3)
+        if disposition not in {"fork-specific", "upstream-issue"}:
+            raise ValueError(f"invalid upstream fix disposition for {path}: {disposition}")
+        if path in dispositions:
+            raise ValueError(f"duplicate upstream fix disposition: {path}")
+        dispositions[path] = (disposition, reference, rationale)
+    return dispositions
+
+
 def main() -> None:
     target = "HEAD"
     diff_paths = sorted(git("diff", "--name-only", "upstream/main", target).splitlines())
     base = git("merge-base", "upstream/main", target).strip()
     upstream_changed = set(git("diff", "--name-only", base, "upstream/main").splitlines())
     origin_changed = set(git("diff", "--name-only", base, target).splitlines())
+    upstream_fix_dispositions = load_upstream_fix_dispositions()
+    consumed_upstream_fix_dispositions: set[str] = set()
 
     rows: list[str] = []
     for path in diff_paths:
+        disposition_evidence: tuple[str, str, str] | None = None
         fork_log = git(
             "log", "--no-merges", "--format=%h", f"upstream/main..{target}", "--", path
         ).splitlines()
@@ -144,6 +165,10 @@ def main() -> None:
                 classification = "fork-owned"
                 owner = "#171"
                 evidence = "fork trunk-patch registry; updated by boundary children"
+            elif path == "fork-features/upstream-fix-dispositions.tsv":
+                classification = "fork-owned"
+                owner = "#179"
+                evidence = "#179 upstream-fix disposition ledger"
             else:
                 classification = "trunk-patch"
                 owner = "#174"
@@ -159,14 +184,31 @@ def main() -> None:
             elif owner in {"#170", "#171", "#172", "#173", "#174", "#175", "#176", "#177", "#178"}:
                 classification = "trunk-patch"
             elif owner == "#179":
-                classification = "upstream-fix"
+                disposition = upstream_fix_dispositions.get(path)
+                if disposition is None:
+                    raise ValueError(f"missing upstream fix disposition: {path}")
+                disposition_kind, reference, rationale = disposition
+                disposition_evidence = disposition
+                consumed_upstream_fix_dispositions.add(path)
+                classification = "trunk-patch" if disposition_kind == "fork-specific" else "upstream-fix"
             else:
                 classification = "open-child"
             commits = ",".join(fork_log) if fork_log else "merge-resolution"
             side = "both refs changed" if path in upstream_changed else "origin-only delta"
             evidence = f"{side}; fork commits {commits}"
+            if disposition_evidence is not None:
+                disposition_kind, reference, rationale = disposition_evidence
+                evidence += f"; disposition {disposition_kind} {reference}: {rationale}"
 
         rows.append("\t".join((path, classification, owner, evidence)))
+
+    orphan_dispositions = sorted(
+        set(upstream_fix_dispositions) - consumed_upstream_fix_dispositions
+    )
+    if orphan_dispositions:
+        raise ValueError(
+            "orphan upstream fix dispositions: " + ", ".join(orphan_dispositions)
+        )
 
     output = ROOT / "fork-features" / "ownership.tsv"
     output.write_text("\n".join(rows) + "\n")
