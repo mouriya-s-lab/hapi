@@ -105,6 +105,17 @@ PATH_OWNER_OVERRIDES: tuple[tuple[str, str], ...] = (
     ("hub/src/socket/handlers/cli/sessionHandlers.ts", "#181"),
 )
 
+PATH_ADDITIONAL_OWNERS: dict[str, tuple[str, ...]] = {
+    # Mixed upstream surfaces retain their existing feature owner while also
+    # exposing the task-panel hook to the #181 acceptance query.
+    "hub/src/sync/sessionCache.ts": ("#181",),
+    "web/src/components/SessionChat.tsx": ("#181",),
+}
+
+CLOSED_CHILD_OWNERS = {
+    "#170", "#171", "#172", "#173", "#174", "#175", "#176", "#177", "#178", "#181"
+}
+
 
 def owner_for(path: str, commits: list[str]) -> str:
     for prefix, owner in PATH_OWNER_OVERRIDES:
@@ -179,12 +190,14 @@ def main() -> None:
             owner = "#180"
             evidence = f"merge-base {base[:8]}; changed only on upstream/main"
         else:
-            owner = owner_for(path, fork_log)
+            primary_owner = owner_for(path, fork_log)
+            owner_refs = {primary_owner, *PATH_ADDITIONAL_OWNERS.get(path, ())}
+            owner = ",".join(sorted(owner_refs, key=lambda value: int(value.removeprefix("#"))))
             if not exists("upstream/main", path) and exists(target, path):
                 classification = "fork-owned"
-            elif owner in {"#170", "#171", "#172", "#173", "#174", "#175", "#176", "#177", "#178", "#181"}:
+            elif owner_refs <= CLOSED_CHILD_OWNERS:
                 classification = "trunk-patch"
-            elif owner == "#179":
+            elif owner_refs == {"#179"}:
                 disposition = upstream_fix_dispositions.get(path)
                 if disposition is None:
                     raise ValueError(f"missing upstream fix disposition: {path}")
