@@ -209,6 +209,35 @@ describe('forkSession', () => {
         expect(updateCall[2].name).toMatch(/^f[1-9]: f4: Hello$/)
     })
 
+    it('preserves source worktree metadata so the fork stays grouped under the base repository', async () => {
+        const captured: any[] = []
+        const worktree = {
+            basePath: '/code/coder-loop',
+            branch: 'hapi-0718-c680',
+            name: '0718-c680',
+            worktreePath: '/code/coder-loop-worktrees/0718-c680',
+            createdAt: 123
+        }
+        const deps = makeDeps({
+            captured,
+            source: {
+                cwd: worktree.worktreePath,
+                metadata: {
+                    flavor: 'claude',
+                    claudeSessionId: 'csrc',
+                    worktree
+                }
+            }
+        })
+
+        await forkSession({ srcSessionId: 'src', deps })
+
+        const spawnCall = captured.find(c => c[0] === 'spawnSession')!
+        expect(spawnCall[1].cwd).toBe(worktree.worktreePath)
+        const updateCall = captured.find(c => c[0] === 'updateMetadata')!
+        expect(updateCall[2].worktree).toEqual(worktree)
+    })
+
     it('rejects with HttpError instances', async () => {
         const deps = makeDeps({ source: null })
         try {

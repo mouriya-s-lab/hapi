@@ -295,6 +295,13 @@ export async function forkSession(args: {
         forkedFrom: srcSessionId,
         forkedAt: Date.now(),
         name: forkTitle(sourceSessionTitle(src)),
+        // A fork resumes inside the source worktree; it does not create a new
+        // worktree. Preserve the source descriptor so the session list keeps
+        // grouping the fork under the repository base path instead of the
+        // physical `<repo>-worktrees/<name>` directory. The resumed CLI can
+        // rediscover this from git, but the hub metadata write races with the
+        // child session-add event and must be correct on its own.
+        ...(src.metadata.worktree ? { worktree: src.metadata.worktree } : {}),
         ...(resolvedForkPoint ? { forkedFromMessageId: resolvedForkPoint.messageId } : {})
     })
 
