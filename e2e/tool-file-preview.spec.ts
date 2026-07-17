@@ -14,8 +14,15 @@
 
 import { test, expect, Page } from '@playwright/test'
 
-async function gotoPreview(page: Page, file: string, tool: 'read' | 'write' = 'read'): Promise<void> {
-    await page.goto(`/e2e-fixtures/tool-file-preview-fixture.html?tool=${tool}&file=${encodeURIComponent(file)}`)
+async function gotoPreview(
+    page: Page,
+    file: string,
+    tool: 'read' | 'write' = 'read',
+    opts: { readFormat?: 'structured' | 'lineNumbers' } = {}
+): Promise<void> {
+    const params = new URLSearchParams({ tool, file })
+    if (opts.readFormat) params.set('readFormat', opts.readFormat)
+    await page.goto(`/e2e-fixtures/tool-file-preview-fixture.html?${params.toString()}`)
     await expect(page.getByTestId('tool-file-preview-host')).toBeVisible()
 }
 
@@ -40,6 +47,31 @@ test.describe('tool file preview — markdown', () => {
         await page.getByTestId('md-preview-toggle').click()
         await expect(page.getByTestId('md-preview')).toBeVisible()
         await expect(page.getByTestId('file-raw-pre')).toHaveCount(0)
+    })
+
+    // Real Claude Code Read results come back as one long string with every
+    // line wrapped by "<N>\t" (cat -n). The preview must strip that so
+    // markdown parses normally, but the raw tab must keep the numbers.
+    test('strips "N\\t" line-number prefix in preview and keeps it in raw', async ({ page }) => {
+        await gotoPreview(page, 'README.md', 'read', { readFormat: 'lineNumbers' })
+
+        const preview = page.getByTestId('md-preview')
+        await expect(preview).toBeVisible()
+        await expect(
+            preview.getByRole('heading', { name: 'Markdown preview heading' })
+        ).toBeVisible()
+        // A markdown table must actually render as a <table>, not survive as
+        // pipe-and-dash characters inside a paragraph.
+        await expect(preview.locator('table')).toBeVisible()
+        // The "1\t", "2\t", … column must not leak into the rendered markdown.
+        await expect(preview).not.toContainText(/^\s*1\s/m)
+
+        await page.getByTestId('md-raw-toggle').click()
+        const raw = page.getByTestId('file-raw-pre')
+        await expect(raw).toBeVisible()
+        // Raw view keeps the source line numbers so the user can still see
+        // what Read returned line-by-line.
+        await expect(raw).toContainText('1\t# Markdown preview heading')
     })
 })
 

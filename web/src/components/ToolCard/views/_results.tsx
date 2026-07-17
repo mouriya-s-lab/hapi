@@ -482,7 +482,12 @@ function renderReadTextResult(text: string, path: string | null, surface: ToolVi
     // full file with the fork's markdown-preview + word-wrap toggles, matching
     // the file-viewer route. Inline cards keep the compact CodeBlock preview.
     if (surface === 'dialog') {
-        return <FileContentToggleView content={text} path={path} />
+        // Read tool wraps every line with "<lineNumber>\t"; leave that to the
+        // toggle view so the markdown-preview branch can strip it while the raw
+        // tab keeps the line numbers visible. (Structured Read responses that
+        // come in through extractReadFileContent already have clean content, so
+        // stripping there is a no-op.)
+        return <FileContentToggleView content={text} path={path} stripReadLineNumbers />
     }
     const language = inferCodeLanguage(path, text)
     if (language) {
