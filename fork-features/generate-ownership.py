@@ -13,6 +13,7 @@ CLOSING_PR_PATHS = {
     "fork-features/generate-ownership.py",
     "fork-features/ownership.tsv",
     "fork-features/trunk-patches.md",
+    "fork-features/upstream-fix-dispositions.tsv",
     "hub/src/store/index.ts",
 }
 
@@ -164,6 +165,10 @@ def main() -> None:
                 classification = "fork-owned"
                 owner = "#171"
                 evidence = "fork trunk-patch registry; updated by boundary children"
+            elif path == "fork-features/upstream-fix-dispositions.tsv":
+                classification = "fork-owned"
+                owner = "#179"
+                evidence = "#179 upstream-fix disposition ledger"
             else:
                 classification = "trunk-patch"
                 owner = "#174"

@@ -197,7 +197,7 @@ fork-features/session-fork/register.ts	fork-owned	#170	origin-only delta; fork c
 fork-features/session-fork/rpcPayloads.test.ts	fork-owned	#170	origin-only delta; fork commits 92fa6ad3,e009becc,9e867c21,7dca6478,aee648ee,165ae59d
 fork-features/session-fork/rpcPayloads.ts	fork-owned	#170	origin-only delta; fork commits 92fa6ad3,e009becc,fc377386,837647b2,9e867c21,7dca6478,aee648ee,165ae59d
 fork-features/trunk-patches.md	fork-owned	#171	fork trunk-patch registry; updated by boundary children
-fork-features/upstream-fix-dispositions.tsv	fork-owned	#179	origin-only delta; fork commits c08dc165
+fork-features/upstream-fix-dispositions.tsv	fork-owned	#179	#179 upstream-fix disposition ledger
 hub/src/notifications/notificationHub.test.ts	trunk-patch	#174	origin-only delta; fork commits 413e76cc
 hub/src/serverchan/channel.test.ts	trunk-patch	#174	origin-only delta; fork commits 413e76cc
 hub/src/socket/handlers/cli/sessionHandlers.ts	open-child	#181	origin-only delta; fork commits 85743eb7
