@@ -6,6 +6,26 @@ remove if upstream provided a native register API or the feature is obsolete.
 
 Rule reference: `~/.claude/rules/fork-customization-placement.rule.md`.
 
+## Inline generated media (2026-07-18)
+
+Media validation/registration and Web MIME labeling live in the fork-owned
+`cli/src/modules/common/generatedImages.ts` and
+`web/src/lib/generatedInlineMedia.ts`. Upstream agent transports and render
+reducers expose no generated-media registration/dispatch API, so they retain
+the following narrow hooks.
+
+| Files | Missing upstream seam | Why it cannot move out | Runtime path | Sync verification |
+|---|---|---|---|---|
+| `cli/src/agent/backends/acp/AcpMessageHandler.ts`, `AcpSdkBackend.ts` and companion test | No ACP content-block converter registration API | ACP image blocks must be asynchronously registered before the turn boundary while preserving text/tool ordering | ACP notification → media registration → generated-image agent event → hub message | Display a local image from an ACP-backed live session and verify ordering |
+| `cli/src/agent/messageConverter.ts`, `messageConverter.test.ts`, `agent/types.ts` | No external agent-message variant registry | The generated-image variant must remain typed and exhaustive across agent events and HAPI wire messages | Flavor event → AgentMessage ADT → generated-image wire payload | Exercise image and video payloads and inspect the persisted message variant |
+| `cli/src/cursor/cursorAcpRemoteLauncher.ts`, `kimi/kimiRemoteLauncher.ts`, `opencode/opencodeRemoteLauncher.ts` | No flavor event-converter callback registry | Each closed launcher switch must forward its generated-image variant without duplicating media registration | Flavor-native event → launcher switch → session message | Trigger supported media from every available live flavor during sync review |
+| `cli/src/modules/common/generatedImages.ts`, `generatedImages.test.ts` | Shared CLI module path is upstream-owned and no extra-root module mount exists | All transports need one bounded in-memory media store and MIME/content validation; relocating it outside the CLI program would require a tsconfig/root import patch | Local path or ACP block → signature validation → bounded store → image fetch RPC | Display real PNG/MP4 and reject ordinary text renamed as media |
+| `web/src/components/ToolCard/ToolGroupCard.test.tsx` | Tool-result grouping has no external media-artifact test registry | The render reducer must continue treating generated media as an artifact without swallowing ordinary tool results | Persisted tool group → artifact reduction → inline media card and ordinary result | Browser-render media and a non-media tool result in the same live conversation |
+
+Every upstream sync must re-check for native content-converter, message
+variant, launcher callback, and render-artifact extension APIs; remove the
+corresponding hook when an upstream seam exists.
+
 ## Claude custom-model and resume policy (2026-07-18)
 
 HAPI's upstream Claude launcher, persisted session record, shared model
