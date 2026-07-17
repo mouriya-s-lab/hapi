@@ -1965,6 +1965,36 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 });
         };
 
+        const beginSameThreadRetry = (
+            threadId: string,
+            messageToRetry: QueuedMessage,
+            error: string | null
+        ) => {
+            sameThreadRetryAttempt += 1;
+            recoveryInFlight = true;
+            logger.debug(
+                `[Codex] Retrying retryable failure on same thread ` +
+                `(attempt ${sameThreadRetryAttempt}/${SAME_THREAD_MAX_RETRIES}): ${error ?? 'unknown error'}`
+            );
+            void appServerClient.rollbackThread({ threadId, numTurns: 1 }).then(() => {
+                if (!this.shouldExit && this.currentThreadId === threadId) {
+                    pending = messageToRetry;
+                }
+            }).catch((rollbackError) => {
+                const detail = errorMessage(rollbackError);
+                logger.warn(`[Codex] Failed to roll back failed turn before retry: ${detail}`);
+                const message = error
+                    ? `Task failed: ${error}; same-conversation retry could not remove the failed attempt: ${detail}`
+                    : `Task failed: same-conversation retry could not remove the failed attempt: ${detail}`;
+                messageBuffer.addMessage(message, 'status');
+                session.sendSessionEvent({ type: 'message', message });
+                activeMessage = null;
+            }).finally(() => {
+                recoveryInFlight = false;
+                wakeLoop();
+            });
+        };
+
         const forwardedGoalSignaturesByThreadId = new Map<string, string>();
         const forwardedGoalClearsByThreadId = new Set<string>();
         const adminInterruptedTurnIds = new Set<string>();
@@ -2515,12 +2545,11 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                         beginCompactRecovery(threadId, messageToRetry, error);
                     }
                 } else if (shouldRetrySameThread) {
-                    sameThreadRetryAttempt += 1;
-                    pending = activeMessage;
-                    logger.debug(
-                        `[Codex] Retrying retryable failure on same thread ` +
-                        `(attempt ${sameThreadRetryAttempt}/${SAME_THREAD_MAX_RETRIES}): ${error ?? 'unknown error'}`
-                    );
+                    const threadId = this.currentThreadId;
+                    const messageToRetry = activeMessage;
+                    if (threadId && messageToRetry) {
+                        beginSameThreadRetry(threadId, messageToRetry, error);
+                    }
                 }
                 this.currentTurnId = null;
                 allowAnonymousTerminalEvent = false;
@@ -2565,8 +2594,8 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     session.sendSessionEvent({ type: 'message', message: retryMessage });
                 } else if (shouldRetrySameThread) {
                     const retryMessage = error
-                        ? `Task failed: ${error}; retrying same conversation (${sameThreadRetryAttempt}/${SAME_THREAD_MAX_RETRIES})`
-                        : `Task failed; retrying same conversation (${sameThreadRetryAttempt}/${SAME_THREAD_MAX_RETRIES})`;
+                        ? `Attempt failed: ${error}; retrying same conversation (${sameThreadRetryAttempt}/${SAME_THREAD_MAX_RETRIES})`
+                        : `Attempt failed; retrying same conversation (${sameThreadRetryAttempt}/${SAME_THREAD_MAX_RETRIES})`;
                     messageBuffer.addMessage(retryMessage, 'status');
                     session.sendSessionEvent({ type: 'message', message: retryMessage });
                 } else {
