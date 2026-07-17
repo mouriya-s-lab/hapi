@@ -18,7 +18,7 @@ cli/src/agent/sessionFactory.ts	trunk-patch	#174	origin-only delta; fork commits
 cli/src/agent/types.ts	trunk-patch	#175	origin-only delta; fork commits d28853c7
 cli/src/api/api.extraHeaders.test.ts	trunk-patch	#174	origin-only delta; fork commits 413e76cc
 cli/src/api/api.ts	trunk-patch	#174	origin-only delta; fork commits 413e76cc
-cli/src/api/apiMachine.test.ts	open-child	#177	both refs changed; fork commits c853bcbf,7e3edb0f
+cli/src/api/apiMachine.test.ts	trunk-patch	#177	both refs changed; fork commits c853bcbf,7e3edb0f
 cli/src/api/apiMachine.ts	trunk-patch	#173	both refs changed; fork commits 51929072,9e76994b,3994ee9a,c853bcbf,fc377386,e1611788
 cli/src/api/apiSession.test.ts	trunk-patch	#174	origin-only delta; fork commits 6ba438a1
 cli/src/claude/claudeLocalLauncher.test.ts	upstream-fix	#179	origin-only delta; fork commits d1f9f394
@@ -267,7 +267,7 @@ web/e2e-fixtures/tool-file-preview-fixture.html	fork-owned	#177	origin-only delt
 web/e2e-fixtures/tool-file-preview-fixture.tsx	fork-owned	#177	origin-only delta; fork commits e2a200a8,f00c8228,e737b4b3
 web/e2e/reasoning-sticky.spec.ts	fork-owned	#179	origin-only delta; fork commits 7b197fec
 web/index.html	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-web/package.json	open-child	#177	origin-only delta; fork commits 4a0c5f0b,c36d2daf,d3199037
+web/package.json	trunk-patch	#177	origin-only delta; fork commits 4a0c5f0b,c36d2daf,d3199037
 web/src/App.tsx	trunk-patch	#171	origin-only delta; fork commits a6f9e3f9
 web/src/api/client.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/api/client.ts	trunk-patch	#171	both refs changed; fork commits a6f9e3f9,51929072,9e76994b,3994ee9a,fc7d7b4a,b4c31e88,a8815d47,bfa252da,d28853c7,c853bcbf,c58622c2,5262a261,7dca6478,2ef4c618,413e76cc
@@ -334,8 +334,9 @@ web/src/components/SessionChat.tsx	trunk-patch	#173	both refs changed; fork comm
 web/src/components/SessionHeader.tsx	trunk-patch	#170	both refs changed; fork commits 3994ee9a,fc7d7b4a,a8815d47,7dca6478,bf1a6b9a,291c8db0
 web/src/components/SessionIdDialog.test.tsx	fork-owned	#179	origin-only delta; fork commits 291c8db0
 web/src/components/SessionIdDialog.tsx	fork-owned	#179	origin-only delta; fork commits 291c8db0
+web/src/components/SessionList.directory-action.test.tsx	upstream-fix	#179	origin-only delta; fork commits 167af3dc
 web/src/components/SessionList.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-web/src/components/SessionList.tsx	trunk-patch	#170	both refs changed; fork commits 37fb5e9a,7dca6478,473d69b4,bf1a6b9a
+web/src/components/SessionList.tsx	trunk-patch	#170	both refs changed; fork commits 167af3dc,37fb5e9a,7dca6478,473d69b4,bf1a6b9a
 web/src/components/SyncingBanner.tsx	upstream-fix	#179	origin-only delta; fork commits 0aba2643
 web/src/components/ToastContainer.tsx	upstream-fix	#179	origin-only delta; fork commits d1f9f394
 web/src/components/ToolCard/ToolCard.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
@@ -349,19 +350,19 @@ web/src/components/ToolCard/toolDetailDuration.test.tsx	upstream-sync	#180	merge
 web/src/components/ToolCard/toolDuration.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/components/ToolCard/toolDuration.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/components/ToolCard/trace.test.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-web/src/components/ToolCard/views/WriteView.tsx	open-child	#177	origin-only delta; fork commits f00c8228
-web/src/components/ToolCard/views/_results.test.tsx	open-child	#177	both refs changed; fork commits e2a200a8,72c96399,e737b4b3
-web/src/components/ToolCard/views/_results.tsx	open-child	#177	origin-only delta; fork commits e2a200a8,302180e5,72c96399,473d69b4,e737b4b3
+web/src/components/ToolCard/views/WriteView.tsx	trunk-patch	#177	origin-only delta; fork commits f00c8228
+web/src/components/ToolCard/views/_results.test.tsx	trunk-patch	#177	both refs changed; fork commits e2a200a8,72c96399,e737b4b3
+web/src/components/ToolCard/views/_results.tsx	trunk-patch	#177	origin-only delta; fork commits e2a200a8,302180e5,72c96399,473d69b4,e737b4b3
 web/src/components/ToolCard/views/readImageDetection.test.ts	fork-owned	#179	origin-only delta; fork commits 473d69b4
 web/src/components/ToolCard/views/readImageDetection.ts	fork-owned	#179	origin-only delta; fork commits 473d69b4
 web/src/components/VoiceErrorBanner.tsx	upstream-fix	#179	origin-only delta; fork commits 0aba2643
-web/src/components/WorkspaceBrowser.tsx	open-child	#177	origin-only delta; fork commits c853bcbf
+web/src/components/WorkspaceBrowser.tsx	trunk-patch	#177	origin-only delta; fork commits c853bcbf
 web/src/components/assistant-ui/MermaidZoomViewer.tsx	fork-owned	#179	origin-only delta; fork commits 16321159,c36d2daf
 web/src/components/assistant-ui/markdown-a.test.tsx	trunk-patch	#174	origin-only delta; fork commits 7e3edb0f
 web/src/components/assistant-ui/markdown-text.tsx	upstream-fix	#179	origin-only delta; fork commits dc1844cd,473d69b4
 web/src/components/assistant-ui/mermaid-diagram.live.test.tsx	upstream-fix	#179	origin-only delta; fork commits merge-resolution
 web/src/components/assistant-ui/mermaid-diagram.test.tsx	upstream-fix	#179	origin-only delta; fork commits merge-resolution
-web/src/components/assistant-ui/mermaid-diagram.tsx	open-child	#177	origin-only delta; fork commits 67dd9700,16321159,c36d2daf,d3199037
+web/src/components/assistant-ui/mermaid-diagram.tsx	trunk-patch	#177	origin-only delta; fork commits 67dd9700,16321159,c36d2daf,d3199037
 web/src/components/assistant-ui/reasoning-group.tsx	fork-owned	#179	origin-only delta; fork commits 7b197fec
 web/src/components/assistant-ui/reasoning.test.tsx	fork-owned	#179	origin-only delta; fork commits 7b197fec
 web/src/components/assistant-ui/reasoning.tsx	upstream-fix	#179	origin-only delta; fork commits 7b197fec
@@ -433,7 +434,7 @@ web/src/realtime/messageSummarySpeaker.test.ts	fork-owned	#179	origin-only delta
 web/src/realtime/messageSummarySpeaker.ts	fork-owned	#179	origin-only delta; fork commits 7faed2eb
 web/src/router.tsx	trunk-patch	#171	both refs changed; fork commits a6f9e3f9,0894d3d2,3582e989
 web/src/routes/sessions/file.test.tsx	upstream-fix	#179	origin-only delta; fork commits merge-resolution
-web/src/routes/sessions/file.tsx	open-child	#177	origin-only delta; fork commits bfa252da,7a5232bf,e737b4b3,d3199037
+web/src/routes/sessions/file.tsx	trunk-patch	#177	origin-only delta; fork commits bfa252da,7a5232bf,e737b4b3,d3199037
 web/src/routes/settings/display.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/routes/settings/index.test.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/types/api.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
