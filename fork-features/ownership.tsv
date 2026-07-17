@@ -6,16 +6,16 @@
 Dockerfile	fork-owned	#179	origin-only delta; fork commits 8edeeef3,6da30689
 bun.lock	trunk-patch	#171	origin-only delta; fork commits a6f9e3f9,45b07ac7,c36d2daf,d3199037
 cli/README.md	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-cli/src/agent/backends/acp/AcpMessageHandler.test.ts	open-child	#175	origin-only delta; fork commits d28853c7
-cli/src/agent/backends/acp/AcpMessageHandler.ts	open-child	#175	origin-only delta; fork commits d28853c7
-cli/src/agent/backends/acp/AcpSdkBackend.ts	open-child	#175	origin-only delta; fork commits d28853c7
-cli/src/agent/messageConverter.test.ts	open-child	#175	origin-only delta; fork commits d28853c7
-cli/src/agent/messageConverter.ts	open-child	#175	origin-only delta; fork commits d28853c7
+cli/src/agent/backends/acp/AcpMessageHandler.test.ts	trunk-patch	#175	origin-only delta; fork commits d28853c7
+cli/src/agent/backends/acp/AcpMessageHandler.ts	trunk-patch	#175	origin-only delta; fork commits d28853c7
+cli/src/agent/backends/acp/AcpSdkBackend.ts	trunk-patch	#175	origin-only delta; fork commits d28853c7
+cli/src/agent/messageConverter.test.ts	trunk-patch	#175	origin-only delta; fork commits d28853c7
+cli/src/agent/messageConverter.ts	trunk-patch	#175	origin-only delta; fork commits d28853c7
 cli/src/agent/runners/runAgentSession.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/agent/runners/runAgentSession.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/agent/sessionFactory.test.ts	trunk-patch	#174	origin-only delta; fork commits 413e76cc
 cli/src/agent/sessionFactory.ts	trunk-patch	#174	origin-only delta; fork commits 6ba438a1,3686370a
-cli/src/agent/types.ts	open-child	#175	origin-only delta; fork commits d28853c7
+cli/src/agent/types.ts	trunk-patch	#175	origin-only delta; fork commits d28853c7
 cli/src/api/api.extraHeaders.test.ts	trunk-patch	#174	origin-only delta; fork commits 413e76cc
 cli/src/api/api.ts	trunk-patch	#174	origin-only delta; fork commits 413e76cc
 cli/src/api/apiMachine.test.ts	open-child	#177	both refs changed; fork commits c853bcbf,7e3edb0f
@@ -59,7 +59,7 @@ cli/src/commands/resume.test.ts	trunk-patch	#174	origin-only delta; fork commits
 cli/src/commands/resume.ts	trunk-patch	#172	origin-only delta; fork commits 3686370a
 cli/src/configuration.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/cursor/cursorAcpRemoteLauncher.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-cli/src/cursor/cursorAcpRemoteLauncher.ts	open-child	#175	both refs changed; fork commits d28853c7
+cli/src/cursor/cursorAcpRemoteLauncher.ts	trunk-patch	#175	both refs changed; fork commits d28853c7
 cli/src/cursor/cursorChatStoreStatus.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/cursor/cursorChatStoreStatus.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/grok/grokRemoteLauncher.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
@@ -67,13 +67,13 @@ cli/src/grok/grokRemoteLauncher.ts	upstream-fix	#179	both refs changed; fork com
 cli/src/grok/utils/systemPrompt.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/index.ts	trunk-patch	#170	origin-only delta; fork commits 206da967
 cli/src/kimi/kimiRemoteLauncher.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-cli/src/kimi/kimiRemoteLauncher.ts	open-child	#175	both refs changed; fork commits d28853c7
+cli/src/kimi/kimiRemoteLauncher.ts	trunk-patch	#175	both refs changed; fork commits d28853c7
 cli/src/modules/common/ccSwitch.ts	fork-owned	#173	origin-only delta; fork commits 51929072,92e8a6e1,9e76994b,faec872c,fc7d7b4a,a8815d47
 cli/src/modules/common/displayImagePrompt.ts	fork-owned	#176	origin-only delta; fork commits b4c31e88,d28853c7
 cli/src/modules/common/generatedFiles.test.ts	fork-owned	#176	origin-only delta; fork commits 3edb7db8,b4c31e88
 cli/src/modules/common/generatedFiles.ts	fork-owned	#176	origin-only delta; fork commits 3edb7db8,b4c31e88
-cli/src/modules/common/generatedImages.test.ts	open-child	#175	origin-only delta; fork commits d28853c7
-cli/src/modules/common/generatedImages.ts	open-child	#175	origin-only delta; fork commits d28853c7
+cli/src/modules/common/generatedImages.test.ts	trunk-patch	#175	origin-only delta; fork commits d28853c7
+cli/src/modules/common/generatedImages.ts	trunk-patch	#175	origin-only delta; fork commits d28853c7
 cli/src/modules/common/handlers/ccSwitch.ts	fork-owned	#173	origin-only delta; fork commits 8d828436,51929072,fc7d7b4a,a8815d47
 cli/src/modules/common/handlers/files.test.ts	fork-owned	#177	origin-only delta; fork commits bfa252da
 cli/src/modules/common/handlers/files.ts	open-child	#176	origin-only delta; fork commits b4c31e88,bfa252da
@@ -106,7 +106,7 @@ cli/src/omp/utils/permissionHandler.ts	fork-owned	#172	origin-only delta; fork c
 cli/src/omp/utils/systemPrompt.ts	fork-owned	#172	origin-only delta; fork commits 7e0010b8
 cli/src/opencode/opencodeLocalLauncher.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/opencode/opencodeRemoteLauncher.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-cli/src/opencode/opencodeRemoteLauncher.ts	open-child	#175	both refs changed; fork commits d28853c7
+cli/src/opencode/opencodeRemoteLauncher.ts	trunk-patch	#175	both refs changed; fork commits d28853c7
 cli/src/opencode/utils/systemPrompt.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/opencode/utils/systemPrompt.ts	open-child	#176	both refs changed; fork commits b4c31e88,d28853c7
 cli/src/persistence.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
@@ -157,8 +157,8 @@ fork-features/multi-user/cliAdapter.ts	fork-owned	#171	origin-only delta; fork c
 fork-features/multi-user/domain.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
 fork-features/multi-user/executionDispatcher.test.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
 fork-features/multi-user/executionDispatcher.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
-fork-features/multi-user/executionMount.test.ts	fork-owned	#171	origin-only delta; fork commits 9334b6bf
-fork-features/multi-user/executionMount.ts	fork-owned	#171	origin-only delta; fork commits 9334b6bf,a6f9e3f9
+fork-features/multi-user/executionMount.test.ts	fork-owned	#171	origin-only delta; fork commits a3a7a239,9334b6bf
+fork-features/multi-user/executionMount.ts	fork-owned	#171	origin-only delta; fork commits a3a7a239,9334b6bf,a6f9e3f9
 fork-features/multi-user/gatewayRoutes.test.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
 fork-features/multi-user/gatewayRoutes.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
 fork-features/multi-user/gatewayStore.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
@@ -173,8 +173,8 @@ fork-features/session-fork/cliHandler.test.ts	fork-owned	#170	origin-only delta;
 fork-features/session-fork/cliHandler.ts	fork-owned	#170	origin-only delta; fork commits e1611788
 fork-features/session-fork/forkCapabilities.test.ts	fork-owned	#170	origin-only delta; fork commits 837647b2,9e867c21,7dca6478
 fork-features/session-fork/forkCapabilities.ts	fork-owned	#170	origin-only delta; fork commits 837647b2,9e867c21,7dca6478,aee648ee
-fork-features/session-fork/hubForkController.test.ts	fork-owned	#170	origin-only delta; fork commits 9334b6bf,17e79d08,ae9f932a,d1373a53,92fa6ad3,e009becc,fc377386,d5b095d1,aee648ee,d840284a,61d4f0c3
-fork-features/session-fork/hubForkController.ts	fork-owned	#170	origin-only delta; fork commits 9334b6bf,17e79d08,ae9f932a,d1373a53,92fa6ad3,e009becc,fc377386,d5b095d1,7dca6478,aee648ee,d840284a,61d4f0c3
+fork-features/session-fork/hubForkController.test.ts	fork-owned	#170	origin-only delta; fork commits 0876b29b,9334b6bf,17e79d08,ae9f932a,d1373a53,92fa6ad3,e009becc,fc377386,d5b095d1,aee648ee,d840284a,61d4f0c3
+fork-features/session-fork/hubForkController.ts	fork-owned	#170	origin-only delta; fork commits 0876b29b,9334b6bf,17e79d08,ae9f932a,d1373a53,92fa6ad3,e009becc,fc377386,d5b095d1,7dca6478,aee648ee,d840284a,61d4f0c3
 fork-features/session-fork/hubMount.test.ts	fork-owned	#170	origin-only delta; fork commits 92fa6ad3,2939fcc6,d5b095d1,9e867c21,7dca6478,aee648ee,d840284a,ddf6df18
 fork-features/session-fork/hubMount.ts	fork-owned	#170	origin-only delta; fork commits 9334b6bf,2939fcc6,d5b095d1,7dca6478,aee648ee,f3c58338,ddf6df18
 fork-features/session-fork/hubSyncEngineAdapter.test.ts	fork-owned	#170	origin-only delta; fork commits 92fa6ad3,e009becc,fc377386,d5b095d1,aee648ee,a0c02d7f
@@ -341,7 +341,7 @@ web/src/components/ToastContainer.tsx	upstream-fix	#179	origin-only delta; fork 
 web/src/components/ToolCard/ToolCard.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/components/ToolCard/ToolCard.tsx	open-child	#178	both refs changed; fork commits 498aefb3,e9e7dbd7,302180e5,72c96399
 web/src/components/ToolCard/ToolDetailDialogContent.test.tsx	fork-owned	#179	origin-only delta; fork commits 498aefb3
-web/src/components/ToolCard/ToolGroupCard.test.tsx	open-child	#175	both refs changed; fork commits 72c96399
+web/src/components/ToolCard/ToolGroupCard.test.tsx	trunk-patch	#175	both refs changed; fork commits 72c96399
 web/src/components/ToolCard/ToolGroupCard.tsx	open-child	#178	origin-only delta; fork commits 498aefb3,302180e5,72c96399
 web/src/components/ToolCard/checklist.test.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/components/ToolCard/groupedPresentation.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
