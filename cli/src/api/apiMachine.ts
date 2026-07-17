@@ -33,6 +33,9 @@ import { buildSocketIoExtraHeaderOptions } from './hubExtraHeaders'
 import { collectMachineHealth } from '@/utils/machineHealth'
 import { handleForkSpawnSession } from '../../../fork-features/session-fork/cliHandler'
 import { RunnerUsageMonitor } from '../modules/common/usage/runnerUsageMonitor'
+import { inspectCursorChatStore } from '@/cursor/cursorChatStoreStatus'
+import { homedir } from 'node:os'
+import type { CursorChatStoreStatus } from '@hapi/protocol/apiTypes'
 
 type MachineRpcHandlers = {
     spawnSession: (options: SpawnSessionOptions) => Promise<SpawnSessionResult>
@@ -46,6 +49,12 @@ interface PathExistsRequest {
 
 interface ListMachineDirectoryRequest {
     path: string
+}
+
+interface CursorChatStoreStatusRequest {
+    workspacePath: string
+    cursorSessionId: string
+    homeDir?: string
 }
 
 export function normalizeWindowsDriveRoot(path: string): string {
@@ -135,6 +144,18 @@ export class ApiMachineClient {
 
             return { exists }
         })
+
+        this.rpcHandlerManager.registerHandler<CursorChatStoreStatusRequest, CursorChatStoreStatus>(
+            RPC_METHODS.CursorChatStoreStatus,
+            async (params) => {
+                const recordedHome = typeof params?.homeDir === 'string' ? params.homeDir.trim() : ''
+                return await inspectCursorChatStore({
+                    home: recordedHome || homedir(),
+                    workspacePath: typeof params?.workspacePath === 'string' ? params.workspacePath : '',
+                    cursorSessionId: typeof params?.cursorSessionId === 'string' ? params.cursorSessionId : ''
+                })
+            }
+        )
 
         this.rpcHandlerManager.registerHandler<ListMachineDirectoryRequest, MachineListDirectoryResponse>(RPC_METHODS.ListMachineDirectory, async (params) => {
             if (!this.normalizedWorkspaceRoots?.length) {

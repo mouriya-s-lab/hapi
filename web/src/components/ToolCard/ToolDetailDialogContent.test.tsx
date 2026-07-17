@@ -40,6 +40,8 @@ function makeAskUserQuestionBlock(permissionStatus: 'pending' | 'approved' | nul
             createdAt: 1,
             startedAt: null,
             completedAt: null,
+            execStartedAt: null,
+            execCompletedAt: null,
             description: null,
             result: undefined,
             permission: permissionStatus === null
