@@ -6,6 +6,26 @@ remove if upstream provided a native register API or the feature is obsolete.
 
 Rule reference: `~/.claude/rules/fork-customization-placement.rule.md`.
 
+## Generated artifact files (2026-07-18)
+
+Artifact discovery, validation, storage, and socket-limit constants live in
+the fork-owned `cli/src/modules/common/generatedFiles.ts` and
+`shared/src/socketLimits.ts`. The following closed transport, hub, shared,
+and Web surfaces have no artifact registration or render-extension seam.
+
+| Files | Missing upstream seam | Why it cannot move out | Runtime path | Sync verification |
+|---|---|---|---|---|
+| `cli/src/claude/utils/startHappyServer.ts` and test, `systemPrompt.ts` | No MCP tool/prompt contribution registry | Claude must expose the typed send-file tool through its existing MCP server and tell the agent when to use it | Claude prompt → HAPI send_file MCP → artifact registration → session message | Send text and binary files from a real Claude session |
+| `cli/src/codex/happyMcpStdioBridge.ts`, `utils/buildHapiMcpBridge.ts` and tests, `codexMcpConfig.test.ts`, `systemPrompt.ts` | No Codex MCP bridge/tool registration API | The same send-file contract must cross Codex's stdio bridge and generated MCP config without a second protocol | Codex tool call → stdio bridge → artifact registration → session message | Send a generated file from a real Codex session |
+| `cli/src/modules/common/handlers/files.ts`, `permission/BasePermissionHandler.ts`, `opencode/utils/systemPrompt.ts` | No file-handler, permission-result, or flavor prompt extension registry | Artifact metadata must be emitted separately from ordinary tool results and retain permission behavior | Agent file/result → handler/permission boundary → generated-file message | Render an artifact and an ordinary tool result in one live conversation |
+| `hub/src/socket/socketLimits.ts` and test, `hub/src/web/routes/git.ts` and test, `shared/package.json` | No socket payload-limit or authenticated artifact-download route registry | Binary payload size validation and protected download must live at the existing socket/web boundary; the shared workspace must expose the limit contract | CLI upload → socket size gate → persisted artifact → authenticated download | Download byte-identical text/binary files; reject unauthenticated access |
+| `web/src/chat/normalizeAgent.ts`, `reconcile.ts`, `reducerTimeline.ts`, `types.ts` | No chat-block variant/reducer registration API | Generated files are a distinct ADT variant that must survive normalization, reconciliation, and timeline ordering | generated-file message → normalized block → reconciled timeline → file card | Verify ordering beside text, tool, image, and video blocks |
+| `web/src/components/AssistantChat/messages/MessageAttachments.tsx`, `ToolMessage.tsx`, `web/src/lib/assistant-runtime.ts`, `sessionExport/markdown.ts` | No attachment/card/runtime/export renderer registry | Authenticated preview/download and export links occupy closed rendering slots; parallel rendering would duplicate message state | File block → authenticated fetch → preview/download/export | Preview text, download binary, and export the same conversation |
+
+Every upstream sync must re-check for native MCP contribution, artifact
+message, authenticated-download, and chat-render extension APIs and remove
+hooks superseded upstream.
+
 ## Inline generated media (2026-07-18)
 
 Media validation/registration and Web MIME labeling live in the fork-owned
