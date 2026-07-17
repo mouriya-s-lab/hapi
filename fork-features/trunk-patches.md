@@ -31,6 +31,21 @@ because the hub and web app do not expose registration APIs for these seams.
 Each upstream synchronization must remove a hook if upstream gains an
 equivalent registration seam or native multi-user gateway.
 
+### Necessary-hook evidence
+
+| Files | Missing upstream seam | Why it cannot move out | Runtime path | Sync verification |
+|---|---|---|---|---|
+| `hub/src/startHub.ts`, `hub/src/web/server.ts`, `hub/tsconfig.json` | No external hub bootstrap, route-mount, middleware, or extra-root registration API | The fork-owned store and adapters need one construction point and the HTTP stack must order authentication, resource authorization, and feature routes around upstream routes | Hub startup → gateway store/adapters → auth middleware → authorized core routes | Cold-start the dev hub, log in, and exercise admin plus resource routes |
+| `hub/src/web/routes/cli.ts`, `hub/src/socket/server.ts`, `hub/src/socket/socketTypes.ts`, `hub/src/socket/handlers/terminal.ts` | CLI/socket factories expose no account-to-namespace or resource-namespace resolver registry | Cross-namespace identity must be resolved before upstream registration and terminal handlers consume the namespace; a sibling module cannot change those closed factory arguments | Gateway token → CLI/socket authentication → authorized namespace → runner or terminal operation | Register a real runner, deny an ungranted account, then grant operator access and spawn a session on the shared machine |
+| `web/src/App.tsx`, `web/src/router.tsx`, `web/src/components/LoginPrompt.tsx` | No external app-shell, route, or login-component registration API | Login/admin screens need the existing app providers and protected-router slots; the compatibility re-export keeps upstream imports on one fork-owned implementation | App bootstrap → login gate → admin route → session UI | Use password login, visit the admin route, log out, then use an API token login |
+| `web/src/api/client.ts`, `web/src/hooks/useAuth.ts`, `web/src/hooks/useAuthSource.ts`, `web/src/lib/app-context.tsx` | The upstream auth client/context has no credential-shape or authenticated-account extension registry | Gateway password/token requests and account identity must cross the existing client and React context as one typed state; parallel contexts would race refresh/logout | Login form → API client → JWT/account state → refresh/logout and authorized queries | Verify password and API-token login, refresh the page, and confirm account identity and logout remain coherent |
+| `package.json`, `bun.lock` | Root fork modules have no package-local dependency injection seam | Hub-side fork modules are compiled from the workspace root and import Hono directly, so the root dependency graph must resolve the same runtime package | Workspace install → hub TypeScript/runtime resolution → gateway route mount | Run frozen install, typecheck, full tests, then cold-start the hub |
+
+The adjacent `*.test.*` and locale files remain beside their upstream-owned
+subjects because the web and hub test/i18n registries are file-local rather
+than extensible. Re-run the same browser path after every upstream sync; a
+clean compile alone does not prove route ordering or namespace authorization.
+
 ## session-fork (2026-06-28)
 
 End-to-end session fork feature. Most logic lives in
