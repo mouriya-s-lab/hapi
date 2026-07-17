@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
+import { ApiError } from '@/api/client'
 
 // vi.mock is hoisted; the state object must exist by then. vi.hoisted runs
 // even earlier, and vi is safe to use inside its factory (documented behavior).
@@ -215,6 +216,21 @@ describe('HappyUserMessage rewind button (#62 c5)', () => {
             await waitFor(() => expect(state.forkSession).toHaveBeenCalled())
             expect(state.setForkedFromText).not.toHaveBeenCalled()
         }
+    })
+
+    it('asks the user to wait when the selected turn is still in progress', async () => {
+        state.forkSession.mockRejectedValueOnce(
+            new ApiError('HTTP 409 Conflict', 409, 'fork_turn_in_progress')
+        )
+        render(<HappyUserMessage />)
+
+        fireEvent.click(screen.getByRole('button', { name: /Rewind to this message/i }))
+
+        expect(await screen.findByText(
+            'This message is still being processed. Wait for the turn to finish, then try again.'
+        )).toBeInTheDocument()
+        expect(state.navigate).not.toHaveBeenCalled()
+        expect(state.setForkedFromText).not.toHaveBeenCalled()
     })
 
     it('When aggregated isPending is true → button is disabled', () => {

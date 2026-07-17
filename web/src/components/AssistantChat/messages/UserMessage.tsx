@@ -17,6 +17,7 @@ import {
 } from '@/hooks/queries/useFlavorCapabilities'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
 import { setForkedFromText } from '@/lib/fork-restore'
+import { ApiError } from '@/api/client'
 
 function RewindIcon(props: { className?: string }) {
     return (
@@ -113,7 +114,11 @@ export function HappyUserMessage() {
                 params: { sessionId: newSessionId }
             })
         } catch (err) {
-            setRewindError(err instanceof Error ? err.message : 'Rewind failed')
+            setRewindError(
+                err instanceof ApiError && err.code === 'fork_turn_in_progress'
+                    ? 'This message is still being processed. Wait for the turn to finish, then try again.'
+                    : err instanceof Error ? err.message : 'Rewind failed'
+            )
         }
     }
 
