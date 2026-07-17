@@ -6,6 +6,23 @@ remove if upstream provided a native register API or the feature is obsolete.
 
 Rule reference: `~/.claude/rules/fork-customization-placement.rule.md`.
 
+## OMP flavor (2026-07-18)
+
+OMP launch, transport, configuration, model, permission, prompt, and display
+logic live in `cli/src/omp/`; the command implementation lives in
+`cli/src/commands/omp.ts`. Upstream exposes no flavor-provider registration
+surface for the remaining closed registries.
+
+| Files | Missing upstream seam | Why it cannot move out | Runtime path | Sync verification |
+|---|---|---|---|---|
+| `cli/src/commands/registry.ts`, `cli/src/commands/resume.ts` | No external command or resume-flavor registry | CLI parsing and resume dispatch use closed exhaustive tables; the fork-owned command still needs one typed entry in each | `hapi omp` or resume → command dispatcher → fork-owned OMP launcher | Start and resume an OMP session through the real runner |
+| `shared/src/flavors.ts`, `shared/src/flavors.test.ts`, `shared/src/modes.ts` | No flavor/mode extension registry across package boundaries | OMP must remain a validated shared discriminant and permission-mode variant for CLI, hub, and Web; a sibling module cannot extend the closed union at runtime | Web spawn payload → shared validation → runner args → OMP mode mapping | Create OMP from Web and switch every exposed permission mode |
+| `web/src/components/AssistantChat/modelOptions.ts` | No model-option provider registry keyed by flavor | The existing composer owns the closed model-option switch; extracting OMP values would still require the same switch hook | OMP session metadata → composer model menu → session config update | Change the OMP model in a live session and verify the next turn uses it |
+
+Each upstream sync must re-check whether native flavor/command/model-provider
+registration exists. If it does, remove these hooks and self-register the
+fork-owned OMP module instead of preserving the trunk patch.
+
 ## multi-user gateway (2026-07-16)
 
 Account, API-token, ownership, grant, authorization, cross-namespace routing,
