@@ -66,7 +66,27 @@ function getTool(): 'read' | 'write' {
     return url.searchParams.get('tool') === 'write' ? 'write' : 'read'
 }
 
-function buildBlock(targetFile: string, tool: 'read' | 'write'): ToolCallBlock {
+// Real Claude Code Read results arrive as a plain string with every line
+// prefixed "<lineNumber>\t" (cat -n style). `?readFormat=lineNumbers` exercises
+// that shape (routes through extractTextFromResult) so the spec can confirm the
+// markdown preview strips the prefix and the raw tab keeps it.
+// Default 'structured' keeps the existing shape `{ file: { filePath, content } }`
+// (routes through extractReadFileContent, content already clean).
+type ReadFormat = 'structured' | 'lineNumbers'
+
+function getReadFormat(): ReadFormat {
+    const url = new URL(window.location.href)
+    return url.searchParams.get('readFormat') === 'lineNumbers' ? 'lineNumbers' : 'structured'
+}
+
+function withCatNLineNumbers(text: string): string {
+    return text
+        .split('\n')
+        .map((line, index) => `${index + 1}\t${line}`)
+        .join('\n')
+}
+
+function buildBlock(targetFile: string, tool: 'read' | 'write', readFormat: ReadFormat): ToolCallBlock {
     const content = contentForPath(targetFile)
     if (tool === 'write') {
         return {
@@ -88,6 +108,9 @@ function buildBlock(targetFile: string, tool: 'read' | 'write'): ToolCallBlock {
             },
         }
     }
+    const result = readFormat === 'lineNumbers'
+        ? withCatNLineNumbers(content)
+        : { file: { filePath: targetFile, content } }
     return {
         id: 'tool-read',
         localId: null,
@@ -99,7 +122,7 @@ function buildBlock(targetFile: string, tool: 'read' | 'write'): ToolCallBlock {
             name: 'Read',
             state: 'completed',
             input: { file_path: targetFile },
-            result: { file: { filePath: targetFile, content } },
+            result,
             createdAt: 0,
             startedAt: null,
             completedAt: 0,
@@ -117,7 +140,11 @@ const queryClient = new QueryClient({
 function App() {
     const targetFile = React.useMemo(() => getTargetFile(), [])
     const tool = React.useMemo(() => getTool(), [])
-    const block = React.useMemo(() => buildBlock(targetFile, tool), [targetFile, tool])
+    const readFormat = React.useMemo(() => getReadFormat(), [])
+    const block = React.useMemo(
+        () => buildBlock(targetFile, tool, readFormat),
+        [targetFile, tool, readFormat]
+    )
     const ResultView = getToolResultViewComponent('Read')
     const WriteView = getToolFullViewComponent('Write')
 

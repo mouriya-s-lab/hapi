@@ -40,8 +40,21 @@ function ToggleButton(props: {
     )
 }
 
-export function FileContentToggleView(props: { content: string; path: string | null }) {
-    const { content, path } = props
+// Read tool wraps every line with a "<lineNumber>\t" prefix (cat -n style). When
+// caller marks the incoming text as a Read result we strip that prefix ONLY for
+// the markdown-preview branch — otherwise ReactMarkdown sees "1 # heading …" on
+// every line and every markdown block-level rule silently fails (no headings,
+// no tables, no lists, everything collapses into one long paragraph).
+// The raw tab intentionally keeps the prefix so the user can still see Read's
+// line numbers. Same regex family as web/src/components/ToolCard/views/readImageDetection.ts.
+const READ_LINE_NUMBER_PREFIX = /^\s*\d+\t/gm
+
+export function FileContentToggleView(props: {
+    content: string
+    path: string | null
+    stripReadLineNumbers?: boolean
+}) {
+    const { content, path, stripReadLineNumbers = false } = props
     const { t } = useTranslation()
     const { copied, copy } = useCopyToClipboard()
     const [wordWrap, setWordWrap] = useFileWordWrap()
@@ -50,6 +63,11 @@ export function FileContentToggleView(props: { content: string; path: string | n
     const isMarkdownFile = useMemo(() => (path ? isMarkdownPath(path) : false), [path])
     const renderMarkdownPreview = isMarkdownFile && markdownPreview
     const showWordWrapToggle = !renderMarkdownPreview
+
+    const previewContent = useMemo(
+        () => (stripReadLineNumbers ? content.replace(READ_LINE_NUMBER_PREFIX, '') : content),
+        [content, stripReadLineNumbers]
+    )
 
     const language = useMemo(
         () => (path && !renderMarkdownPreview ? resolveLanguage(path) : undefined),
@@ -111,7 +129,7 @@ export function FileContentToggleView(props: { content: string; path: string | n
                         data-testid="md-preview"
                         className="rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] p-4 pr-8"
                     >
-                        <FileMarkdownView content={content} />
+                        <FileMarkdownView content={previewContent} />
                     </div>
                 ) : (
                     <pre

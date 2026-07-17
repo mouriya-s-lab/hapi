@@ -22,8 +22,12 @@ vi.mock('@/components/CodeBlock', () => ({
 }))
 
 vi.mock('@/components/FileContentToggleView', () => ({
-    FileContentToggleView: (props: { content: string; path: string | null }) => (
-        <div data-testid="file-content-toggle" data-path={props.path ?? ''}>
+    FileContentToggleView: (props: { content: string; path: string | null; stripReadLineNumbers?: boolean }) => (
+        <div
+            data-testid="file-content-toggle"
+            data-path={props.path ?? ''}
+            data-strip-read-line-numbers={props.stripReadLineNumbers ? 'true' : 'false'}
+        >
             {props.content}
         </div>
     )
@@ -452,6 +456,10 @@ describe('read file result formatting', () => {
         const view = container.querySelector('[data-testid="file-content-toggle"]')
         expect(view).toHaveAttribute('data-path', '/tmp/example.ts')
         expect(view).toHaveTextContent('const value = 1')
+        // Every dialog-surface Read result must opt into line-number stripping
+        // so the markdown-preview branch doesn't fold Read's "<N>\t" prefix into
+        // the source. The regex is a no-op when content is already clean.
+        expect(view).toHaveAttribute('data-strip-read-line-numbers', 'true')
         expect(screen.getAllByText('Raw JSON').length).toBeGreaterThan(0)
     })
 
