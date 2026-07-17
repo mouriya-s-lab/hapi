@@ -32,7 +32,7 @@ import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePic
 import { resolvePendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import { HappyThread } from '@/components/AssistantChat/HappyThread'
 import { QueuedMessagesBar } from '@/components/AssistantChat/QueuedMessagesBar'
-import { TodoPanel } from '@/components/AssistantChat/TodoPanel'
+import { TodoPanel } from '@/fork-features/task-panel/TodoPanel'
 import { ScratchlistDrawer } from '@/components/AssistantChat/ScratchlistPanel'
 import { useScratchlist } from '@/lib/use-scratchlist'
 import { useToast } from '@/lib/toast-context'

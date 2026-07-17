@@ -3,8 +3,9 @@ import type { CodexCollaborationMode, PermissionMode, Session, SessionPatch } fr
 import type { Store } from '../store'
 import { clampAliveTime } from './aliveTime'
 import { EventPublisher } from './eventPublisher'
-import { applyTodoMessageContent, TodosSchema } from './todos'
+import { TodosSchema } from './todos'
 import type { TodoItem } from './todos'
+import { applyTodoMessageContent } from '../fork-features/task-panel/taskProjection'
 import { extractBackgroundTaskDelta } from './backgroundTasks'
 
 const QUEUED_MESSAGE_THINKING_GRACE_MS = 15_000

@@ -147,6 +147,24 @@ Every upstream sync must re-check for native provider/usage registration,
 runner lifecycle callbacks, and composer extension slots. When one exists,
 remove the corresponding trunk patch and self-register the fork-owned module.
 
+## TaskCreate/TaskUpdate task panel (2026-07-18)
+
+Task event parsing, typed projection, and panel rendering live in the
+fork-owned `hub/src/fork-features/task-panel/` and
+`web/src/fork-features/task-panel/` modules. Upstream has no message-projection
+or session-composer registration surface, so three closed surfaces retain the
+minimum imports and calls needed to attach that implementation.
+
+| Files | Missing upstream seam | Why it cannot move out | Runtime path | Sync verification |
+|---|---|---|---|---|
+| `hub/src/socket/handlers/cli/sessionHandlers.ts` | No registration API for a session-derived projection after a persisted CLI message | The projection must update the same persisted session row and emit the same namespace-scoped `session-updated` event as the message transaction; a parallel consumer would race message persistence and SSE | CLI TaskCreate/TaskUpdate message → persisted message → fork-owned projection → session todos → SSE | In a live runner session create, start, and complete tasks; verify exactly one panel update for each event |
+| `hub/src/sync/sessionCache.ts` | No registration API for rebuilding an optional session projection from message history | Hub restart and legacy rows with no stored todos must replay messages into the same session product before REST/SSE reads; an external cache would diverge across restart and session merge | hub session load → chronological message replay → fork-owned projection → cached session todos | Restart the hub with a task-bearing session, refresh the browser, and verify the same ordered task state without duplicates |
+| `web/src/components/SessionChat.tsx` | No composer-adjacent panel slot or render-extension registry | The persistent panel belongs above the existing composer and must consume the currently selected session product; mounting a parallel route would duplicate session selection and composer layout state | selected session query/SSE → fork-owned TodoPanel → composer-adjacent checklist | Create tasks, switch to a session without tasks, switch back, and verify one isolated panel with the latest state |
+
+Every upstream sync must re-check for message-projection, session-cache, and
+composer-panel registration APIs. Remove each hook when an equivalent native
+seam exists.
+
 ## OMP flavor (2026-07-18)
 
 OMP launch, transport, configuration, model, permission, prompt, and display

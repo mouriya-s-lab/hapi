@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import type { TodoItem } from '@hapi/protocol/types'
 import { ChecklistList, extractTodoChecklist } from '@/components/ToolCard/checklist'
 import { useTranslation } from '@/lib/use-translation'
 
@@ -12,7 +13,7 @@ function ChevronIcon(props: { open: boolean }) {
     )
 }
 
-export function TodoPanel(props: { sessionId: string; todos: unknown }) {
+export function TodoPanel(props: { sessionId: string; todos: TodoItem[] | undefined }) {
     const { t } = useTranslation()
     const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_STORAGE_KEY) === '1')
     const items = useMemo(() => extractTodoChecklist({ todos: props.todos }, null), [props.todos])
