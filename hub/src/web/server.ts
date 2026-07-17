@@ -283,7 +283,7 @@ function createWebApp(options: {
         const engine = options.getSyncEngine()
         if (!engine) return null
         return buildForkDeps({ store: options.store, syncEngine: engine, namespace })
-    })
+    }, options.getSseManager)
 
     // Skip static serving in relay mode, show helpful message on root
     if (options.relayMode) {

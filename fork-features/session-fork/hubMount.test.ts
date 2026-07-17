@@ -13,6 +13,7 @@ function makeDeps(
         updateMetadataSpy?: (patch: Record<string, unknown>) => void
         copySpy?: (copyOpts: { beforeSeq?: number } | undefined) => void
         resolveProviderMessageIdImpl?: (sessionId: string, targetSeq: number, flavor: string) => any
+        forkProviderError?: Error
     } = {}
 ): ForkSyncEngineLike {
     const flavor = opts.flavor ?? 'claude'
@@ -29,6 +30,7 @@ function makeDeps(
         listMessages: () => opts.messages ?? [],
         async forkProvider(_machineId, request) {
             opts.forkProviderSpy?.(request)
+            if (opts.forkProviderError) throw opts.forkProviderError
             return { providerSessionId: 'cnew', metadataPatch: { claudeSessionId: 'cnew' } }
         },
         async spawnSession() {
@@ -82,8 +84,8 @@ describe('mountForkRoutes', () => {
         mountForkRoutes(app, () => makeDeps())
         const res = await app.request('/api/sessions/src/fork', { method: 'POST' })
         expect(res.status).toBe(200)
-        const body = (await res.json()) as { newSessionId: string }
-        expect(body.newSessionId).toBe('new-hapi-id')
+        const body = (await res.json()) as { type: string; newSessionId: string }
+        expect(body).toEqual({ type: 'success', newSessionId: 'new-hapi-id' })
     })
 
     it('returns 404 when source session missing', async () => {
@@ -98,6 +100,46 @@ describe('mountForkRoutes', () => {
         mountForkRoutes(app, () => makeDeps({ spawnError: 'machine offline' }))
         const res = await app.request('/api/sessions/src/fork', { method: 'POST' })
         expect(res.status).toBe(500)
+    })
+
+    it('sends the existing SSE toast and returns a normal blocked result for an active Codex turn', async () => {
+        const toasts: unknown[] = []
+        const app = new Hono()
+        mountForkRoutes(
+            app,
+            () => makeDeps({
+                flavor: 'codex',
+                messages: [{ id: 'm1', seq: 1, role: 'user' }],
+                forkProviderError: new Error("lastTurnId 'turn-1' identifies an in-progress turn")
+            }),
+            () => ({
+                async sendToast(namespace, event) {
+                    toasts.push({ namespace, event })
+                    return 1
+                }
+            })
+        )
+
+        const res = await app.request('/api/sessions/src/fork', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ forkPoint: { messageId: 'm1' } })
+        })
+
+        expect(res.status).toBe(200)
+        expect(await res.json()).toEqual({ type: 'blocked' })
+        expect(toasts).toEqual([{
+            namespace: 'default',
+            event: {
+                type: 'toast',
+                data: {
+                    title: 'Fork unavailable',
+                    body: 'The selected message is still being processed. Wait for the turn to finish, then try again.',
+                    sessionId: 'src',
+                    url: '/sessions/src'
+                }
+            }
+        }])
     })
 
     it('returns 503 when sync engine not ready', async () => {
