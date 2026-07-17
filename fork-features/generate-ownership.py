@@ -145,9 +145,9 @@ def main() -> None:
                 owner = "#171"
                 evidence = "fork trunk-patch registry; updated by boundary children"
             else:
-                classification = "open-child"
+                classification = "trunk-patch"
                 owner = "#174"
-                evidence = "#170 removed unused helper; remaining delta belongs to #174"
+                evidence = "#170 removed unused helper; remaining persisted-session hook closed by #174"
         elif path in upstream_changed and path not in origin_changed:
             classification = "upstream-sync"
             owner = "#180"
@@ -156,7 +156,7 @@ def main() -> None:
             owner = owner_for(path, fork_log)
             if not exists("upstream/main", path) and exists(target, path):
                 classification = "fork-owned"
-            elif owner in {"#170", "#171", "#172", "#173"}:
+            elif owner in {"#170", "#171", "#172", "#173", "#174"}:
                 classification = "trunk-patch"
             elif owner == "#179":
                 classification = "upstream-fix"

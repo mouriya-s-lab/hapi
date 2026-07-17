@@ -6,6 +6,27 @@ remove if upstream provided a native register API or the feature is obsolete.
 
 Rule reference: `~/.claude/rules/fork-customization-placement.rule.md`.
 
+## Claude custom-model and resume policy (2026-07-18)
+
+HAPI's upstream Claude launcher, persisted session record, shared model
+catalog, and Web composer expose no external policy/selector registration
+surface. The fork therefore keeps the following typed hooks at their owning
+lifecycle boundaries while keeping hook-settings helpers separately tested.
+
+| Files | Missing upstream seam | Why it cannot move out | Runtime path | Sync verification |
+|---|---|---|---|---|
+| `cli/src/agent/sessionFactory.ts` and test, `cli/src/api/api.ts`, `cli/src/api/apiSession.test.ts`, `cli/src/api/api.extraHeaders.test.ts` | No launch-policy or session-header callback registry | Concrete model/provider choices must enter the exact Claude child-process construction and authenticated session update path | Web create/resume → runner args/session factory → Claude process → hub metadata | Create and resume live Claude sessions with concrete model/provider selections |
+| `cli/src/claude/model.test.ts`, `cli/src/commands/resume.test.ts`, `cli/src/modules/common/hooks/generateHookSettings.ts` | No model-parser, resume-preflight, or hook-settings extension seam | Invalid combinations must be rejected before launch while valid model/provider data is preserved in generated hooks and resume arguments | Resume command → validation → hook settings → Claude launch | Resume with original model/provider, then another valid model, and reject an invalid value |
+| `hub/src/store/index.ts`, `hub/src/store/sessionStore.ts`, `hub/src/store/types.ts` | No persisted-session field projection registry | Resume policy needs the same durable model/provider record read by hub restart and inactive-session flows | CLI metadata → SQLite session row → inactive session read → resume request | Restart hub before resume and verify model/provider survive |
+| `hub/src/notifications/notificationHub.test.ts`, `hub/src/serverchan/channel.test.ts`, `hub/src/sync/messageService.test.ts`, `hub/src/telegram/sessionView.test.ts` | Notification/session views have closed session projection fixtures | The model/provider additions change the shared session product consumed by these boundaries; companion fixtures must remain exhaustive | Persisted session → message/notification projections → external view | Run full hub suite and inspect a live resumed session notification path |
+| `shared/src/models.ts`, `shared/src/models.test.ts` | No cross-package Claude model catalog extension registry | CLI and Web must validate and display the same concrete identifiers; a runtime-only sibling catalog would split the contract | Web selection → shared model value → CLI launch argument | Select every supported concrete model and confirm exact ID reaches CLI metadata |
+| `web/src/components/AssistantChat/HappyComposer.tsx`, `claudeModelOptions.ts` and adjacent tests, `modelOptions.test.ts`, `web/src/components/NewSession/types.ts` and test | No composer/new-session model-selector provider slot | Create and resume controls live in existing closed form/composer state and must preserve provider/model together | New Session or inactive composer → selector → create/resume mutation → session navigation | Browser-create with a concrete model, resume unchanged, then resume with another valid model |
+| `web/src/components/assistant-ui/markdown-a.test.tsx`, `web/src/lib/sessionExport/markdown.test.ts` | Closed test fixtures consume the expanded concrete-model session shape | Keeping fixtures beside their owners preserves exhaustive behavior checks without a parallel test registry | Session transcript/model metadata → render/export | Run Web suite after each upstream sync |
+
+Every upstream sync must re-check for native launch-policy, persisted-field,
+model-catalog, and composer extension APIs and remove any hook superseded by
+an upstream seam.
+
 ## cc-switch and OpenUsage provider integration (2026-07-18)
 
 Provider discovery, cc-switch handlers, and OpenUsage polling live in the
