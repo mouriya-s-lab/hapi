@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync, mkdirSync, realpathSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ioMock = vi.hoisted(() => vi.fn())
 const listOpencodeModelsForCwdMock = vi.hoisted(() => vi.fn())
+const listGrokModelsForCwdMock = vi.hoisted(() => vi.fn())
+const inspectCursorChatStoreMock = vi.hoisted(() => vi.fn())
 
 vi.mock('socket.io-client', () => ({
     io: ioMock
@@ -16,6 +18,14 @@ vi.mock('@/api/auth', () => ({
 
 vi.mock('../modules/common/opencodeModels', () => ({
     listOpencodeModelsForCwd: listOpencodeModelsForCwdMock
+}))
+
+vi.mock('../modules/common/grokModels', () => ({
+    listGrokModelsForCwd: listGrokModelsForCwdMock
+}))
+
+vi.mock('@/cursor/cursorChatStoreStatus', () => ({
+    inspectCursorChatStore: inspectCursorChatStoreMock
 }))
 
 import { ApiMachineClient, normalizeWindowsDriveRoot } from './apiMachine'
@@ -98,6 +108,77 @@ describe('ApiMachineClient create-directory handler', () => {
         } finally {
             client.shutdown()
             rmSync(workspaceRoot, { recursive: true, force: true })
+        }
+    })
+})
+
+async function callCursorChatStoreStatus(
+    client: ApiMachineClient,
+    machineId: string,
+    params: { workspacePath: string; cursorSessionId: string; homeDir?: string }
+): Promise<unknown> {
+    const manager = (client as unknown as { rpcHandlerManager: { handleRequest: (req: { method: string; params: string }) => Promise<string> } }).rpcHandlerManager
+    const raw = await manager.handleRequest({
+        method: `${machineId}:cursor-chat-store-status`,
+        params: JSON.stringify(params)
+    })
+    return JSON.parse(raw) as unknown
+}
+
+describe('ApiMachineClient cursor-chat-store-status handler', () => {
+    beforeEach(() => {
+        inspectCursorChatStoreMock.mockReset()
+        inspectCursorChatStoreMock.mockResolvedValue({ onDisk: false, store: null })
+    })
+
+    it('inspects stores under the recorded session owner home', async () => {
+        const machine = makeMachine('cursor-store-machine')
+        const client = new ApiMachineClient('cli-token', machine)
+
+        try {
+            await callCursorChatStoreStatus(client, machine.id, {
+                workspacePath: '/work/project',
+                cursorSessionId: 'cursor-session',
+                homeDir: '  /home/recorded-owner  '
+            })
+
+            expect(inspectCursorChatStoreMock).toHaveBeenCalledWith({
+                home: '/home/recorded-owner',
+                workspacePath: '/work/project',
+                cursorSessionId: 'cursor-session'
+            })
+        } finally {
+            client.shutdown()
+        }
+    })
+
+    it('falls back to the CLI process home for old or whitespace-only homeDir metadata', async () => {
+        const machine = makeMachine('cursor-store-fallback-machine')
+        const client = new ApiMachineClient('cli-token', machine)
+
+        try {
+            await callCursorChatStoreStatus(client, machine.id, {
+                workspacePath: '/work/project',
+                cursorSessionId: 'cursor-session-old'
+            })
+            await callCursorChatStoreStatus(client, machine.id, {
+                workspacePath: '/work/project',
+                cursorSessionId: 'cursor-session-empty',
+                homeDir: '   '
+            })
+
+            expect(inspectCursorChatStoreMock).toHaveBeenNthCalledWith(1, {
+                home: homedir(),
+                workspacePath: '/work/project',
+                cursorSessionId: 'cursor-session-old'
+            })
+            expect(inspectCursorChatStoreMock).toHaveBeenNthCalledWith(2, {
+                home: homedir(),
+                workspacePath: '/work/project',
+                cursorSessionId: 'cursor-session-empty'
+            })
+        } finally {
+            client.shutdown()
         }
     })
 })

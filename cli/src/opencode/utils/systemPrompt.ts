@@ -7,6 +7,7 @@
 
 import { trimIdent } from '@/utils/trimIdent';
 import { DISPLAY_IMAGE_PROMPT_HAPI_MCP, DISPLAY_VIDEO_PROMPT_HAPI_MCP, SEND_FILE_PROMPT_HAPI_MCP } from '@/modules/common/displayImagePrompt';
+import { SKILL_LOOKUP_INSTRUCTION } from '@/modules/common/skillLookupInstruction';
 
 /**
  * Title and display_image instructions for OpenCode to call the hapi MCP tools.
@@ -16,6 +17,8 @@ export const TITLE_INSTRUCTION = trimIdent(`
     ${DISPLAY_IMAGE_PROMPT_HAPI_MCP}
     ${DISPLAY_VIDEO_PROMPT_HAPI_MCP}
     ${SEND_FILE_PROMPT_HAPI_MCP}
+    When you create or find a local image file that the user should see, call the tool "hapi_display_image" with the image path so HAPI can show it inline.
+    ${SKILL_LOOKUP_INSTRUCTION}
 `);
 
 /**

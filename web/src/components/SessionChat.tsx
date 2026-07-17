@@ -77,6 +77,21 @@ import { isRemoteTerminalSupported } from '@/utils/terminalSupport'
 
 type SessionModelSelection = { provider: string; modelId: string } | string | null
 
+export function resolvePiContextWindow(
+    models: PiModelSummary[] | undefined,
+    selectedModel: { provider: string; modelId: string } | null | undefined,
+    legacyModelId: string
+): number | undefined {
+    const model = selectedModel
+        ? models?.find((candidate) => (
+            candidate.provider === selectedModel.provider
+            && candidate.modelId === selectedModel.modelId
+        ))
+        : models?.find((candidate) => candidate.modelId === legacyModelId)
+
+    return model?.contextWindow
+}
+
 export async function applyModelChangeWithReasoningRollback(args: {
     model: SessionModelSelection
     previousModelReasoningEffort: string | null
@@ -391,6 +406,8 @@ function hasAbortableAgentRun(blocks: readonly ChatBlock[]): boolean {
 type SessionChatProps = {
     api: ApiClient
     session: Session
+    cursorChatOnDisk?: boolean
+    reopenDisabledReason?: string
     messages: DecryptedMessage[]
     pendingMessages?: DecryptedMessage[]
     messagesWarning: string | null
@@ -450,7 +467,11 @@ function SessionChatInner(props: SessionChatProps) {
     const { addToast } = useToast()
     useEffect(() => stopSpeaking, [])
     const sessionInactive = !props.session.active
-    const inactiveCanResume = inactiveSessionCanResume(props.session, props.messages.length)
+    const inactiveCanResume = inactiveSessionCanResume(
+        props.session,
+        props.messages.length,
+        props.cursorChatOnDisk
+    )
     const terminalSupported = isRemoteTerminalSupported(props.session.metadata)
     const normalizedCacheRef = useRef<Map<string, { source: DecryptedMessage; normalized: NormalizedMessage | null }>>(new Map())
     const modelRefusalFallbackToastIdsRef = useRef<Set<string>>(new Set())
@@ -675,6 +696,11 @@ function SessionChatInner(props: SessionChatProps) {
     // Provider-qualified selected model — disambiguates when two providers
     // share a modelId (hub persists this alongside the legacy modelId string).
     const piSelectedModel = piMetadata?.piSelectedModel as { provider: string; modelId: string } | null | undefined
+    const piModels = agentFlavor === 'pi' ? (piModelsState.availableModels.length > 0 ? piModelsState.availableModels : piCachedModels) : undefined
+    const piContextWindow = useMemo(() => {
+        if (agentFlavor !== 'pi' || !props.session.model) return undefined
+        return resolvePiContextWindow(piModels, piSelectedModel, props.session.model)
+    }, [agentFlavor, piModels, piSelectedModel, props.session.model])
     const cursorCatalogReadinessArgs = useMemo(() => ({
         sessionLoading: cursorModelsState.isLoading,
         machineLoading: machineCursorModelsState.isLoading,
@@ -1279,6 +1305,8 @@ function SessionChatInner(props: SessionChatProps) {
                 onToggleOutline={handleToggleOutline}
                 outlineActive={outlineOpen}
                 api={props.api}
+                canReopen={inactiveCanResume}
+                reopenDisabledReason={props.reopenDisabledReason}
                 onSessionDeleted={props.onBack}
                 onSessionReopened={(newSessionId) => {
                     navigate({
@@ -1413,7 +1441,7 @@ function SessionChatInner(props: SessionChatProps) {
                                         // so Pi model changes go through the dedicated picker only.
                                         : undefined
                         }
-                        piModels={agentFlavor === 'pi' ? (piModelsState.availableModels.length > 0 ? piModelsState.availableModels : piCachedModels) : undefined}
+                        piModels={piModels}
                         piSelectedModel={agentFlavor === 'pi' ? piSelectedModel : undefined}
                         availableModelReasoningEffortOptions={
                             agentFlavor === 'codex'
@@ -1434,7 +1462,7 @@ function SessionChatInner(props: SessionChatProps) {
                         backgroundTaskCount={props.session.backgroundTaskCount}
                         contextSize={reduced.latestUsage?.contextSize}
                         contextCacheRead={reduced.latestUsage?.cacheRead}
-                        contextWindow={reduced.latestUsage?.contextWindow}
+                        contextWindow={reduced.latestUsage?.contextWindow ?? piContextWindow}
                         controlledByUser={controlledByUser}
                         onCollaborationModeChange={
                             codexCollaborationModeSupported && props.session.active && !controlledByUser

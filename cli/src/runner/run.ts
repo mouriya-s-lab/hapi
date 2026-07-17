@@ -26,7 +26,7 @@ import { validateWorkspaceDirectory } from './validateWorkspaceDirectory';
 import { join } from 'path';
 import { buildMachineMetadata } from '@/agent/sessionFactory';
 import { resolveWorkspaceRoots } from '@/utils/workspaceRoot';
-import { hashRunnerCliApiToken } from './runnerIdentity';
+import { hashRunnerCliApiToken, hashRunnerExtraHeaders } from './runnerIdentity';
 import { scheduleCursorModelsPrewarm } from '@/modules/common/cursorModelsPrewarm';
 
 export async function startRunner(options: { workspaceRoots?: string[] } = {}): Promise<void> {
@@ -751,6 +751,7 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
       startedWithApiUrl: configuration.apiUrl,
       startedWithMachineId: machineId,
       startedWithCliApiTokenHash: hashRunnerCliApiToken(configuration.cliApiToken),
+      startedWithExtraHeadersHash: hashRunnerExtraHeaders(configuration.extraHeaders),
       startedWithArgv,
       startedWithVersionHandoffDisabled,
       runnerLogPath: logger.logFilePath
@@ -1028,6 +1029,7 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
           startedWithApiUrl: fileState.startedWithApiUrl,
           startedWithMachineId: fileState.startedWithMachineId,
           startedWithCliApiTokenHash: fileState.startedWithCliApiTokenHash,
+          startedWithExtraHeadersHash: fileState.startedWithExtraHeadersHash,
           startedWithArgv,
           startedWithVersionHandoffDisabled,
           lastHeartbeat: new Date().toLocaleString(),
