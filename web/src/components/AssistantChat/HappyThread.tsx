@@ -103,6 +103,23 @@ export async function locateOutlineTargetMessage(options: LocateOutlineTargetOpt
     return target
 }
 
+export async function loadUntilScrollHeightChanges(options: {
+    getScrollHeight: () => number
+    hasMoreMessages: () => boolean
+    loadOlder: () => Promise<boolean>
+}): Promise<boolean> {
+    const initialScrollHeight = options.getScrollHeight()
+    let loadedAny = false
+    while (options.hasMoreMessages() && options.getScrollHeight() === initialScrollHeight) {
+        const loaded = await options.loadOlder()
+        if (!loaded) {
+            break
+        }
+        loadedAny = true
+    }
+    return loadedAny
+}
+
 function NewMessagesIndicator(props: { count: number; onClick: () => void }) {
     const { t } = useTranslation()
     if (props.count === 0) {
@@ -567,6 +584,18 @@ export function HappyThread(props: {
         return loadOlderPreservingScroll()
     }, [clearInitialScrollTimers, loadOlderPreservingScroll])
 
+    const loadOlderUntilVisible = useCallback(async (): Promise<boolean> => {
+        const viewport = viewportRef.current
+        if (!viewport) {
+            return false
+        }
+        return loadUntilScrollHeightChanges({
+            getScrollHeight: () => viewport.scrollHeight,
+            hasMoreMessages: () => hasMoreMessagesRef.current,
+            loadOlder: loadOlderFromUserAction
+        })
+    }, [loadOlderFromUserAction])
+
     const handleOutlineSelect = useCallback(async (item: ConversationOutlineItem) => {
         const target = await locateOutlineTargetMessage({
             targetMessageId: item.targetMessageId,
@@ -692,7 +721,7 @@ export function HappyThread(props: {
             onRetryMessage: props.onRetryMessage,
             hasMoreMessages: props.hasMoreMessages,
             isLoadingMoreMessages: props.isLoadingMoreMessages,
-            loadOlderMessagesPreservingScroll: loadOlderFromUserAction
+            loadOlderMessagesPreservingScroll: loadOlderUntilVisible
         }}>
             <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col relative">
                 <ThreadPrimitive.Viewport
@@ -722,7 +751,7 @@ export function HappyThread(props: {
                                                     variant="outline"
                                                     size="sm"
                                                     onClick={() => {
-                                                        void loadOlderFromUserAction()
+                                                        void loadOlderUntilVisible()
                                                     }}
                                                     disabled={props.isLoadingMoreMessages || props.isLoadingMessages}
                                                     aria-busy={props.isLoadingMoreMessages}
