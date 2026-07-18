@@ -1,16 +1,16 @@
 import { ApiClient, ApiSessionClient } from '@/lib';
-import { MessageQueue2 } from '@/utils/MessageQueue2';
 import { AgentSessionBase } from '@/agent/sessionBase';
 import type { OmpMode, PermissionMode } from './types';
 import type { LocalLaunchExitReason } from '@/agent/localLaunchPolicy';
 import type { OmpNativeSession } from '@hapi/protocol/types';
+import type { OmpInputQueue } from './OmpInputQueue';
 
 type LocalLaunchFailure = {
     message: string;
     exitReason: LocalLaunchExitReason;
 };
 
-export class OmpSession extends AgentSessionBase<OmpMode> {
+export class OmpSession extends AgentSessionBase<OmpMode, OmpInputQueue> {
     readonly startedBy: 'runner' | 'terminal';
     readonly startingMode: 'local' | 'remote';
     localLaunchFailure: LocalLaunchFailure | null = null;
@@ -22,7 +22,7 @@ export class OmpSession extends AgentSessionBase<OmpMode> {
         path: string;
         logPath: string;
         sessionId: string | null;
-        messageQueue: MessageQueue2<OmpMode>;
+        messageQueue: OmpInputQueue;
         onModeChange: (mode: 'local' | 'remote') => void;
         mode?: 'local' | 'remote';
         startedBy: 'runner' | 'terminal';

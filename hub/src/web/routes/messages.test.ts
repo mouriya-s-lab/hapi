@@ -218,6 +218,43 @@ describe('POST /api/sessions/:id/messages — scheduledAt + attachments rejected
     })
 })
 
+describe('POST /api/sessions/:id/messages — OMP input command', () => {
+    it('passes an explicit atomic OMP input mode to the sync engine', async () => {
+        const { app, sentMessages } = createApp({})
+        const response = await app.request('/api/sessions/session-1/messages', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+                text: 'replace the active turn',
+                localId: 'replace-1',
+                ompInputMode: 'abort_and_prompt'
+            })
+        })
+
+        expect(response.status).toBe(200)
+        expect(sentMessages).toEqual([{
+            sessionId: 'session-1',
+            payload: expect.objectContaining({
+                text: 'replace the active turn',
+                localId: 'replace-1',
+                ompInputMode: 'abort_and_prompt'
+            })
+        }])
+    })
+
+    it('rejects unknown OMP input modes', async () => {
+        const { app, sentMessages } = createApp({})
+        const response = await app.request('/api/sessions/session-1/messages', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ text: 'bad mode', ompInputMode: 'interrupt' })
+        })
+
+        expect(response.status).toBe(400)
+        expect(sentMessages).toHaveLength(0)
+    })
+})
+
 // ---------------------------------------------------------------------------
 // #918: inactive session 409 carries a machine-readable code
 // ---------------------------------------------------------------------------

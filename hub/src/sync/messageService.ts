@@ -3,7 +3,7 @@ import {
     SESSION_EXPORT_MESSAGE_LIMIT,
     type HapiSessionExportResult
 } from '@hapi/protocol/sessionExport'
-import type { AttachmentMetadata, DecryptedMessage, Session } from '@hapi/protocol/types'
+import type { AttachmentMetadata, DecryptedMessage, OmpInputMode, Session } from '@hapi/protocol/types'
 import {
     isClaudeChatVisibleMessage,
     isRedundantGoalStatusEventContent,
@@ -437,6 +437,7 @@ export class MessageService {
             text: string
             localId?: string | null
             attachments?: AttachmentMetadata[]
+            ompInputMode?: OmpInputMode
             sentFrom?: 'telegram-bot' | 'webapp'
             scheduledAt?: number | null
             deliveryMetadata?: Record<string, unknown>
@@ -465,7 +466,8 @@ export class MessageService {
             },
             meta: {
                 sentFrom,
-                ...payload.deliveryMetadata
+                ...payload.deliveryMetadata,
+                ...(payload.ompInputMode ? { ompInputMode: payload.ompInputMode } : {})
             }
         }
 

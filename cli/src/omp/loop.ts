@@ -1,4 +1,3 @@
-import { MessageQueue2 } from '@/utils/MessageQueue2';
 import { logger } from '@/ui/logger';
 import { runLocalRemoteSession } from '@/agent/loopBase';
 import { OmpSession } from './session';
@@ -7,13 +6,14 @@ import { ompRemoteLauncher } from './ompRemoteLauncher';
 import { ApiClient, ApiSessionClient } from '@/lib';
 import type { OmpMode, PermissionMode } from './types';
 import type { OmpNativeSession } from '@hapi/protocol/types';
+import type { OmpInputQueue } from './OmpInputQueue';
 
 interface OmpLoopOptions {
     path: string;
     startingMode?: 'local' | 'remote';
     startedBy?: 'runner' | 'terminal';
     onModeChange: (mode: 'local' | 'remote') => void;
-    messageQueue: MessageQueue2<OmpMode>;
+    messageQueue: OmpInputQueue;
     session: ApiSessionClient;
     api: ApiClient;
     permissionMode?: PermissionMode;

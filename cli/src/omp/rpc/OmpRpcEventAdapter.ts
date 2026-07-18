@@ -41,6 +41,11 @@ const ToolResultMessageSchema = z.object({
     isError: z.boolean()
 });
 
+const UserMessageSchema = z.object({
+    role: z.literal('user'),
+    steering: z.boolean().optional()
+});
+
 const MessageEndSchema = z.object({
     type: z.literal('message_end'),
     message: JsonObjectSchema
@@ -80,6 +85,7 @@ const ToolEndSchema = z.object({
 export type OmpRpcEventAdapterCallbacks = {
     onAgentMessage: (message: AgentMessage) => void;
     onInkMessage: (message: string, type: 'assistant' | 'system' | 'tool' | 'result' | 'status') => void;
+    onUserMessageCommitted: (steering: boolean) => void;
     onTurnStarted: () => void;
     onTurnFinished: () => void;
     onPromptResult: (agentInvoked: boolean) => void;
@@ -239,6 +245,12 @@ export class OmpRpcEventAdapter {
                 this.textFromContent(toolResult.data.content) || `Tool ${toolResult.data.toolName} finished`,
                 'result'
             );
+            return;
+        }
+
+        const user = UserMessageSchema.safeParse(event.data.message);
+        if (user.success) {
+            this.callbacks.onUserMessageCommitted(user.data.steering === true);
             return;
         }
 

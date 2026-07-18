@@ -76,6 +76,7 @@ export function createMessagesRoutes(getSyncEngine: () => SyncEngine | null): Ho
             text: parsed.data.text,
             localId: parsed.data.localId,
             attachments: parsed.data.attachments,
+            ompInputMode: parsed.data.ompInputMode,
             sentFrom: 'webapp',
             scheduledAt: parsed.data.scheduledAt,
             deliveryMetadata

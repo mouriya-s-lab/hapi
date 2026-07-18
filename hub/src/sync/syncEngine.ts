@@ -497,6 +497,7 @@ export class SyncEngine {
                 path: string
                 previewUrl?: string
             }>
+            ompInputMode?: import('@hapi/protocol/types').OmpInputMode
             sentFrom?: 'telegram-bot' | 'webapp'
             scheduledAt?: number | null
             deliveryMetadata?: Record<string, unknown>

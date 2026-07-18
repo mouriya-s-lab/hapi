@@ -64,12 +64,10 @@ vi.mock('@/agent/localHandoff', () => ({ registerLocalHandoffHandler: vi.fn() })
 vi.mock('@/ui/logger', () => ({
     logger: { debug: vi.fn(), warn: vi.fn(), info: vi.fn(), getLogPath: vi.fn(() => '/logs/omp.log') }
 }));
-vi.mock('@/utils/attachmentFormatter', () => ({ formatMessageWithAttachments: vi.fn((text: string) => text) }));
 vi.mock('@/utils/invokedCwd', () => ({ getInvokedCwd: vi.fn(() => '/work') }));
 
 import { runOmp } from './runOmp';
-import type { MessageQueue2 } from '@/utils/MessageQueue2';
-import type { OmpMode } from './types';
+import type { OmpInputQueue } from './OmpInputQueue';
 
 describe('runOmp lifecycle', () => {
     beforeEach(() => {
@@ -133,13 +131,43 @@ describe('runOmp lifecycle', () => {
         onUserMessage({ content: { text: '/resume native-id' } }, 'resume-id');
         onUserMessage({ content: { text: 'next prompt' } }, 'prompt-id');
 
-        const queue = harness.loopArgs[0]?.messageQueue as MessageQueue2<OmpMode>;
-        expect(queue.queue.map(({ message, isolate, localId }) => ({ message, isolate, localId }))).toEqual([
-            { message: '/clear', isolate: true, localId: 'clear-id' },
-            { message: '/handoff focus', isolate: true, localId: 'handoff-id' },
-            { message: '/resume native-id', isolate: true, localId: 'resume-id' },
-            { message: 'next prompt', isolate: true, localId: 'prompt-id' }
+        const queue = harness.loopArgs[0]?.messageQueue as OmpInputQueue;
+        expect(queue.queue.map(({ text, inputMode, localId }) => ({ text, inputMode, localId }))).toEqual([
+            { text: '/clear', inputMode: 'prompt', localId: 'clear-id' },
+            { text: '/handoff focus', inputMode: 'prompt', localId: 'handoff-id' },
+            { text: '/resume native-id', inputMode: 'prompt', localId: 'resume-id' },
+            { text: 'next prompt', inputMode: 'prompt', localId: 'prompt-id' }
         ]);
+    });
+
+    it('retains native attachment metadata and explicit OMP input command type', async () => {
+        await runOmp({ startingMode: 'remote', workingDirectory: '/work' });
+        const onUserMessage = harness.session.onUserMessage.mock.calls[0]?.[0] as (
+            message: {
+                content: { text: string; attachments: Array<Record<string, unknown>> };
+                meta?: { ompInputMode?: 'steer' };
+            },
+            localId: string
+        ) => void;
+        const attachment = {
+            id: 'image-1',
+            filename: 'image.png',
+            mimeType: 'image/png',
+            size: 12,
+            path: '/uploads/image.png'
+        };
+        onUserMessage({
+            content: { text: 'look here', attachments: [attachment] },
+            meta: { ompInputMode: 'steer' }
+        }, 'steer-id');
+
+        const queue = harness.loopArgs[0]?.messageQueue as OmpInputQueue;
+        expect(queue.queue[0]).toEqual(expect.objectContaining({
+            text: 'look here',
+            attachments: [attachment],
+            inputMode: 'steer',
+            localId: 'steer-id'
+        }));
     });
 
     it('reports an explicit error and classifies a native crash separately from user termination', async () => {

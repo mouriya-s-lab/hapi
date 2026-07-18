@@ -23,47 +23,23 @@ import {
     type OmpSessionMutationCommand,
 } from './rpc/sessionLifecycle';
 import { resolveOmpSessionPath } from './utils/ompSessionScanner';
+import type { OmpQueuedInput } from './OmpInputQueue';
+import { describeIgnoredOmpAttachments, prepareOmpInput } from './ompInputContent';
 
-type TurnWaiter = {
-    promise: Promise<void>;
-    resolve: () => void;
-    reject: (error: Error) => void;
-    settled: boolean;
+type PromptLifecycle = {
+    phase: 'awaiting-agent' | 'streaming';
+    modeHash: string;
+    ignoreAgentEnds: number;
 };
-
-function createTurnWaiter(): TurnWaiter {
-    let resolvePromise!: () => void;
-    let rejectPromise!: (error: Error) => void;
-    const promise = new Promise<void>((resolve, reject) => {
-        resolvePromise = resolve;
-        rejectPromise = reject;
-    });
-    const waiter: TurnWaiter = {
-        promise,
-        settled: false,
-        resolve: () => {
-            if (waiter.settled) {
-                return;
-            }
-            waiter.settled = true;
-            resolvePromise();
-        },
-        reject: (error) => {
-            if (waiter.settled) {
-                return;
-            }
-            waiter.settled = true;
-            rejectPromise(error);
-        }
-    };
-    return waiter;
-}
 
 class OmpRemoteLauncher extends RemoteLauncherBase {
     private readonly session: OmpSession;
     private client: OmpRpcClient | null = null;
-    private queueAbortController = new AbortController();
-    private currentTurn: TurnWaiter | null = null;
+    private currentPrompt: PromptLifecycle | null = null;
+    private heldInput: OmpQueuedInput | null = null;
+    private nativeFollowUpOutstanding = false;
+    private isStreaming = false;
+    private dispatching = false;
     private transportFailure: Error | null = null;
     private displayModel: string | null = null;
     private displayPermissionMode: PermissionMode | null = null;
@@ -71,6 +47,9 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
     private defaultModel: OmpModel | null = null;
     private availableModels: OmpModel[] = [];
     private sessionReconciler: OmpSessionStateReconciler | null = null;
+    private removeQueueChangeListener: (() => void) | null = null;
+    private changeVersion = 0;
+    private changeWaiter: (() => void) | null = null;
 
     constructor(session: OmpSession) {
         super(process.env.DEBUG ? session.logPath : undefined);
@@ -104,6 +83,7 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         this.availableModels = client.discovery.models;
         this.currentModel = client.discovery.state.model ?? null;
         this.defaultModel = this.currentModel;
+        this.isStreaming = client.discovery.state.isStreaming;
 
         logger.debug(
             `[omp-remote] RPC ${client.discovery.version} ready; `
@@ -125,19 +105,47 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
                 }
             },
             onInkMessage: (message, type) => this.messageBuffer.addMessage(message, type),
-            onTurnStarted: () => session.onThinkingChange(true),
-            onTurnFinished: () => this.finishCurrentTurn(),
+            onUserMessageCommitted: (steering) => {
+                if (!steering && this.nativeFollowUpOutstanding) {
+                    this.nativeFollowUpOutstanding = false;
+                    this.signalChange();
+                }
+            },
+            onTurnStarted: () => {
+                this.isStreaming = true;
+                if (this.currentPrompt) {
+                    this.currentPrompt.phase = 'streaming';
+                }
+                session.onThinkingChange(true);
+                this.signalChange();
+            },
+            onTurnFinished: () => {
+                this.isStreaming = false;
+                if (this.currentPrompt?.ignoreAgentEnds) {
+                    this.currentPrompt.ignoreAgentEnds -= 1;
+                } else {
+                    this.clearCurrentPrompt();
+                    this.nativeFollowUpOutstanding = false;
+                }
+                this.signalChange();
+                void sessionReconciler.reconcile().catch((error) => {
+                    this.handleTransportFailure(error);
+                });
+                void this.sendReadyIfIdle();
+            },
             onPromptResult: (agentInvoked) => {
                 if (!agentInvoked) {
-                    this.finishCurrentTurn();
+                    this.clearCurrentPrompt();
+                    this.signalChange();
+                    void sessionReconciler.reconcile().catch((error) => {
+                        this.handleTransportFailure(error);
+                    });
+                    void this.sendReadyIfIdle();
                 }
             },
             onSessionInfoUpdate: () => {
                 void sessionReconciler.reconcile().catch((error) => {
-                    const failure = error instanceof Error ? error : new Error(String(error));
-                    this.transportFailure = failure;
-                    this.failCurrentTurn(failure);
-                    this.queueAbortController.abort(failure);
+                    this.handleTransportFailure(error);
                 });
             },
             onDiagnostic: (message) => logger.warn(`[omp-remote] ${message}`)
@@ -148,10 +156,9 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
             if (this.shouldExit) {
                 return;
             }
-            this.transportFailure = reason;
-            this.failCurrentTurn(reason);
-            this.queueAbortController.abort(reason);
+            this.handleTransportFailure(reason);
         });
+        this.removeQueueChangeListener = session.queue.onChange(() => this.signalChange());
 
         session.client.rpcHandlerManager.registerHandler(RPC_METHODS.ListOpencodeModels, async () => ({
             success: true,
@@ -179,105 +186,282 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         await this.sendReadyIfIdle();
 
         while (!this.shouldExit) {
-            const batch = await session.queue.waitForMessagesAndGetAsString(
-                this.queueAbortController.signal
-            );
-            if (!batch) {
-                if (this.transportFailure) {
-                    throw this.transportFailure;
+            if (this.transportFailure) {
+                throw this.transportFailure;
+            }
+
+            if (this.heldInput && !session.queue.isHeld(this.heldInput)) {
+                this.heldInput = null;
+                continue;
+            }
+            if (!this.heldInput) {
+                this.heldInput = session.queue.take();
+                if (this.heldInput) {
+                    continue;
                 }
-                if (this.shouldExit || session.queue.isClosed()) {
-                    break;
+            }
+
+            if (this.heldInput && this.canDispatch(this.heldInput)) {
+                const input = this.heldInput;
+                await this.dispatchInput(input, client);
+                if (this.heldInput?.id === input.id) {
+                    this.heldInput = null;
                 }
-                this.queueAbortController = new AbortController();
                 continue;
             }
 
-            await this.applyRequestedModel(batch.mode.model);
-            this.applyDisplayMode(batch.mode.permissionMode, this.currentModel?.id);
-            this.messageBuffer.addMessage(batch.message, 'user');
-
-            const mutation = parseOmpSessionMutation(batch.message);
-            if (mutation) {
-                session.onThinkingChange(true);
-                try {
-                    if (mutation.type === 'invalid_session_command') {
-                        throw new Error(mutation.message);
-                    }
-                    if (mutation.type === 'resume_session_picker') {
-                        throw new Error('Use /resume <session id> when controlling OMP remotely');
-                    }
-                    let rpcMutation: OmpSessionMutationCommand;
-                    if (mutation.type === 'resume_session') {
-                        const sessionPath = await resolveOmpSessionPath(mutation.sessionArg, session.path);
-                        if (sessionPath === null) {
-                            throw new Error(`Session "${mutation.sessionArg}" not found`);
-                        }
-                        rpcMutation = { type: 'switch_session', sessionPath };
-                    } else {
-                        rpcMutation = mutation;
-                    }
-                    await runOmpSessionMutation(
-                        client,
-                        rpcMutation,
-                        session.applyNativeSessionSnapshot
-                    );
-                } catch (error) {
-                    const detail = error instanceof Error ? error.message : String(error);
-                    logger.warn('[omp-remote] RPC session mutation failed', error);
-                    session.sendSessionEvent({
-                        type: 'message',
-                        message: `Oh My Pi RPC session mutation failed: ${detail}`
-                    });
-                    this.messageBuffer.addMessage(`Oh My Pi RPC session mutation failed: ${detail}`, 'status');
-                } finally {
-                    session.onThinkingChange(false);
-                    await this.sendReadyIfIdle();
-                }
-                continue;
+            if (
+                session.queue.isClosed()
+                && session.queue.size() === 0
+                && session.queue.heldSize() === 0
+                && !this.hasUnfinishedNativeInput()
+            ) {
+                break;
             }
-            const message = batch.mode.permissionMode === 'plan'
-                ? `${PLAN_MODE_INSTRUCTION}\n\n${batch.message}`
-                : batch.message;
-            const turn = createTurnWaiter();
-            this.currentTurn = turn;
-            session.onThinkingChange(true);
 
-            try {
-                const response = await client.request({ type: 'prompt', message });
-                if (response?.agentInvoked === false) {
-                    turn.resolve();
-                }
-                await turn.promise;
-                await sessionReconciler.reconcile();
-            } catch (error) {
-                const detail = error instanceof Error ? error.message : String(error);
-                logger.warn('[omp-remote] RPC prompt failed', error);
-                session.sendSessionEvent({
-                    type: 'message',
-                    message: `Oh My Pi RPC prompt failed: ${detail}`
-                });
-                this.messageBuffer.addMessage(`Oh My Pi RPC prompt failed: ${detail}`, 'status');
-            } finally {
-                if (this.currentTurn === turn) {
-                    this.currentTurn = null;
-                }
-                session.onThinkingChange(false);
-                await this.sendReadyIfIdle();
-            }
+            const observedVersion = this.changeVersion;
+            await this.waitForChange(observedVersion);
         }
     }
 
     protected async cleanup(): Promise<void> {
         this.clearAbortHandlers(this.session.client.rpcHandlerManager);
-        this.queueAbortController.abort(new Error('OMP remote launcher cleanup'));
-        this.finishCurrentTurn();
+        this.removeQueueChangeListener?.();
+        this.removeQueueChangeListener = null;
+        this.session.queue.requeueHeld();
+        this.heldInput = null;
+        this.clearCurrentPrompt();
+        this.signalChange();
         await this.sessionReconciler?.drain();
         this.sessionReconciler = null;
         const client = this.client;
         this.client = null;
         if (client) {
             await client.close();
+        }
+    }
+
+    private canDispatch(input: OmpQueuedInput): boolean {
+        const mutation = input.inputMode === 'prompt'
+            ? parseOmpSessionMutation(input.text)
+            : null;
+        if (mutation) {
+            return !this.hasUnfinishedNativeInput();
+        }
+
+        const nativeBusy = this.currentPrompt !== null || this.isStreaming;
+        if (!nativeBusy) {
+            return true;
+        }
+        if (this.currentPrompt && this.currentPrompt.modeHash !== input.modeHash) {
+            return false;
+        }
+
+        switch (input.inputMode) {
+            case 'steer':
+                return true;
+            case 'abort_and_prompt':
+                return !this.nativeFollowUpOutstanding;
+            case 'prompt':
+            case 'follow_up':
+                return !this.nativeFollowUpOutstanding;
+            default: {
+                const exhaustive: never = input.inputMode;
+                return exhaustive;
+            }
+        }
+    }
+
+    private async dispatchInput(
+        input: OmpQueuedInput,
+        client: OmpRpcClient
+    ): Promise<void> {
+        if (!this.session.queue.isHeld(input)) {
+            return;
+        }
+
+        const mutation = input.inputMode === 'prompt'
+            ? parseOmpSessionMutation(input.text)
+            : null;
+        if (mutation) {
+            await this.dispatchMutation(input, mutation, client);
+            return;
+        }
+
+        let prepared: Awaited<ReturnType<typeof prepareOmpInput>>;
+        try {
+            prepared = await prepareOmpInput(input.text, input.attachments);
+        } catch (error) {
+            if (!this.session.queue.beginInvocation(input)) {
+                return;
+            }
+            const detail = error instanceof Error ? error.message : String(error);
+            this.reportInputFailure(detail);
+            this.session.queue.completeInvocation(input);
+            await this.sendReadyIfIdle();
+            return;
+        }
+        if (!this.session.queue.isHeld(input)) {
+            return;
+        }
+
+        const ignored = describeIgnoredOmpAttachments(prepared.ignoredAttachments);
+        if (ignored) {
+            this.session.sendSessionEvent({ type: 'message', message: ignored });
+            this.messageBuffer.addMessage(ignored, 'status');
+        }
+        if (!prepared.message.trim() && !prepared.images?.length) {
+            if (!this.session.queue.beginInvocation(input)) {
+                return;
+            }
+            this.reportInputFailure('OMP RPC received no text or supported image attachment');
+            this.session.queue.completeInvocation(input);
+            await this.sendReadyIfIdle();
+            return;
+        }
+        if (!this.session.queue.beginInvocation(input)) {
+            return;
+        }
+
+        this.dispatching = true;
+        const wasBusy = this.currentPrompt !== null || this.isStreaming;
+        let startedPrompt = false;
+        let queuedFollowUp = false;
+        try {
+            if (!wasBusy) {
+                await this.applyRequestedModel(input.mode.model);
+            }
+            this.applyDisplayMode(input.mode.permissionMode, this.currentModel?.id);
+            this.messageBuffer.addMessage(input.text, 'user');
+            const message = input.mode.permissionMode === 'plan'
+                ? `${PLAN_MODE_INSTRUCTION}\n\n${prepared.message}`
+                : prepared.message;
+
+            switch (input.inputMode) {
+                case 'prompt': {
+                    if (wasBusy) {
+                        queuedFollowUp = true;
+                        this.nativeFollowUpOutstanding = true;
+                        const response = await client.request({
+                            type: 'prompt',
+                            message,
+                            images: prepared.images,
+                            streamingBehavior: 'followUp'
+                        });
+                        if (response?.agentInvoked === false) {
+                            this.nativeFollowUpOutstanding = false;
+                        }
+                    } else {
+                        startedPrompt = true;
+                        this.beginPrompt(input.modeHash, 0);
+                        const response = await client.request({
+                            type: 'prompt',
+                            message,
+                            images: prepared.images
+                        });
+                        if (response?.agentInvoked === false) {
+                            this.clearCurrentPrompt();
+                        }
+                    }
+                    break;
+                }
+                case 'steer':
+                    if (!wasBusy) {
+                        startedPrompt = true;
+                        this.beginPrompt(input.modeHash, 0);
+                    }
+                    await client.request({ type: 'steer', message, images: prepared.images });
+                    break;
+                case 'follow_up':
+                    if (wasBusy) {
+                        queuedFollowUp = true;
+                        this.nativeFollowUpOutstanding = true;
+                    } else {
+                        startedPrompt = true;
+                        this.beginPrompt(input.modeHash, 0);
+                    }
+                    await client.request({ type: 'follow_up', message, images: prepared.images });
+                    break;
+                case 'abort_and_prompt':
+                    startedPrompt = true;
+                    this.nativeFollowUpOutstanding = false;
+                    this.beginPrompt(input.modeHash, wasBusy ? 1 : 0);
+                    await client.request({ type: 'abort_and_prompt', message, images: prepared.images });
+                    break;
+                default: {
+                    const exhaustive: never = input.inputMode;
+                    return exhaustive;
+                }
+            }
+            this.session.queue.completeInvocation(input);
+        } catch (error) {
+            if (startedPrompt) {
+                this.clearCurrentPrompt();
+            }
+            if (queuedFollowUp) {
+                this.nativeFollowUpOutstanding = false;
+            }
+            const detail = error instanceof Error ? error.message : String(error);
+            logger.warn(`[omp-remote] RPC ${input.inputMode} failed`, error);
+            this.reportInputFailure(detail);
+            this.session.queue.completeInvocation(input);
+        } finally {
+            this.dispatching = false;
+            this.signalChange();
+            await this.sendReadyIfIdle();
+        }
+    }
+
+    private async dispatchMutation(
+        input: OmpQueuedInput,
+        mutation: ReturnType<typeof parseOmpSessionMutation> & {},
+        client: OmpRpcClient
+    ): Promise<void> {
+        if (!this.session.queue.beginInvocation(input)) {
+            return;
+        }
+        this.dispatching = true;
+        this.session.onThinkingChange(true);
+        this.messageBuffer.addMessage(input.text, 'user');
+        if (input.attachments.length > 0) {
+            const warning = 'OMP session commands ignore attachments';
+            this.session.sendSessionEvent({ type: 'message', message: warning });
+            this.messageBuffer.addMessage(warning, 'status');
+        }
+        try {
+            await this.applyRequestedModel(input.mode.model);
+            this.applyDisplayMode(input.mode.permissionMode, this.currentModel?.id);
+            if (mutation.type === 'invalid_session_command') {
+                throw new Error(mutation.message);
+            }
+            if (mutation.type === 'resume_session_picker') {
+                throw new Error('Use /resume <session id> when controlling OMP remotely');
+            }
+            let rpcMutation: OmpSessionMutationCommand;
+            if (mutation.type === 'resume_session') {
+                const sessionPath = await resolveOmpSessionPath(mutation.sessionArg, this.session.path);
+                if (sessionPath === null) {
+                    throw new Error(`Session "${mutation.sessionArg}" not found`);
+                }
+                rpcMutation = { type: 'switch_session', sessionPath };
+            } else {
+                rpcMutation = mutation;
+            }
+            await runOmpSessionMutation(client, rpcMutation, this.session.applyNativeSessionSnapshot);
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            logger.warn('[omp-remote] RPC session mutation failed', error);
+            this.session.sendSessionEvent({
+                type: 'message',
+                message: `Oh My Pi RPC session mutation failed: ${detail}`
+            });
+            this.messageBuffer.addMessage(`Oh My Pi RPC session mutation failed: ${detail}`, 'status');
+        } finally {
+            this.session.queue.completeInvocation(input);
+            this.dispatching = false;
+            this.session.onThinkingChange(false);
+            this.signalChange();
+            await this.sendReadyIfIdle();
         }
     }
 
@@ -312,7 +496,7 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
     }
 
     private async sendReadyIfIdle(): Promise<void> {
-        if (this.shouldExit || this.currentTurn || this.session.queue.size() > 0) {
+        if (this.shouldExit || this.hasLocalPendingInput()) {
             return;
         }
         const client = this.client;
@@ -321,12 +505,36 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         }
         try {
             const state = await client.request({ type: 'get_state' });
-            if (!state.isStreaming && state.queuedMessageCount === 0 && this.session.queue.size() === 0) {
+            this.isStreaming = state.isStreaming;
+            if (
+                !state.isStreaming
+                && state.queuedMessageCount === 0
+                && !this.hasLocalPendingInput()
+            ) {
                 this.session.sendSessionEvent({ type: 'ready' });
             }
         } catch (error) {
             logger.debug('[omp-remote] failed checking ready state', error);
         }
+    }
+
+    private hasLocalPendingInput(): boolean {
+        return (
+            this.dispatching
+            || this.currentPrompt !== null
+            || this.nativeFollowUpOutstanding
+            || this.session.queue.size() > 0
+            || this.session.queue.heldSize() > 0
+        );
+    }
+
+    private hasUnfinishedNativeInput(): boolean {
+        return (
+            this.dispatching
+            || this.currentPrompt !== null
+            || this.nativeFollowUpOutstanding
+            || this.isStreaming
+        );
     }
 
     private applyDisplayMode(permissionMode: PermissionMode | undefined, model?: string): void {
@@ -340,12 +548,57 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         }
     }
 
-    private finishCurrentTurn(): void {
-        this.currentTurn?.resolve();
+    private beginPrompt(modeHash: string, ignoreAgentEnds: number): void {
+        this.currentPrompt = {
+            phase: 'awaiting-agent',
+            modeHash,
+            ignoreAgentEnds
+        };
+        this.session.onThinkingChange(true);
+        this.signalChange();
     }
 
-    private failCurrentTurn(error: Error): void {
-        this.currentTurn?.reject(error);
+    private clearCurrentPrompt(): void {
+        if (!this.currentPrompt) {
+            this.session.onThinkingChange(false);
+            return;
+        }
+        this.currentPrompt = null;
+        this.session.onThinkingChange(false);
+        this.signalChange();
+    }
+
+    private reportInputFailure(detail: string): void {
+        const message = `Oh My Pi RPC input failed: ${detail}`;
+        this.session.sendSessionEvent({ type: 'message', message });
+        this.messageBuffer.addMessage(message, 'status');
+    }
+
+    private handleTransportFailure(error: unknown): void {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        this.transportFailure = failure;
+        this.clearCurrentPrompt();
+        this.signalChange();
+    }
+
+    private signalChange(): void {
+        this.changeVersion += 1;
+        const waiter = this.changeWaiter;
+        this.changeWaiter = null;
+        waiter?.();
+    }
+
+    private waitForChange(observedVersion: number): Promise<void> {
+        if (this.changeVersion !== observedVersion) {
+            return Promise.resolve();
+        }
+        return new Promise((resolve) => {
+            this.changeWaiter = resolve;
+            if (this.changeVersion !== observedVersion) {
+                this.changeWaiter = null;
+                resolve();
+            }
+        });
     }
 
     private requireClient(): OmpRpcClient {
@@ -358,12 +611,12 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
     private async handleAbort(): Promise<void> {
         const client = this.client;
         if (client?.state === 'ready') {
-            try {
-                await client.request({ type: 'abort' });
-            } finally {
-                this.finishCurrentTurn();
-            }
+            await client.request({ type: 'abort' });
         }
+        this.nativeFollowUpOutstanding = false;
+        this.isStreaming = false;
+        this.clearCurrentPrompt();
+        this.signalChange();
         this.session.sendSessionEvent({ type: 'message', message: 'Session aborted' });
         this.session.onThinkingChange(false);
         this.messageBuffer.addMessage('Turn aborted', 'status');
@@ -372,14 +625,16 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
     private async handleExitFromUi(): Promise<void> {
         await this.requestExit('exit', async () => {
             await this.handleAbort();
-            this.queueAbortController.abort(new Error('OMP remote exit'));
+            this.signalChange();
         });
     }
 
     private async handleSwitchFromUi(): Promise<void> {
         await this.requestExit('switch', async () => {
-            this.queueAbortController.abort(new Error('OMP remote switch'));
-            this.finishCurrentTurn();
+            this.session.queue.requeueHeld();
+            this.heldInput = null;
+            this.clearCurrentPrompt();
+            this.signalChange();
         });
     }
 

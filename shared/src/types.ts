@@ -11,6 +11,7 @@ export type {
     MachinePatch,
     MachineUpdatedData,
     OmpNativeSession,
+    OmpInputMode,
     RunnerState,
     Session,
     SessionPatch,

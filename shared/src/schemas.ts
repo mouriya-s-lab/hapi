@@ -222,6 +222,15 @@ export const AttachmentMetadataSchema = z.object({
 
 export type AttachmentMetadata = z.infer<typeof AttachmentMetadataSchema>
 
+export const OmpInputModeSchema = z.enum([
+    'prompt',
+    'steer',
+    'follow_up',
+    'abort_and_prompt'
+])
+
+export type OmpInputMode = z.infer<typeof OmpInputModeSchema>
+
 export const DecryptedMessageSchema = z.object({
     id: z.string(),
     seq: z.number().nullable(),
