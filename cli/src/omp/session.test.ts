@@ -104,4 +104,29 @@ describe('OmpSession native snapshot metadata', () => {
             session.stopKeepAlive();
         }
     });
+
+    it('persists effective, configured, and resolved OMP thinking independently', () => {
+        const { session, updateMetadata } = createSession();
+        try {
+            session.updateThinkingState({
+                thinkingLevel: 'high',
+                configured: 'auto',
+                resolved: 'high'
+            });
+            const update = updateMetadata.mock.calls[0]?.[0] as (
+                metadata: Record<string, unknown>
+            ) => Record<string, unknown>;
+            expect(update({ path: '/work', host: 'host' })).toEqual({
+                path: '/work',
+                host: 'host',
+                ompThinking: {
+                    thinkingLevel: 'high',
+                    configured: 'auto',
+                    resolved: 'high'
+                }
+            });
+        } finally {
+            session.stopKeepAlive();
+        }
+    });
 });

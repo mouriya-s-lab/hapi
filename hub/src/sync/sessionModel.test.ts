@@ -512,6 +512,51 @@ describe('session model', () => {
         }
     })
 
+    it('feeds a native OMP model cycle back through the CLI per-turn config', async () => {
+        const store = new Store(':memory:')
+        const engine = new SyncEngine(
+            store,
+            { of: () => ({ to: () => ({ emit() {} }) }) } as never,
+            new RpcRegistry(),
+            { broadcast() {} } as never
+        )
+
+        try {
+            const session = engine.getOrCreateSession(
+                'session-omp-cycle-config',
+                { path: '/tmp/project', host: 'localhost', flavor: 'omp' },
+                null,
+                'default',
+                'openai-codex/gpt-5.4-mini'
+            )
+            engine.handleSessionAlive({ sid: session.id, time: Date.now() })
+
+            ;(engine as any).rpcGateway.cycleOmpModelForSession = async () => ({
+                success: true,
+                currentModel: { provider: 'openai-codex', modelId: 'gpt-5.4-nano' }
+            })
+            const configRequests: unknown[] = []
+            ;(engine as any).rpcGateway.requestSessionConfig = async (
+                _sessionId: string,
+                config: unknown
+            ) => {
+                configRequests.push(config)
+                return { applied: config }
+            }
+
+            await expect(engine.cycleOmpModelForSession(session.id)).resolves.toEqual({
+                success: true,
+                currentModel: { provider: 'openai-codex', modelId: 'gpt-5.4-nano' }
+            })
+            expect(configRequests).toEqual([{
+                model: 'openai-codex/gpt-5.4-nano'
+            }])
+            expect(engine.getSession(session.id)?.model).toBe('openai-codex/gpt-5.4-nano')
+        } finally {
+            engine.stop()
+        }
+    })
+
     it('touches session updatedAt when web sends a message through sync engine', async () => {
         const store = new Store(':memory:')
         const engine = new SyncEngine(

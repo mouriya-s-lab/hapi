@@ -53,9 +53,9 @@ describe('hasCapability', () => {
         expect(hasCapability('grok', Capabilities.Effort)).toBe(true)
     })
 
-    test('omp supports model-change but not effort', () => {
+    test('omp supports native model-change and thinking through effort', () => {
         expect(hasCapability('omp', Capabilities.ModelChange)).toBe(true)
-        expect(hasCapability('omp', Capabilities.Effort)).toBe(false)
+        expect(hasCapability('omp', Capabilities.Effort)).toBe(true)
     })
 
     test('unknown flavor returns false', () => {
@@ -133,6 +133,7 @@ describe('convenience functions', () => {
         expect(supportsEffort('gemini')).toBe(false)
         expect(supportsEffort('pi')).toBe(true)
         expect(supportsEffort('grok')).toBe(true)
+        expect(supportsEffort('omp')).toBe(true)
         expect(supportsEffort('kimi')).toBe(false)
         expect(supportsEffort(null)).toBe(false)
     })

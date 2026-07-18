@@ -8,13 +8,33 @@ import {
 } from '@/modules/common/remote/RemoteLauncherBase';
 import { OmpDisplay } from '@/ui/ink/OmpDisplay';
 import type { OmpSession } from './session';
+import type { OmpRuntimeConfigApplied, OmpRuntimeConfigRequest } from './session';
 import type { PermissionMode } from './types';
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 import { PLAN_MODE_INSTRUCTION } from './utils/systemPrompt';
 import { buildOmpEnv } from './utils/config';
 import { OmpRpcClient } from './rpc/OmpRpcClient';
 import { OmpRpcEventAdapter } from './rpc/OmpRpcEventAdapter';
-import type { OmpModel, OmpRpcSpawnConfig } from './rpc/types';
+import type {
+    OmpContextUsage,
+    OmpModel,
+    OmpRpcSpawnConfig,
+    OmpSessionState
+} from './rpc/types';
+import type { AgentMessage } from '@/agent/types';
+import type {
+    ListOmpModelsResponse,
+    ListOmpThinkingOptionsResponse,
+    CycleOmpModelResponse,
+    OmpModelSummary,
+    OmpThinkingOption
+} from '@hapi/protocol/apiTypes';
+import {
+    OMP_THINKING_LEVELS,
+    type OmpConfiguredThinkingLevel,
+    type OmpEffort,
+    type OmpThinkingState
+} from '@hapi/protocol/omp';
 import {
     nativeSessionSnapshotFromState,
     OmpSessionStateReconciler,
@@ -46,6 +66,15 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
     private currentModel: OmpModel | null = null;
     private defaultModel: OmpModel | null = null;
     private availableModels: OmpModel[] = [];
+    private contextUsage: OmpContextUsage | null = null;
+    private thinkingState: OmpThinkingState = {
+        thinkingLevel: null,
+        configured: null,
+        resolved: null
+    };
+    private confirmedConfiguredThinking: OmpConfiguredThinkingLevel | null = null;
+    private lastPersistedThinkingKey: string | null = null;
+    private readonly eventTasks = new Set<Promise<void>>();
     private sessionReconciler: OmpSessionStateReconciler | null = null;
     private removeQueueChangeListener: (() => void) | null = null;
     private changeVersion = 0;
@@ -84,6 +113,15 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         this.currentModel = client.discovery.state.model ?? null;
         this.defaultModel = this.currentModel;
         this.isStreaming = client.discovery.state.isStreaming;
+        this.contextUsage = client.discovery.state.contextUsage ?? null;
+        const persistedConfigured = this.asConfiguredThinking(session.getEffort());
+        this.thinkingState = {
+            thinkingLevel: client.discovery.state.thinkingLevel ?? null,
+            configured: persistedConfigured ?? client.discovery.state.thinkingLevel ?? null,
+            resolved: null
+        };
+        this.confirmedConfiguredThinking = client.discovery.state.thinkingLevel ?? null;
+        this.persistRuntimeState(client.discovery.state);
 
         logger.debug(
             `[omp-remote] RPC ${client.discovery.version} ready; `
@@ -99,10 +137,7 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
 
         const eventAdapter = new OmpRpcEventAdapter({
             onAgentMessage: (message) => {
-                const converted = convertAgentMessage(message);
-                if (converted) {
-                    session.sendAgentMessage(converted);
-                }
+                this.forwardAgentMessage(message);
             },
             onInkMessage: (message, type) => this.messageBuffer.addMessage(message, type),
             onUserMessageCommitted: (steering) => {
@@ -147,7 +182,9 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
                 void sessionReconciler.reconcile().catch((error) => {
                     this.handleTransportFailure(error);
                 });
+                this.trackEventTask(this.refreshRuntimeState());
             },
+            onThinkingStateChanged: (state) => this.handleThinkingStateChanged(state),
             onDiagnostic: (message) => logger.warn(`[omp-remote] ${message}`)
         });
         client.onEvent((event) => eventAdapter.handle(event));
@@ -160,19 +197,24 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         });
         this.removeQueueChangeListener = session.queue.onChange(() => this.signalChange());
 
-        session.client.rpcHandlerManager.registerHandler(RPC_METHODS.ListOpencodeModels, async () => ({
-            success: true,
-            availableModels: this.availableModels.map((model) => ({
-                modelId: model.id,
-                name: model.name,
-                reasoningEfforts: model.thinking?.efforts.map((effort) => ({
-                    value: effort,
-                    name: effort,
-                    isDefault: effort === model.thinking?.defaultLevel
-                }))
-            })),
-            currentModelId: this.currentModel?.id ?? null
-        }));
+        session.client.rpcHandlerManager.registerHandler<Record<string, never>, ListOmpModelsResponse>(
+            RPC_METHODS.ListOmpModels,
+            async () => await this.listModels()
+        );
+        session.client.rpcHandlerManager.registerHandler<Record<string, never>, ListOmpThinkingOptionsResponse>(
+            RPC_METHODS.ListOmpThinkingOptions,
+            async () => await this.listThinkingOptions()
+        );
+        session.client.rpcHandlerManager.registerHandler<Record<string, never>, CycleOmpModelResponse>(
+            RPC_METHODS.CycleOmpModel,
+            async () => await this.cycleModel()
+        );
+        session.setRuntimeConfigApplier(async (config) => await this.applyRuntimeConfig(config));
+
+        const requestedThinking = this.asConfiguredThinking(session.getEffort());
+        if (requestedThinking) {
+            await this.applyRequestedThinking(requestedThinking);
+        }
 
         this.setupAbortHandlers(session.client.rpcHandlerManager, {
             onAbort: () => this.handleAbort(),
@@ -226,6 +268,7 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
 
     protected async cleanup(): Promise<void> {
         this.clearAbortHandlers(this.session.client.rpcHandlerManager);
+        this.session.setRuntimeConfigApplier(null);
         this.removeQueueChangeListener?.();
         this.removeQueueChangeListener = null;
         this.session.queue.requeueHeld();
@@ -234,6 +277,7 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         this.signalChange();
         await this.sessionReconciler?.drain();
         this.sessionReconciler = null;
+        await Promise.allSettled(this.eventTasks);
         const client = this.client;
         this.client = null;
         if (client) {
@@ -330,6 +374,7 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         try {
             if (!wasBusy) {
                 await this.applyRequestedModel(input.mode.model);
+                await this.applyRequestedThinking(input.mode.effort);
             }
             this.applyDisplayMode(input.mode.permissionMode, this.currentModel?.id);
             this.messageBuffer.addMessage(input.text, 'user');
@@ -430,6 +475,7 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         }
         try {
             await this.applyRequestedModel(input.mode.model);
+            await this.applyRequestedThinking(input.mode.effort);
             this.applyDisplayMode(input.mode.permissionMode, this.currentModel?.id);
             if (mutation.type === 'invalid_session_command') {
                 throw new Error(mutation.message);
@@ -475,24 +521,257 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
                 model.id === requested || `${model.provider}/${model.id}` === requested
             )) ?? null;
         if (!target) {
-            this.session.sendSessionEvent({
-                type: 'message',
-                message: `OMP model is not available: ${requested ?? 'default'}`
-            });
-            return;
+            throw new Error(`OMP model is not available: ${requested ?? 'default'}`);
         }
         if (target.provider === this.currentModel?.provider && target.id === this.currentModel.id) {
             return;
         }
 
         const client = this.requireClient();
-        this.currentModel = await client.request({
+        await client.request({
             type: 'set_model',
             provider: target.provider,
             modelId: target.id
         });
         const state = await client.request({ type: 'get_state' });
-        this.currentModel = state.model ?? this.currentModel;
+        this.persistRuntimeState(state);
+        if (
+            state.model?.provider !== target.provider
+            || state.model.id !== target.id
+        ) {
+            throw new Error(
+                `OMP did not apply model ${target.provider}/${target.id}; `
+                + `active model is ${state.model ? `${state.model.provider}/${state.model.id}` : 'unknown'}`
+            );
+        }
+    }
+
+    private asConfiguredThinking(value: unknown): OmpConfiguredThinkingLevel | null {
+        if (typeof value !== 'string') {
+            return null;
+        }
+        const normalized = value.trim().toLowerCase();
+        if (normalized === 'auto') {
+            return 'auto';
+        }
+        return (OMP_THINKING_LEVELS as readonly string[]).includes(normalized)
+            ? normalized as OmpConfiguredThinkingLevel
+            : null;
+    }
+
+    private persistRuntimeState(state: OmpSessionState): void {
+        this.currentModel = state.model ?? null;
+        this.contextUsage = state.contextUsage ?? null;
+        this.isStreaming = state.isStreaming;
+        this.thinkingState = {
+            ...this.thinkingState,
+            thinkingLevel: state.thinkingLevel ?? null
+        };
+
+        const thinkingKey = JSON.stringify(this.thinkingState);
+        if (thinkingKey !== this.lastPersistedThinkingKey) {
+            this.lastPersistedThinkingKey = thinkingKey;
+            this.session.updateThinkingState(this.thinkingState);
+        }
+    }
+
+    private trackEventTask(task: Promise<void>): void {
+        let tracked: Promise<void>;
+        tracked = task
+            .catch((error) => this.handleTransportFailure(error))
+            .finally(() => this.eventTasks.delete(tracked));
+        this.eventTasks.add(tracked);
+    }
+
+    private forwardAgentMessage(message: AgentMessage): void {
+        if (message.type !== 'usage') {
+            const converted = convertAgentMessage(message);
+            if (converted) {
+                this.session.sendAgentMessage(converted);
+            }
+            return;
+        }
+
+        this.trackEventTask((async () => {
+            const state = await this.requireClient().request({ type: 'get_state' });
+            this.persistRuntimeState(state);
+            const converted = convertAgentMessage({
+                ...message,
+                contextTokens: state.contextUsage?.tokens,
+                contextWindow: state.contextUsage?.contextWindow
+            });
+            if (converted) {
+                this.session.sendAgentMessage(converted);
+            }
+        })());
+    }
+
+    private async refreshRuntimeState(): Promise<void> {
+        const state = await this.requireClient().request({ type: 'get_state' });
+        this.persistRuntimeState(state);
+    }
+
+    private handleThinkingStateChanged(state: {
+        thinkingLevel?: import('./rpc/types').OmpThinkingLevel;
+        configured?: OmpConfiguredThinkingLevel;
+        resolved?: OmpEffort;
+    }): void {
+        const configured = state.configured ?? this.thinkingState.configured;
+        this.thinkingState = {
+            thinkingLevel: state.thinkingLevel ?? this.thinkingState.thinkingLevel,
+            configured,
+            resolved: configured === 'auto' ? state.resolved ?? null : null
+        };
+        if (state.configured) {
+            this.confirmedConfiguredThinking = state.configured;
+        }
+        const thinkingKey = JSON.stringify(this.thinkingState);
+        if (thinkingKey !== this.lastPersistedThinkingKey) {
+            this.lastPersistedThinkingKey = thinkingKey;
+            this.session.updateThinkingState(this.thinkingState);
+        }
+    }
+
+    private async listModels(): Promise<ListOmpModelsResponse> {
+        try {
+            const client = this.requireClient();
+            const catalog = await client.request({ type: 'get_available_models' });
+            this.availableModels = catalog.models;
+            const state = await client.request({ type: 'get_state' });
+            this.persistRuntimeState(state);
+            return {
+                success: true,
+                availableModels: catalog.models.map((model): OmpModelSummary => ({
+                    provider: model.provider,
+                    modelId: model.id,
+                    name: model.name,
+                    reasoning: model.reasoning,
+                    contextWindow: model.contextWindow,
+                    maxTokens: model.maxTokens,
+                    thinkingLevels: model.thinking?.efforts ?? []
+                })),
+                currentModel: state.model
+                    ? { provider: state.model.provider, modelId: state.model.id }
+                    : null
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to list OMP models'
+            };
+        }
+    }
+
+    private async listThinkingOptions(): Promise<ListOmpThinkingOptionsResponse> {
+        try {
+            const state = await this.requireClient().request({ type: 'get_state' });
+            this.persistRuntimeState(state);
+            const values: OmpConfiguredThinkingLevel[] = state.model?.reasoning
+                ? ['auto', 'off', ...(state.model.thinking?.efforts ?? [])]
+                : ['off'];
+            const seen = new Set<OmpConfiguredThinkingLevel>();
+            const options = values
+                .filter((value) => !seen.has(value) && seen.add(value))
+                .map((value): OmpThinkingOption => ({ value, name: value }));
+            return { success: true, options, state: this.thinkingState };
+        } catch (error) {
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to list OMP thinking options'
+            };
+        }
+    }
+
+    private async cycleModel(): Promise<CycleOmpModelResponse> {
+        if (this.hasUnfinishedNativeInput()) {
+            return { success: false, error: 'OMP model can only be cycled while the session is idle' };
+        }
+        try {
+            const client = this.requireClient();
+            const cycled = await client.request({ type: 'cycle_model' });
+            if (!cycled) {
+                return { success: false, error: 'OMP has no other available model' };
+            }
+            const state = await client.request({ type: 'get_state' });
+            this.persistRuntimeState(state);
+            if (
+                state.model?.provider !== cycled.model.provider
+                || state.model.id !== cycled.model.id
+            ) {
+                throw new Error('OMP cycle_model response did not match get_state');
+            }
+            return {
+                success: true,
+                currentModel: { provider: state.model.provider, modelId: state.model.id }
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to cycle OMP model'
+            };
+        }
+    }
+
+    private async applyRequestedThinking(
+        requested: OmpConfiguredThinkingLevel | undefined
+    ): Promise<void> {
+        if (requested === undefined || requested === this.confirmedConfiguredThinking) {
+            return;
+        }
+
+        const client = this.requireClient();
+        if (requested === 'auto') {
+            let selectedAuto = false;
+            for (let attempt = 0; attempt < OMP_THINKING_LEVELS.length + 2; attempt += 1) {
+                const cycled = await client.request({ type: 'cycle_thinking_level' });
+                if (cycled?.level === 'auto') {
+                    selectedAuto = true;
+                    break;
+                }
+            }
+            if (!selectedAuto) {
+                throw new Error('OMP did not expose the auto thinking selector while cycling');
+            }
+        } else {
+            await client.request({ type: 'set_thinking_level', level: requested });
+        }
+
+        const state = await client.request({ type: 'get_state' });
+        if (requested !== 'auto' && (state.thinkingLevel ?? null) !== requested) {
+            throw new Error(
+                `OMP did not apply thinking level ${requested}; `
+                + `effective level is ${state.thinkingLevel ?? 'unset'}`
+            );
+        }
+        this.confirmedConfiguredThinking = requested;
+        this.thinkingState = {
+            thinkingLevel: state.thinkingLevel ?? null,
+            configured: requested,
+            resolved: null
+        };
+        this.persistRuntimeState(state);
+    }
+
+    private async applyRuntimeConfig(
+        config: OmpRuntimeConfigRequest
+    ): Promise<OmpRuntimeConfigApplied> {
+        if (this.hasUnfinishedNativeInput()) {
+            throw new Error('OMP model and thinking can only be changed while the session is idle');
+        }
+
+        const applied: OmpRuntimeConfigApplied = {};
+        if (config.model !== undefined) {
+            await this.applyRequestedModel(config.model);
+            if (!this.currentModel) {
+                throw new Error('OMP did not report an active model after configuration');
+            }
+            applied.model = `${this.currentModel.provider}/${this.currentModel.id}`;
+        }
+        if (config.effort !== undefined) {
+            await this.applyRequestedThinking(config.effort);
+            applied.effort = config.effort;
+        }
+        return applied;
     }
 
     private async sendReadyIfIdle(): Promise<void> {
@@ -505,7 +784,7 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         }
         try {
             const state = await client.request({ type: 'get_state' });
-            this.isStreaming = state.isStreaming;
+            this.persistRuntimeState(state);
             if (
                 !state.isStreaming
                 && state.queuedMessageCount === 0

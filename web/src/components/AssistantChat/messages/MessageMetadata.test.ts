@@ -49,6 +49,15 @@ describe('buildMessageMetadataLabels', () => {
         expect(parts.some(p => p.includes('300 billable tokens (100 in / 200 out)'))).toBe(true)
     })
 
+    it('renders provider-native OMP cost alongside usage', () => {
+        const parts = buildMessageMetadataLabels({
+            model: 'ollama/qwen3',
+            usage: { input_tokens: 120, output_tokens: 30, cost_usd: 0.031 }
+        })
+        expect(parts).toContain('Model: ollama/qwen3')
+        expect(parts).toContain('Cost: $0.0310')
+    })
+
     it('does not drop a Duration line when durationMs is exactly 0', () => {
         const parts = buildMessageMetadataLabels({ durationMs: 0 })
         expect(parts).toContain('Duration: 0.0s')

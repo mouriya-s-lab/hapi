@@ -2,24 +2,14 @@ export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 export type JsonObject = { [key: string]: JsonValue };
 
-export const OMP_EFFORT_LEVELS = [
-    'minimal',
-    'low',
-    'medium',
-    'high',
-    'xhigh',
-    'max'
-] as const;
+import type {
+    OmpConfiguredThinkingLevel,
+    OmpEffort,
+    OmpThinkingLevel
+} from '@hapi/protocol/omp';
 
-export const OMP_THINKING_LEVELS = [
-    'inherit',
-    'off',
-    ...OMP_EFFORT_LEVELS
-] as const;
-
-export type OmpEffort = (typeof OMP_EFFORT_LEVELS)[number];
-export type OmpThinkingLevel = (typeof OMP_THINKING_LEVELS)[number];
-export type OmpConfiguredThinkingLevel = OmpThinkingLevel | 'auto';
+export { OMP_EFFORT_LEVELS, OMP_THINKING_LEVELS } from '@hapi/protocol/omp';
+export type { OmpConfiguredThinkingLevel, OmpEffort, OmpThinkingLevel } from '@hapi/protocol/omp';
 export type OmpQueueMode = 'all' | 'one-at-a-time';
 export type OmpInterruptMode = 'immediate' | 'wait';
 export type OmpSubagentSubscriptionLevel = 'off' | 'progress' | 'events';

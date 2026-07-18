@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { AgentMessage } from '@/agent/types';
+import type { AgentMessage, AgentUsage } from '@/agent/types';
 import type { JsonObject, JsonValue, OmpInboundEvent } from './types';
 
 const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
@@ -18,7 +18,14 @@ const UsageSchema = z.object({
     cacheRead: z.number(),
     cacheWrite: z.number(),
     totalTokens: z.number(),
-    reasoningTokens: z.number().optional()
+    reasoningTokens: z.number().optional(),
+    cost: z.object({
+        input: z.number(),
+        output: z.number(),
+        cacheRead: z.number(),
+        cacheWrite: z.number(),
+        total: z.number()
+    })
 });
 
 const AssistantMessageSchema = z.object({
@@ -90,6 +97,11 @@ export type OmpRpcEventAdapterCallbacks = {
     onTurnFinished: () => void;
     onPromptResult: (agentInvoked: boolean) => void;
     onSessionInfoUpdate: () => void;
+    onThinkingStateChanged: (state: {
+        thinkingLevel?: import('./types').OmpThinkingLevel;
+        configured?: import('./types').OmpConfiguredThinkingLevel;
+        resolved?: import('./types').OmpEffort;
+    }) => void;
     onDiagnostic: (message: string) => void;
 };
 
@@ -163,6 +175,8 @@ export class OmpRpcEventAdapter {
                 this.handleStatusEvent(event.raw, 'OMP compaction finished');
                 return;
             case 'thinking_level_changed':
+                this.handleThinkingLevelChanged(event.raw);
+                return;
             case 'ttsr_triggered':
             case 'todo_reminder':
             case 'todo_auto_clear':
@@ -170,6 +184,8 @@ export class OmpRpcEventAdapter {
             case 'goal_updated':
             case 'available_commands_update':
             case 'config_update':
+                this.callbacks.onSessionInfoUpdate();
+                return;
             case 'command_output':
             case 'extension_error':
             case 'subagent_lifecycle':
@@ -213,16 +229,31 @@ export class OmpRpcEventAdapter {
 
         const assistant = AssistantMessageSchema.safeParse(event.data.message);
         if (assistant.success) {
-            for (const block of assistant.data.content) {
-                this.handleAssistantContent(block);
-            }
-            this.callbacks.onAgentMessage({
-                type: 'usage',
+            const modelLabel = `${assistant.data.provider}/${assistant.data.model}`;
+            const usage: AgentUsage = {
                 inputTokens: assistant.data.usage.input,
                 outputTokens: assistant.data.usage.output,
                 totalTokens: assistant.data.usage.totalTokens,
                 thoughtTokens: assistant.data.usage.reasoningTokens,
-                cacheReadTokens: assistant.data.usage.cacheRead
+                cacheReadTokens: assistant.data.usage.cacheRead,
+                costUsd: assistant.data.usage.cost.total
+            };
+            let decoratedBlockIndex = -1;
+            for (let index = assistant.data.content.length - 1; index >= 0; index -= 1) {
+                if (this.isForwardedAssistantContent(assistant.data.content[index]!)) {
+                    decoratedBlockIndex = index;
+                    break;
+                }
+            }
+            for (const [index, block] of assistant.data.content.entries()) {
+                this.handleAssistantContent(
+                    block,
+                    index === decoratedBlockIndex ? { model: modelLabel, usage } : undefined
+                );
+            }
+            this.callbacks.onAgentMessage({
+                type: 'usage',
+                ...usage
             });
             if (assistant.data.errorMessage) {
                 this.callbacks.onAgentMessage({ type: 'error', message: assistant.data.errorMessage });
@@ -260,16 +291,34 @@ export class OmpRpcEventAdapter {
         }
     }
 
-    private handleAssistantContent(block: JsonObject): void {
+    private isForwardedAssistantContent(block: JsonObject): boolean {
+        if (block.type === 'text') {
+            return typeof block.text === 'string' && block.text.length > 0;
+        }
+        if (block.type === 'thinking') {
+            return typeof block.thinking === 'string' && block.thinking.length > 0;
+        }
+        return block.type === 'toolCall'
+            && typeof block.id === 'string'
+            && typeof block.name === 'string'
+            && block.arguments !== null
+            && typeof block.arguments === 'object'
+            && !Array.isArray(block.arguments);
+    }
+
+    private handleAssistantContent(
+        block: JsonObject,
+        details?: { model: string; usage: AgentUsage }
+    ): void {
         switch (block.type) {
             case 'text':
                 if (typeof block.text === 'string' && block.text.length > 0) {
-                    this.callbacks.onAgentMessage({ type: 'text', text: block.text });
+                    this.callbacks.onAgentMessage({ type: 'text', text: block.text, ...details });
                 }
                 return;
             case 'thinking':
                 if (typeof block.thinking === 'string' && block.thinking.length > 0) {
-                    this.callbacks.onAgentMessage({ type: 'reasoning', text: block.thinking });
+                    this.callbacks.onAgentMessage({ type: 'reasoning', text: block.thinking, ...details });
                 }
                 return;
             case 'toolCall':
@@ -285,7 +334,8 @@ export class OmpRpcEventAdapter {
                         id: block.id,
                         name: block.name,
                         input: block.arguments,
-                        status: 'pending'
+                        status: 'pending',
+                        ...details
                     });
                 }
                 return;
@@ -346,6 +396,40 @@ export class OmpRpcEventAdapter {
 
     private handleStatusEvent(raw: JsonObject, label: string): void {
         this.callbacks.onInkMessage(`${label}: ${JSON.stringify(raw)}`, 'status');
+    }
+
+    private handleThinkingLevelChanged(raw: JsonObject): void {
+        const parsed = z.object({
+            thinkingLevel: z.enum([
+                'inherit',
+                'off',
+                'minimal',
+                'low',
+                'medium',
+                'high',
+                'xhigh',
+                'max'
+            ]).optional(),
+            configured: z.union([
+                z.enum([
+                    'inherit',
+                    'off',
+                    'minimal',
+                    'low',
+                    'medium',
+                    'high',
+                    'xhigh',
+                    'max'
+                ]),
+                z.literal('auto')
+            ]).optional(),
+            resolved: z.enum(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']).optional()
+        }).safeParse(raw);
+        if (!parsed.success) {
+            this.invalidEvent('thinking_level_changed', parsed.error);
+            return;
+        }
+        this.callbacks.onThinkingStateChanged(parsed.data);
     }
 
     private textFromContent(content: JsonObject[]): string {

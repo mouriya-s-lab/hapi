@@ -798,6 +798,61 @@ describe('normalizeDecryptedMessage', () => {
         })
     })
 
+    it('preserves OMP provider model labels and native cost on canonical Codex-shaped messages', () => {
+        const reasoning = makeMessage({
+            role: 'agent',
+            content: {
+                type: 'codex',
+                data: {
+                    type: 'reasoning',
+                    id: 'reasoning-1',
+                    message: 'native reasoning',
+                    model: 'ollama/qwen3',
+                    usage: {
+                        total: { inputTokens: 120, outputTokens: 30 },
+                        costUsd: 0.031
+                    }
+                }
+            }
+        })
+        expect(normalizeDecryptedMessage(reasoning)).toMatchObject({
+            role: 'agent',
+            model: 'ollama/qwen3',
+            usage: {
+                input_tokens: 120,
+                output_tokens: 30,
+                cost_usd: 0.031
+            },
+            content: [{ type: 'reasoning', text: 'native reasoning' }]
+        })
+
+        const usage = makeMessage({
+            role: 'agent',
+            content: {
+                type: 'codex',
+                data: {
+                    type: 'token_count',
+                    info: {
+                        total: { inputTokens: 120, outputTokens: 30 },
+                        contextTokens: 4096,
+                        modelContextWindow: 128000,
+                        costUsd: 0.031
+                    }
+                }
+            }
+        })
+        expect(normalizeDecryptedMessage(usage)).toMatchObject({
+            role: 'event',
+            usage: {
+                input_tokens: 120,
+                output_tokens: 30,
+                context_tokens: 4096,
+                context_window: 128000,
+                cost_usd: 0.031
+            }
+        })
+    })
+
     it('normalizes Codex context_compacted as a compact event', () => {
         const message = makeMessage({
             role: 'agent',

@@ -15,6 +15,7 @@ import type {
     Session
 } from './schemas'
 import type { SessionSummary } from './sessionSummary'
+import type { OmpConfiguredThinkingLevel, OmpEffort, OmpThinkingState } from './omp'
 
 export const CreateOrLoadMachineRequestSchema = z.object({
     id: z.string().min(1),
@@ -420,6 +421,45 @@ export type OpencodeModelsResponse = {
 }
 
 export type ListOpencodeModelsResponse = OpencodeModelsResponse
+
+export type OmpModelSummary = {
+    provider: string
+    modelId: string
+    name: string
+    reasoning: boolean
+    contextWindow: number | null
+    maxTokens: number | null
+    thinkingLevels: OmpEffort[]
+}
+
+export type OmpModelsResponse = {
+    success: boolean
+    availableModels?: OmpModelSummary[]
+    currentModel?: { provider: string; modelId: string } | null
+    error?: string
+}
+
+export type ListOmpModelsResponse = OmpModelsResponse
+
+export type CycleOmpModelResponse = {
+    success: boolean
+    currentModel?: { provider: string; modelId: string } | null
+    error?: string
+}
+
+export type OmpThinkingOption = {
+    value: OmpConfiguredThinkingLevel
+    name: string
+}
+
+export type OmpThinkingOptionsResponse = {
+    success: boolean
+    options?: OmpThinkingOption[]
+    state?: OmpThinkingState
+    error?: string
+}
+
+export type ListOmpThinkingOptionsResponse = OmpThinkingOptionsResponse
 
 export type GrokModelSummary = {
     modelId: string

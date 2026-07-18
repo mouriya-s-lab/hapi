@@ -3,6 +3,7 @@ import { AgentSessionBase } from '@/agent/sessionBase';
 import type { OmpMode, PermissionMode } from './types';
 import type { LocalLaunchExitReason } from '@/agent/localLaunchPolicy';
 import type { OmpNativeSession } from '@hapi/protocol/types';
+import type { OmpConfiguredThinkingLevel, OmpThinkingState } from '@hapi/protocol/omp';
 import type { OmpInputQueue } from './OmpInputQueue';
 
 type LocalLaunchFailure = {
@@ -10,11 +11,26 @@ type LocalLaunchFailure = {
     exitReason: LocalLaunchExitReason;
 };
 
+export type OmpRuntimeConfigRequest = {
+    model?: string | null;
+    effort?: OmpConfiguredThinkingLevel;
+};
+
+export type OmpRuntimeConfigApplied = {
+    model?: string;
+    effort?: OmpConfiguredThinkingLevel;
+};
+
+type OmpRuntimeConfigApplier = (
+    config: OmpRuntimeConfigRequest
+) => Promise<OmpRuntimeConfigApplied>;
+
 export class OmpSession extends AgentSessionBase<OmpMode, OmpInputQueue> {
     readonly startedBy: 'runner' | 'terminal';
     readonly startingMode: 'local' | 'remote';
     localLaunchFailure: LocalLaunchFailure | null = null;
     private nativeSession: OmpNativeSession | null;
+    private runtimeConfigApplier: OmpRuntimeConfigApplier | null = null;
 
     constructor(opts: {
         api: ApiClient;
@@ -28,6 +44,8 @@ export class OmpSession extends AgentSessionBase<OmpMode, OmpInputQueue> {
         startedBy: 'runner' | 'terminal';
         startingMode: 'local' | 'remote';
         permissionMode?: PermissionMode;
+        model?: string | null;
+        effort?: OmpConfiguredThinkingLevel;
         nativeSession?: OmpNativeSession;
     }) {
         super({
@@ -57,7 +75,9 @@ export class OmpSession extends AgentSessionBase<OmpMode, OmpInputQueue> {
                 }
                 return next;
             },
-            permissionMode: opts.permissionMode
+            permissionMode: opts.permissionMode,
+            model: opts.model,
+            effort: opts.effort
         });
 
         this.startedBy = opts.startedBy;
@@ -72,6 +92,30 @@ export class OmpSession extends AgentSessionBase<OmpMode, OmpInputQueue> {
 
     setModel = (model: string | null): void => {
         this.model = model;
+    };
+
+    setEffort = (effort: OmpConfiguredThinkingLevel): void => {
+        this.effort = effort;
+    };
+
+    setRuntimeConfigApplier = (applier: OmpRuntimeConfigApplier | null): void => {
+        this.runtimeConfigApplier = applier;
+    };
+
+    applyRuntimeConfig = async (
+        config: OmpRuntimeConfigRequest
+    ): Promise<OmpRuntimeConfigApplied> => {
+        if (!this.runtimeConfigApplier) {
+            throw new Error('OMP native runtime is not ready for configuration changes');
+        }
+        return await this.runtimeConfigApplier(config);
+    };
+
+    updateThinkingState = (state: OmpThinkingState): void => {
+        this.client.updateMetadata((metadata) => ({
+            ...metadata,
+            ompThinking: state
+        }));
     };
 
     applyNativeSessionSnapshot = (snapshot: OmpNativeSession): void => {

@@ -6,6 +6,7 @@ import { ompRemoteLauncher } from './ompRemoteLauncher';
 import { ApiClient, ApiSessionClient } from '@/lib';
 import type { OmpMode, PermissionMode } from './types';
 import type { OmpNativeSession } from '@hapi/protocol/types';
+import type { OmpConfiguredThinkingLevel } from '@hapi/protocol/omp';
 import type { OmpInputQueue } from './OmpInputQueue';
 
 interface OmpLoopOptions {
@@ -18,6 +19,7 @@ interface OmpLoopOptions {
     api: ApiClient;
     permissionMode?: PermissionMode;
     model?: string;
+    effort?: OmpConfiguredThinkingLevel;
     resumeSessionId?: string;
     nativeSession?: OmpNativeSession;
     onSessionReady?: (session: OmpSession) => void;
@@ -40,6 +42,8 @@ export async function ompLoop(opts: OmpLoopOptions): Promise<void> {
         startedBy,
         startingMode,
         permissionMode: opts.permissionMode ?? 'default',
+        model: opts.model,
+        effort: opts.effort,
         nativeSession: opts.nativeSession
     });
 
@@ -53,7 +57,8 @@ export async function ompLoop(opts: OmpLoopOptions): Promise<void> {
         startingMode: opts.startingMode,
         logTag: 'omp-loop',
         runLocal: (instance) => ompLocalLauncher(instance, {
-            model: getCurrentModel()
+            model: getCurrentModel(),
+            effort: instance.getEffort() as OmpConfiguredThinkingLevel | undefined
         }),
         runRemote: (instance) => ompRemoteLauncher(instance),
         onSessionReady: opts.onSessionReady

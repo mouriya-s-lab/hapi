@@ -172,4 +172,48 @@ describe('HappyComposer resume model setting', () => {
         expect(onModelChange).toHaveBeenCalledWith('vendor-next-model')
         expect(onResumeWithSessionModelChange).toHaveBeenCalledWith(true)
     })
+
+    it('uses the native OMP cycle callback for the model shortcut', () => {
+        const onCycleModel = vi.fn()
+        const onModelChange = vi.fn()
+        renderInProviders(
+            <HappyComposer
+                agentFlavor="omp"
+                active
+                model="ollama/qwen3"
+                availableModelOptions={[{ value: 'ollama/qwen3', label: 'Qwen 3 (ollama)' }]}
+                onModelChange={onModelChange}
+                onCycleModel={onCycleModel}
+            />
+        )
+
+        fireEvent.keyDown(screen.getByRole('textbox'), { key: 'm', ctrlKey: true })
+        expect(onCycleModel).toHaveBeenCalledOnce()
+        expect(onModelChange).not.toHaveBeenCalled()
+    })
+
+    it('shows native OMP thinking choices and the Claude-only boundary', () => {
+        const onEffortChange = vi.fn()
+        renderInProviders(
+            <HappyComposer
+                agentFlavor="omp"
+                active
+                model="ollama/qwen3"
+                effort="auto"
+                availableModelOptions={[{ value: 'ollama/qwen3', label: 'Qwen 3 (ollama)' }]}
+                availableEffortOptions={[
+                    { value: 'auto', name: 'auto' },
+                    { value: 'low', name: 'low' },
+                    { value: 'high', name: 'high' }
+                ]}
+                onModelChange={vi.fn()}
+                onEffortChange={onEffortChange}
+            />
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+        expect(screen.getByText(/Fallback model, custom\/append system prompts/)).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button', { name: 'high' }))
+        expect(onEffortChange).toHaveBeenCalledWith('high')
+    })
 })

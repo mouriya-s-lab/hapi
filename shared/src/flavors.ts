@@ -18,7 +18,7 @@ const FLAVOR_CAPS: Record<AgentFlavor, ReadonlySet<Capability>> = {
     cursor: new Set([Capabilities.ModelChange]),
     opencode: new Set([Capabilities.ModelChange]),
     pi: new Set([Capabilities.ModelChange, Capabilities.Effort]),
-    omp: new Set([Capabilities.ModelChange]),
+    omp: new Set([Capabilities.ModelChange, Capabilities.Effort]),
 }
 
 // --- Flavor display names ---

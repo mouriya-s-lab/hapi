@@ -782,6 +782,7 @@ export default {
   'misc.reasoningEffort': '推理强度',
   'reasoning.collapseHint': '点击折叠',
   'misc.effort': '思考强度',
+  'misc.ompClaudeOnly': '后备模型、自定义/追加系统提示词及工具允许/禁用过滤仅适用于 Claude。',
   'misc.fastMode': '快速模式',
   'misc.fastModeStandard': '标准',
   'misc.fastModeFast': '快速',

@@ -4,6 +4,7 @@ import type { PermissionMode } from './types';
 import { BaseLocalLauncher } from '@/modules/common/launcher/BaseLocalLauncher';
 import { createOmpLocalSessionScanner } from './utils/ompSessionScanner';
 import { buildOmpEnv } from './utils/config';
+import type { OmpConfiguredThinkingLevel } from '@hapi/protocol/omp';
 
 function mapApprovalMode(mode: PermissionMode | undefined): { yolo: boolean } {
     // omp's real CLI exposes `--approval-mode {always-ask|write|yolo}`
@@ -20,6 +21,7 @@ export async function ompLocalLauncher(
     session: OmpSession,
     opts: {
         model?: string;
+        effort?: OmpConfiguredThinkingLevel;
     }
 ): Promise<'switch' | 'exit'> {
     const scanner = createOmpLocalSessionScanner({
@@ -43,6 +45,7 @@ export async function ompLocalLauncher(
                 sessionId: session.sessionId,
                 abort: abortSignal,
                 model: opts.model,
+                effort: opts.effort,
                 yolo: approval.yolo
             });
         },

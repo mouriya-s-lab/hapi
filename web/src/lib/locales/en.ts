@@ -778,6 +778,7 @@ export default {
   'misc.reasoningEffort': 'Reasoning Effort',
   'reasoning.collapseHint': 'click to collapse',
   'misc.effort': 'Effort',
+  'misc.ompClaudeOnly': 'Fallback model, custom/append system prompts, and tool allow/deny filters are Claude-only.',
   'misc.fastMode': 'Fast Mode',
   'misc.fastModeStandard': 'Standard',
   'misc.fastModeFast': 'Fast',

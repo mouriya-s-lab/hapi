@@ -33,6 +33,8 @@ import {
     type RpcListCodexModelsResponse,
     type RpcListCursorModelsResponse,
     type RpcListOpencodeModelsResponse,
+    type RpcListOmpModelsResponse,
+    type RpcListOmpThinkingOptionsResponse,
     type RpcListGrokModelsResponse,
     type RpcListGrokReasoningEffortOptionsResponse,
     type RpcListOpencodeReasoningEffortOptionsResponse,
@@ -59,6 +61,8 @@ export type {
     RpcListCodexModelsResponse,
     RpcListCursorModelsResponse,
     RpcListOpencodeModelsResponse,
+    RpcListOmpModelsResponse,
+    RpcListOmpThinkingOptionsResponse,
     RpcListGrokModelsResponse,
     RpcListGrokReasoningEffortOptionsResponse,
     RpcListOpencodeReasoningEffortOptionsResponse,
@@ -1839,6 +1843,28 @@ export class SyncEngine {
 
     async listOpencodeModelsForSession(sessionId: string): Promise<RpcListOpencodeModelsResponse> {
         return await this.rpcGateway.listOpencodeModelsForSession(sessionId)
+    }
+
+    async listOmpModelsForSession(sessionId: string): Promise<RpcListOmpModelsResponse> {
+        return await this.rpcGateway.listOmpModelsForSession(sessionId)
+    }
+
+    async listOmpThinkingOptionsForSession(sessionId: string): Promise<RpcListOmpThinkingOptionsResponse> {
+        return await this.rpcGateway.listOmpThinkingOptionsForSession(sessionId)
+    }
+
+    async cycleOmpModelForSession(sessionId: string): Promise<import('@hapi/protocol/apiTypes').CycleOmpModelResponse> {
+        const result = await this.rpcGateway.cycleOmpModelForSession(sessionId)
+        if (result.success && result.currentModel) {
+            // Route the native cycle result back through the normal CLI config
+            // acknowledgement path. Besides persisting the Hub value, this
+            // updates the CLI's per-turn model snapshot so the next queued turn
+            // does not restore the model that was active before the cycle.
+            await this.applySessionConfig(sessionId, {
+                model: `${result.currentModel.provider}/${result.currentModel.modelId}`
+            })
+        }
+        return result
     }
 
     async listOpencodeModelsForCwd(machineId: string, cwd: string): Promise<RpcListOpencodeModelsResponse> {
