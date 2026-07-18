@@ -1,11 +1,13 @@
 import { logger } from '@/ui/logger';
 import { spawnWithTerminalGuard } from '@/utils/spawnWithTerminalGuard';
+import type { OmpConfiguredThinkingLevel } from '@hapi/protocol/omp';
 
 export async function ompLocal(opts: {
     path: string;
     sessionId: string | null;
     abort: AbortSignal;
     model?: string;
+    effort?: OmpConfiguredThinkingLevel;
     yolo?: boolean;
 }): Promise<void> {
     const args: string[] = [];
@@ -15,6 +17,9 @@ export async function ompLocal(opts: {
     }
     if (opts.model) {
         args.push('--model', opts.model);
+    }
+    if (opts.effort) {
+        args.push('--thinking', opts.effort);
     }
     if (opts.yolo) {
         args.push('--approval-mode', 'yolo');

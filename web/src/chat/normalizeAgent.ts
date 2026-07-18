@@ -104,7 +104,8 @@ function normalizeCodexTokenUsage(value: unknown, data?: Record<string, unknown>
             ?? info.thread_id
             ?? info.threadId
         ) ?? undefined,
-        scope_role: asString(data?.scope_role ?? data?.scopeRole ?? scope?.role) ?? undefined
+        scope_role: asString(data?.scope_role ?? data?.scopeRole ?? scope?.role) ?? undefined,
+        cost_usd: asNumber(info.costUsd ?? info.cost_usd) ?? undefined
     }
 }
 
@@ -645,6 +646,7 @@ export function normalizeAgentRecord(
         }
 
         if (data.type === 'message' && typeof data.message === 'string') {
+            const usage = normalizeCodexTokenUsage(data.usage) ?? undefined
             const review = parseCodexReviewMessage(data.message)
             if (review) {
                 return {
@@ -652,6 +654,7 @@ export function normalizeAgentRecord(
                     localId,
                     createdAt,
                     model: asString(data.model),
+                    usage,
                     role: 'agent',
                     isSidechain: false,
                     content: [{ type: 'codex-review', review, uuid: messageId, parentUUID: null }],
@@ -663,6 +666,7 @@ export function normalizeAgentRecord(
                 localId,
                 createdAt,
                 model: asString(data.model),
+                usage,
                 role: 'agent',
                 isSidechain: false,
                 content: [{ type: 'text', text: data.message, uuid: messageId, parentUUID: null }],
@@ -676,6 +680,8 @@ export function normalizeAgentRecord(
                 id: messageId,
                 localId,
                 createdAt,
+                model: asString(data.model),
+                usage: normalizeCodexTokenUsage(data.usage) ?? undefined,
                 role: 'agent',
                 isSidechain: false,
                 content: [{ type: 'reasoning', text: data.message, uuid: messageId, streamId, parentUUID: null }],
@@ -768,6 +774,8 @@ export function normalizeAgentRecord(
                 id: messageId,
                 localId,
                 createdAt,
+                model: asString(data.model),
+                usage: normalizeCodexTokenUsage(data.usage) ?? undefined,
                 role: 'agent',
                 isSidechain: false,
                 content: [{

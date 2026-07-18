@@ -144,21 +144,21 @@ describe('aggregateResponseGroups', () => {
                 invokedAt: 100,
                 durationMs: 1234,
                 model: 'claude-sonnet-4-6',
-                usage: { input_tokens: 10, output_tokens: 20, service_tier: 'standard' }
+                usage: { input_tokens: 10, output_tokens: 20, service_tier: 'standard', cost_usd: 0.01 }
             }),
             toolCall('t1', { localId: 'L1' }),
             toolCall('t2', {
                 localId: 'L2',
                 invokedAt: 200,
                 model: 'claude-sonnet-4-6',
-                usage: { input_tokens: 5, output_tokens: 7, service_tier: 'standard' }
+                usage: { input_tokens: 5, output_tokens: 7, service_tier: 'standard', cost_usd: 0.02 }
             }),
             agentText('a3', {
                 localId: 'L3',
                 invokedAt: 300,
                 durationMs: 5678,
                 model: 'claude-haiku-4-5-20251001',
-                usage: { input_tokens: 3, output_tokens: 11, service_tier: 'standard' }
+                usage: { input_tokens: 3, output_tokens: 11, service_tier: 'standard', cost_usd: 0.03 }
             })
         ]
 
@@ -169,6 +169,7 @@ describe('aggregateResponseGroups', () => {
         // input/output sums across the three distinct localIds.
         expect(meta?.usage?.input_tokens).toBe(10 + 5 + 3)
         expect(meta?.usage?.output_tokens).toBe(20 + 7 + 11)
+        expect(meta?.usage?.cost_usd).toBeCloseTo(0.06)
         // Model dedup preserves first-seen order. "claude-sonnet-4-6" appears
         // twice (L1, L2) and must not be duplicated.
         expect(meta?.model).toBe('claude-sonnet-4-6, claude-haiku-4-5-20251001')

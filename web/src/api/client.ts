@@ -24,6 +24,7 @@ import type {
     CursorMigrateToAcpRequest,
     CursorChatStoreStatus,
     CursorModelsResponse,
+    CycleOmpModelResponse,
     DeleteUploadResponse,
     FileReadResponse,
     FileWriteResponse,
@@ -36,6 +37,8 @@ import type {
     MachinePathsExistsResponse,
     OpencodeModelsResponse,
     OpencodeReasoningEffortResponse,
+    OmpModelsResponse,
+    OmpThinkingOptionsResponse,
     ReopenSessionResponse,
     UploadFileResponse
 } from '@hapi/protocol/apiTypes'
@@ -721,6 +724,25 @@ export class ApiClient {
     async getSessionOpencodeModels(sessionId: string): Promise<OpencodeModelsResponse> {
         return await this.request<OpencodeModelsResponse>(
             `/api/sessions/${encodeURIComponent(sessionId)}/opencode-models`
+        )
+    }
+
+    async getSessionOmpModels(sessionId: string): Promise<OmpModelsResponse> {
+        return await this.request<OmpModelsResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/omp-models`
+        )
+    }
+
+    async getSessionOmpThinkingOptions(sessionId: string): Promise<OmpThinkingOptionsResponse> {
+        return await this.request<OmpThinkingOptionsResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/omp-thinking-options`
+        )
+    }
+
+    async cycleSessionOmpModel(sessionId: string): Promise<CycleOmpModelResponse> {
+        return await this.request<CycleOmpModelResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/omp-model-cycle`,
+            { method: 'POST' }
         )
     }
 

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { CODEX_COLLABORATION_MODES, PERMISSION_MODES } from './modes'
+import { OMP_EFFORT_LEVELS, OMP_THINKING_LEVELS } from './omp'
 
 export const PermissionModeSchema = z.enum(PERMISSION_MODES)
 export const CodexCollaborationModeSchema = z.enum(CODEX_COLLABORATION_MODES)
@@ -33,6 +34,12 @@ export const OmpNativeSessionSchema = z.object({
 
 export type OmpNativeSession = z.infer<typeof OmpNativeSessionSchema>
 
+export const OmpThinkingStateSchema = z.object({
+    thinkingLevel: z.enum(OMP_THINKING_LEVELS).nullable(),
+    configured: z.union([z.enum(OMP_THINKING_LEVELS), z.literal('auto')]).nullable(),
+    resolved: z.enum(OMP_EFFORT_LEVELS).nullable()
+})
+
 export const MetadataSchema = z.object({
     path: z.string(),
     host: z.string(),
@@ -59,6 +66,7 @@ export const MetadataSchema = z.object({
     kimiSessionId: z.string().optional(),
     piSessionId: z.string().optional(),
     ompSession: OmpNativeSessionSchema.optional(),
+    ompThinking: OmpThinkingStateSchema.optional(),
     tools: z.array(z.string()).optional(),
     slashCommands: z.array(z.string()).optional(),
     homeDir: z.string().optional(),

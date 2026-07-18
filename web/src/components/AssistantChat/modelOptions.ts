@@ -137,9 +137,7 @@ export function getModelOptionsForFlavor(
     if (flavor === 'pi') {
         return withCurrentModelOption([{ value: null, label: 'Default' }], currentModel)
     }
-    // omp discovers models dynamically via the listOpencodeModels RPC (reused for
-    // omp). Until those options arrive, render an empty list rather than the
-    // Claude fallback — the latter would surface unrelated Claude models.
+    // OMP discovers provider-qualified models through its own native catalog.
     if (flavor === 'omp') {
         return []
     }

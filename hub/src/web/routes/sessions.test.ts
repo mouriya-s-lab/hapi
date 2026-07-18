@@ -87,6 +87,28 @@ function createApp(session: Session, opts?: {
         ],
         currentValue: 'low'
     })
+    const listOmpModelsForSession = async () => ({
+        success: true,
+        availableModels: [{
+            provider: 'ollama',
+            modelId: 'qwen3',
+            name: 'Qwen 3',
+            reasoning: true,
+            contextWindow: 128_000,
+            maxTokens: 16_384,
+            thinkingLevels: ['low', 'high']
+        }],
+        currentModel: { provider: 'ollama', modelId: 'qwen3' }
+    })
+    const listOmpThinkingOptionsForSession = async () => ({
+        success: true,
+        options: [{ value: 'auto', name: 'auto' }, { value: 'low', name: 'low' }],
+        state: { thinkingLevel: 'low', configured: 'auto', resolved: 'low' }
+    })
+    const cycleOmpModelForSession = async () => ({
+        success: true,
+        currentModel: { provider: 'mlx', modelId: 'qwen3' }
+    })
     const listCursorModelsForSession = async () => ({
         success: true,
         availableModels: [
@@ -111,6 +133,9 @@ function createApp(session: Session, opts?: {
         listCursorModelsForSession,
         listOpencodeModelsForSession,
         listOpencodeReasoningEffortOptionsForSession,
+        listOmpModelsForSession,
+        listOmpThinkingOptionsForSession,
+        cycleOmpModelForSession,
         resumeSession,
         reopenSession,
         restartSession: opts?.restartSession ?? (async (sessionId: string) => ({ type: 'success' as const, sessionId })),
@@ -842,6 +867,98 @@ describe('sessions routes', () => {
         const response = await app.request('/api/sessions/session-1/opencode-models')
 
         expect(response.status).toBe(400)
+    })
+
+    it('serves OMP-native model and thinking routes without the OpenCode alias', async () => {
+        const session = createSession({
+            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'omp' }
+        })
+        const { app } = createApp(session)
+
+        const models = await app.request('/api/sessions/session-1/omp-models')
+        expect(models.status).toBe(200)
+        expect(await models.json()).toEqual({
+            success: true,
+            availableModels: [{
+                provider: 'ollama',
+                modelId: 'qwen3',
+                name: 'Qwen 3',
+                reasoning: true,
+                contextWindow: 128_000,
+                maxTokens: 16_384,
+                thinkingLevels: ['low', 'high']
+            }],
+            currentModel: { provider: 'ollama', modelId: 'qwen3' }
+        })
+
+        const thinking = await app.request('/api/sessions/session-1/omp-thinking-options')
+        expect(thinking.status).toBe(200)
+        expect(await thinking.json()).toEqual({
+            success: true,
+            options: [{ value: 'auto', name: 'auto' }, { value: 'low', name: 'low' }],
+            state: { thinkingLevel: 'low', configured: 'auto', resolved: 'low' }
+        })
+
+        const legacyAlias = await app.request('/api/sessions/session-1/opencode-models')
+        expect(legacyAlias.status).toBe(400)
+    })
+
+    it('applies OMP model and effort changes only for remote sessions', async () => {
+        const session = createSession({
+            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'omp' }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const modelResponse = await app.request('/api/sessions/session-1/model', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ model: { provider: 'mlx', modelId: 'qwen3' } })
+        })
+        const effortResponse = await app.request('/api/sessions/session-1/effort', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ effort: 'auto' })
+        })
+        const cycleResponse = await app.request('/api/sessions/session-1/omp-model-cycle', { method: 'POST' })
+
+        expect(modelResponse.status).toBe(200)
+        expect(effortResponse.status).toBe(200)
+        expect(cycleResponse.status).toBe(200)
+        expect(await cycleResponse.json()).toEqual({
+            success: true,
+            currentModel: { provider: 'mlx', modelId: 'qwen3' }
+        })
+        expect(applySessionConfigCalls).toEqual([
+            ['session-1', { model: { provider: 'mlx', modelId: 'qwen3' } }],
+            ['session-1', { effort: 'auto' }]
+        ])
+    })
+
+    it('rejects OMP catalogs and mutation controls while locally controlled', async () => {
+        const session = createSession({
+            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'omp' },
+            agentState: { controlledByUser: true, requests: {}, completedRequests: {} }
+        })
+        const { app, applySessionConfigCalls } = createApp(session)
+
+        const responses = await Promise.all([
+            app.request('/api/sessions/session-1/omp-models'),
+            app.request('/api/sessions/session-1/omp-thinking-options'),
+            app.request('/api/sessions/session-1/omp-model-cycle', { method: 'POST' }),
+            app.request('/api/sessions/session-1/model', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ model: 'ollama/qwen3' })
+            }),
+            app.request('/api/sessions/session-1/effort', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ effort: 'low' })
+            })
+        ])
+
+        expect(responses.map((response) => response.status)).toEqual([409, 409, 409, 409, 409])
+        expect(applySessionConfigCalls).toEqual([])
     })
 
     it('rejects OpenCode plan mode changes for local sessions', async () => {

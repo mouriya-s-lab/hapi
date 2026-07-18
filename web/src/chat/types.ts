@@ -11,6 +11,7 @@ export type UsageData = {
     thread_id?: string
     scope_role?: string
     service_tier?: string
+    cost_usd?: number
 }
 
 export type ModelRefusalFallbackEvent = {

@@ -7,6 +7,7 @@ import type {
     CommandResponse,
     CursorModelSummary,
     CursorModelsResponse,
+    CycleOmpModelResponse,
     MachineCreateDirectoryResponse,
     CursorChatStoreStatus,
     DeleteUploadResponse,
@@ -23,6 +24,8 @@ import type {
     OpencodeModelsResponse,
     OpencodeModelSummary,
     OpencodeReasoningEffortResponse,
+    OmpModelsResponse,
+    OmpThinkingOptionsResponse,
     PathExistsResponse,
     SlashCommandsResponse,
     UploadFileResponse,
@@ -79,6 +82,8 @@ export type RpcListOpencodeModelsResponse = OpencodeModelsResponse
 export type RpcListGrokModelsResponse = GrokModelsResponse
 export type RpcListGrokReasoningEffortOptionsResponse = GrokReasoningEffortResponse
 export type RpcListOpencodeReasoningEffortOptionsResponse = OpencodeReasoningEffortResponse
+export type RpcListOmpModelsResponse = OmpModelsResponse
+export type RpcListOmpThinkingOptionsResponse = OmpThinkingOptionsResponse
 
 export class RpcGateway {
     constructor(
@@ -360,6 +365,18 @@ export class RpcGateway {
 
     async listOpencodeModelsForSession(sessionId: string): Promise<RpcListOpencodeModelsResponse> {
         return await this.sessionRpc(sessionId, RPC_METHODS.ListOpencodeModels, {}) as RpcListOpencodeModelsResponse
+    }
+
+    async listOmpModelsForSession(sessionId: string): Promise<RpcListOmpModelsResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.ListOmpModels, {}) as RpcListOmpModelsResponse
+    }
+
+    async listOmpThinkingOptionsForSession(sessionId: string): Promise<RpcListOmpThinkingOptionsResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.ListOmpThinkingOptions, {}) as RpcListOmpThinkingOptionsResponse
+    }
+
+    async cycleOmpModelForSession(sessionId: string): Promise<CycleOmpModelResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.CycleOmpModel, {}) as CycleOmpModelResponse
     }
 
     async listOpencodeModelsForCwd(machineId: string, cwd: string): Promise<RpcListOpencodeModelsResponse> {

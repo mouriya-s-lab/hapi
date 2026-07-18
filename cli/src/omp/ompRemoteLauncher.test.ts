@@ -40,6 +40,7 @@ function model(provider: string, id: string, name: string = id): OmpModel {
 function state(currentModel: OmpModel | null): OmpSessionState {
     return {
         ...(currentModel ? { model: currentModel } : {}),
+        ...(harness.thinkingLevel ? { thinkingLevel: harness.thinkingLevel } : {}),
         isStreaming: harness.stateStreaming,
         isCompacting: false,
         steeringMode: 'all',
@@ -51,7 +52,8 @@ function state(currentModel: OmpModel | null): OmpSessionState {
         autoCompactionEnabled: true,
         messageCount: 0,
         queuedMessageCount: harness.queuedMessageCount,
-        todoPhases: []
+        todoPhases: [],
+        contextUsage: harness.contextUsage
     };
 }
 
@@ -71,6 +73,9 @@ const harness = vi.hoisted(() => ({
     queuedMessageCount: 0,
     currentModel: null as OmpModel | null,
     availableModels: [] as OmpModel[],
+    thinkingLevel: 'high' as import('./rpc/types').OmpThinkingLevel | undefined,
+    configuredThinking: 'high' as import('./rpc/types').OmpConfiguredThinkingLevel | undefined,
+    contextUsage: { tokens: 1_024, contextWindow: 128_000, percent: 0.8 },
     sessionId: 'omp-session-1',
     sessionName: 'OMP session one' as string | null,
     resumePaths: {} as Record<string, string>
@@ -128,6 +133,37 @@ vi.mock('./rpc/OmpRpcClient', () => ({
                             harness.events.push(`set_model:${command.provider}/${command.modelId}`);
                             harness.currentModel = next;
                             return next;
+                        }
+                        case 'cycle_model': {
+                            const currentIndex = harness.currentModel
+                                ? harness.availableModels.findIndex((candidate) => (
+                                    candidate.provider === harness.currentModel?.provider
+                                    && candidate.id === harness.currentModel.id
+                                ))
+                                : -1;
+                            const next = harness.availableModels[(currentIndex + 1) % harness.availableModels.length];
+                            if (!next) return null;
+                            harness.currentModel = next;
+                            harness.events.push(`cycle_model:${next.provider}/${next.id}`);
+                            return { model: next, thinkingLevel: harness.thinkingLevel, isScoped: false };
+                        }
+                        case 'get_available_models':
+                            return { models: harness.availableModels };
+                        case 'set_thinking_level':
+                            harness.thinkingLevel = command.level;
+                            harness.configuredThinking = command.level;
+                            harness.events.push(`set_thinking_level:${command.level}`);
+                            return undefined;
+                        case 'cycle_thinking_level': {
+                            const levels = ['off', 'auto', 'low', 'high'] as const;
+                            const index = harness.configuredThinking
+                                ? levels.indexOf(harness.configuredThinking as typeof levels[number])
+                                : -1;
+                            const level = levels[(index + 1) % levels.length];
+                            harness.configuredThinking = level;
+                            harness.thinkingLevel = level === 'auto' ? 'medium' : level;
+                            harness.events.push(`cycle_thinking_level:${level}`);
+                            return { level };
                         }
                         case 'get_state':
                             return state(harness.currentModel);
@@ -216,7 +252,12 @@ function createSessionStub(
         attachments?: AttachmentMetadata[];
         localId?: string;
     }>,
-    options: { launchModel?: string | null; sessionId?: string | null; closeQueue?: boolean } = {}
+    options: {
+        launchModel?: string | null;
+        launchEffort?: import('./rpc/types').OmpConfiguredThinkingLevel;
+        sessionId?: string | null;
+        closeQueue?: boolean;
+    } = {}
 ) {
     const queue = new OmpInputQueue((mode) => JSON.stringify(mode));
     items.forEach(({ message, mode, inputMode, attachments, localId }) => {
@@ -235,14 +276,19 @@ function createSessionStub(
     const sessionEvents: Array<{ type: string; [key: string]: unknown }> = [];
     const snapshots: Array<{ id: string; file: string; name?: string }> = [];
     const consumedLocalIds: string[][] = [];
+    const agentMessages: unknown[] = [];
+    const thinkingStates: import('@hapi/protocol/omp').OmpThinkingState[] = [];
     const rpcHandlers = new Map<string, RpcHandler>();
+    let runtimeConfigApplier: ((config: import('./session').OmpRuntimeConfigRequest) => Promise<import('./session').OmpRuntimeConfigApplied>) | null = null;
     const client = {
         rpcHandlerManager: {
             registerHandler(method: string, handler: RpcHandler) {
                 rpcHandlers.set(method, handler);
             }
         },
-        sendAgentMessage(_message: unknown) {},
+        sendAgentMessage(message: unknown) {
+            agentMessages.push(message);
+        },
         sendUserMessage(_text: string) {},
         sendSessionEvent(event: { type: string; [key: string]: unknown }) {
             sessionEvents.push(event);
@@ -259,10 +305,24 @@ function createSessionStub(
         getModel() {
             return options.launchModel;
         },
+        getEffort() {
+            return options.launchEffort;
+        },
         getPermissionMode() {
             return 'default' as const;
         },
         setModel(_model: string | null) {},
+        setEffort(_effort: import('./rpc/types').OmpConfiguredThinkingLevel) {},
+        setRuntimeConfigApplier(applier: typeof runtimeConfigApplier) {
+            runtimeConfigApplier = applier;
+        },
+        async applyRuntimeConfig(config: import('./session').OmpRuntimeConfigRequest) {
+            if (!runtimeConfigApplier) throw new Error('runtime config applier unavailable');
+            return await runtimeConfigApplier(config);
+        },
+        updateThinkingState(state: import('@hapi/protocol/omp').OmpThinkingState) {
+            thinkingStates.push(state);
+        },
         onThinkingChange(thinking: boolean) {
             session.thinking = thinking;
         },
@@ -270,7 +330,9 @@ function createSessionStub(
             snapshots.push(snapshot);
             session.sessionId = snapshot.id;
         },
-        sendAgentMessage(_message: unknown) {},
+        sendAgentMessage(message: unknown) {
+            agentMessages.push(message);
+        },
         sendSessionEvent(event: { type: string; [key: string]: unknown }) {
             client.sendSessionEvent(event);
         },
@@ -278,7 +340,16 @@ function createSessionStub(
     };
     queue.onBatchConsumed = (localIds) => consumedLocalIds.push(localIds);
 
-    return { session, sessionEvents, rpcHandlers, snapshots, consumedLocalIds };
+    return {
+        session,
+        sessionEvents,
+        rpcHandlers,
+        snapshots,
+        consumedLocalIds,
+        agentMessages,
+        thinkingStates,
+        getRuntimeConfigApplier: () => runtimeConfigApplier
+    };
 }
 
 async function waitForRequest(type: OmpCommand['type']): Promise<void> {
@@ -326,6 +397,9 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         ];
         harness.sessionId = 'omp-session-1';
         harness.sessionName = 'OMP session one';
+        harness.thinkingLevel = 'high';
+        harness.configuredThinking = 'high';
+        harness.contextUsage = { tokens: 1_024, contextWindow: 128_000, percent: 0.8 };
         harness.resumePaths = {};
         await Promise.all(createdDirectories.splice(0).map((directory) => (
             rm(directory, { recursive: true, force: true })
@@ -553,26 +627,193 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         expect(harness.prompts[0]).toContain('design the fix');
     });
 
-    it('serves the native discovery model catalog through the transitional handler', async () => {
+    it('serves a provider-qualified native OMP model catalog', async () => {
         const { session, rpcHandlers } = createSessionStub([
             { message: 'first', mode: createMode() }
-        ]);
-        await ompRemoteLauncher(session as never);
+        ], { closeQueue: false });
+        const launch = ompRemoteLauncher(session as never);
+        await waitForRequest('prompt');
+        await vi.waitFor(() => expect(rpcHandlers.has('listOmpModels')).toBe(true));
 
-        const handler = rpcHandlers.get('listOpencodeModels');
+        const handler = rpcHandlers.get('listOmpModels');
         expect(handler).toBeDefined();
         await expect(handler!(undefined)).resolves.toEqual({
             success: true,
             availableModels: harness.availableModels.map((candidate) => ({
+                provider: candidate.provider,
                 modelId: candidate.id,
                 name: candidate.name,
-                reasoningEfforts: [
-                    { value: 'low', name: 'low', isDefault: false },
-                    { value: 'high', name: 'high', isDefault: true }
-                ]
+                reasoning: true,
+                contextWindow: 128_000,
+                maxTokens: 16_384,
+                thinkingLevels: ['low', 'high']
             })),
-            currentModelId: 'launch-default'
+            currentModel: { provider: 'ollama', modelId: 'launch-default' }
         });
+        expect(rpcHandlers.has('listOpencodeModels')).toBe(false);
+        session.queue.close();
+        await launch;
+    });
+
+    it('cycles the native OMP model and confirms it through get_state', async () => {
+        const { session, rpcHandlers } = createSessionStub([], { closeQueue: false });
+        const launch = ompRemoteLauncher(session as never);
+        await vi.waitFor(() => expect(rpcHandlers.has('cycleOmpModel')).toBe(true));
+
+        await expect(rpcHandlers.get('cycleOmpModel')!(undefined)).resolves.toEqual({
+            success: true,
+            currentModel: { provider: 'ollama', modelId: 'a' }
+        });
+        expect(harness.requests.some((request) => request.type === 'cycle_model')).toBe(true);
+        expect(harness.requests.some((request) => request.type === 'get_state')).toBe(true);
+
+        session.queue.close();
+        await launch;
+    });
+
+    it('applies low, high, and auto thinking only after native state confirmation', async () => {
+        const { session, thinkingStates, getRuntimeConfigApplier } = createSessionStub([], { closeQueue: false });
+        const launch = ompRemoteLauncher(session as never);
+        await vi.waitFor(() => expect(getRuntimeConfigApplier()).not.toBeNull());
+        const apply = getRuntimeConfigApplier()!;
+
+        await expect(apply({ effort: 'low' })).resolves.toEqual({ effort: 'low' });
+        await expect(apply({ effort: 'high' })).resolves.toEqual({ effort: 'high' });
+        await expect(apply({ effort: 'auto' })).resolves.toEqual({ effort: 'auto' });
+
+        expect(harness.requests.filter((request) => request.type === 'set_thinking_level')).toEqual([
+            { type: 'set_thinking_level', level: 'low' },
+            { type: 'set_thinking_level', level: 'high' }
+        ]);
+        expect(harness.requests.filter((request) => request.type === 'cycle_thinking_level')).toHaveLength(2);
+        expect(thinkingStates.at(-1)).toEqual({
+            thinkingLevel: 'medium',
+            configured: 'auto',
+            resolved: null
+        });
+
+        emitEvent('thinking_level_changed', {
+            thinkingLevel: 'low',
+            configured: 'auto',
+            resolved: 'low'
+        });
+        expect(thinkingStates.at(-1)).toEqual({
+            thinkingLevel: 'low',
+            configured: 'auto',
+            resolved: 'low'
+        });
+
+        session.queue.close();
+        await launch;
+    });
+
+    it('restores persisted auto thinking on RPC reconnect despite get_state exposing only effective thinking', async () => {
+        harness.thinkingLevel = 'high';
+        harness.configuredThinking = 'high';
+        const { session, thinkingStates } = createSessionStub([], {
+            closeQueue: false,
+            launchEffort: 'auto'
+        });
+        const launch = ompRemoteLauncher(session as never);
+
+        await vi.waitFor(() => {
+            expect(harness.configuredThinking).toBe('auto');
+            expect(thinkingStates.at(-1)?.configured).toBe('auto');
+        });
+        expect(harness.requests.some((request) => request.type === 'cycle_thinking_level')).toBe(true);
+
+        session.queue.close();
+        await launch;
+    });
+
+    it('forwards OMP model, tokens, authoritative context, and cost', async () => {
+        harness.contextUsage = { tokens: 4_096, contextWindow: 128_000, percent: 3.2 };
+        const { session, agentMessages } = createSessionStub([], { closeQueue: false });
+        const launch = ompRemoteLauncher(session as never);
+        await vi.waitFor(() => expect(harness.eventListeners.length).toBeGreaterThan(0));
+
+        emitEvent('message_end', {
+            message: {
+                role: 'assistant',
+                content: [
+                    { type: 'thinking', thinking: 'native reasoning' },
+                    { type: 'text', text: 'native answer' }
+                ],
+                provider: 'ollama',
+                model: 'launch-default',
+                usage: {
+                    input: 120,
+                    output: 30,
+                    cacheRead: 10,
+                    cacheWrite: 0,
+                    totalTokens: 160,
+                    reasoningTokens: 5,
+                    cost: { input: 0.01, output: 0.02, cacheRead: 0.001, cacheWrite: 0, total: 0.031 }
+                },
+                stopReason: 'stop'
+            }
+        });
+
+        await vi.waitFor(() => expect(agentMessages).toContainEqual({
+            type: 'token_count',
+            info: {
+                total: {
+                    inputTokens: 120,
+                    outputTokens: 30,
+                    totalTokens: 160,
+                    thoughtTokens: 5,
+                    cachedInputTokens: 10
+                },
+                contextTokens: 4_096,
+                modelContextWindow: 128_000,
+                costUsd: 0.031
+            }
+        }));
+        expect(agentMessages).toContainEqual({
+            type: 'reasoning',
+            message: 'native reasoning',
+            id: expect.any(String)
+        });
+        expect(agentMessages).toContainEqual({
+            type: 'message',
+            message: 'native answer',
+            model: 'ollama/launch-default',
+            usage: {
+                total: {
+                    inputTokens: 120,
+                    outputTokens: 30,
+                    totalTokens: 160,
+                    thoughtTokens: 5,
+                    cachedInputTokens: 10
+                },
+                costUsd: 0.031
+            }
+        });
+
+        session.queue.close();
+        await launch;
+    });
+
+    it('does not translate Claude-only prompt/tool fields into OMP RPC commands', async () => {
+        const mode = {
+            ...createMode(),
+            fallbackModel: 'fallback',
+            customSystemPrompt: 'custom',
+            appendSystemPrompt: 'append',
+            allowedTools: ['Read'],
+            disallowedTools: ['Bash']
+        } as OmpMode;
+        const { session } = createSessionStub([{ message: 'plain turn', mode }]);
+
+        await ompRemoteLauncher(session as never);
+
+        expect(harness.requests.some((request) => (
+            request.type === 'set_host_tools'
+            || ('type' in request && ![
+                'prompt', 'get_state'
+            ].includes(request.type))
+        ))).toBe(false);
+        expect(harness.prompts).toEqual(['plain turn']);
     });
 
     it('routes remote abort through the native abort command', async () => {

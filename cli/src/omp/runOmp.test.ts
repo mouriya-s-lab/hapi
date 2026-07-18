@@ -14,6 +14,8 @@ const harness = vi.hoisted(() => ({
     wrapper: {
         setPermissionMode: vi.fn(),
         setModel: vi.fn(),
+        setEffort: vi.fn(),
+        applyRuntimeConfig: vi.fn(),
         pushKeepAlive: vi.fn(),
         stopKeepAlive: vi.fn(),
         localLaunchFailure: null
@@ -79,6 +81,10 @@ describe('runOmp lifecycle', () => {
         harness.session.updateAgentState.mockReset();
         harness.session.sendSessionEvent.mockReset();
         harness.session.rpcHandlerManager.registerHandler.mockReset();
+        harness.wrapper.setPermissionMode.mockReset();
+        harness.wrapper.setModel.mockReset();
+        harness.wrapper.setEffort.mockReset();
+        harness.wrapper.applyRuntimeConfig.mockReset();
         registerKillSessionHandler.mockReset();
         lifecycle.registerProcessHandlers.mockReset();
         lifecycle.cleanupAndExit.mockReset();
@@ -179,5 +185,34 @@ describe('runOmp lifecycle', () => {
             message: 'OMP session failed: native process crashed'
         });
         expect(lifecycle.setSessionEndReason).not.toHaveBeenCalledWith('completed');
+    });
+
+    it('reports model and auto effort as applied only after the native launcher confirms them', async () => {
+        harness.wrapper.applyRuntimeConfig.mockResolvedValue({
+            model: 'mlx/qwen3:0.6b',
+            effort: 'auto'
+        });
+        await runOmp({ startingMode: 'remote', workingDirectory: '/work' });
+        const registration = harness.session.rpcHandlerManager.registerHandler.mock.calls.find(
+            ([method]) => method === 'set-session-config'
+        );
+        const handler = registration?.[1] as ((payload: unknown) => Promise<unknown>) | undefined;
+        expect(handler).toBeDefined();
+
+        await expect(handler!({
+            model: { provider: 'mlx', modelId: 'qwen3:0.6b' },
+            effort: null
+        })).resolves.toEqual({
+            applied: {
+                model: 'mlx/qwen3:0.6b',
+                effort: 'auto'
+            }
+        });
+        expect(harness.wrapper.applyRuntimeConfig).toHaveBeenCalledWith({
+            model: 'mlx/qwen3:0.6b',
+            effort: 'auto'
+        });
+        expect(harness.wrapper.setModel).toHaveBeenLastCalledWith('mlx/qwen3:0.6b');
+        expect(harness.wrapper.setEffort).toHaveBeenLastCalledWith('auto');
     });
 });

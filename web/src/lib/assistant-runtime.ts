@@ -187,6 +187,7 @@ function addUsage(target: UsageData, addend: UsageData): UsageData {
             target.cache_read_input_tokens,
             addend.cache_read_input_tokens
         ),
+        cost_usd: sumOptional(target.cost_usd, addend.cost_usd),
         // service_tier dedup follows the rule documented in the plan: pick
         // the first turn's tier when the group is mixed. We keep it on the
         // target so downstream label logic sees a stable value.

@@ -548,6 +548,9 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             if (flavor === 'grok') {
                 return c.json({ error: 'Model selection can only be changed for remote Grok sessions' }, 409)
             }
+            if (flavor === 'omp') {
+                return c.json({ error: 'Model selection can only be changed for remote OMP sessions' }, 409)
+            }
         }
 
         try {
@@ -653,8 +656,11 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         if (!supportsEffort(flavor)) {
             return c.json({ error: 'Effort selection is not supported for this session type' }, 400)
         }
-        if (flavor === 'grok' && sessionResult.session.agentState?.controlledByUser === true) {
-            return c.json({ error: 'Effort can only be changed for remote Grok sessions' }, 409)
+        if (
+            (flavor === 'grok' || flavor === 'omp')
+            && sessionResult.session.agentState?.controlledByUser === true
+        ) {
+            return c.json({ error: 'Effort can only be changed for remote sessions' }, 409)
         }
 
         try {
@@ -843,10 +849,10 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
 
         const flavor = sessionResult.session.metadata?.flavor ?? 'claude'
-        if (flavor !== 'opencode' && flavor !== 'omp') {
+        if (flavor !== 'opencode') {
             return c.json({
                 success: false,
-                error: 'OpenCode models are only available for OpenCode or omp sessions'
+                error: 'OpenCode models are only available for OpenCode sessions'
             }, 400)
         }
 
@@ -857,6 +863,70 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({
                 success: false,
                 error: error instanceof Error ? error.message : 'Failed to list OpenCode models'
+            }, 500)
+        }
+    })
+
+    app.get('/sessions/:id/omp-models', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) return sessionResult
+        if (sessionResult.session.metadata?.flavor !== 'omp') {
+            return c.json({ success: false, error: 'OMP models are only available for OMP sessions' }, 400)
+        }
+        if (sessionResult.session.agentState?.controlledByUser === true) {
+            return c.json({ success: false, error: 'OMP models are only available for remote sessions' }, 409)
+        }
+        try {
+            return c.json(await engine.listOmpModelsForSession(sessionResult.sessionId))
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to list OMP models'
+            }, 500)
+        }
+    })
+
+    app.get('/sessions/:id/omp-thinking-options', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) return sessionResult
+        if (sessionResult.session.metadata?.flavor !== 'omp') {
+            return c.json({ success: false, error: 'OMP thinking is only available for OMP sessions' }, 400)
+        }
+        if (sessionResult.session.agentState?.controlledByUser === true) {
+            return c.json({ success: false, error: 'OMP thinking is only available for remote sessions' }, 409)
+        }
+        try {
+            return c.json(await engine.listOmpThinkingOptionsForSession(sessionResult.sessionId))
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to list OMP thinking options'
+            }, 500)
+        }
+    })
+
+    app.post('/sessions/:id/omp-model-cycle', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) return sessionResult
+        if (sessionResult.session.metadata?.flavor !== 'omp') {
+            return c.json({ success: false, error: 'OMP model cycling is only available for OMP sessions' }, 400)
+        }
+        if (sessionResult.session.agentState?.controlledByUser === true) {
+            return c.json({ success: false, error: 'OMP model cycling is only available for remote sessions' }, 409)
+        }
+        try {
+            const result = await engine.cycleOmpModelForSession(sessionResult.sessionId)
+            return c.json(result, result.success ? 200 : 409)
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to cycle OMP model'
             }, 500)
         }
     })

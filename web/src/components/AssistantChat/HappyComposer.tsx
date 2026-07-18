@@ -12,7 +12,7 @@ import {
     useRef,
     useState
 } from 'react'
-import type { AgentState, CodexCollaborationMode, PermissionMode, PiModelSummary, ThreadGoal } from '@/types/api'
+import type { AgentState, CodexCollaborationMode, OmpThinkingState, PermissionMode, PiModelSummary, ThreadGoal } from '@/types/api'
 import type { Suggestion } from '@/hooks/useActiveSuggestions'
 import type { ConversationStatus } from '@/realtime/types'
 import { useActiveWord } from '@/hooks/useActiveWord'
@@ -162,6 +162,7 @@ export function HappyComposer(props: {
     piSelectedModel?: { provider: string; modelId: string } | null
     availableModelReasoningEffortOptions?: Array<{ value: string; name?: string }>
     availableEffortOptions?: Array<{ value: string; name?: string }>
+    ompThinkingState?: OmpThinkingState
     /** Cursor: selected base model key (not wire id). */
     selectedModelBase?: string | null
     /** Cursor: selected variant sku/wire for highlight when session stores an ACP wire id. */
@@ -171,6 +172,7 @@ export function HappyComposer(props: {
     onCollaborationModeChange?: (mode: CodexCollaborationMode) => void
     onPermissionModeChange?: (mode: PermissionMode) => void
     onModelChange?: (model: { provider: string; modelId: string } | string | null) => void
+    onCycleModel?: () => void
     ccSwitchProviders?: Array<{ id: string; name: string; isCurrent: boolean }>
     currentCcSwitchProviderId?: string | null
     onCcSwitchProviderChange?: (providerId: string) => void
@@ -235,12 +237,14 @@ export function HappyComposer(props: {
         piSelectedModel,
         availableModelReasoningEffortOptions,
         availableEffortOptions,
+        ompThinkingState,
         selectedModelBase,
         selectedModelVariant,
         modelEffortOptions,
         onCollaborationModeChange,
         onPermissionModeChange,
         onModelChange,
+        onCycleModel,
         ccSwitchProviders,
         currentCcSwitchProviderId,
         onCcSwitchProviderChange,
@@ -522,9 +526,9 @@ export function HappyComposer(props: {
     const claudeEffortOptions = useMemo(
         () => agentFlavor === 'pi'
             ? getPiThinkingLevelOptions(effort, selectedPiModel?.thinkingLevelMap)
-            : agentFlavor === 'grok' && availableEffortOptions && availableEffortOptions.length > 0
+            : (agentFlavor === 'grok' || agentFlavor === 'omp') && availableEffortOptions && availableEffortOptions.length > 0
                 ? [
-                    { value: null, label: 'Default' },
+                    ...(agentFlavor === 'grok' ? [{ value: null, label: 'Default' }] : []),
                     ...availableEffortOptions.map((option) => ({
                         value: option.value,
                         label: option.name ?? option.value
@@ -643,16 +647,20 @@ export function HappyComposer(props: {
             // would lose the provider and can pick the wrong cached match or clear
             // the model. Pi model changes go only through the dedicated PiModelPanel.
             if (agentFlavor === 'pi') return
-            if (e.key === 'm' && (e.metaKey || e.ctrlKey) && onModelChange && supportsModelChange(agentFlavor)) {
+            if (e.key === 'm' && (e.metaKey || e.ctrlKey) && (onCycleModel || onModelChange) && supportsModelChange(agentFlavor)) {
                 e.preventDefault()
-                onModelChange(getNextModelForFlavor(agentFlavor, model, availableModelOptions))
+                if (onCycleModel) {
+                    onCycleModel()
+                } else {
+                    onModelChange?.(getNextModelForFlavor(agentFlavor, model, availableModelOptions))
+                }
                 haptic('light')
             }
         }
 
         window.addEventListener('keydown', handleGlobalKeyDown)
         return () => window.removeEventListener('keydown', handleGlobalKeyDown)
-    }, [model, onModelChange, haptic, agentFlavor, availableModelOptions])
+    }, [model, onModelChange, onCycleModel, haptic, agentFlavor, availableModelOptions])
 
     const handleChange = useCallback((e: ReactChangeEvent<HTMLTextAreaElement>) => {
         const selection = {
@@ -1315,6 +1323,12 @@ export function HappyComposer(props: {
                             </div>
                         ) : null}
 
+                        {agentFlavor === 'omp' ? (
+                            <div className="border-t border-[var(--app-divider)] px-3 py-2 text-xs text-[var(--app-hint)]">
+                                {t('misc.ompClaudeOnly')}
+                            </div>
+                        ) : null}
+
                         {(showModelReasoningEffortSettings || showEffortSettings) && showFastModeSettings ? (
                             <div className="mx-3 h-px bg-[var(--app-divider)]" />
                         ) : null}
@@ -1441,6 +1455,7 @@ export function HappyComposer(props: {
                             contextWindow={contextWindow}
                             model={model}
                             modelReasoningEffort={modelReasoningEffort}
+                            ompThinkingState={ompThinkingState}
                             serviceTier={serviceTier}
                             permissionMode={permissionMode}
                             collaborationMode={collaborationMode}

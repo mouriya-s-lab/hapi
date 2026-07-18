@@ -16,6 +16,7 @@ export const ompCommand: CommandDefinition = {
                 startingMode?: 'local' | 'remote'
                 permissionMode?: OmpPermissionMode
                 model?: string
+                effort?: string
                 resumeSessionId?: string
             } = {}
 
@@ -53,6 +54,12 @@ export const ompCommand: CommandDefinition = {
                         throw new Error('Missing --model value')
                     }
                     options.model = model
+                } else if (arg === '--effort') {
+                    const effort = commandArgs[++i]
+                    if (!effort) {
+                        throw new Error('Missing --effort value')
+                    }
+                    options.effort = effort
                 }
             }
 

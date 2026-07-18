@@ -71,6 +71,8 @@ import { useGrokModels } from '@/hooks/queries/useGrokModels'
 import { useGrokReasoningEffortOptions } from '@/hooks/queries/useGrokReasoningEffortOptions'
 import { usePiModels } from '@/hooks/queries/usePiModels'
 import { useOpencodeReasoningEffortOptions } from '@/hooks/queries/useOpencodeReasoningEffortOptions'
+import { useOmpModels } from '@/hooks/queries/useOmpModels'
+import { useOmpThinkingOptions } from '@/hooks/queries/useOmpThinkingOptions'
 import { useVoiceOptional } from '@/lib/voice-context'
 import { VoiceBackendSession, registerSessionStore, registerVoiceHooksStore, voiceHooks } from '@/realtime'
 import { isRemoteTerminalSupported } from '@/utils/terminalSupport'
@@ -600,7 +602,7 @@ function SessionChatInner(props: SessionChatProps) {
     const opencodeModelsState = useOpencodeModels({
         api: props.api,
         sessionId: props.session.id,
-        enabled: (agentFlavor === 'opencode' || agentFlavor === 'omp') && props.session.active
+        enabled: agentFlavor === 'opencode' && props.session.active
     })
     const opencodeReasoningEffortState = useOpencodeReasoningEffortOptions({
         api: props.api,
@@ -608,7 +610,7 @@ function SessionChatInner(props: SessionChatProps) {
         enabled: agentFlavor === 'opencode' && props.session.active
     })
     const opencodeModelOptions = useMemo(() => {
-        if (agentFlavor !== 'opencode' && agentFlavor !== 'omp') {
+        if (agentFlavor !== 'opencode') {
             return undefined
         }
 
@@ -617,6 +619,22 @@ function SessionChatInner(props: SessionChatProps) {
             label: opencodeModel.name ?? opencodeModel.modelId
         }))
     }, [agentFlavor, opencodeModelsState.availableModels])
+    const ompModelsState = useOmpModels({
+        api: props.api,
+        sessionId: props.session.id,
+        enabled: agentFlavor === 'omp' && props.session.active && !controlledByUser
+    })
+    const ompThinkingState = useOmpThinkingOptions({
+        api: props.api,
+        sessionId: props.session.id,
+        enabled: agentFlavor === 'omp' && props.session.active && !controlledByUser
+    })
+    const ompModelOptions = useMemo(() => agentFlavor === 'omp'
+        ? ompModelsState.availableModels.map((ompModel) => ({
+            value: `${ompModel.provider}/${ompModel.modelId}`,
+            label: `${ompModel.name} (${ompModel.provider})`
+        }))
+        : undefined, [agentFlavor, ompModelsState.availableModels])
     const grokModelsState = useGrokModels({
         api: props.api,
         sessionId: props.session.id,
@@ -1088,6 +1106,12 @@ function SessionChatInner(props: SessionChatProps) {
                 setModel,
                 setModelReasoningEffort
             })
+            if (agentFlavor === 'omp') {
+                await Promise.all([
+                    ompModelsState.refetch(),
+                    ompThinkingState.refetch()
+                ])
+            }
             haptic.notification('success')
             props.onRefresh()
         } catch (e) {
@@ -1098,11 +1122,30 @@ function SessionChatInner(props: SessionChatProps) {
         agentFlavor,
         codexModelsState.models,
         props.session.modelReasoningEffort,
+        ompModelsState,
+        ompThinkingState,
         setModelReasoningEffort,
         setModel,
         props.onRefresh,
         haptic
     ])
+
+    const handleOmpModelCycle = useCallback(async () => {
+        if (!props.api) return
+        try {
+            const result = await props.api.cycleSessionOmpModel(props.session.id)
+            if (!result.success) throw new Error(result.error ?? 'Failed to cycle OMP model')
+            await Promise.all([
+                ompModelsState.refetch(),
+                ompThinkingState.refetch()
+            ])
+            haptic.notification('success')
+            props.onRefresh()
+        } catch (error) {
+            haptic.notification('error')
+            console.error('Failed to cycle OMP model:', error)
+        }
+    }, [props.api, props.session.id, props.onRefresh, haptic, ompModelsState, ompThinkingState])
 
     const handleResumeWithSessionModelChange = useCallback(async (enabled: boolean) => {
         try {
@@ -1170,13 +1213,16 @@ function SessionChatInner(props: SessionChatProps) {
     const handleEffortChange = useCallback(async (effort: string | null) => {
         try {
             await setEffort(effort)
+            if (agentFlavor === 'omp') {
+                await ompThinkingState.refetch()
+            }
             haptic.notification('success')
             props.onRefresh()
         } catch (e) {
             haptic.notification('error')
             console.error('Failed to set effort:', e)
         }
-    }, [setEffort, props.onRefresh, haptic])
+    }, [agentFlavor, ompThinkingState, setEffort, props.onRefresh, haptic])
 
     const handleServiceTierChange = useCallback(async (serviceTier: string | null) => {
         try {
@@ -1413,9 +1459,17 @@ function SessionChatInner(props: SessionChatProps) {
                         permissionMode={props.session.permissionMode}
                         collaborationMode={codexCollaborationModeSupported ? props.session.collaborationMode : undefined}
                         threadGoal={reduced.latestGoal}
-                        model={props.session.model}
+                        model={agentFlavor === 'omp'
+                            ? props.session.model ?? (ompModelsState.currentModel
+                                ? `${ompModelsState.currentModel.provider}/${ompModelsState.currentModel.modelId}`
+                                : null)
+                            : props.session.model}
                         modelReasoningEffort={agentFlavor === 'codex' || agentFlavor === 'opencode' ? props.session.modelReasoningEffort : undefined}
-                        effort={props.session.effort}
+                        effort={agentFlavor === 'omp'
+                            ? props.session.metadata?.ompThinking?.configured
+                                ?? ompThinkingState.state?.configured
+                                ?? props.session.effort
+                            : props.session.effort}
                         resumeWithSessionModel={props.session.resumeWithSessionModel}
                         agentFlavor={agentFlavor}
                         availableModelOptions={
@@ -1429,8 +1483,10 @@ function SessionChatInner(props: SessionChatProps) {
                                             ? undefined
                                             : cursorPicker.modelOptions
                                     )
-                                    : (agentFlavor === 'opencode' || agentFlavor === 'omp')
+                                    : agentFlavor === 'opencode'
                                         ? opencodeModelOptions
+                                        : agentFlavor === 'omp'
+                                            ? ompModelOptions
                                         : agentFlavor === 'grok'
                                             ? grokModelOptions
                                         // Pi uses its own provider-qualified picker (piModels prop).
@@ -1451,10 +1507,15 @@ function SessionChatInner(props: SessionChatProps) {
                                     : undefined
                         }
                         availableEffortOptions={
-                            agentFlavor === 'grok' && grokEffortState.options.length > 0
+                            agentFlavor === 'omp' && ompThinkingState.options.length > 0
+                                ? ompThinkingState.options
+                                : agentFlavor === 'grok' && grokEffortState.options.length > 0
                                 ? grokEffortState.options
                                 : undefined
                         }
+                        ompThinkingState={agentFlavor === 'omp'
+                            ? props.session.metadata?.ompThinking ?? ompThinkingState.state ?? undefined
+                            : undefined}
                         active={props.session.active}
                         allowSendWhenInactive
                         thinking={props.session.thinking}
@@ -1514,8 +1575,15 @@ function SessionChatInner(props: SessionChatProps) {
                                             ? (props.session.active && !controlledByUser && !grokModelsState.error
                                                 ? handleModelChange
                                                 : undefined)
-                                        : handleModelChange
+                                        : agentFlavor === 'omp'
+                                            ? (props.session.active && !controlledByUser && !ompModelsState.error
+                                                ? handleModelChange
+                                                : undefined)
+                                            : handleModelChange
                         }
+                        onCycleModel={agentFlavor === 'omp' && props.session.active && !controlledByUser
+                            ? handleOmpModelCycle
+                            : undefined}
                         onResumeWithSessionModelChange={agentFlavor === 'claude' ? handleResumeWithSessionModelChange : undefined}
                         onModelEffortChange={
                             agentFlavor === 'cursor'
@@ -1535,8 +1603,9 @@ function SessionChatInner(props: SessionChatProps) {
                                 : undefined
                         }
                         onEffortChange={
-                            agentFlavor === 'grok'
-                                ? (props.session.active && !controlledByUser && grokEffortState.options.length > 0
+                            agentFlavor === 'grok' || agentFlavor === 'omp'
+                                ? (props.session.active && !controlledByUser
+                                    && (agentFlavor === 'omp' ? ompThinkingState.options.length > 0 : grokEffortState.options.length > 0)
                                     ? handleEffortChange
                                     : undefined)
                                 : handleEffortChange
