@@ -23,7 +23,7 @@ describe('ForkSettingsPage', () => {
     it('shows user management only to administrators', () => {
         const view = renderPage()
         fireEvent.click(screen.getByRole('button', { name: /User management/ }))
-        expect(navigate).toHaveBeenCalledWith({ to: '/admin' })
+        expect(navigate).toHaveBeenCalledWith({ to: '/settings/fork/users' })
 
         role = 'user'
         view.rerender(<I18nProvider><ForkSettingsPage /></I18nProvider>)
