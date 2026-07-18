@@ -16,10 +16,11 @@ export function CheckIcon(props: { className?: string }) {
     )
 }
 
-export function SettingsPageContent(props: { title: string; description?: string; children: ReactNode }) {
+export function SettingsPageContent(props: { title: string; description?: string; backLabel?: string; onBack?: () => void; children: ReactNode }) {
     return (
         <div className="mx-auto w-full max-w-[720px] space-y-5 px-3 py-4 lg:px-6 lg:py-6">
             <div>
+                {props.backLabel && props.onBack ? <button type="button" onClick={props.onBack} className="mb-3 inline-flex items-center gap-1 text-sm font-medium text-[var(--app-link)] hover:underline"><span aria-hidden="true">‹</span>{props.backLabel}</button> : null}
                 <h1 tabIndex={-1} className="hidden text-xl font-semibold text-[var(--app-fg)] outline-none lg:block">{props.title}</h1>
                 {props.description ? <p className="text-sm text-[var(--app-hint)] lg:mt-1">{props.description}</p> : null}
             </div>

@@ -9,6 +9,10 @@ describe('getSettingsBackTarget', () => {
         ['/settings/voice', '/settings'],
         ['/settings/voice/voices', '/settings/voice'],
         ['/settings/voice/advanced', '/settings/voice'],
+        ['/settings/account', '/settings'],
+        ['/settings/users', '/settings'],
+        ['/settings/users/new', '/settings/users'],
+        ['/settings/users/42', '/settings/users'],
         ['/sessions', null],
     ])('maps %s to %s', (pathname, target) => {
         expect(getSettingsBackTarget(pathname)).toBe(target)
