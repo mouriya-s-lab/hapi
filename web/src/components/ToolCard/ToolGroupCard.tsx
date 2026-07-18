@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ToolGroupBlock } from '@/chat/toolGroups'
 import type { ToolCallBlock } from '@/chat/types'
 import type { SessionMetadataSummary } from '@/types/api'
-import { useHappyChatContext } from '@/components/AssistantChat/context'
 import { ToolDetailDialogContent, ToolStatusIcon, toolStatusColorClass } from '@/components/ToolCard/ToolCard'
 import { extractImagesFromResult, ToolResultImages } from '@/components/ToolCard/views/_results'
 import { getToolPresentation } from '@/components/ToolCard/knownTools'
@@ -105,103 +104,13 @@ export function ToolGroupCard(props: {
     metadata: SessionMetadataSummary | null
 }) {
     const { t } = useTranslation()
-    const ctx = useHappyChatContext()
     const [open, setOpen] = useState(props.block.defaultOpen)
     const [selectedToolId, setSelectedToolId] = useState<string | null>(null)
-    const [isHydratingHistory, setIsHydratingHistory] = useState(false)
-    const [historyExhausted, setHistoryExhausted] = useState(false)
-    const [retryNonce, setRetryNonce] = useState(0)
-    const hydrationRunRef = useRef(0)
-    const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-    function clearRetryTimer() {
-        if (retryTimerRef.current === null) {
-            return
-        }
-        clearTimeout(retryTimerRef.current)
-        retryTimerRef.current = null
-    }
 
     useEffect(() => {
-        clearRetryTimer()
-        hydrationRunRef.current += 1
         setOpen(props.block.defaultOpen)
         setSelectedToolId(null)
-        setIsHydratingHistory(false)
-        setHistoryExhausted(false)
     }, [props.block.id, props.block.defaultOpen])
-
-    useEffect(() => {
-        return () => {
-            clearRetryTimer()
-        }
-    }, [])
-
-    useEffect(() => {
-        if (!open) {
-            clearRetryTimer()
-            hydrationRunRef.current += 1
-            setIsHydratingHistory(false)
-            setHistoryExhausted(false)
-            return
-        }
-        if (!props.block.needsOlderHistory) {
-            clearRetryTimer()
-            hydrationRunRef.current += 1
-            setIsHydratingHistory(false)
-            setHistoryExhausted(false)
-            return
-        }
-        if (isHydratingHistory || historyExhausted) {
-            return
-        }
-        if (ctx.isLoadingMoreMessages) {
-            return
-        }
-        if (!ctx.hasMoreMessages) {
-            hydrationRunRef.current += 1
-            setIsHydratingHistory(false)
-            setHistoryExhausted(true)
-            return
-        }
-
-        const runId = hydrationRunRef.current + 1
-        hydrationRunRef.current = runId
-        setHistoryExhausted(false)
-        setIsHydratingHistory(true)
-        void ctx.loadOlderMessagesPreservingScroll()
-            .then((loaded) => {
-                if (hydrationRunRef.current !== runId) return
-                setIsHydratingHistory(false)
-                if (!loaded) {
-                    if (!ctx.hasMoreMessages) {
-                        setHistoryExhausted(true)
-                        return
-                    }
-                    clearRetryTimer()
-                    retryTimerRef.current = setTimeout(() => {
-                        retryTimerRef.current = null
-                        if (hydrationRunRef.current !== runId) return
-                        setRetryNonce((value) => value + 1)
-                    }, 150)
-                }
-            })
-            .catch(() => {
-                if (hydrationRunRef.current !== runId) return
-                clearRetryTimer()
-                setIsHydratingHistory(false)
-                setHistoryExhausted(true)
-            })
-    }, [
-        open,
-        props.block.needsOlderHistory,
-        ctx.hasMoreMessages,
-        ctx.isLoadingMoreMessages,
-        ctx.loadOlderMessagesPreservingScroll,
-        historyExhausted,
-        isHydratingHistory,
-        retryNonce,
-    ])
 
     const selectedTool = useMemo(
         () => props.block.tools.find((tool) => tool.id === selectedToolId) ?? null,
@@ -320,16 +229,6 @@ export function ToolGroupCard(props: {
                         </div>
                     ) : null}
 
-                    {isHydratingHistory ? (
-                        <div className="mt-3 text-xs text-[var(--app-hint)]">
-                            {t('toolGroup.loadingOlderHistory')}
-                        </div>
-                    ) : null}
-                    {!isHydratingHistory && historyExhausted && props.block.needsOlderHistory ? (
-                        <div className="mt-3 text-xs text-[var(--app-hint)]">
-                            {t('toolGroup.historyUnavailable')}
-                        </div>
-                    ) : null}
                 </CardContent>
             ) : null}
 

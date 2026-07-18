@@ -6,6 +6,7 @@ import {
     ConversationOutlinePanel,
     captureScrollAnchor,
     getScrollIntent,
+    loadUntilScrollHeightChanges,
     locateOutlineTargetMessage,
     restoreScrollAnchor,
     shouldCancelInitialScrollSettling,
@@ -225,5 +226,34 @@ describe('outline target loading', () => {
 
         expect(target).toBeNull()
         expect(loadOlderPreservingScroll).toHaveBeenCalledTimes(1)
+    })
+})
+
+describe('visible older-history loading', () => {
+    it('continues across pages hidden inside a collapsed tool group', async () => {
+        let page = 0
+        let scrollHeight = 1000
+        const loadOlder = vi.fn(async () => {
+            page += 1
+            if (page === 3) scrollHeight = 1300
+            return true
+        })
+
+        await expect(loadUntilScrollHeightChanges({
+            getScrollHeight: () => scrollHeight,
+            hasMoreMessages: () => true,
+            loadOlder
+        })).resolves.toBe(true)
+        expect(loadOlder).toHaveBeenCalledTimes(3)
+    })
+
+    it('stops when the history source cannot load another page', async () => {
+        const loadOlder = vi.fn(async () => false)
+        await expect(loadUntilScrollHeightChanges({
+            getScrollHeight: () => 1000,
+            hasMoreMessages: () => true,
+            loadOlder
+        })).resolves.toBe(false)
+        expect(loadOlder).toHaveBeenCalledTimes(1)
     })
 })
