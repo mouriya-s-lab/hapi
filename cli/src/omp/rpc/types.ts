@@ -92,6 +92,81 @@ export type OmpCommandType = OmpCommand['type'];
 export type OmpCommandByType<C extends OmpCommandType> = Extract<OmpCommand, { type: C }>;
 export type OmpCommandWithId = OmpCommand & { id: string };
 
+export type OmpAgentToolResult = {
+    content: Array<{
+        type: 'text';
+        text: string;
+    }>;
+    details?: JsonObject;
+};
+
+export type OmpExtensionUiRequest =
+    | { type: 'extension_ui_request'; id: string; method: 'select'; title: string; options: string[]; timeout?: number }
+    | { type: 'extension_ui_request'; id: string; method: 'confirm'; title: string; message: string; timeout?: number }
+    | { type: 'extension_ui_request'; id: string; method: 'input'; title: string; placeholder?: string; timeout?: number }
+    | { type: 'extension_ui_request'; id: string; method: 'editor'; title: string; prefill?: string; promptStyle?: boolean }
+    | { type: 'extension_ui_request'; id: string; method: 'cancel'; targetId: string }
+    | { type: 'extension_ui_request'; id: string; method: 'notify'; message: string; notifyType?: 'info' | 'warning' | 'error' }
+    | { type: 'extension_ui_request'; id: string; method: 'setStatus'; statusKey: string; statusText?: string }
+    | { type: 'extension_ui_request'; id: string; method: 'setWidget'; widgetKey: string; widgetLines?: string[]; widgetPlacement?: 'aboveEditor' | 'belowEditor' }
+    | { type: 'extension_ui_request'; id: string; method: 'setTitle'; title: string }
+    | { type: 'extension_ui_request'; id: string; method: 'set_editor_text'; text: string }
+    | { type: 'extension_ui_request'; id: string; method: 'open_url'; url: string; launchUrl?: string; instructions?: string };
+
+export type OmpHostToolCallRequest = {
+    type: 'host_tool_call';
+    id: string;
+    toolCallId: string;
+    toolName: string;
+    arguments: JsonObject;
+};
+
+export type OmpHostToolCancelRequest = {
+    type: 'host_tool_cancel';
+    id: string;
+    targetId: string;
+};
+
+export type OmpHostUriRequest = {
+    type: 'host_uri_request';
+    id: string;
+    operation: 'read' | 'write';
+    url: string;
+    content?: string;
+};
+
+export type OmpHostUriCancelRequest = {
+    type: 'host_uri_cancel';
+    id: string;
+    targetId: string;
+};
+
+export type OmpHostIntegrationEvent =
+    | OmpExtensionUiRequest
+    | OmpHostToolCallRequest
+    | OmpHostToolCancelRequest
+    | OmpHostUriRequest
+    | OmpHostUriCancelRequest;
+
+export type OmpOutboundControlFrame =
+    | { type: 'extension_ui_response'; id: string; value: string }
+    | { type: 'extension_ui_response'; id: string; confirmed: boolean }
+    | { type: 'extension_ui_response'; id: string; cancelled: true; timedOut?: boolean }
+    | { type: 'host_tool_update'; id: string; partialResult: OmpAgentToolResult }
+    | { type: 'host_tool_result'; id: string; result: OmpAgentToolResult; isError?: boolean }
+    | {
+        type: 'host_uri_result';
+        id: string;
+        content?: string;
+        contentType?: 'text/markdown' | 'application/json' | 'text/plain';
+        notes?: string[];
+        immutable?: boolean;
+        isError?: boolean;
+        error?: string;
+    };
+
+export type OmpRpcOutboundFrame = OmpCommandWithId | OmpOutboundControlFrame;
+
 export type OmpModel = {
     id: string;
     name: string;

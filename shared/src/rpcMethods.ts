@@ -35,6 +35,8 @@ export const RPC_METHODS = {
     ListOmpModels: 'listOmpModels',
     ListOmpThinkingOptions: 'listOmpThinkingOptions',
     CycleOmpModel: 'cycleOmpModel',
+    ListOmpLoginProviders: 'listOmpLoginProviders',
+    StartOmpLogin: 'startOmpLogin',
     ListOpencodeModels: 'listOpencodeModels',
     ListOpencodeModelsForCwd: 'listOpencodeModelsForCwd',
     ListGrokModelsForCwd: 'listGrokModelsForCwd',

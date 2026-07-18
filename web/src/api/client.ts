@@ -39,6 +39,8 @@ import type {
     OpencodeReasoningEffortResponse,
     OmpModelsResponse,
     OmpThinkingOptionsResponse,
+    OmpLoginProvidersResponse,
+    StartOmpLoginResponse,
     ReopenSessionResponse,
     UploadFileResponse
 } from '@hapi/protocol/apiTypes'
@@ -743,6 +745,22 @@ export class ApiClient {
         return await this.request<CycleOmpModelResponse>(
             `/api/sessions/${encodeURIComponent(sessionId)}/omp-model-cycle`,
             { method: 'POST' }
+        )
+    }
+
+    async getSessionOmpLoginProviders(sessionId: string): Promise<OmpLoginProvidersResponse> {
+        return await this.request<OmpLoginProvidersResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/omp-login-providers`
+        )
+    }
+
+    async startSessionOmpLogin(sessionId: string, providerId: string): Promise<StartOmpLoginResponse> {
+        return await this.request<StartOmpLoginResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/omp-login`,
+            {
+                method: 'POST',
+                body: JSON.stringify({ providerId })
+            }
         )
     }
 

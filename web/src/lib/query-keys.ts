@@ -23,6 +23,7 @@ export const queryKeys = {
     sessionOpencodeReasoningEffortOptions: (sessionId: string) => ['session-opencode-reasoning-effort-options', sessionId] as const,
     sessionOmpModels: (sessionId: string) => ['session-omp-models', sessionId] as const,
     sessionOmpThinkingOptions: (sessionId: string) => ['session-omp-thinking-options', sessionId] as const,
+    sessionOmpLoginProviders: (sessionId: string) => ['session-omp-login-providers', sessionId] as const,
     machineOpencodeModelsForCwd: (machineId: string, cwd: string) => ['machine-opencode-models', machineId, cwd] as const,
     machineGrokModelsForCwd: (machineId: string, cwd: string) => ['machine-grok-models', machineId, cwd] as const,
     sessionGrokModels: (sessionId: string) => ['session-grok-models', sessionId] as const,

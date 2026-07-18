@@ -46,7 +46,7 @@ describe('generated files registry', () => {
         const file = await registerGeneratedFile({ id: 'file-2', path: sourcePath, fileName: 'final report.pdf' })
 
         expect(file.fileName).toBe('final_report.pdf')
-        expect(file.mimeType).toBe('application/pdf')
+        expect(file.mimeType).toBe('text/plain')
     })
 
     it('keeps the source extension when the title omits it', async () => {
@@ -64,6 +64,37 @@ describe('generated files registry', () => {
         expect(detectFileMimeType('a.zip')).toBe('application/zip')
         expect(detectFileMimeType('a.csv')).toBe('text/csv')
         expect(detectFileMimeType('a.unknownext')).toBe('application/octet-stream')
+    })
+
+    it('sniffs actual bytes instead of trusting a misleading extension', async () => {
+        const textNamedPdf = join(sourceDir, 'notes.pdf')
+        const pdfNamedBin = join(sourceDir, 'document.bin')
+        await writeFile(textNamedPdf, 'plain text')
+        await writeFile(pdfNamedBin, '%PDF-1.7\n')
+
+        const textFile = await registerGeneratedFile({ id: 'sniff-text', path: textNamedPdf })
+        const pdfFile = await registerGeneratedFile({ id: 'sniff-pdf', path: pdfNamedBin })
+
+        expect(textFile.mimeType).toBe('text/plain')
+        expect(pdfFile.mimeType).toBe('application/pdf')
+    })
+
+    it('does not infer an empty snapshot MIME from a misleading extension', async () => {
+        const emptyPdf = join(sourceDir, 'empty.pdf')
+        await writeFile(emptyPdf, '')
+
+        const file = await registerGeneratedFile({ id: 'sniff-empty', path: emptyPdf })
+
+        expect(file.mimeType).toBe('text/plain')
+    })
+
+    it('rejects symbolic links even when their target is a regular file', async () => {
+        const sourcePath = join(sourceDir, 'target.txt')
+        const linkPath = join(sourceDir, 'link.txt')
+        await writeFile(sourcePath, 'target')
+        await import('fs/promises').then((fs) => fs.symlink(sourcePath, linkPath))
+
+        await expect(registerGeneratedFile({ id: 'file-link', path: linkPath })).rejects.toThrow('not a regular file')
     })
 
     it('rejects directories', async () => {

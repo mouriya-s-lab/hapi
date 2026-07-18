@@ -175,6 +175,35 @@ describe('OmpRpcTransport', () => {
         await transport.close();
     });
 
+    it('writes host control frames without creating a correlated request', async () => {
+        const { child, frames } = createFakeProcess();
+        const transport = await connectFake(child);
+        const discovery = transport.request({ type: 'get_state' }, { discovery: true });
+        await waitForFrames(frames, 1);
+        child.stdout.write(`${JSON.stringify({
+            type: 'response',
+            id: frames[0].id,
+            command: 'get_state',
+            success: true,
+            data: {}
+        })}\n`);
+        await discovery;
+        transport.markReady();
+
+        await expect(transport.sendControlFrame({
+            type: 'extension_ui_response',
+            id: 'ui-request-1',
+            value: 'selected'
+        })).resolves.toBeUndefined();
+        await waitForFrames(frames, 2);
+        expect(frames[1]).toEqual({
+            type: 'extension_ui_response',
+            id: 'ui-request-1',
+            value: 'selected'
+        });
+        await transport.close();
+    });
+
     it('buffers split stdout lines', async () => {
         const { child, frames } = createFakeProcess();
         const transport = await connectFake(child);

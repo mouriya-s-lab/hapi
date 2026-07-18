@@ -35,6 +35,8 @@ import {
     type RpcListOpencodeModelsResponse,
     type RpcListOmpModelsResponse,
     type RpcListOmpThinkingOptionsResponse,
+    type RpcListOmpLoginProvidersResponse,
+    type RpcStartOmpLoginResponse,
     type RpcListGrokModelsResponse,
     type RpcListGrokReasoningEffortOptionsResponse,
     type RpcListOpencodeReasoningEffortOptionsResponse,
@@ -63,6 +65,8 @@ export type {
     RpcListOpencodeModelsResponse,
     RpcListOmpModelsResponse,
     RpcListOmpThinkingOptionsResponse,
+    RpcListOmpLoginProvidersResponse,
+    RpcStartOmpLoginResponse,
     RpcListGrokModelsResponse,
     RpcListGrokReasoningEffortOptionsResponse,
     RpcListOpencodeReasoningEffortOptionsResponse,
@@ -1851,6 +1855,14 @@ export class SyncEngine {
 
     async listOmpThinkingOptionsForSession(sessionId: string): Promise<RpcListOmpThinkingOptionsResponse> {
         return await this.rpcGateway.listOmpThinkingOptionsForSession(sessionId)
+    }
+
+    async listOmpLoginProvidersForSession(sessionId: string): Promise<RpcListOmpLoginProvidersResponse> {
+        return await this.rpcGateway.listOmpLoginProvidersForSession(sessionId)
+    }
+
+    async startOmpLoginForSession(sessionId: string, providerId: string): Promise<RpcStartOmpLoginResponse> {
+        return await this.rpcGateway.startOmpLoginForSession(sessionId, providerId)
     }
 
     async cycleOmpModelForSession(sessionId: string): Promise<import('@hapi/protocol/apiTypes').CycleOmpModelResponse> {

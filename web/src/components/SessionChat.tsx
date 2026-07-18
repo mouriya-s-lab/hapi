@@ -73,6 +73,7 @@ import { usePiModels } from '@/hooks/queries/usePiModels'
 import { useOpencodeReasoningEffortOptions } from '@/hooks/queries/useOpencodeReasoningEffortOptions'
 import { useOmpModels } from '@/hooks/queries/useOmpModels'
 import { useOmpThinkingOptions } from '@/hooks/queries/useOmpThinkingOptions'
+import { OmpLoginBanner } from '@/fork-features/omp-host-integration/OmpLoginBanner'
 import { useVoiceOptional } from '@/lib/voice-context'
 import { VoiceBackendSession, registerSessionStore, registerVoiceHooksStore, voiceHooks } from '@/realtime'
 import { isRemoteTerminalSupported } from '@/utils/terminalSupport'
@@ -1361,6 +1362,12 @@ function SessionChatInner(props: SessionChatProps) {
                         replace: true
                     })
                 }}
+            />
+
+            <OmpLoginBanner
+                api={props.api}
+                sessionId={props.session.id}
+                enabled={agentFlavor === 'omp' && props.session.active && !controlledByUser}
             />
 
             <CursorMigrationBanner metadata={props.session.metadata} />

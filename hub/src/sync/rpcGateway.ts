@@ -26,6 +26,8 @@ import type {
     OpencodeReasoningEffortResponse,
     OmpModelsResponse,
     OmpThinkingOptionsResponse,
+    OmpLoginProvidersResponse,
+    StartOmpLoginResponse,
     PathExistsResponse,
     SlashCommandsResponse,
     UploadFileResponse,
@@ -40,6 +42,7 @@ import type { RpcRegistry } from '../socket/rpcRegistry'
 const DEFAULT_RPC_TIMEOUT_MS = 30_000
 const MODEL_LIST_RPC_TIMEOUT_MS = 120_000
 const HISTORY_IMPORT_RPC_TIMEOUT_MS = 10 * 60_000
+const OMP_LOGIN_RPC_TIMEOUT_MS = 11 * 60_000
 
 /**
  * tiann/hapi#916: thrown by {@link RpcGateway.rpcCall} when the target CLI is
@@ -84,6 +87,8 @@ export type RpcListGrokReasoningEffortOptionsResponse = GrokReasoningEffortRespo
 export type RpcListOpencodeReasoningEffortOptionsResponse = OpencodeReasoningEffortResponse
 export type RpcListOmpModelsResponse = OmpModelsResponse
 export type RpcListOmpThinkingOptionsResponse = OmpThinkingOptionsResponse
+export type RpcListOmpLoginProvidersResponse = OmpLoginProvidersResponse
+export type RpcStartOmpLoginResponse = StartOmpLoginResponse
 
 export class RpcGateway {
     constructor(
@@ -377,6 +382,19 @@ export class RpcGateway {
 
     async cycleOmpModelForSession(sessionId: string): Promise<CycleOmpModelResponse> {
         return await this.sessionRpc(sessionId, RPC_METHODS.CycleOmpModel, {}) as CycleOmpModelResponse
+    }
+
+    async listOmpLoginProvidersForSession(sessionId: string): Promise<RpcListOmpLoginProvidersResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.ListOmpLoginProviders, {}) as RpcListOmpLoginProvidersResponse
+    }
+
+    async startOmpLoginForSession(sessionId: string, providerId: string): Promise<RpcStartOmpLoginResponse> {
+        return await this.sessionRpc(
+            sessionId,
+            RPC_METHODS.StartOmpLogin,
+            { providerId },
+            OMP_LOGIN_RPC_TIMEOUT_MS
+        ) as RpcStartOmpLoginResponse
     }
 
     async listOpencodeModelsForCwd(machineId: string, cwd: string): Promise<RpcListOpencodeModelsResponse> {

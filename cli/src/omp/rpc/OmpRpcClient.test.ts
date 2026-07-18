@@ -44,7 +44,7 @@ const STATE = {
 };
 
 function createRpcProcess(
-    responseFor: (frame: RpcFrame) => { success: true; data?: unknown } | { success: false; error: string }
+    responseFor: (frame: RpcFrame) => { success: true; data?: unknown } | { success: false; error: string } | null
 ): {
     child: FakeProcess;
     frames: RpcFrame[];
@@ -69,12 +69,14 @@ function createRpcProcess(
                 const frame = JSON.parse(line) as RpcFrame;
                 frames.push(frame);
                 const response = responseFor(frame);
-                queueMicrotask(() => stdout.write(`${JSON.stringify({
-                    type: 'response',
-                    id: frame.id,
-                    command: frame.type,
-                    ...response
-                })}\n`));
+                if (response) {
+                    queueMicrotask(() => stdout.write(`${JSON.stringify({
+                        type: 'response',
+                        id: frame.id,
+                        command: frame.type,
+                        ...response
+                    })}\n`));
+                }
             }
             newline = input.indexOf('\n');
         }
@@ -168,6 +170,34 @@ describe('OmpRpcClient discovery', () => {
 
         await client.close();
         expect(client.state).toBe('closed');
+    });
+
+    it('forwards uncorrelated host control frames through the ready client', async () => {
+        const fake = createRpcProcess((frame) => {
+            if (frame.type === 'host_tool_result') return null;
+            return successfulDiscovery(frame);
+        });
+        const client = await OmpRpcClient.connect(
+            { cwd: '/workspace' },
+            {
+                probeVersion: async () => parseOmpVersion('omp/17.0.4'),
+                transportDependencies: fake.dependencies
+            }
+        );
+
+        await client.sendControlFrame({
+            type: 'host_tool_result',
+            id: 'host-call-1',
+            result: { content: [{ type: 'text', text: 'done' }] }
+        });
+        await vi.waitFor(() => {
+            expect(fake.frames.some((frame) => frame.type === 'host_tool_result')).toBe(true);
+        });
+        expect(fake.frames.find((frame) => frame.type === 'host_tool_result')).toMatchObject({
+            id: 'host-call-1',
+            result: { content: [{ type: 'text', text: 'done' }] }
+        });
+        await client.close();
     });
 
     it('closes and fails when any required discovery command fails', async () => {

@@ -47,12 +47,31 @@ describe('MCP URL request user input', () => {
             question: 'Comment',
             required: false,
             multiple: false,
-            options: []
+            options: [],
+            placeholder: null,
+            initialValue: ''
         })
         expect(isRequestUserInputQuestionAnswered(parsed.questions[0]!, {
             selected: [],
             userNote: ''
         })).toBe(true)
+    })
+
+    it('preserves host-provided placeholder and editor prefill values', () => {
+        const parsed = parseRequestUserInputInput({
+            questions: [{
+                id: 'value',
+                question: 'Edit value',
+                options: [],
+                placeholder: 'Type here',
+                initialValue: 'existing text'
+            }]
+        })
+
+        expect(parsed.questions[0]).toMatchObject({
+            placeholder: 'Type here',
+            initialValue: 'existing text'
+        })
     })
 
     it('requires an actual selection for required choice questions', () => {

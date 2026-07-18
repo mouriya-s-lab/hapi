@@ -6,8 +6,10 @@ import { OmpInputQueue } from './OmpInputQueue';
 import type { OmpMode, PermissionMode } from './types';
 import type {
     OmpCommand,
+    OmpAvailableCommand,
     OmpInboundEvent,
     OmpModel,
+    OmpOutboundControlFrame,
     OmpResponseDataByCommand,
     OmpSessionState,
     OmpSubagentSnapshot
@@ -56,6 +58,7 @@ function state(currentModel: OmpModel | null): OmpSessionState {
         messageCount: 0,
         queuedMessageCount: harness.queuedMessageCount,
         todoPhases: [],
+        dumpTools: harness.dumpTools,
         contextUsage: harness.contextUsage
     };
 }
@@ -65,6 +68,7 @@ const harness = vi.hoisted(() => ({
     events: [] as string[],
     prompts: [] as string[],
     requests: [] as OmpCommand[],
+    controlFrames: [] as OmpOutboundControlFrame[],
     eventListeners: [] as EventListener[],
     closedListeners: [] as ClosedListener[],
     close: vi.fn(async () => {}),
@@ -76,6 +80,8 @@ const harness = vi.hoisted(() => ({
     queuedMessageCount: 0,
     currentModel: null as OmpModel | null,
     availableModels: [] as OmpModel[],
+    availableCommands: [] as OmpAvailableCommand[],
+    dumpTools: [{ name: 'read', description: 'Read files', parameters: {} }] as NonNullable<OmpSessionState['dumpTools']>,
     thinkingLevel: 'high' as import('./rpc/types').OmpThinkingLevel | undefined,
     configuredThinking: 'high' as import('./rpc/types').OmpConfiguredThinkingLevel | undefined,
     contextUsage: { tokens: 1_024, contextWindow: 128_000, percent: 0.8 },
@@ -98,7 +104,7 @@ vi.mock('./rpc/OmpRpcClient', () => ({
                 discovery: {
                     version: '17.0.4',
                     state: state(harness.currentModel),
-                    commands: [],
+                    commands: harness.availableCommands,
                     models: harness.availableModels
                 },
                 request: vi.fn(async (command: OmpCommand) => {
@@ -173,6 +179,14 @@ vi.mock('./rpc/OmpRpcClient', () => ({
                         }
                         case 'get_state':
                             return state(harness.currentModel);
+                        case 'set_host_tools':
+                            return { toolNames: command.tools.map((tool) => tool.name) };
+                        case 'set_host_uri_schemes':
+                            return { schemes: command.schemes.map((scheme) => scheme.scheme) };
+                        case 'get_login_providers':
+                            return { providers: [] };
+                        case 'login':
+                            return { providerId: command.providerId };
                         case 'set_subagent_subscription':
                             return { level: command.level };
                         case 'get_subagents':
@@ -205,6 +219,9 @@ vi.mock('./rpc/OmpRpcClient', () => ({
                         default:
                             throw new Error(`Unexpected launcher command: ${command.type}`);
                     }
+                }),
+                sendControlFrame: vi.fn(async (frame: OmpOutboundControlFrame) => {
+                    harness.controlFrames.push(frame);
                 }),
                 onEvent(listener: EventListener) {
                     harness.eventListeners.push(listener);
@@ -290,6 +307,8 @@ function createSessionStub(
     const agentMessages: unknown[] = [];
     const canonicalMessages: RawJSONLines[] = [];
     const thinkingStates: import('@hapi/protocol/omp').OmpThinkingState[] = [];
+    const capabilityUpdates: Array<{ tools?: string[]; slashCommands?: string[] }> = [];
+    let agentState: import('@/api/types').AgentState = {};
     const rpcHandlers = new Map<string, RpcHandler>();
     let runtimeConfigApplier: ((config: import('./session').OmpRuntimeConfigRequest) => Promise<import('./session').OmpRuntimeConfigApplied>) | null = null;
     const client = {
@@ -307,6 +326,9 @@ function createSessionStub(
         sendUserMessage(_text: string) {},
         sendSessionEvent(event: { type: string; [key: string]: unknown }) {
             sessionEvents.push(event);
+        },
+        updateAgentState(handler: (state: import('@/api/types').AgentState) => import('@/api/types').AgentState) {
+            agentState = handler(agentState);
         }
     };
 
@@ -338,6 +360,9 @@ function createSessionStub(
         updateThinkingState(state: import('@hapi/protocol/omp').OmpThinkingState) {
             thinkingStates.push(state);
         },
+        updateDiscoveredCapabilities(capabilities: { tools?: string[]; slashCommands?: string[] }) {
+            capabilityUpdates.push(capabilities);
+        },
         onThinkingChange(thinking: boolean) {
             session.thinking = thinking;
         },
@@ -364,6 +389,8 @@ function createSessionStub(
         agentMessages,
         canonicalMessages,
         thinkingStates,
+        capabilityUpdates,
+        getAgentState: () => agentState,
         getRuntimeConfigApplier: () => runtimeConfigApplier
     };
 }
@@ -396,6 +423,7 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         harness.events = [];
         harness.prompts = [];
         harness.requests = [];
+        harness.controlFrames = [];
         harness.eventListeners = [];
         harness.closedListeners = [];
         harness.close.mockReset();
@@ -421,6 +449,8 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         harness.resumePaths = {};
         harness.subagents = [];
         harness.subagentMessages = {};
+        harness.availableCommands = [];
+        harness.dumpTools = [{ name: 'read', description: 'Read files', parameters: {} }];
         await Promise.all(createdDirectories.splice(0).map((directory) => (
             rm(directory, { recursive: true, force: true })
         )));
@@ -437,7 +467,8 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         expect(harness.connectArgs).toEqual([expect.objectContaining({
             cwd: '/tmp/hapi-omp-test',
             model: 'ollama/a',
-            resumeSessionId: 'resume-me'
+            resumeSessionId: 'resume-me',
+            env: expect.objectContaining({ PI_RPC_EMIT_TITLE: '1' })
         })]);
         expect(session.sessionId).toBe('omp-session-1');
         expect(snapshots[0]).toEqual({
@@ -446,6 +477,45 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
             name: 'OMP session one'
         });
         expect(harness.close).toHaveBeenCalledOnce();
+    });
+
+    it('syncs native tools, HAPI host tools, and dynamic commands into session metadata', async () => {
+        harness.availableCommands = [{ name: 'review', description: 'Review changes', source: 'extension' }];
+        const { session, capabilityUpdates } = createSessionStub([], { closeQueue: false });
+        const launch = ompRemoteLauncher(session as never);
+        await waitForRequest('get_subagents');
+
+        emitEvent('available_commands_update', {
+            commands: [{ name: 'inspect', description: 'Inspect state', source: 'extension' }]
+        });
+        harness.dumpTools = [{ name: 'read', description: 'Read files', parameters: {} }, {
+            name: 'mcp__example_probe',
+            description: 'MCP probe',
+            parameters: {}
+        }];
+        emitEvent('session_info_update');
+        await vi.waitFor(() => {
+            expect(capabilityUpdates).toContainEqual({
+                tools: [
+                    'read',
+                    'mcp__example_probe',
+                    'change_title',
+                    'display_image',
+                    'display_video',
+                    'send_file',
+                    'skill_lookup'
+                ]
+            });
+        });
+        session.queue.close();
+        await launch;
+
+        expect(capabilityUpdates).toContainEqual({ tools: ['read'] });
+        expect(capabilityUpdates).toContainEqual({
+            tools: ['read', 'change_title', 'display_image', 'display_video', 'send_file', 'skill_lookup'],
+            slashCommands: ['review']
+        });
+        expect(capabilityUpdates).toContainEqual({ slashCommands: ['inspect'] });
     });
 
     it('reconciles native session_info_update events through get_state', async () => {
@@ -473,6 +543,9 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         await ompRemoteLauncher(session as never);
 
         expect(harness.requests.map((request) => request.type)).toEqual([
+            'set_host_tools',
+            'set_host_uri_schemes',
+            'get_login_providers',
             'set_subagent_subscription',
             'get_subagents',
             'prompt',
@@ -921,11 +994,12 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
 
         await ompRemoteLauncher(session as never);
 
+        expect(harness.requests.filter((request) => request.type === 'set_host_tools')).toHaveLength(1);
         expect(harness.requests.some((request) => (
-            request.type === 'set_host_tools'
-            || ('type' in request && ![
+            'type' in request && ![
+                'set_host_tools', 'set_host_uri_schemes', 'get_login_providers',
                 'prompt', 'get_state', 'set_subagent_subscription', 'get_subagents'
-            ].includes(request.type))
+            ].includes(request.type)
         ))).toBe(false);
         expect(harness.prompts).toEqual(['plain turn']);
     });

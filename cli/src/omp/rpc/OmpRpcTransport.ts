@@ -8,6 +8,8 @@ import type {
     OmpCommandType,
     OmpCommandWithId,
     OmpInboundEvent,
+    OmpOutboundControlFrame,
+    OmpRpcOutboundFrame,
     OmpRpcRawResponse,
     OmpRpcSpawnConfig,
     OmpRpcTransportState
@@ -257,6 +259,15 @@ export class OmpRpcTransport {
         });
     }
 
+    sendControlFrame(frame: OmpOutboundControlFrame): Promise<void> {
+        if (this.stateValue !== 'ready') {
+            return Promise.reject(new OmpRpcStateError(
+                `OMP RPC control frame ${frame.type} rejected in ${this.stateValue}`
+            ));
+        }
+        return this.enqueueWrite(frame);
+    }
+
     close(
         reason: Error = new OmpRpcStateError('OMP RPC transport closed'),
         graceMs: number = DEFAULT_CLOSE_GRACE_MS
@@ -430,13 +441,13 @@ export class OmpRpcTransport {
         }
     }
 
-    private enqueueWrite(frame: OmpCommandWithId): Promise<void> {
+    private enqueueWrite(frame: OmpRpcOutboundFrame): Promise<void> {
         const write = this.writeTail.then(() => this.writeFrame(frame));
         this.writeTail = write.catch(() => undefined);
         return write;
     }
 
-    private writeFrame(frame: OmpCommandWithId): Promise<void> {
+    private writeFrame(frame: OmpRpcOutboundFrame): Promise<void> {
         if (this.stateValue === 'closing' || this.stateValue === 'closed') {
             return Promise.reject(new OmpRpcStateError('Cannot write to a closing OMP RPC transport'));
         }

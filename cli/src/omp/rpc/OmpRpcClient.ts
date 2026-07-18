@@ -10,6 +10,7 @@ import type {
     OmpCommandByType,
     OmpCommandType,
     OmpInboundEvent,
+    OmpOutboundControlFrame,
     OmpResponseData,
     OmpRpcDiscovery,
     OmpRpcSpawnConfig,
@@ -186,6 +187,10 @@ export class OmpRpcClient {
         options: Omit<OmpRpcRequestOptions, 'discovery'> = {}
     ): Promise<OmpResponseData<C>> {
         return OmpRpcClient.requestThrough(this.transport, command, options);
+    }
+
+    sendControlFrame(frame: OmpOutboundControlFrame): Promise<void> {
+        return this.transport.sendControlFrame(frame);
     }
 
     close(reason?: Error): Promise<void> {
