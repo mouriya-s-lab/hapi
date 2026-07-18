@@ -152,6 +152,33 @@ export interface ThreadReadResponse {
     };
 }
 
+export interface ThreadListParams {
+    cursor?: string | null;
+    limit?: number | null;
+    archived?: boolean | null;
+    sortKey?: 'created_at' | 'updated_at';
+    sortDirection?: 'asc' | 'desc';
+    cwd?: string | string[] | null;
+    useStateDbOnly?: boolean;
+    searchTerm?: string | null;
+}
+
+export interface ThreadListItem {
+    id: string;
+    cwd: string;
+    name?: string | null;
+    preview?: string | null;
+    createdAt: number;
+    updatedAt: number;
+    parentThreadId?: string | null;
+    [key: string]: unknown;
+}
+
+export interface ThreadListResponse {
+    data: ThreadListItem[];
+    nextCursor?: string | null;
+}
+
 export interface ThreadForkResponse {
     thread: {
         id: string;

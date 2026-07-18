@@ -2,6 +2,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { useAppContext } from '@/lib/app-context'
 import { useTranslation } from '@/lib/use-translation'
 import { SettingsLinkRow, SettingsPageContent, SettingsSection } from '@/components/settings/SettingsPrimitives'
+import { HistoryImportSettingsRow } from '../history-import/HistoryImportSettingsRow'
 
 export default function ForkSettingsPage() {
     const navigate = useNavigate()
@@ -11,6 +12,7 @@ export default function ForkSettingsPage() {
     return (
         <SettingsPageContent title={t('settings.fork.title')} description={t('settings.fork.description')}>
             <SettingsSection>
+                <HistoryImportSettingsRow />
                 {user.role === 'admin' ? (
                     <SettingsLinkRow
                         label={t('settings.fork.users.title')}

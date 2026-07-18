@@ -25,13 +25,18 @@ import type {
     OpencodeReasoningEffortResponse,
     PathExistsResponse,
     SlashCommandsResponse,
-    UploadFileResponse
+    UploadFileResponse,
+    ListImportableSessionsRequest,
+    ListImportableSessionsResponse,
+    ImportProviderSessionRequest,
+    ImportProviderSessionResponse
 } from '@hapi/protocol/apiTypes'
 import type { Server } from 'socket.io'
 import type { RpcRegistry } from '../socket/rpcRegistry'
 
 const DEFAULT_RPC_TIMEOUT_MS = 30_000
 const MODEL_LIST_RPC_TIMEOUT_MS = 120_000
+const HISTORY_IMPORT_RPC_TIMEOUT_MS = 10 * 60_000
 
 /**
  * tiann/hapi#916: thrown by {@link RpcGateway.rpcCall} when the target CLI is
@@ -343,6 +348,14 @@ export class RpcGateway {
 
     async validateCcSwitchProviderForMachine(machineId: string, providerId: string): Promise<ValidateCcSwitchProviderResponse> {
         return await this.machineRpc(machineId, RPC_METHODS.ValidateCcSwitchProvider, { providerId }) as ValidateCcSwitchProviderResponse
+    }
+
+    async listImportableSessions(machineId: string, request: ListImportableSessionsRequest): Promise<ListImportableSessionsResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ListImportableSessions, request, MODEL_LIST_RPC_TIMEOUT_MS) as ListImportableSessionsResponse
+    }
+
+    async importProviderSession(machineId: string, request: ImportProviderSessionRequest): Promise<ImportProviderSessionResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ImportProviderSession, request, HISTORY_IMPORT_RPC_TIMEOUT_MS) as ImportProviderSessionResponse
     }
 
     async listOpencodeModelsForSession(sessionId: string): Promise<RpcListOpencodeModelsResponse> {
