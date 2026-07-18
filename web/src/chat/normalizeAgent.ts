@@ -699,13 +699,13 @@ export function normalizeAgentRecord(
             }
         }
 
-        if (data.type === 'compact_summary' && typeof data.summary === 'string' && data.summary.trim().length > 0) {
+        if (data.type === 'summary' && typeof data.summary === 'string' && data.summary.trim().length > 0) {
             return {
                 id: messageId,
                 localId,
                 createdAt,
-                role: 'event',
-                content: { type: 'compact-summary', summary: data.summary.trim() },
+                role: 'agent',
+                content: [{ type: 'summary', summary: data.summary.trim() }],
                 isSidechain: false,
                 meta
             }

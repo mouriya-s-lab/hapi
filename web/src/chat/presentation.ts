@@ -200,9 +200,6 @@ export function getEventPresentation(event: AgentEvent): EventPresentation {
     if (event.type === 'compact') {
         return { icon: '📦', text: 'Conversation compacted' }
     }
-    if (event.type === 'compact-summary') {
-        return { icon: '📦', text: 'Compacted' }
-    }
     if (event.type === 'model-refusal-fallback') {
         return { icon: '⚠️', text: `Model automatically switched from ${event.originalModel}` }
     }

@@ -361,9 +361,12 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             }
             this.transcriptScanner = await createCodexSessionScanner({
                 transcriptPath,
+                replayExistingHistory: true,
                 onEvent: (event) => {
+                    const eventTimestampMs = event.timestamp ? Date.parse(event.timestamp) : Number.NaN;
+                    if (!Number.isFinite(eventTimestampMs) || eventTimestampMs < startupTimestampMs) return;
                     const converted = convertCodexEvent(event);
-                    if (converted?.message?.type === 'compact_summary') {
+                    if (converted?.message?.type === 'summary') {
                         session.sendAgentMessage(converted.message);
                         compactSummarySequence += 1;
                         for (const waiter of [...compactSummaryWaiters]) waiter();

@@ -9,7 +9,7 @@ describe('convertCodexEvent', () => {
         });
 
         expect(result?.message).toMatchObject({
-            type: 'compact_summary',
+            type: 'summary',
             summary: '## Handoff Summary\n\n- Continue here.'
         });
     });
