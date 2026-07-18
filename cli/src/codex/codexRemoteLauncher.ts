@@ -2837,6 +2837,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     session.sendAgentMessage({
                         type: 'message',
                         message,
+                        model: session.getModel(),
                         id: randomUUID()
                     });
                 }
