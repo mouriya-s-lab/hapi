@@ -681,7 +681,8 @@ describe('reduceTimeline', () => {
                     agentId: 'agent-1',
                     message: {
                         type: 'message',
-                        message: 'agent done'
+                        message: 'agent done',
+                        model: 'gpt-5.4'
                     }
                 },
                 isSidechain: false
@@ -720,7 +721,11 @@ describe('reduceTimeline', () => {
             activity: 'Completed: agent done'
         })
         expect(agentBlock.children.some((child: any) => child.kind === 'tool-call' && child.tool.id === 'codex-agent:agent-1:call:cmd-1')).toBe(true)
-        expect(agentBlock.children.some((child: any) => child.kind === 'agent-text' && child.text === 'agent done')).toBe(true)
+        expect(agentBlock.children.some((child: any) => (
+            child.kind === 'agent-text'
+            && child.text === 'agent done'
+            && child.model === 'gpt-5.4'
+        ))).toBe(true)
     })
 
     it('keeps new Codex agent trace commands nested under the existing agent block', () => {

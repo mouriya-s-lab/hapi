@@ -680,6 +680,8 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
         const pendingAgentTracesByAgentId = new Map<string, unknown[]>();
         const pendingAgentToolInputByCallId = new Map<string, { name: string; input: unknown }>();
         const childAgentRuntimeById = new Map<string, ChildAgentRuntime>();
+        const childAgentModelByCardId = new Map<string, string>();
+        const childAgentModelByAgentId = new Map<string, string>();
         const lastAgentRunUpdateAtByAgentId = new Map<string, number>();
         const lastAgentRunUpdateSignatureByAgentId = new Map<string, string>();
         const pendingThrottledAgentUpdateByAgentId = new Map<string, {
@@ -802,6 +804,10 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             const startedAt = Date.now();
             agentStartedAtByCardId.set(cardId, startedAt);
             const summary = summarizeAgentInput(input);
+            const requestedModel = asString(asRecord(input)?.model) ?? session.getModel();
+            if (requestedModel) {
+                childAgentModelByCardId.set(cardId, requestedModel);
+            }
             if (summary) {
                 agentSummaryByCardId.set(cardId, summary);
             }
@@ -845,6 +851,10 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
 
         const linkAgentToCard = (agentId: string, cardId: string): void => {
             agentCardByAgentId.set(agentId, cardId);
+            const model = childAgentModelByCardId.get(cardId) ?? session.getModel();
+            if (model) {
+                childAgentModelByAgentId.set(agentId, model);
+            }
             clearPendingAgentStart(cardId);
             const startedAt = agentStartedAtByCardId.get(cardId) ?? agentStartedAtByAgentId.get(agentId);
             if (startedAt) {
@@ -1535,6 +1545,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     emitAgentRunTraceMessage(agentId, {
                         type: 'message',
                         message,
+                        model: childAgentModelByAgentId.get(agentId) ?? session.getModel(),
                         id: randomUUID()
                     });
                 }
@@ -2837,7 +2848,6 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     session.sendAgentMessage({
                         type: 'message',
                         message,
-                        model: session.getModel(),
                         id: randomUUID()
                     });
                 }

@@ -2103,7 +2103,8 @@ describe('codexRemoteLauncher', () => {
             agentId: 'child-thread',
             message: expect.objectContaining({
                 type: 'message',
-                message: 'child output should stay hidden'
+                message: 'child output should stay hidden',
+                model: 'gpt-5.4'
             })
         }));
         expect(codexMessages).toContainEqual(expect.objectContaining({

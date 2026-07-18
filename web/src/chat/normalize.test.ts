@@ -13,27 +13,6 @@ function makeMessage(content: unknown): DecryptedMessage {
 }
 
 describe('normalizeDecryptedMessage', () => {
-    it('preserves the model on Codex response messages', () => {
-        const message = makeMessage({
-            role: 'agent',
-            content: {
-                type: 'codex',
-                data: {
-                    type: 'message',
-                    message: 'Hello from Codex',
-                    model: 'gpt-5.5'
-                }
-            }
-        })
-
-        expect(normalizeDecryptedMessage(message)).toMatchObject({
-            id: 'msg-1',
-            role: 'agent',
-            model: 'gpt-5.5',
-            content: [{ type: 'text', text: 'Hello from Codex' }]
-        })
-    })
-
     it('drops unsupported Claude system output records', () => {
         const message = makeMessage({
             role: 'agent',

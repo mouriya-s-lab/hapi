@@ -208,6 +208,7 @@ function normalizeTraceMessage(
         return [{
             ...base,
             id: traceId,
+            model: asString(data.model),
             role: 'agent',
             content: [{ type: 'text', text: data.message, uuid: traceId, parentUUID: null }]
         } as TracedMessage]

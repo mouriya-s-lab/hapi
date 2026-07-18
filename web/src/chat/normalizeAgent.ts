@@ -661,7 +661,6 @@ export function normalizeAgentRecord(
                 id: messageId,
                 localId,
                 createdAt,
-                model: asString(data.model),
                 role: 'agent',
                 isSidechain: false,
                 content: [{ type: 'text', text: data.message, uuid: messageId, parentUUID: null }],
