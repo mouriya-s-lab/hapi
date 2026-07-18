@@ -102,9 +102,11 @@ export function HappyUserMessage() {
         if (!canRewind || !hubMessageId) return
         setRewindError(null)
         try {
-            const { newSessionId } = await forkSession({
+            const result = await forkSession({
                 forkPoint: { messageId: hubMessageId }
             })
+            if (result.type === 'blocked') return
+            const { newSessionId } = result
             if (text) {
                 setForkedFromText(newSessionId, text)
             }

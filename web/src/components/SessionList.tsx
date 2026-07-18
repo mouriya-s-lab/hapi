@@ -645,8 +645,10 @@ function SessionItem(props: {
     const handleFork = async () => {
         setForkError(null)
         try {
-            const { newSessionId } = await forkSession()
-            onSelect(newSessionId)
+            const result = await forkSession()
+            if (result.type === 'success') {
+                onSelect(result.newSessionId)
+            }
         } catch (error) {
             setForkError(error instanceof Error ? error.message : 'Fork failed')
         }

@@ -151,6 +151,16 @@ describe('forkSession', () => {
         })
     })
 
+    it('returns a blocked domain result when the selected Codex turn is still in progress', async () => {
+        const deps = makeDeps({
+            forkShouldThrow: new Error("lastTurnId 'turn-1' identifies an in-progress turn")
+        })
+        await expect(forkSession({ srcSessionId: 'src', deps })).rejects.toMatchObject({
+            name: 'ForkBlockedError',
+            message: 'The selected message is still being processed. Wait for the turn to finish, then try again.'
+        })
+    })
+
     it('returns 500 when spawnSession returns error', async () => {
         const deps = makeDeps({ spawnResult: { type: 'error', message: 'no machine' } })
         await expect(forkSession({ srcSessionId: 'src', deps })).rejects.toMatchObject({

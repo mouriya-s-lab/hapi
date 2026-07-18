@@ -6,7 +6,7 @@ import type { ReactNode } from 'react'
 // even earlier, and vi is safe to use inside its factory (documented behavior).
 const state = vi.hoisted(() => {
     return {
-        forkSession: vi.fn(async () => ({ newSessionId: 'new-forked-id' })),
+        forkSession: vi.fn(async () => ({ type: 'success' as const, newSessionId: 'new-forked-id' })),
         navigate: vi.fn(async () => undefined),
         setForkedFromText: vi.fn<(sessionId: string, text: string) => void>(),
         isPending: false,
@@ -142,7 +142,7 @@ afterEach(() => {
     state.forkSession.mockClear()
     state.navigate.mockClear()
     state.setForkedFromText.mockClear()
-    state.forkSession.mockImplementation(async () => ({ newSessionId: 'new-forked-id' }))
+    state.forkSession.mockImplementation(async () => ({ type: 'success', newSessionId: 'new-forked-id' }))
     state.navigate.mockImplementation(async () => undefined)
     state.isPending = false
     state.messageId = 'user-text:msg-42'
@@ -215,6 +215,18 @@ describe('HappyUserMessage rewind button (#62 c5)', () => {
             await waitFor(() => expect(state.forkSession).toHaveBeenCalled())
             expect(state.setForkedFromText).not.toHaveBeenCalled()
         }
+    })
+
+    it('stays on the source session when the server reports that fork is blocked', async () => {
+        state.forkSession.mockResolvedValueOnce({ type: 'blocked' } as any)
+        render(<HappyUserMessage />)
+
+        fireEvent.click(screen.getByRole('button', { name: /Rewind to this message/i }))
+
+        await waitFor(() => expect(state.forkSession).toHaveBeenCalled())
+        expect(state.navigate).not.toHaveBeenCalled()
+        expect(state.setForkedFromText).not.toHaveBeenCalled()
+        expect(screen.queryByRole('alert')).toBeNull()
     })
 
     it('When aggregated isPending is true → button is disabled', () => {

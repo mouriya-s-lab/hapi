@@ -6,6 +6,7 @@ import type { ReopenSessionResponse } from '@hapi/protocol/apiTypes'
 import { queryKeys } from '@/lib/query-keys'
 import { clearMessageWindow } from '@/lib/message-window-store'
 import { isKnownFlavor } from '@hapi/protocol'
+import type { ForkRouteResult } from '../../../../fork-features/session-fork/rpcPayloads'
 
 export function useSessionActions(
     api: ApiClient | null,
@@ -26,7 +27,7 @@ export function useSessionActions(
     setServiceTier: (serviceTier: string | null) => Promise<void>
     renameSession: (name: string) => Promise<void>
     deleteSession: () => Promise<void>
-    forkSession: (opts?: { forkPoint?: { messageId: string } }) => Promise<{ newSessionId: string }>
+    forkSession: (opts?: { forkPoint?: { messageId: string } }) => Promise<ForkRouteResult>
     isPending: boolean
 } {
     const queryClient = useQueryClient()
@@ -208,7 +209,7 @@ export function useSessionActions(
     })
 
     const forkMutation = useMutation<
-        { newSessionId: string },
+        ForkRouteResult,
         Error,
         { forkPoint?: { messageId: string } } | void
     >({

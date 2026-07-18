@@ -100,6 +100,12 @@ export function buildForkDeps(args: {
 
         async forkProvider(machineId, request): Promise<ForkSpawnResultLike> {
             const raw = await syncEngine.forkProviderSession(machineId, request)
+            if (raw !== null && typeof raw === 'object' && 'error' in raw) {
+                const error = (raw as { error?: unknown }).error
+                if (typeof error === 'string') {
+                    throw new Error(error)
+                }
+            }
             return ForkSpawnResultSchema.parse(raw)
         },
 

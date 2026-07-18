@@ -1,4 +1,8 @@
 import { z } from 'zod'
+
+export type ForkRouteResult =
+    | { type: 'success'; newSessionId: string }
+    | { type: 'blocked' }
 import { MetadataSchema } from '../../shared/src/schemas'
 
 /**

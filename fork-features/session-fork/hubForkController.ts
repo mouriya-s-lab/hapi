@@ -10,6 +10,13 @@ export class HttpError extends Error {
     }
 }
 
+export class ForkBlockedError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'ForkBlockedError'
+    }
+}
+
 /**
  * Subset of a hub session row that forkController needs. Mapped from a real
  * StoredSession by hubSyncEngineAdapter; kept here so forkController stays
@@ -239,6 +246,11 @@ export async function forkSession(args: {
         })
     } catch (err) {
         const message = err instanceof Error ? err.message : 'unknown provider error'
+        if (message.includes('identifies an in-progress turn')) {
+            throw new ForkBlockedError(
+                'The selected message is still being processed. Wait for the turn to finish, then try again.'
+            )
+        }
         throw new HttpError(502, `provider fork failed: ${message}`)
     }
 
