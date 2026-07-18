@@ -19,12 +19,6 @@ describe('ForkSettingsPage', () => {
         role = 'admin'
     })
 
-    it('opens Codex import through the existing sessions workflow', () => {
-        renderPage()
-        fireEvent.click(screen.getByRole('button', { name: /Import Codex sessions/ }))
-        expect(navigate).toHaveBeenCalledWith({ to: '/sessions', search: { importCodex: true } })
-    })
-
     it('shows user management only to administrators', () => {
         const view = renderPage()
         fireEvent.click(screen.getByRole('button', { name: /User management/ }))

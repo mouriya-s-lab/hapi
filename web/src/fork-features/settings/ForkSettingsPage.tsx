@@ -11,11 +11,6 @@ export default function ForkSettingsPage() {
     return (
         <SettingsPageContent title={t('settings.fork.title')} description={t('settings.fork.description')}>
             <SettingsSection>
-                <SettingsLinkRow
-                    label={t('settings.fork.import.title')}
-                    description={t('settings.fork.import.description')}
-                    onClick={() => navigate({ to: '/sessions', search: { importCodex: true } })}
-                />
                 {user.role === 'admin' ? (
                     <SettingsLinkRow
                         label={t('settings.fork.users.title')}

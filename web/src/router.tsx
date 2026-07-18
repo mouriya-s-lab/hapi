@@ -17,8 +17,6 @@ import { usePreserveSidebarScroll } from '@/hooks/usePreserveSidebarScroll'
 import { App } from '@/App'
 import { SessionChat } from '@/components/SessionChat'
 import { SessionList } from '@/components/SessionList'
-import { CodexSessionSyncDialog } from '@/components/CodexSessionSyncDialog'
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { NewSession } from '@/components/NewSession'
 import { WorkspaceBrowser } from '@/components/WorkspaceBrowser'
 import { LoadingState } from '@/components/LoadingState'
@@ -46,8 +44,7 @@ import { clearDraftsAfterSend } from '@/lib/clearDraftsAfterSend'
 import { inactiveSessionCanResume } from '@/lib/sessionResume'
 import { markSessionSeen } from '@/lib/sessionLastSeen'
 import { useSessionBrowserTitle } from '@/hooks/useSessionBrowserTitle'
-import { clearCodexImportedSession, markCodexSessionsImported } from '@/lib/codexImportedSessions'
-import type { Machine, CodexDuplicateSessionGroup, CodexLocalSessionSummary } from '@/types/api'
+import type { Machine } from '@/types/api'
 import FilesPage from '@/routes/sessions/files'
 import FilePage from '@/routes/sessions/file'
 import TerminalPage from '@/routes/sessions/terminal'
@@ -153,16 +150,13 @@ function getMachineTitle(machine: Machine): string {
 function SessionsPage() {
     const { api } = useAppContext()
     const navigate = useNavigate()
-    const queryClient = useQueryClient()
     const pathname = useLocation({ select: location => location.pathname })
-    const { importCodex } = sessionsRoute.useSearch()
     const sidebarScrollRef = useRef<HTMLDivElement>(null)
     // Keep the persistent sidebar from jumping when Router's per-route scroll
     // restoration fires on navigation (issue #31).
     usePreserveSidebarScroll(sidebarScrollRef, pathname)
     const matchRoute = useMatchRoute()
     const { t } = useTranslation()
-    const { addToast } = useToast()
     const { sessions, isLoading, error, refetch } = useSessions(api)
     const { hideArchivedSessions } = useHideArchivedSessions()
     // Hide user-archived sessions from the list when the preference is on.
@@ -173,16 +167,6 @@ function SessionsPage() {
         [sessions, hideArchivedSessions]
     )
     const { machines } = useMachines(api, true)
-    const [isSyncingCodexSession, setIsSyncingCodexSession] = useState(false)
-    const [codexSessions, setCodexSessions] = useState<CodexLocalSessionSummary[]>([])
-    const [isLoadingCodexSessions, setIsLoadingCodexSessions] = useState(false)
-    const [isSyncConfirmOpen, setIsSyncConfirmOpen] = useState(false)
-    const [isRestartingCodexDesktop, setIsRestartingCodexDesktop] = useState(false)
-    const [pendingDuplicateSessionIds, setPendingDuplicateSessionIds] = useState<string[]>([])
-    const [duplicateSessionGroups, setDuplicateSessionGroups] = useState<CodexDuplicateSessionGroup[]>([])
-    const [isDuplicateMergeConfirmOpen, setIsDuplicateMergeConfirmOpen] = useState(false)
-    const [isMergingDuplicateSessions, setIsMergingDuplicateSessions] = useState(false)
-
     const handleRefresh = useCallback(() => {
         void refetch()
     }, [refetch])
@@ -216,9 +200,6 @@ function SessionsPage() {
         }
         markSessionSeen(selectedSessionId, selectedSession.updatedAt)
     }, [selectedSessionId, selectedSession?.updatedAt])
-    const currentCodexSessionId = selectedSession?.metadata?.flavor === 'codex'
-        ? (selectedSession.metadata.agentSessionId ?? null)
-        : null
     const isSessionsIndex = pathname === '/sessions' || pathname === '/sessions/'
     const sidebar = useSidebarResize()
     const handleNewSessionInDirectory = useCallback((args: { machineId: string | null; directory: string }) => {
@@ -229,254 +210,6 @@ function SessionsPage() {
                 : { directory: args.directory }
         })
     }, [navigate])
-
-    const isCodexScriptTimeout = useCallback((message: string | null | undefined): boolean => {
-        const raw = (message ?? '').trim()
-        return /执行超时|timed\s*out|timeout/i.test(raw)
-    }, [])
-
-    const normalizeCodexScriptError = useCallback((message: string | null | undefined, fallback: string): string => {
-        const raw = (message ?? '').trim()
-        if (!raw) return fallback
-        if (isCodexScriptTimeout(raw)) {
-            return t('codexSync.error.timeout')
-        }
-        if (/当前会话仍处于活跃状态，请等待会话结束后重试|Active Hapi process already has this Codex thread/i.test(raw)) {
-            return t('codexSync.error.active')
-        }
-        if (/未安装\/找不到codex客户端|unable to find codex launcher|找不到.*codex/i.test(raw)) {
-            return t('codexSync.restart.failed.notFound')
-        }
-        return raw
-    }, [isCodexScriptTimeout, t])
-
-    const formatCodexSyncFailureBody = useCallback((reason: string): string => {
-        if (
-            reason === t('codexSync.error.timeout') ||
-            reason === t('codexSync.error.active') ||
-            reason === t('codexSync.restart.failed.notFound')
-        ) {
-            return reason
-        }
-        return t('codexSync.failed.bodyWithReason', { reason })
-    }, [t])
-
-    const closeDuplicateMergeDialog = useCallback(() => {
-        // 中文注释：重复会话确认框关闭时一并清空“本次选中导入”的上下文，确保后续检测不会误用上一轮的 codexSessionId。
-        setIsDuplicateMergeConfirmOpen(false)
-        setPendingDuplicateSessionIds([])
-        setDuplicateSessionGroups([])
-    }, [])
-
-    const handleRestartCodexDesktop = useCallback(async () => {
-        setIsRestartingCodexDesktop(true)
-        try {
-            const status = await api.getCodexDesktopStatus()
-            if (!status.codexClientAvailable) {
-                throw new Error(t('codexSync.restart.failed.notFound'))
-            }
-
-            const result = await api.restartCodexDesktop()
-            if (!result.success) {
-                throw new Error(normalizeCodexScriptError(result.error, t('codexSync.restart.failed.body')))
-            }
-            addToast({
-                title: t('codexSync.restart.started.title'),
-                body: t('codexSync.restart.started.body'),
-                sessionId: '',
-                url: ''
-            })
-        } catch (error) {
-            addToast({
-                title: t('codexSync.restart.failed.title'),
-                body: normalizeCodexScriptError(
-                    error instanceof Error ? error.message : null,
-                    t('codexSync.restart.failed.body')
-                ),
-                sessionId: '',
-                url: ''
-            })
-        } finally {
-            setIsRestartingCodexDesktop(false)
-        }
-    }, [addToast, api, normalizeCodexScriptError, t])
-
-    const handleMergeDuplicateSessions = useCallback(async () => {
-        if (isMergingDuplicateSessions || pendingDuplicateSessionIds.length === 0) return
-
-        setIsMergingDuplicateSessions(true)
-        try {
-            const result = await api.mergeCodexDuplicateSessions({ sessionIds: pendingDuplicateSessionIds })
-            if (!result.success) {
-                throw new Error(normalizeCodexScriptError(result.error, t('codexSync.duplicates.merge.failed.body')))
-            }
-
-            addToast({
-                title: t('codexSync.duplicates.merge.success.title'),
-                body: t('codexSync.duplicates.merge.success.body'),
-                sessionId: '',
-                url: ''
-            })
-
-            const redirectTarget = selectedSessionId
-                ? result.merged.find((group) => group.removedSessionIds?.includes(selectedSessionId))
-                : undefined
-
-            closeDuplicateMergeDialog()
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: queryKeys.sessions }),
-                selectedSessionId
-                    ? queryClient.invalidateQueries({ queryKey: queryKeys.session(selectedSessionId) })
-                    : Promise.resolve(),
-                selectedSessionId
-                    ? queryClient.invalidateQueries({ queryKey: queryKeys.messages(selectedSessionId) })
-                    : Promise.resolve()
-            ])
-            await refetch()
-
-            if (redirectTarget?.canonicalSessionId) {
-                navigate({
-                    to: '/sessions/$sessionId',
-                    params: { sessionId: redirectTarget.canonicalSessionId }
-                })
-            }
-        } catch (error) {
-            addToast({
-                title: t('codexSync.duplicates.merge.failed.title'),
-                body: normalizeCodexScriptError(
-                    error instanceof Error ? error.message : null,
-                    t('codexSync.duplicates.merge.failed.body')
-                ),
-                sessionId: '',
-                url: ''
-            })
-            throw error
-        } finally {
-            setIsMergingDuplicateSessions(false)
-        }
-    }, [
-        addToast,
-        api,
-        closeDuplicateMergeDialog,
-        isMergingDuplicateSessions,
-        navigate,
-        normalizeCodexScriptError,
-        pendingDuplicateSessionIds,
-        queryClient,
-        refetch,
-        selectedSessionId,
-        t
-    ])
-
-    const openCodexImportDialog = useCallback(async () => {
-        if (isLoadingCodexSessions) return
-
-        setIsSyncConfirmOpen(true)
-        setIsLoadingCodexSessions(true)
-        try {
-            const result = await api.getCodexSessions()
-            setCodexSessions(result.sessions)
-        } catch (error) {
-            setCodexSessions([])
-            const reason = normalizeCodexScriptError(
-                error instanceof Error ? error.message : null,
-                t('dialog.error.default')
-            )
-            addToast({
-                title: t('codexSync.failed.title'),
-                body: formatCodexSyncFailureBody(reason),
-                sessionId: '',
-                url: ''
-            })
-        } finally {
-            setIsLoadingCodexSessions(false)
-        }
-    }, [addToast, api, formatCodexSyncFailureBody, isLoadingCodexSessions, normalizeCodexScriptError, t])
-
-    useEffect(() => {
-        if (!importCodex) return
-        void openCodexImportDialog()
-        navigate({ to: '/sessions', search: {}, replace: true })
-    }, [importCodex, navigate, openCodexImportDialog])
-
-    const handleImportCodexSessions = useCallback(async (sessionIds: string[]) => {
-        if (isSyncingCodexSession || isLoadingCodexSessions) return
-
-        setIsSyncingCodexSession(true)
-        try {
-            // 中文注释：弹窗提交的是本地 Codex thread ID；后端会直接读取这些 transcript 并导入到 Hapi。
-            const result = await api.syncCodexSession({ sessionIds })
-            if (!result.success) {
-                throw new Error(normalizeCodexScriptError(result.error, t('codexSync.failed.body')))
-            }
-
-            addToast({
-                title: t('codexSync.success.title'),
-                body: t('codexSync.success.body', { n: result.syncedCount ?? sessionIds.length }),
-                sessionId: '',
-                url: ''
-            })
-            // 中文注释：导入成功后先在浏览器侧记住这些 Codex thread 的导入时间，供左侧会话列表显示特殊时间文案。
-            markCodexSessionsImported(sessionIds)
-            setIsSyncConfirmOpen(false)
-            await refetch()
-
-            setPendingDuplicateSessionIds([])
-            setDuplicateSessionGroups([])
-            setIsDuplicateMergeConfirmOpen(false)
-            try {
-                // 中文注释：重复会话检测严格限定在这次用户勾选导入的 codexSessionId 范围内；未勾选的其它会话不参与检测，也不弹合并提示。
-                const duplicateResult = await api.getCodexDuplicateSessions({ sessionIds })
-                if (!duplicateResult.success) {
-                    throw new Error(normalizeCodexScriptError(
-                        duplicateResult.error,
-                        t('codexSync.duplicates.detect.failed.body')
-                    ))
-                }
-
-                if (duplicateResult.duplicates.length > 0) {
-                    setPendingDuplicateSessionIds(sessionIds)
-                    setDuplicateSessionGroups(duplicateResult.duplicates)
-                    setIsDuplicateMergeConfirmOpen(true)
-                }
-            } catch (duplicateError) {
-                addToast({
-                    title: t('codexSync.duplicates.detect.failed.title'),
-                    body: normalizeCodexScriptError(
-                        duplicateError instanceof Error ? duplicateError.message : null,
-                        t('codexSync.duplicates.detect.failed.body')
-                    ),
-                    sessionId: '',
-                    url: ''
-                })
-            }
-        } catch (syncError) {
-            const reason = normalizeCodexScriptError(
-                syncError instanceof Error ? syncError.message : null,
-                t('dialog.error.default')
-            )
-            addToast({
-                title: t('codexSync.failed.title'),
-                body: formatCodexSyncFailureBody(reason),
-                sessionId: '',
-                url: ''
-            })
-        } finally {
-            setIsSyncingCodexSession(false)
-        }
-    }, [
-        addToast,
-        api,
-        formatCodexSyncFailureBody,
-        isLoadingCodexSessions,
-        isSyncingCodexSession,
-        normalizeCodexScriptError,
-        refetch,
-        setDuplicateSessionGroups,
-        setIsDuplicateMergeConfirmOpen,
-        setPendingDuplicateSessionIds,
-        t
-    ])
 
     return (
         <>
@@ -558,28 +291,6 @@ function SessionsPage() {
                 </div>
             </div>
             </div>
-            {/* 中文注释：这里展示的是本地 Codex transcript 列表；默认尝试勾选当前 Hapi 会话关联的 Codex thread。 */}
-            <CodexSessionSyncDialog
-                isOpen={isSyncConfirmOpen}
-                onClose={() => setIsSyncConfirmOpen(false)}
-                sessions={codexSessions}
-                currentCodexSessionId={currentCodexSessionId}
-                onConfirm={handleImportCodexSessions}
-                onRestartCodexDesktop={handleRestartCodexDesktop}
-                isPending={isSyncingCodexSession}
-                isRestartingCodexDesktop={isRestartingCodexDesktop}
-                isLoading={isLoadingCodexSessions}
-            />
-            <ConfirmDialog
-                isOpen={isDuplicateMergeConfirmOpen && duplicateSessionGroups.length > 0}
-                onClose={closeDuplicateMergeDialog}
-                title={t('codexSync.duplicates.confirm.title')}
-                description={t('codexSync.duplicates.confirm.description')}
-                confirmLabel={t('codexSync.duplicates.confirm.confirm')}
-                confirmingLabel={t('codexSync.duplicates.confirm.confirming')}
-                onConfirm={handleMergeDuplicateSessions}
-                isPending={isMergingDuplicateSessions}
-            />
         </>
     )
 }
@@ -761,8 +472,6 @@ function SessionPage() {
         isSessionThinking: session?.thinking ?? false,
         onSuccess: (sentSessionId) => {
             clearDraftsAfterSend(sentSessionId, sessionId)
-            // 中文注释：一旦用户已经在 Hapi 内继续这个 Codex 会话，就清除"刚从 Codex 导入"的标记。
-            clearCodexImportedSession(session?.metadata?.codexSessionId)
             // A successful send supersedes any previously-rendered error
             // for that session.  Other sessions' errors stay put.
             setSendErrors((prev) => {
@@ -1125,10 +834,6 @@ const indexRoute = createRoute({
 const sessionsRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/sessions',
-    validateSearch: (search: Record<string, unknown>): { importCodex?: boolean } => {
-        const importCodex = search.importCodex === true || search.importCodex === 'true'
-        return importCodex ? { importCodex: true } : {}
-    },
     component: SessionsPage,
 })
 
