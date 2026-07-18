@@ -1,21 +1,9 @@
 import { ompLocal } from './ompLocal';
 import { OmpSession } from './session';
-import type { PermissionMode } from './types';
 import { BaseLocalLauncher } from '@/modules/common/launcher/BaseLocalLauncher';
 import { createOmpLocalSessionScanner } from './utils/ompSessionScanner';
 import { buildOmpEnv } from './utils/config';
 import type { OmpConfiguredThinkingLevel } from '@hapi/protocol/omp';
-
-function mapApprovalMode(mode: PermissionMode | undefined): { yolo: boolean } {
-    // omp's real CLI exposes `--approval-mode {always-ask|write|yolo}`
-    // (packages/coding-agent/src/cli/args.ts). HAPI only drives the yolo bit:
-    // `yolo` maps to `--approval-mode yolo`; `default`/`plan` leave omp at its
-    // own default (interactive approvals). `safe-yolo` no longer exists.
-    if (mode === 'yolo') {
-        return { yolo: true };
-    }
-    return { yolo: false };
-}
 
 export async function ompLocalLauncher(
     session: OmpSession,
@@ -39,14 +27,12 @@ export async function ompLocalLauncher(
         startedBy: session.startedBy,
         startingMode: session.startingMode,
         launch: async (abortSignal) => {
-            const approval = mapApprovalMode(session.getPermissionMode() as PermissionMode | undefined);
             await ompLocal({
                 path: session.path,
                 sessionId: session.sessionId,
                 abort: abortSignal,
                 model: opts.model,
-                effort: opts.effort,
-                yolo: approval.yolo
+                effort: opts.effort
             });
         },
         sendFailureMessage: (message) => {

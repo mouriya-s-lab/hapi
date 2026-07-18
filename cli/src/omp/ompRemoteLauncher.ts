@@ -11,7 +11,6 @@ import type { OmpSession } from './session';
 import type { OmpRuntimeConfigApplied, OmpRuntimeConfigRequest } from './session';
 import type { PermissionMode } from './types';
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
-import { PLAN_MODE_INSTRUCTION } from './utils/systemPrompt';
 import { buildOmpEnv } from './utils/config';
 import { OmpRpcClient } from './rpc/OmpRpcClient';
 import { OmpRpcEventAdapter } from './rpc/OmpRpcEventAdapter';
@@ -378,9 +377,7 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
             }
             this.applyDisplayMode(input.mode.permissionMode, this.currentModel?.id);
             this.messageBuffer.addMessage(input.text, 'user');
-            const message = input.mode.permissionMode === 'plan'
-                ? `${PLAN_MODE_INSTRUCTION}\n\n${prepared.message}`
-                : prepared.message;
+            const message = prepared.message;
 
             switch (input.inputMode) {
                 case 'prompt': {

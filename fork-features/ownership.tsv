@@ -102,8 +102,6 @@ cli/src/omp/session.ts	fork-owned	#172	origin-only delta; fork commits 3686370a
 cli/src/omp/types.ts	fork-owned	#172	origin-only delta; fork commits 7e0010b8,3686370a
 cli/src/omp/utils/config.ts	fork-owned	#172	origin-only delta; fork commits 3686370a
 cli/src/omp/utils/ompBackend.ts	fork-owned	#172	origin-only delta; fork commits 7e0010b8,3686370a
-cli/src/omp/utils/permissionHandler.ts	fork-owned	#172	origin-only delta; fork commits 7e0010b8,3686370a
-cli/src/omp/utils/systemPrompt.ts	fork-owned	#172	origin-only delta; fork commits 7e0010b8
 cli/src/opencode/opencodeLocalLauncher.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/opencode/opencodeRemoteLauncher.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/opencode/opencodeRemoteLauncher.ts	trunk-patch	#175	both refs changed; fork commits d28853c7

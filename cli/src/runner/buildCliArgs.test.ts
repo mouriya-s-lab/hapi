@@ -96,13 +96,13 @@ describe('buildCliArgs', () => {
         const args = buildCliArgs('omp', {
             directory: '/tmp',
             model: 'anthropic/claude-sonnet-4-5',
-            permissionMode: 'safe-yolo',
+            permissionMode: 'default',
         })
         expect(args[0]).toBe('omp')
         expect(args).toContain('--model')
         expect(args).toContain('anthropic/claude-sonnet-4-5')
         expect(args).toContain('--permission-mode')
-        expect(args).toContain('safe-yolo')
+        expect(args).toContain('default')
     })
 
     it('validates all known permission modes', () => {
