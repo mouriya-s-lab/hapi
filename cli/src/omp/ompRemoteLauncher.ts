@@ -1,29 +1,67 @@
 import React from 'react';
 import { logger } from '@/ui/logger';
-import { buildHapiMcpBridge } from '@/codex/utils/buildHapiMcpBridge';
 import { convertAgentMessage } from '@/agent/messageConverter';
-import type { AgentMessage, McpServerStdio, PromptContent } from '@/agent/types';
-import { RemoteLauncherBase, type RemoteLauncherDisplayContext, type RemoteLauncherExitReason } from '@/modules/common/remote/RemoteLauncherBase';
+import {
+    RemoteLauncherBase,
+    type RemoteLauncherDisplayContext,
+    type RemoteLauncherExitReason
+} from '@/modules/common/remote/RemoteLauncherBase';
 import { OmpDisplay } from '@/ui/ink/OmpDisplay';
 import type { OmpSession } from './session';
 import type { PermissionMode } from './types';
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
-import { createOmpBackend } from './utils/ompBackend';
-import { OmpPermissionHandler } from './utils/permissionHandler';
 import { PLAN_MODE_INSTRUCTION } from './utils/systemPrompt';
+import { buildOmpEnv } from './utils/config';
+import { OmpRpcClient } from './rpc/OmpRpcClient';
+import { OmpRpcEventAdapter } from './rpc/OmpRpcEventAdapter';
+import type { OmpModel } from './rpc/types';
+
+type TurnWaiter = {
+    promise: Promise<void>;
+    resolve: () => void;
+    reject: (error: Error) => void;
+    settled: boolean;
+};
+
+function createTurnWaiter(): TurnWaiter {
+    let resolvePromise!: () => void;
+    let rejectPromise!: (error: Error) => void;
+    const promise = new Promise<void>((resolve, reject) => {
+        resolvePromise = resolve;
+        rejectPromise = reject;
+    });
+    const waiter: TurnWaiter = {
+        promise,
+        settled: false,
+        resolve: () => {
+            if (waiter.settled) {
+                return;
+            }
+            waiter.settled = true;
+            resolvePromise();
+        },
+        reject: (error) => {
+            if (waiter.settled) {
+                return;
+            }
+            waiter.settled = true;
+            rejectPromise(error);
+        }
+    };
+    return waiter;
+}
 
 class OmpRemoteLauncher extends RemoteLauncherBase {
     private readonly session: OmpSession;
-    private backend: ReturnType<typeof createOmpBackend> | null = null;
-    private permissionHandler: OmpPermissionHandler | null = null;
-    private happyServer: { stop: () => void } | null = null;
-    private abortController = new AbortController();
+    private client: OmpRpcClient | null = null;
+    private queueAbortController = new AbortController();
+    private currentTurn: TurnWaiter | null = null;
+    private transportFailure: Error | null = null;
     private displayModel: string | null = null;
     private displayPermissionMode: PermissionMode | null = null;
-    private currentBackendModel: string | null = null;
-    private defaultBackendModel: string | null = null;
-    private setModelSupported: boolean | undefined = undefined;
-    private lastDisplayedToolCall = new Map<string, string>();
+    private currentModel: OmpModel | null = null;
+    private defaultModel: OmpModel | null = null;
+    private availableModels: OmpModel[] = [];
 
     constructor(session: OmpSession) {
         super(process.env.DEBUG ? session.logPath : undefined);
@@ -43,251 +81,184 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
 
     protected async runMainLoop(): Promise<void> {
         const session = this.session;
-        const messageBuffer = this.messageBuffer;
-
-        const { server: happyServer, mcpServers } = await buildHapiMcpBridge(session.client);
-        this.happyServer = happyServer;
-
-        const backend = createOmpBackend({
-            cwd: session.path
+        const requestedSpawnModel = session.getModel();
+        const client = await OmpRpcClient.connect({
+            cwd: session.path,
+            env: buildOmpEnv(),
+            model: typeof requestedSpawnModel === 'string' ? requestedSpawnModel : undefined,
+            resumeSessionId: session.sessionId ?? undefined
         });
-        this.backend = backend;
+        this.client = client;
+        this.availableModels = client.discovery.models;
+        this.currentModel = client.discovery.state.model ?? null;
+        this.defaultModel = this.currentModel;
 
-        backend.onStderrError((error) => {
-            logger.debug('[omp-remote] stderr error', error);
-            session.sendSessionEvent({ type: 'message', message: error.message });
-            messageBuffer.addMessage(error.message, 'status');
-        });
-
-        await backend.initialize();
-
-        const resumeSessionId = session.sessionId;
-        const acpMcpServers = toAcpMcpServers(mcpServers);
-        let acpSessionId: string;
-        if (resumeSessionId) {
-            try {
-                acpSessionId = await backend.loadSession({
-                    sessionId: resumeSessionId,
-                    cwd: session.path,
-                    mcpServers: acpMcpServers
-                });
-            } catch (error) {
-                logger.warn('[omp-remote] resume failed, starting new session', error);
-                session.sendSessionEvent({
-                    type: 'message',
-                    message: 'Oh My Pi resume failed; starting a new session.'
-                });
-                acpSessionId = await backend.newSession({
-                    cwd: session.path,
-                    mcpServers: acpMcpServers
-                });
-            }
-        } else {
-            acpSessionId = await backend.newSession({
-                cwd: session.path,
-                mcpServers: acpMcpServers
-            });
-        }
-        session.onSessionFound(acpSessionId);
-
-        // Seed currentBackendModel from the ACP session metadata. omp resolves
-        // its own default model and reports it (plus the full list) over ACP, so
-        // the launcher discovers the active model rather than baking --model.
-        const initialMetadata = backend.getSessionModelsMetadata?.(acpSessionId);
-        this.currentBackendModel = initialMetadata?.currentModelId ?? null;
-        this.defaultBackendModel = this.currentBackendModel;
-
-        const initialModelLabel = this.currentBackendModel ?? 'default';
-        this.displayModel = initialModelLabel;
-        messageBuffer.addMessage(`[MODEL:${initialModelLabel}]`, 'system');
-
-        // Expose the cached models metadata via per-session RPC so the hub can
-        // forward it to the web UI's model selector without round-tripping ACP.
-        // omp reuses the OpenCode RPC — it is a generic per-session ACP model list.
-        session.client.rpcHandlerManager.registerHandler(RPC_METHODS.ListOpencodeModels, async () => {
-            const metadata = backend.getSessionModelsMetadata?.(acpSessionId);
-            if (!metadata) {
-                return { success: false, error: 'omp model metadata is not available' };
-            }
-            return {
-                success: true,
-                availableModels: metadata.availableModels,
-                currentModelId: metadata.currentModelId
-            };
-        });
-
-        this.permissionHandler = new OmpPermissionHandler(
-            session.client,
-            backend,
-            () => session.getPermissionMode() as PermissionMode | undefined
+        logger.debug(
+            `[omp-remote] RPC ${client.discovery.version} ready; `
+            + `session=${client.discovery.state.sessionId} commands=${client.discovery.commands.length} `
+            + `models=${client.discovery.models.length}`
         );
-        this.applyDisplayMode(session.getPermissionMode() as PermissionMode, this.currentBackendModel ?? undefined);
+        session.onSessionFound(client.discovery.state.sessionId);
+
+        const eventAdapter = new OmpRpcEventAdapter({
+            onAgentMessage: (message) => {
+                const converted = convertAgentMessage(message);
+                if (converted) {
+                    session.sendAgentMessage(converted);
+                }
+            },
+            onInkMessage: (message, type) => this.messageBuffer.addMessage(message, type),
+            onTurnStarted: () => session.onThinkingChange(true),
+            onTurnFinished: () => this.finishCurrentTurn(),
+            onPromptResult: (agentInvoked) => {
+                if (!agentInvoked) {
+                    this.finishCurrentTurn();
+                }
+            },
+            onDiagnostic: (message) => logger.warn(`[omp-remote] ${message}`)
+        });
+        client.onEvent((event) => eventAdapter.handle(event));
+        client.onDiagnostic((message) => logger.warn(`[omp-remote] ${message}`));
+        client.onClosed((reason) => {
+            if (this.shouldExit) {
+                return;
+            }
+            this.transportFailure = reason;
+            this.failCurrentTurn(reason);
+            this.queueAbortController.abort(reason);
+        });
+
+        session.client.rpcHandlerManager.registerHandler(RPC_METHODS.ListOpencodeModels, async () => ({
+            success: true,
+            availableModels: this.availableModels.map((model) => ({
+                modelId: model.id,
+                name: model.name,
+                reasoningEfforts: model.thinking?.efforts.map((effort) => ({
+                    value: effort,
+                    name: effort,
+                    isDefault: effort === model.thinking?.defaultLevel
+                }))
+            })),
+            currentModelId: this.currentModel?.id ?? null
+        }));
 
         this.setupAbortHandlers(session.client.rpcHandlerManager, {
             onAbort: () => this.handleAbort(),
             onSwitch: () => this.handleSwitchRequest()
         });
 
-        const sendReady = () => {
-            session.sendSessionEvent({ type: 'ready' });
-        };
+        this.applyDisplayMode(
+            session.getPermissionMode() as PermissionMode | undefined,
+            this.currentModel?.id
+        );
+        await this.sendReadyIfIdle();
 
         while (!this.shouldExit) {
-            const batch = await session.queue.waitForMessagesAndGetAsString(this.abortController.signal);
+            const batch = await session.queue.waitForMessagesAndGetAsString(
+                this.queueAbortController.signal
+            );
             if (!batch) {
-                if (this.abortController.signal.aborted && !this.shouldExit) {
-                    continue;
+                if (this.transportFailure) {
+                    throw this.transportFailure;
                 }
-                break;
-            }
-
-            // Inline model change via ACP RPC (session/set_model). If the running
-            // omp build does not implement it, we learn that from the first
-            // method-not-found response and stop attempting it for the session.
-            //
-            // `batch.mode.model` semantics: a string is a specific model id;
-            // `null` means "reset to whatever model omp launched with" (emitted by
-            // `/model default`); `undefined` means "no change".
-            const requestedModel = batch.mode.model === null
-                ? this.defaultBackendModel
-                : batch.mode.model;
-            // The very first batch seeds currentBackendModel — omp launched with
-            // that model and there is nothing to switch yet.
-            if (requestedModel && this.currentBackendModel === null) {
-                this.currentBackendModel = requestedModel;
-            } else if (requestedModel && requestedModel !== this.currentBackendModel) {
-                if (!backend.setModel || this.setModelSupported === false) {
-                    batch.mode.model = this.currentBackendModel ?? undefined;
-                } else {
-                    logger.debug(`[omp-remote] Switching model inline: ${this.currentBackendModel} -> ${requestedModel}`);
-                    try {
-                        await backend.setModel(acpSessionId, requestedModel);
-                        this.currentBackendModel = requestedModel;
-                        this.setModelSupported = true;
-                        // Reflect the resolved model back into the batch so
-                        // downstream display logic sees the concrete id rather
-                        // than a `null` placeholder.
-                        batch.mode.model = requestedModel;
-                    } catch (error) {
-                        const message = error instanceof Error ? error.message : String(error);
-                        const methodNotFound = /method not found/i.test(message);
-                        if (methodNotFound && this.setModelSupported === undefined) {
-                            this.setModelSupported = false;
-                            logger.warn('[omp-remote] omp build does not support session/set_model; inline switching disabled for this session');
-                            session.sendSessionEvent({
-                                type: 'message',
-                                message: 'This omp build does not support inline model switching. Restart the session to apply a different model.'
-                            });
-                        } else {
-                            logger.warn('[omp-remote] Inline model switch failed', error);
-                            session.sendSessionEvent({
-                                type: 'message',
-                                message: `Failed to switch model to ${requestedModel}. Continuing with ${this.currentBackendModel ?? '(default)'}.`
-                            });
-                        }
-                        batch.mode.model = this.currentBackendModel ?? undefined;
-                    }
+                if (this.shouldExit || session.queue.isClosed()) {
+                    break;
                 }
+                this.queueAbortController = new AbortController();
+                continue;
             }
 
-            this.applyDisplayMode(batch.mode.permissionMode, batch.mode.model ?? undefined);
-            messageBuffer.addMessage(batch.message, 'user');
+            await this.applyRequestedModel(batch.mode.model);
+            this.applyDisplayMode(batch.mode.permissionMode, this.currentModel?.id);
+            this.messageBuffer.addMessage(batch.message, 'user');
 
-            let messageText = batch.message;
-            if (batch.mode.permissionMode === 'plan') {
-                messageText = `${PLAN_MODE_INSTRUCTION}\n\n${messageText}`;
-            }
-
-            const promptContent: PromptContent[] = [{
-                type: 'text',
-                text: messageText
-            }];
-
+            const message = batch.mode.permissionMode === 'plan'
+                ? `${PLAN_MODE_INSTRUCTION}\n\n${batch.message}`
+                : batch.message;
+            const turn = createTurnWaiter();
+            this.currentTurn = turn;
             session.onThinkingChange(true);
 
             try {
-                await backend.prompt(acpSessionId, promptContent, (message: AgentMessage) => {
-                    this.handleAgentMessage(message);
-                });
+                const response = await client.request({ type: 'prompt', message });
+                if (response?.agentInvoked === false) {
+                    turn.resolve();
+                }
+                await turn.promise;
             } catch (error) {
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                logger.warn('[omp-remote] prompt failed', { message: errorMessage });
+                const detail = error instanceof Error ? error.message : String(error);
+                logger.warn('[omp-remote] RPC prompt failed', error);
                 session.sendSessionEvent({
                     type: 'message',
-                    message: `Oh My Pi prompt failed: ${errorMessage}`
+                    message: `Oh My Pi RPC prompt failed: ${detail}`
                 });
-                messageBuffer.addMessage(`Oh My Pi prompt failed: ${errorMessage}`, 'status');
+                this.messageBuffer.addMessage(`Oh My Pi RPC prompt failed: ${detail}`, 'status');
             } finally {
-                session.onThinkingChange(false);
-                await this.permissionHandler?.cancelAll('Prompt finished');
-                if (session.queue.size() === 0 && !this.shouldExit) {
-                    sendReady();
+                if (this.currentTurn === turn) {
+                    this.currentTurn = null;
                 }
+                session.onThinkingChange(false);
+                await this.sendReadyIfIdle();
             }
         }
     }
 
     protected async cleanup(): Promise<void> {
         this.clearAbortHandlers(this.session.client.rpcHandlerManager);
-
-        if (this.permissionHandler) {
-            await this.permissionHandler.cancelAll('Session ended');
-            this.permissionHandler = null;
-        }
-
-        if (this.backend) {
-            await this.backend.disconnect();
-            this.backend = null;
-        }
-
-        if (this.happyServer) {
-            this.happyServer.stop();
-            this.happyServer = null;
+        this.queueAbortController.abort(new Error('OMP remote launcher cleanup'));
+        this.finishCurrentTurn();
+        const client = this.client;
+        this.client = null;
+        if (client) {
+            await client.close();
         }
     }
 
-    private handleAgentMessage(message: AgentMessage): void {
-        const converted = convertAgentMessage(message);
-        if (converted) {
-            this.session.sendAgentMessage(converted);
+    private async applyRequestedModel(requested: string | null | undefined): Promise<void> {
+        if (requested === undefined) {
+            return;
+        }
+        const target = requested === null
+            ? this.defaultModel
+            : this.availableModels.find((model) => (
+                model.id === requested || `${model.provider}/${model.id}` === requested
+            )) ?? null;
+        if (!target) {
+            this.session.sendSessionEvent({
+                type: 'message',
+                message: `OMP model is not available: ${requested ?? 'default'}`
+            });
+            return;
+        }
+        if (target.provider === this.currentModel?.provider && target.id === this.currentModel.id) {
+            return;
         }
 
-        switch (message.type) {
-            case 'text':
-                this.messageBuffer.addMessage(message.text, 'assistant');
-                break;
-            case 'reasoning':
-                this.messageBuffer.addMessage(`[Thinking] ${message.text.substring(0, 100)}...`, 'system');
-                break;
-            case 'tool_call': {
-                const lastName = this.lastDisplayedToolCall.get(message.id);
-                if (lastName !== message.name) {
-                    this.messageBuffer.addMessage(`Tool call: ${message.name}`, 'tool');
-                    this.lastDisplayedToolCall.set(message.id, message.name);
-                }
-                break;
+        const client = this.requireClient();
+        this.currentModel = await client.request({
+            type: 'set_model',
+            provider: target.provider,
+            modelId: target.id
+        });
+        const state = await client.request({ type: 'get_state' });
+        this.currentModel = state.model ?? this.currentModel;
+    }
+
+    private async sendReadyIfIdle(): Promise<void> {
+        if (this.shouldExit || this.currentTurn || this.session.queue.size() > 0) {
+            return;
+        }
+        const client = this.client;
+        if (!client || client.state !== 'ready') {
+            return;
+        }
+        try {
+            const state = await client.request({ type: 'get_state' });
+            if (!state.isStreaming && state.queuedMessageCount === 0 && this.session.queue.size() === 0) {
+                this.session.sendSessionEvent({ type: 'ready' });
             }
-            case 'tool_result':
-                this.messageBuffer.addMessage('Tool result received', 'result');
-                break;
-            case 'usage':
-                break;
-            case 'plan':
-                this.messageBuffer.addMessage('Plan updated', 'status');
-                break;
-            case 'error':
-                this.messageBuffer.addMessage(message.message, 'status');
-                break;
-            case 'generated_image':
-                this.messageBuffer.addMessage(`Generated image: ${message.fileName}`, 'assistant');
-                break;
-            case 'turn_complete':
-                this.messageBuffer.addMessage('Turn complete', 'status');
-                break;
-            default: {
-                const _exhaustive: never = message;
-                return _exhaustive;
-            }
+        } catch (error) {
+            logger.debug('[omp-remote] failed checking ready state', error);
         }
     }
 
@@ -302,40 +273,52 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         }
     }
 
-    private async handleAbort(): Promise<void> {
-        const backend = this.backend;
-        if (backend && this.session.sessionId) {
-            await backend.cancelPrompt(this.session.sessionId);
+    private finishCurrentTurn(): void {
+        this.currentTurn?.resolve();
+    }
+
+    private failCurrentTurn(error: Error): void {
+        this.currentTurn?.reject(error);
+    }
+
+    private requireClient(): OmpRpcClient {
+        if (!this.client) {
+            throw new Error('OMP RPC client is not connected');
         }
-        await this.permissionHandler?.cancelAll('User aborted');
+        return this.client;
+    }
+
+    private async handleAbort(): Promise<void> {
+        const client = this.client;
+        if (client?.state === 'ready') {
+            try {
+                await client.request({ type: 'abort' });
+            } finally {
+                this.finishCurrentTurn();
+            }
+        }
         this.session.sendSessionEvent({ type: 'message', message: 'Session aborted' });
-        this.session.queue.reset();
         this.session.onThinkingChange(false);
-        this.abortController.abort();
-        this.abortController = new AbortController();
         this.messageBuffer.addMessage('Turn aborted', 'status');
     }
 
     private async handleExitFromUi(): Promise<void> {
-        await this.requestExit('exit', () => this.handleAbort());
+        await this.requestExit('exit', async () => {
+            await this.handleAbort();
+            this.queueAbortController.abort(new Error('OMP remote exit'));
+        });
     }
 
     private async handleSwitchFromUi(): Promise<void> {
-        await this.requestExit('switch', () => this.handleAbort());
+        await this.requestExit('switch', async () => {
+            await this.handleAbort();
+            this.queueAbortController.abort(new Error('OMP remote switch'));
+        });
     }
 
     private async handleSwitchRequest(): Promise<void> {
-        await this.requestExit('switch', () => this.handleAbort());
+        await this.handleSwitchFromUi();
     }
-}
-
-function toAcpMcpServers(config: Record<string, { command: string; args: string[] }>): McpServerStdio[] {
-    return Object.entries(config).map(([name, entry]) => ({
-        name,
-        command: entry.command,
-        args: entry.args,
-        env: []
-    }));
 }
 
 export async function ompRemoteLauncher(
