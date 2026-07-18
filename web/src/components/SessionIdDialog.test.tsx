@@ -32,7 +32,10 @@ describe('SessionIdDialog', () => {
                 <SessionIdDialog
                     isOpen
                     onClose={vi.fn()}
-                    session={makeSession({ flavor: 'omp', ompSessionId: 'omp-thread-9' })}
+                    session={makeSession({
+                        flavor: 'omp',
+                        ompSession: { id: 'omp-thread-9', file: '/sessions/omp-thread-9.jsonl' }
+                    })}
                 />
             </I18nProvider>
         )

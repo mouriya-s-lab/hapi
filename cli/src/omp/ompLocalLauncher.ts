@@ -2,6 +2,8 @@ import { ompLocal } from './ompLocal';
 import { OmpSession } from './session';
 import type { PermissionMode } from './types';
 import { BaseLocalLauncher } from '@/modules/common/launcher/BaseLocalLauncher';
+import { createOmpLocalSessionScanner } from './utils/ompSessionScanner';
+import { buildOmpEnv } from './utils/config';
 
 function mapApprovalMode(mode: PermissionMode | undefined): { yolo: boolean } {
     // omp's real CLI exposes `--approval-mode {always-ask|write|yolo}`
@@ -20,6 +22,13 @@ export async function ompLocalLauncher(
         model?: string;
     }
 ): Promise<'switch' | 'exit'> {
+    const scanner = createOmpLocalSessionScanner({
+        workingDirectory: session.path,
+        env: buildOmpEnv(),
+        onSnapshot: session.applyNativeSessionSnapshot
+    });
+    await scanner.start();
+
     const launcher = new BaseLocalLauncher({
         label: 'omp-local',
         failureLabel: 'Local omp process failed',
@@ -45,5 +54,9 @@ export async function ompLocalLauncher(
         }
     });
 
-    return await launcher.run();
+    try {
+        return await launcher.run();
+    } finally {
+        await scanner.cleanup();
+    }
 }

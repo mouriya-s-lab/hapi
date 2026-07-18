@@ -37,7 +37,6 @@ function getParams(): { flavor: string; sid: string } {
 
 function buildSession(flavor: string, sid: string): Session {
     const idFieldByFlavor: Record<string, string> = {
-        omp: 'ompSessionId',
         opencode: 'opencodeSessionId',
         codex: 'codexSessionId',
         gemini: 'geminiSessionId',
@@ -53,7 +52,11 @@ function buildSession(flavor: string, sid: string): Session {
         name: 'E2E session',
     }
     if (sid) {
-        metadata[field] = sid
+        if (flavor === 'omp') {
+            metadata.ompSession = { id: sid, file: `/tmp/${sid}.jsonl` }
+        } else {
+            metadata[field] = sid
+        }
     }
     return {
         id: 'session-e2e',

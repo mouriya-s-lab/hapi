@@ -949,7 +949,7 @@ export class SyncEngine {
         if (flavor === 'cursor') return metadata.cursorSessionId ?? null
         if (flavor === 'kimi') return metadata.kimiSessionId ?? null
         if (flavor === 'pi') return metadata.piSessionId ?? null
-        if (flavor === 'omp') return metadata.ompSessionId ?? null
+        if (flavor === 'omp') return metadata.ompSession?.id ?? null
 
         return metadata.claudeSessionId
             ?? metadata.pendingClaudeLaunch?.resumeSessionId

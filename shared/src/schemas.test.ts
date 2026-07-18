@@ -33,3 +33,30 @@ describe('Metadata fork fields', () => {
         expect(parsed.pendingClaudeLaunch?.resumeSessionId).toBe('new-session-id')
     })
 })
+
+describe('OMP native session metadata', () => {
+    it('parses one authoritative id/file/name snapshot', () => {
+        const parsed = MetadataSchema.parse({
+            path: '/work',
+            host: 'host',
+            ompSession: {
+                id: 'omp-id',
+                file: '/sessions/omp-id.jsonl',
+                name: 'OMP title'
+            }
+        })
+        expect(parsed.ompSession).toEqual({
+            id: 'omp-id',
+            file: '/sessions/omp-id.jsonl',
+            name: 'OMP title'
+        })
+    })
+
+    it('rejects a partial snapshot without sessionFile', () => {
+        expect(() => MetadataSchema.parse({
+            path: '/work',
+            host: 'host',
+            ompSession: { id: 'omp-id' }
+        })).toThrow()
+    })
+})

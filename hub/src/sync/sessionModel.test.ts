@@ -1748,6 +1748,45 @@ describe('session model', () => {
         }
     })
 
+    it('resolves an OMP local resume target from the native snapshot', () => {
+        const store = new Store(':memory:')
+        const engine = new SyncEngine(
+            store,
+            {} as never,
+            new RpcRegistry(),
+            { broadcast() {} } as never
+        )
+
+        try {
+            const session = engine.getOrCreateSession(
+                'local-resume-omp',
+                {
+                    path: '/tmp/project',
+                    host: 'localhost',
+                    machineId: 'machine-1',
+                    flavor: 'omp',
+                    ompSession: {
+                        id: 'omp-thread-1',
+                        file: '/sessions/omp-thread-1.jsonl'
+                    }
+                },
+                { controlledByUser: false },
+                'default'
+            )
+
+            expect(engine.resolveLocalResumeTarget(session.id, 'default')).toMatchObject({
+                type: 'success',
+                target: {
+                    sessionId: session.id,
+                    flavor: 'omp',
+                    agentSessionId: 'omp-thread-1'
+                }
+            })
+        } finally {
+            engine.stop()
+        }
+    })
+
     it('resolves a local resume target for a Grok session', () => {
         const store = new Store(':memory:')
         const engine = new SyncEngine(
@@ -2374,6 +2413,27 @@ describe('session model', () => {
 
             const messages = store.messages.getMessages(s2.id, 100)
             expect(messages.length).toBeGreaterThanOrEqual(1)
+        })
+
+        it('merges duplicate when OMP native snapshot ids collide', async () => {
+            const store = new Store(':memory:')
+            const events: SyncEvent[] = []
+            const cache = new SessionCache(store, createPublisher(events))
+            const metadata = (file: string) => ({
+                path: '/tmp/project',
+                host: 'localhost',
+                flavor: 'omp',
+                ompSession: { id: 'omp-thread-X', file }
+            })
+            const s1 = cache.getOrCreateSession('omp-tag-1', metadata('/sessions/source.jsonl'), null, 'default')
+            store.messages.addMessage(s1.id, { type: 'text', text: 'source history' }, 'omp-local-1')
+            const s2 = cache.getOrCreateSession('omp-tag-2', metadata('/sessions/resumed.jsonl'), null, 'default')
+
+            await cache.deduplicateByAgentSessionId(s2.id)
+
+            expect(cache.getSession(s1.id)).toBeUndefined()
+            expect(cache.getSession(s2.id)).toBeDefined()
+            expect(store.messages.getMessages(s2.id, 100)).toHaveLength(1)
         })
 
         it('preserves sessions with different agent session IDs', async () => {

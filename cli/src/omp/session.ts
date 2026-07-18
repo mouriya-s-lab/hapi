@@ -3,6 +3,7 @@ import { MessageQueue2 } from '@/utils/MessageQueue2';
 import { AgentSessionBase } from '@/agent/sessionBase';
 import type { OmpMode, PermissionMode } from './types';
 import type { LocalLaunchExitReason } from '@/agent/localLaunchPolicy';
+import type { OmpNativeSession } from '@hapi/protocol/types';
 
 type LocalLaunchFailure = {
     message: string;
@@ -13,6 +14,7 @@ export class OmpSession extends AgentSessionBase<OmpMode> {
     readonly startedBy: 'runner' | 'terminal';
     readonly startingMode: 'local' | 'remote';
     localLaunchFailure: LocalLaunchFailure | null = null;
+    private nativeSession: OmpNativeSession | null;
 
     constructor(opts: {
         api: ApiClient;
@@ -26,6 +28,7 @@ export class OmpSession extends AgentSessionBase<OmpMode> {
         startedBy: 'runner' | 'terminal';
         startingMode: 'local' | 'remote';
         permissionMode?: PermissionMode;
+        nativeSession?: OmpNativeSession;
     }) {
         super({
             api: opts.api,
@@ -38,16 +41,29 @@ export class OmpSession extends AgentSessionBase<OmpMode> {
             mode: opts.mode,
             sessionLabel: 'OmpSession',
             sessionIdLabel: 'Omp',
-            applySessionIdToMetadata: (metadata, sessionId) => ({
-                ...metadata,
-                ompSessionId: sessionId
-            }),
+            applySessionIdToMetadata: (metadata, sessionId, extras) => {
+                const nativeSession = extras?.ompSession;
+                if (!nativeSession || nativeSession.id !== sessionId) {
+                    throw new Error('OMP native session snapshot must accompany its session ID');
+                }
+                const next = {
+                    ...metadata,
+                    ompSession: nativeSession
+                };
+                if (nativeSession.name) {
+                    next.name = nativeSession.name;
+                } else {
+                    delete next.name;
+                }
+                return next;
+            },
             permissionMode: opts.permissionMode
         });
 
         this.startedBy = opts.startedBy;
         this.startingMode = opts.startingMode;
         this.permissionMode = opts.permissionMode;
+        this.nativeSession = opts.nativeSession ?? null;
     }
 
     setPermissionMode = (mode: PermissionMode): void => {
@@ -57,6 +73,13 @@ export class OmpSession extends AgentSessionBase<OmpMode> {
     setModel = (model: string | null): void => {
         this.model = model;
     };
+
+    applyNativeSessionSnapshot = (snapshot: OmpNativeSession): void => {
+        this.nativeSession = snapshot;
+        this.onSessionFound(snapshot.id, { ompSession: snapshot });
+    };
+
+    getNativeSession = (): OmpNativeSession | null => this.nativeSession;
 
     recordLocalLaunchFailure = (message: string, exitReason: LocalLaunchExitReason): void => {
         this.localLaunchFailure = { message, exitReason };

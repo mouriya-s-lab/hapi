@@ -12,6 +12,9 @@ import { MetadataSchema } from '../../shared/src/schemas'
  * - `tailOffset` — how many user turns lie strictly after the fork-point
  *   in the source session; used by count-based providers (Codex →
  *   Codex provider resolves this against `thread/read` to a `lastTurnId`).
+ * - `targetText` + `matchingTextTailOffset` — OMP resolves the selected HAPI
+ *   turn against native `get_branch_messages` without assuming slash commands
+ *   and HAPI user rows have a 1:1 count.
  * - `providerMessageId` — opaque provider-native id computed by hub for
  *   id-based providers. For Claude, this is the *assistant* message uuid
  *   from the source jsonl transcript immediately preceding the target
@@ -26,6 +29,8 @@ import { MetadataSchema } from '../../shared/src/schemas'
 export const ForkPointSchema = z.object({
     messageId: z.string(),
     tailOffset: z.number().int().nonnegative(),
+    targetText: z.string().optional(),
+    matchingTextTailOffset: z.number().int().nonnegative().optional(),
     providerAnchor: z.discriminatedUnion('type', [
         z.object({ type: z.literal('message-uuid'), messageUuid: z.string() }),
         z.object({ type: z.literal('assistant-api-message-id'), assistantMessageId: z.string() })

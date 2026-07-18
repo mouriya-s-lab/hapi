@@ -16,6 +16,16 @@ function extractRole(content: unknown): string {
     return 'unknown'
 }
 
+function extractUserText(content: unknown): string | undefined {
+    if (content === null || typeof content !== 'object') return undefined
+    if ((content as { role?: unknown }).role !== 'user') return undefined
+    const body = (content as { content?: unknown }).content
+    if (body === null || typeof body !== 'object') return undefined
+    if ((body as { type?: unknown }).type !== 'text') return undefined
+    const text = (body as { text?: unknown }).text
+    return typeof text === 'string' ? text : undefined
+}
+
 /**
  * Extract the Claude native jsonl uuid from a `role: 'agent'` hub message
  * that wraps a Claude stream-json `type: 'output'` line, iff the wrapped
@@ -133,11 +143,15 @@ export function buildForkDeps(args: {
 
         listMessages(sessionId: string): ForkMessage[] {
             const msgs = store.messages.getAllMessages(sessionId)
-            return msgs.map((m: any) => ({
-                id: m.id,
-                seq: m.seq,
-                role: extractRole(m.content)
-            }))
+            return msgs.map((m: any) => {
+                const text = extractUserText(m.content)
+                return {
+                    id: m.id,
+                    seq: m.seq,
+                    role: extractRole(m.content),
+                    ...(text !== undefined ? { text } : {})
+                }
+            })
         },
 
         copyMessages(srcId, dstId, opts) {

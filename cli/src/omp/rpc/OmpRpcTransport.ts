@@ -87,6 +87,9 @@ export function buildOmpRpcArgs(config: OmpRpcSpawnConfig): string[] {
     if (config.resumeSessionId) {
         args.push('--resume', config.resumeSessionId);
     }
+    if (config.forkSessionId) {
+        args.push('--fork', config.forkSessionId);
+    }
     return args;
 }
 

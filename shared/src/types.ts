@@ -10,6 +10,7 @@ export type {
     MachineMetadata,
     MachinePatch,
     MachineUpdatedData,
+    OmpNativeSession,
     RunnerState,
     Session,
     SessionPatch,

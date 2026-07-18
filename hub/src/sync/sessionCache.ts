@@ -1131,15 +1131,32 @@ export class SessionCache {
 
     private extractAgentSessionId(
         metadata: NonNullable<Session['metadata']>
-    ): { field: 'codexSessionId' | 'claudeSessionId' | 'geminiSessionId' | 'opencodeSessionId' | 'grokSessionId' | 'cursorSessionId' | 'piSessionId'; value: string } | null {
-        if (metadata.codexSessionId) return { field: 'codexSessionId', value: metadata.codexSessionId }
-        if (metadata.claudeSessionId) return { field: 'claudeSessionId', value: metadata.claudeSessionId }
-        if (metadata.geminiSessionId) return { field: 'geminiSessionId', value: metadata.geminiSessionId }
-        if (metadata.opencodeSessionId) return { field: 'opencodeSessionId', value: metadata.opencodeSessionId }
-        if (metadata.grokSessionId) return { field: 'grokSessionId', value: metadata.grokSessionId }
-        if (metadata.cursorSessionId) return { field: 'cursorSessionId', value: metadata.cursorSessionId }
-        if (metadata.piSessionId) return { field: 'piSessionId', value: metadata.piSessionId }
+    ):
+        | {
+            type: 'flat'
+            field: 'codexSessionId' | 'claudeSessionId' | 'geminiSessionId' | 'opencodeSessionId' | 'grokSessionId' | 'cursorSessionId' | 'piSessionId'
+            value: string
+        }
+        | { type: 'omp'; value: string }
+        | null {
+        if (metadata.codexSessionId) return { type: 'flat', field: 'codexSessionId', value: metadata.codexSessionId }
+        if (metadata.claudeSessionId) return { type: 'flat', field: 'claudeSessionId', value: metadata.claudeSessionId }
+        if (metadata.geminiSessionId) return { type: 'flat', field: 'geminiSessionId', value: metadata.geminiSessionId }
+        if (metadata.opencodeSessionId) return { type: 'flat', field: 'opencodeSessionId', value: metadata.opencodeSessionId }
+        if (metadata.grokSessionId) return { type: 'flat', field: 'grokSessionId', value: metadata.grokSessionId }
+        if (metadata.cursorSessionId) return { type: 'flat', field: 'cursorSessionId', value: metadata.cursorSessionId }
+        if (metadata.piSessionId) return { type: 'flat', field: 'piSessionId', value: metadata.piSessionId }
+        if (metadata.ompSession) return { type: 'omp', value: metadata.ompSession.id }
         return null
+    }
+
+    private metadataHasAgentSessionId(
+        metadata: NonNullable<Session['metadata']>,
+        identity: NonNullable<ReturnType<SessionCache['extractAgentSessionId']>>
+    ): boolean {
+        return identity.type === 'omp'
+            ? metadata.ompSession?.id === identity.value
+            : metadata[identity.field] === identity.value
     }
 
     async deduplicateByAgentSessionId(sessionId: string): Promise<void> {
@@ -1166,14 +1183,14 @@ export class SessionCache {
 
                 const currentSession = this.sessions.get(sessionId)
                 const candidates: { id: string; session: Session }[] = []
-                if (currentSession?.metadata && currentSession.metadata[agentId.field] === agentId.value) {
+                if (currentSession?.metadata && this.metadataHasAgentSessionId(currentSession.metadata, agentId)) {
                     candidates.push({ id: sessionId, session: currentSession })
                 }
                 for (const [existingId, existing] of this.sessions) {
                     if (existingId === sessionId) continue
                     if (existing.namespace !== session.namespace) continue
                     if (!existing.metadata) continue
-                    if (existing.metadata[agentId.field] !== agentId.value) continue
+                    if (!this.metadataHasAgentSessionId(existing.metadata, agentId)) continue
                     candidates.push({ id: existingId, session: existing })
                 }
 

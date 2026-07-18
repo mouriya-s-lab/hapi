@@ -40,12 +40,12 @@ describe('sessionResume', () => {
         })).toBeUndefined()
     })
 
-    it('resolveAgentSessionIdFromMetadata picks ompSessionId for omp (mirrors hub)', () => {
+    it('resolveAgentSessionIdFromMetadata picks the OMP native snapshot id (mirrors hub)', () => {
         expect(resolveAgentSessionIdFromMetadata({
             path: '/p',
             host: 'h',
             flavor: 'omp',
-            ompSessionId: 'omp-thread-1',
+            ompSession: { id: 'omp-thread-1', file: '/sessions/omp-thread-1.jsonl' },
             claudeSessionId: 'stale-claude-1',
         })).toBe('omp-thread-1')
     })

@@ -41,7 +41,9 @@ function state(currentModel: OmpModel | null): OmpSessionState {
         steeringMode: 'all',
         followUpMode: 'all',
         interruptMode: 'immediate',
-        sessionId: 'omp-session-1',
+        sessionId: harness.sessionId,
+        sessionFile: `/sessions/${harness.sessionId}.jsonl`,
+        ...(harness.sessionName ? { sessionName: harness.sessionName } : {}),
         autoCompactionEnabled: true,
         messageCount: 0,
         queuedMessageCount: 0,
@@ -61,7 +63,10 @@ const harness = vi.hoisted(() => ({
     requestError: null as null | ((command: OmpCommand) => Error | null),
     autoFinishPrompt: true,
     currentModel: null as OmpModel | null,
-    availableModels: [] as OmpModel[]
+    availableModels: [] as OmpModel[],
+    sessionId: 'omp-session-1',
+    sessionName: 'OMP session one' as string | null,
+    resumePaths: {} as Record<string, string>
 }));
 
 vi.mock('./rpc/OmpRpcClient', () => ({
@@ -110,6 +115,21 @@ vi.mock('./rpc/OmpRpcClient', () => ({
                         }
                         case 'get_state':
                             return state(harness.currentModel);
+                        case 'new_session':
+                            harness.sessionId = 'omp-session-2';
+                            harness.sessionName = null;
+                            return { cancelled: false } satisfies OmpResponseDataByCommand['new_session'];
+                        case 'set_session_name':
+                            harness.sessionName = command.name;
+                            return undefined;
+                        case 'switch_session':
+                            harness.sessionId = 'omp-session-resumed';
+                            harness.sessionName = 'Resumed OMP session';
+                            return { cancelled: false } satisfies OmpResponseDataByCommand['switch_session'];
+                        case 'handoff':
+                            harness.sessionId = 'omp-session-handoff';
+                            harness.sessionName = null;
+                            return { savedPath: '/sessions/handoff.md' } satisfies OmpResponseDataByCommand['handoff'];
                         case 'abort':
                             harness.events.push('abort');
                             return undefined;
@@ -132,6 +152,10 @@ vi.mock('./rpc/OmpRpcClient', () => ({
             };
         })
     }
+}));
+
+vi.mock('./utils/ompSessionScanner', () => ({
+    resolveOmpSessionPath: vi.fn(async (sessionArg: string) => harness.resumePaths[sessionArg] ?? null)
 }));
 
 vi.mock('@/ui/ink/OmpDisplay', () => ({
@@ -170,7 +194,7 @@ function createResetMode(): OmpMode {
 
 function createSessionStub(
     items: Array<{ message: string; mode: OmpMode }>,
-    options: { launchModel?: string | null; sessionId?: string | null } = {}
+    options: { launchModel?: string | null; sessionId?: string | null; closeQueue?: boolean } = {}
 ) {
     const queue = new MessageQueue2<OmpMode>((mode) => JSON.stringify(mode));
     items.forEach(({ message, mode }, index) => {
@@ -180,9 +204,12 @@ function createSessionStub(
             queue.push(message, mode);
         }
     });
-    queue.close();
+    if (options.closeQueue !== false) {
+        queue.close();
+    }
 
     const sessionEvents: Array<{ type: string; [key: string]: unknown }> = [];
+    const snapshots: Array<{ id: string; file: string; name?: string }> = [];
     const rpcHandlers = new Map<string, RpcHandler>();
     const client = {
         rpcHandlerManager: {
@@ -214,8 +241,9 @@ function createSessionStub(
         onThinkingChange(thinking: boolean) {
             session.thinking = thinking;
         },
-        onSessionFound(id: string) {
-            session.sessionId = id;
+        applyNativeSessionSnapshot(snapshot: { id: string; file: string; name?: string }) {
+            snapshots.push(snapshot);
+            session.sessionId = snapshot.id;
         },
         sendAgentMessage(_message: unknown) {},
         sendSessionEvent(event: { type: string; [key: string]: unknown }) {
@@ -224,7 +252,7 @@ function createSessionStub(
         sendUserMessage(_text: string) {}
     };
 
-    return { session, sessionEvents, rpcHandlers };
+    return { session, sessionEvents, rpcHandlers, snapshots };
 }
 
 async function waitForRequest(type: OmpCommand['type']): Promise<void> {
@@ -253,10 +281,13 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
             model('ollama', 'b', 'Model B'),
             model('mlx', 'qwen3:0.6b', 'MLX Qwen3')
         ];
+        harness.sessionId = 'omp-session-1';
+        harness.sessionName = 'OMP session one';
+        harness.resumePaths = {};
     });
 
     it('connects through native RPC with launch model and resume session', async () => {
-        const { session } = createSessionStub(
+        const { session, snapshots } = createSessionStub(
             [{ message: 'first', mode: createMode() }],
             { launchModel: 'ollama/a', sessionId: 'resume-me' }
         );
@@ -269,7 +300,122 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
             resumeSessionId: 'resume-me'
         })]);
         expect(session.sessionId).toBe('omp-session-1');
+        expect(snapshots[0]).toEqual({
+            id: 'omp-session-1',
+            file: '/sessions/omp-session-1.jsonl',
+            name: 'OMP session one'
+        });
         expect(harness.close).toHaveBeenCalledOnce();
+    });
+
+    it('reconciles native session_info_update events through get_state', async () => {
+        harness.autoFinishPrompt = false;
+        const { session, snapshots } = createSessionStub([
+            { message: 'wait for rename', mode: createMode() }
+        ]);
+        const launch = ompRemoteLauncher(session as never);
+        await waitForRequest('prompt');
+
+        for (const listener of harness.eventListeners) {
+            listener({ type: 'session_info_update', raw: { type: 'session_info_update' } });
+        }
+        await vi.waitFor(() => {
+            expect(harness.requests.filter((request) => request.type === 'get_state').length).toBeGreaterThan(0);
+            expect(snapshots.length).toBeGreaterThan(1);
+        });
+        for (const listener of harness.eventListeners) {
+            listener({ type: 'agent_end', raw: { type: 'agent_end' } });
+        }
+        await launch;
+    });
+
+    it('reconciles state after every prompt without depending on session_info_update', async () => {
+        const { session, snapshots } = createSessionStub([
+            { message: 'ordinary turn', mode: createMode() }
+        ]);
+
+        await ompRemoteLauncher(session as never);
+
+        expect(harness.requests.map((request) => request.type)).toEqual([
+            'prompt',
+            'get_state',
+            'get_state'
+        ]);
+        expect(snapshots).toHaveLength(2);
+    });
+
+    it('routes clear and rename through native mutations with immediate snapshots', async () => {
+        const { session, snapshots } = createSessionStub([
+            { message: '/rename Renamed session', mode: createMode() },
+            { message: '/clear', mode: createPlanMode() }
+        ]);
+
+        await ompRemoteLauncher(session as never);
+
+        expect(harness.requests.filter((request) => (
+            request.type === 'set_session_name' || request.type === 'new_session'
+        ))).toEqual([
+            { type: 'set_session_name', name: 'Renamed session' },
+            { type: 'new_session' }
+        ]);
+        expect(harness.requests.some((request) => request.type === 'prompt')).toBe(false);
+        expect(snapshots).toContainEqual({
+            id: 'omp-session-1',
+            file: '/sessions/omp-session-1.jsonl',
+            name: 'Renamed session'
+        });
+        expect(snapshots).toContainEqual({
+            id: 'omp-session-2',
+            file: '/sessions/omp-session-2.jsonl'
+        });
+    });
+
+    it('routes handoff and resume through native mutations with immediate snapshots', async () => {
+        harness.resumePaths['native-prefix'] = '/sessions/native-target.jsonl';
+        const { session, snapshots } = createSessionStub([
+            { message: '/handoff focus on verification', mode: createMode() },
+            { message: '/resume native-prefix', mode: createMode() }
+        ]);
+
+        await ompRemoteLauncher(session as never);
+
+        expect(harness.requests.filter((request) => (
+            request.type === 'handoff' || request.type === 'switch_session'
+        ))).toEqual([
+            { type: 'handoff', customInstructions: 'focus on verification' },
+            { type: 'switch_session', sessionPath: '/sessions/native-target.jsonl' }
+        ]);
+        expect(harness.requests.some((request) => request.type === 'prompt')).toBe(false);
+        expect(snapshots).toContainEqual({
+            id: 'omp-session-handoff',
+            file: '/sessions/omp-session-handoff.jsonl'
+        });
+        expect(snapshots).toContainEqual({
+            id: 'omp-session-resumed',
+            file: '/sessions/omp-session-resumed.jsonl',
+            name: 'Resumed OMP session'
+        });
+    });
+
+    it('reports remote resume picker and unknown session requests without prompting the model', async () => {
+        const { session, sessionEvents } = createSessionStub([
+            { message: '/resume', mode: createMode() },
+            { message: '/resume missing-id', mode: createMode() }
+        ]);
+
+        await ompRemoteLauncher(session as never);
+
+        expect(harness.requests.some((request) => (
+            request.type === 'prompt' || request.type === 'switch_session'
+        ))).toBe(false);
+        expect(sessionEvents).toContainEqual({
+            type: 'message',
+            message: 'Oh My Pi RPC session mutation failed: Use /resume <session id> when controlling OMP remotely'
+        });
+        expect(sessionEvents).toContainEqual({
+            type: 'message',
+            message: 'Oh My Pi RPC session mutation failed: Session "missing-id" not found'
+        });
     });
 
     it('serializes native model switching between completed turns', async () => {
@@ -368,6 +514,24 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         await launch;
 
         expect(harness.requests.some((request) => request.type === 'abort')).toBe(true);
+    });
+
+    it('switches launchers without aborting the native turn or clearing queued input', async () => {
+        harness.autoFinishPrompt = false;
+        const { session, rpcHandlers } = createSessionStub([
+            { message: 'active turn', mode: createMode() }
+        ], { closeQueue: false });
+        const launch = ompRemoteLauncher(session as never);
+        await waitForRequest('prompt');
+        session.queue.push('queued for local', createMode());
+
+        const switchHandler = rpcHandlers.get('switch');
+        expect(switchHandler).toBeDefined();
+        await switchHandler!(undefined);
+        await launch;
+
+        expect(harness.requests.some((request) => request.type === 'abort')).toBe(false);
+        expect(session.queue.size()).toBe(1);
     });
 
     it('propagates native RPC connection failure without an ACP fallback', async () => {

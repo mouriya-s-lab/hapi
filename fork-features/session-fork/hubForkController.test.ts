@@ -317,6 +317,71 @@ describe('forkSession per-message (#61 c4)', () => {
         expect(forkCall[2].payload.forkPoint.tailOffset).toBe(0)
     })
 
+    it('OMP tailOffset ignores native session commands that do not create branch entries', async () => {
+        const captured: any[] = []
+        const deps = makeDeps({
+            captured,
+            source: {
+                metadata: {
+                    flavor: 'omp',
+                    ompSession: { id: 'omp-src', file: '/sessions/omp-src.jsonl' }
+                } as any
+            },
+            messages: [
+                { id: 'm1', seq: 1, role: 'user', text: 'first prompt' },
+                { id: 'm2', seq: 2, role: 'agent' },
+                { id: 'm3', seq: 3, role: 'user', text: '/rename New title' },
+                { id: 'm4', seq: 4, role: 'user', text: 'second prompt' }
+            ]
+        })
+
+        await forkSession({ srcSessionId: 'src', deps, forkPoint: { messageId: 'm1' } })
+
+        const forkCall = captured.find((c) => c[0] === 'forkProvider')!
+        expect(forkCall[2].payload.forkPoint.tailOffset).toBe(1)
+        expect(forkCall[2].payload.forkPoint.targetText).toBe('first prompt')
+        expect(forkCall[2].payload.forkPoint.matchingTextTailOffset).toBe(0)
+    })
+
+    it('rejects an OMP session command as a non-native branch target', async () => {
+        const deps = makeDeps({
+            source: {
+                metadata: {
+                    flavor: 'omp',
+                    ompSession: { id: 'omp-src', file: '/sessions/omp-src.jsonl' }
+                } as any
+            },
+            messages: [{ id: 'rename', seq: 1, role: 'user', text: '/rename New title' }]
+        })
+
+        await expect(
+            forkSession({ srcSessionId: 'src', deps, forkPoint: { messageId: 'rename' } })
+        ).rejects.toMatchObject({ status: 400 })
+    })
+
+    it('rejects OMP rewind across a native session boundary before provider RPC', async () => {
+        const captured: any[] = []
+        const deps = makeDeps({
+            captured,
+            source: {
+                metadata: {
+                    flavor: 'omp',
+                    ompSession: { id: 'omp-new', file: '/sessions/omp-new.jsonl' }
+                } as any
+            },
+            messages: [
+                { id: 'old', seq: 1, role: 'user', text: 'old native prompt' },
+                { id: 'clear', seq: 2, role: 'user', text: '/clear' },
+                { id: 'new', seq: 3, role: 'user', text: 'new native prompt' }
+            ]
+        })
+
+        await expect(
+            forkSession({ srcSessionId: 'src', deps, forkPoint: { messageId: 'old' } })
+        ).rejects.toMatchObject({ status: 400 })
+        expect(captured.some((call) => call[0] === 'forkProvider')).toBe(false)
+    })
+
     it('rejects 400 when forkPoint.messageId does not belong to source session', async () => {
         const deps = codexDeps()
         await expect(

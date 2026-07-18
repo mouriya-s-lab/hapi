@@ -25,6 +25,14 @@ export const WorktreeMetadataSchema = z.object({
 
 export type WorktreeMetadata = z.infer<typeof WorktreeMetadataSchema>
 
+export const OmpNativeSessionSchema = z.object({
+    id: z.string().min(1),
+    file: z.string().min(1),
+    name: z.string().min(1).optional()
+})
+
+export type OmpNativeSession = z.infer<typeof OmpNativeSessionSchema>
+
 export const MetadataSchema = z.object({
     path: z.string(),
     host: z.string(),
@@ -50,7 +58,7 @@ export const MetadataSchema = z.object({
     cursorMigrationState: z.enum(['in_progress', 'ambiguous']).optional(),
     kimiSessionId: z.string().optional(),
     piSessionId: z.string().optional(),
-    ompSessionId: z.string().optional(),
+    ompSession: OmpNativeSessionSchema.optional(),
     tools: z.array(z.string()).optional(),
     slashCommands: z.array(z.string()).optional(),
     homeDir: z.string().optional(),

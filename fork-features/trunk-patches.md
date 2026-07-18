@@ -167,20 +167,30 @@ seam exists.
 
 ## OMP flavor (2026-07-18)
 
-OMP launch, transport, configuration, model, permission, prompt, and display
-logic live in `cli/src/omp/`; the command implementation lives in
-`cli/src/commands/omp.ts`. Upstream exposes no flavor-provider registration
-surface for the remaining closed registries.
+OMP launch, native RPC transport, session lifecycle, local scanner,
+configuration, prompt, and terminal display logic live in `cli/src/omp/`; the
+command implementation lives in `cli/src/commands/omp.ts`. The active remote
+path is OMP 17.0.4 RPC, not ACP. Its durable native-session snapshot is
+`ompSession: { id, file, name? }`; successful native session mutations are
+followed immediately by `get_state`. Per-message rewind is implemented by the
+fork-owned OMP provider under `fork-features/session-fork/providers/`, using a
+short-lived resume RPC so the source session is never mutated in place.
+
+Upstream exposes no flavor-provider, launch-policy, metadata-product, or
+resume-projection registration surface for the remaining closed registries.
 
 | Files | Missing upstream seam | Why it cannot move out | Runtime path | Sync verification |
 |---|---|---|---|---|
 | `cli/src/commands/registry.ts`, `cli/src/commands/resume.ts` | No external command or resume-flavor registry | CLI parsing and resume dispatch use closed exhaustive tables; the fork-owned command still needs one typed entry in each | `hapi omp` or resume → command dispatcher → fork-owned OMP launcher | Start and resume an OMP session through the real runner |
+| `cli/src/agent/sessionFactory.ts` and test | No per-flavor launch-policy registry | Runner-created OMP sessions must enter remote mode while terminal-created sessions may start local; this decision is owned by the closed shared session factory | Web/runner spawn → session factory → OMP remote launcher | Create OMP from Web and confirm `startedBy=runner`, `startingMode=remote`, and no local TUI process |
+| `shared/src/schemas.ts`, `shared/src/types.ts`, `shared/src/sessionSummary.ts`, `shared/src/ompSessionMutation.ts`, `hub/src/store/sessions.ts`, `hub/src/sync/sessionCache.ts`, `hub/src/sync/syncEngine.ts` and adjacent tests | No metadata variant or projection registry | The typed OMP snapshot and lifecycle commands must survive validation, SQLite persistence, cache reconciliation, SSE summaries, resume, archive, reopen, and provider-fork alignment without an untyped side channel | OMP `get_state`/process exit → CLI metadata → hub persistence/cache → Web session summary | Rename, clear, resume, rewind, terminate, and crash live OMP sessions; compare SQLite metadata with native RPC state |
 | `shared/src/flavors.ts`, `shared/src/flavors.test.ts`, `shared/src/modes.ts` | No flavor/mode extension registry across package boundaries | OMP must remain a validated shared discriminant and permission-mode variant for CLI, hub, and Web; a sibling module cannot extend the closed union at runtime | Web spawn payload → shared validation → runner args → OMP mode mapping | Create OMP from Web and switch every exposed permission mode |
+| `web/src/lib/sessionResume.ts`, `web/src/components/SessionIdDialog.test.tsx`, `web/e2e-fixtures/session-id-fixture.tsx` | No native-session ID projection registry | The existing resume helper and Session ID dialog own the closed metadata switch used by inactive resume and copy affordances | persisted `ompSession.id` → resume helper / Session ID dialog → runner `--resume` | Archive a live OMP session, copy its native ID, resume it, and verify prior context survives |
 | `web/src/components/AssistantChat/modelOptions.ts` | No model-option provider registry keyed by flavor | The existing composer owns the closed model-option switch; extracting OMP values would still require the same switch hook | OMP session metadata → composer model menu → session config update | Change the OMP model in a live session and verify the next turn uses it |
 
-Each upstream sync must re-check whether native flavor/command/model-provider
-registration exists. If it does, remove these hooks and self-register the
-fork-owned OMP module instead of preserving the trunk patch.
+Each upstream sync must re-check for native flavor/command, launch-policy,
+metadata-variant, resume-projection, and model-provider registration. Move the
+corresponding hook into the fork-owned OMP module as soon as such a seam exists.
 
 ## multi-user gateway (2026-07-16)
 

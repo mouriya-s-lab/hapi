@@ -315,6 +315,37 @@ describe('updateSessionMetadata: protocol resume token preservation', () => {
         expect(metadata?.[field]).toBe(value)
     })
 
+    it('preserves the complete OMP native snapshot across archive metadata replacement', () => {
+        const store = makeStore()
+        const ompSession = {
+            id: 'omp-thread-x',
+            file: '/sessions/omp-thread-x.jsonl',
+            name: 'OMP thread'
+        }
+        const session = store.sessions.getOrCreateSession(
+            'archive-omp',
+            { path: '/tmp/project', host: 'example', flavor: 'omp', ompSession },
+            null,
+            'default'
+        )
+
+        const result = store.sessions.updateSessionMetadata(
+            session.id,
+            {
+                path: '/tmp/project',
+                host: 'example',
+                flavor: 'omp',
+                lifecycleState: 'archived',
+                archiveReason: 'Session crashed'
+            },
+            session.metadataVersion,
+            'default'
+        )
+
+        expect(result.result).toBe('success')
+        expect(getMetadata(store, session.id)?.ompSession).toEqual(ompSession)
+    })
+
     it('preserves cursorSessionProtocol independently of cursorSessionId', () => {
         const store = makeStore()
         const session = store.sessions.getOrCreateSession(

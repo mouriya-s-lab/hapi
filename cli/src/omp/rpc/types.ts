@@ -314,12 +314,17 @@ export type OmpRpcDiscovery = {
     models: OmpModel[];
 };
 
-export type OmpRpcSpawnConfig = {
+type OmpRpcSpawnBaseConfig = {
     command?: string;
     cwd: string;
     env?: NodeJS.ProcessEnv;
     provider?: string;
     model?: string;
     profile?: string;
-    resumeSessionId?: string;
 };
+
+export type OmpRpcSpawnConfig = OmpRpcSpawnBaseConfig & (
+    | { resumeSessionId?: undefined; forkSessionId?: undefined }
+    | { resumeSessionId: string; forkSessionId?: never }
+    | { forkSessionId: string; resumeSessionId?: never }
+);

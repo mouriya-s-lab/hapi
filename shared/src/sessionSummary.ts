@@ -128,6 +128,7 @@ export function toSessionSummary(session: Session): SessionSummary {
             ?? session.metadata.grokSessionId
             ?? session.metadata.cursorSessionId
             ?? session.metadata.kimiSessionId
+            ?? session.metadata.ompSession?.id
             ?? undefined,
         lifecycleState: session.metadata.lifecycleState,
         archivedAt: session.metadata.archivedAt
