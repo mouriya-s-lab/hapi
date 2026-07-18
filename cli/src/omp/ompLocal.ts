@@ -8,22 +8,8 @@ export async function ompLocal(opts: {
     abort: AbortSignal;
     model?: string;
     effort?: OmpConfiguredThinkingLevel;
-    yolo?: boolean;
 }): Promise<void> {
-    const args: string[] = [];
-
-    if (opts.sessionId) {
-        args.push('--resume', opts.sessionId);
-    }
-    if (opts.model) {
-        args.push('--model', opts.model);
-    }
-    if (opts.effort) {
-        args.push('--thinking', opts.effort);
-    }
-    if (opts.yolo) {
-        args.push('--approval-mode', 'yolo');
-    }
+    const args = buildOmpLocalArgs(opts);
 
     const env: NodeJS.ProcessEnv = {
         ...process.env
@@ -44,4 +30,24 @@ export async function ompLocal(opts: {
         includeCause: true,
         logExit: true
     });
+}
+
+export function buildOmpLocalArgs(opts: {
+    sessionId: string | null;
+    model?: string;
+    effort?: OmpConfiguredThinkingLevel;
+}): string[] {
+    const args: string[] = [];
+
+    if (opts.sessionId) {
+        args.push('--resume', opts.sessionId);
+    }
+    if (opts.model) {
+        args.push('--model', opts.model);
+    }
+    if (opts.effort) {
+        args.push('--thinking', opts.effort);
+    }
+    args.push('--approval-mode', 'yolo');
+    return args;
 }

@@ -231,12 +231,6 @@ function createMode(modelId?: string): OmpMode {
     };
 }
 
-function createPlanMode(): OmpMode {
-    return {
-        permissionMode: 'plan' as PermissionMode
-    };
-}
-
 function createResetMode(): OmpMode {
     return {
         permissionMode: 'default' as PermissionMode,
@@ -467,7 +461,7 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
     it('routes clear and rename through native mutations with immediate snapshots', async () => {
         const { session, snapshots } = createSessionStub([
             { message: '/rename Renamed session', mode: createMode() },
-            { message: '/clear', mode: createPlanMode() }
+            { message: '/clear', mode: createMode() }
         ]);
 
         await ompRemoteLauncher(session as never);
@@ -615,16 +609,14 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         ]);
     });
 
-    it('temporarily preserves plan-mode instruction injection', async () => {
+    it('forwards prompts without synthetic permission instructions', async () => {
         const { session } = createSessionStub([
-            { message: 'design the fix', mode: createPlanMode() }
+            { message: 'design the fix', mode: createMode() }
         ]);
 
         await ompRemoteLauncher(session as never);
 
-        expect(harness.prompts[0]).toContain('You are in plan mode');
-        expect(harness.prompts[0]).toContain('Do not execute tools');
-        expect(harness.prompts[0]).toContain('design the fix');
+        expect(harness.prompts).toEqual(['design the fix']);
     });
 
     it('serves a provider-qualified native OMP model catalog', async () => {

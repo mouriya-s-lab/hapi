@@ -42,6 +42,10 @@ describe('getPermissionModesForFlavor', () => {
         expect(getPermissionModesForFlavor('pi')).toEqual([])
     })
 
+    test("exposes only the fixed-yolo OMP labels", () => {
+        expect(getPermissionModesForFlavor('omp')).toEqual(['default', 'yolo'])
+    })
+
     test("returns [] for pi and does not fall back to Claude modes", () => {
         // Ensure Pi is opt-in empty, not silently inheriting Claude defaults.
         expect(getPermissionModesForFlavor('pi')).not.toEqual(getPermissionModesForFlavor('claude'))
@@ -82,6 +86,12 @@ describe('isPermissionModeAllowedForFlavor', () => {
         expect(isPermissionModeAllowedForFlavor('read-only', 'pi')).toBe(false)
         expect(isPermissionModeAllowedForFlavor('safe-yolo', 'pi')).toBe(false)
         expect(isPermissionModeAllowedForFlavor('ask', 'pi')).toBe(false)
+    })
+
+    test("rejects synthetic plan mode for OMP", () => {
+        expect(isPermissionModeAllowedForFlavor('default', 'omp')).toBe(true)
+        expect(isPermissionModeAllowedForFlavor('yolo', 'omp')).toBe(true)
+        expect(isPermissionModeAllowedForFlavor('plan', 'omp')).toBe(false)
     })
 
     test("cursor includes autoReview", () => {
