@@ -333,6 +333,26 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
         const appServerClient = this.appServerClient;
         const appServerEventConverter = new AppServerEventConverter();
         const startupTimestampMs = Date.now();
+        let transcriptLocatorThreadId = session.sessionId ?? null;
+        let compactSummarySequence = 0;
+        const compactSummaryWaiters = new Set<() => void>();
+
+        const waitForCompactSummary = async (afterSequence: number, timeoutMs: number): Promise<boolean> => {
+            if (compactSummarySequence > afterSequence) return true;
+            return await new Promise<boolean>((resolve) => {
+                const complete = () => {
+                    clearTimeout(timeout);
+                    compactSummaryWaiters.delete(complete);
+                    resolve(true);
+                };
+                const timeout = setTimeout(() => {
+                    compactSummaryWaiters.delete(complete);
+                    resolve(false);
+                }, timeoutMs);
+                timeout.unref?.();
+                compactSummaryWaiters.add(complete);
+            });
+        };
 
         const attachTranscriptScanner = async (transcriptPath: string): Promise<void> => {
             if (this.transcriptScanner) {
@@ -345,21 +365,37 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     const converted = convertCodexEvent(event);
                     if (converted?.message?.type === 'compact_summary') {
                         session.sendAgentMessage(converted.message);
+                        compactSummarySequence += 1;
+                        for (const waiter of [...compactSummaryWaiters]) waiter();
                     }
                 }
             });
         };
 
-        this.transcriptLocator = createCodexTranscriptLocator({
-            cwd: session.path,
-            startupTimestampMs,
-            resumeSessionId: session.sessionId,
-            onLocated: ({ transcriptPath }) => {
-                this.transcriptScannerSetup = attachTranscriptScanner(transcriptPath).catch((error) => {
-                    logger.debug('[codex-remote]: Failed to attach compact-summary transcript scanner', error);
-                });
-            }
-        });
+        const createTranscriptLocator = (resumeSessionId?: string | null): CodexTranscriptLocator =>
+            createCodexTranscriptLocator({
+                cwd: session.path,
+                startupTimestampMs,
+                resumeSessionId,
+                onLocated: ({ transcriptPath }) => {
+                    this.transcriptScannerSetup = attachTranscriptScanner(transcriptPath).catch((error) => {
+                        logger.warn('[codex-remote]: Failed to attach compact-summary transcript scanner', error);
+                    });
+                }
+            });
+
+        const bindTranscriptLocatorToThread = async (threadId: string): Promise<void> => {
+            if (transcriptLocatorThreadId === threadId) return;
+            transcriptLocatorThreadId = threadId;
+
+            const previousLocator = this.transcriptLocator;
+            const exactLocator = createTranscriptLocator(threadId);
+            this.transcriptLocator = exactLocator;
+            await previousLocator?.cleanup();
+            await exactLocator.ready;
+        };
+
+        this.transcriptLocator = createTranscriptLocator(session.sessionId);
         await this.transcriptLocator.ready;
 
         const normalizeCommand = (value: unknown): string | undefined => {
@@ -2410,6 +2446,9 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     if (!this.currentThreadId || this.currentThreadId === threadId) {
                         this.currentThreadId = threadId;
                         session.onSessionFound(threadId);
+                        void bindTranscriptLocatorToThread(threadId).catch((error) => {
+                            logger.warn(`[codex-remote]: Failed to bind compact-summary transcript for ${threadId}`, error);
+                        });
                     } else {
                         logger.debug(
                             `[Codex] Ignoring thread_started for non-active thread; ` +
@@ -3571,12 +3610,18 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             sendVisibleStatus('Compaction started');
             const compactCompletion = beginManualCompact(threadId);
             void compactCompletion.catch(() => {});
+            const summarySequenceBeforeCompact = compactSummarySequence;
             try {
                 await appServerClient.compactThread({ threadId }, {
                     signal: this.abortController.signal
                 });
                 await compactCompletion;
-                sendVisibleStatus('Compaction completed');
+                const summaryReceived = this.transcriptScanner
+                    ? await waitForCompactSummary(summarySequenceBeforeCompact, 10_000)
+                    : false;
+                sendVisibleStatus(summaryReceived
+                    ? 'Compaction completed'
+                    : 'Compaction completed, but the summary was unavailable');
             } catch (error) {
                 const detail = error instanceof Error ? error.message : String(error);
                 sendVisibleStatus(`Compaction failed: ${detail}`);

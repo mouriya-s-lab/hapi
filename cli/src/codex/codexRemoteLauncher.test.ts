@@ -2751,7 +2751,7 @@ describe('codexRemoteLauncher', () => {
         });
         expect(sessionEvents).toContainEqual({
             type: 'message',
-            message: 'Compaction completed'
+            message: 'Compaction completed, but the summary was unavailable'
         });
     });
 
@@ -2790,7 +2790,7 @@ describe('codexRemoteLauncher', () => {
         expect(harness.startTurnMessages).toEqual(['first message', 'after compact']);
         expect(sessionEvents).toContainEqual({
             type: 'message',
-            message: 'Compaction completed'
+            message: 'Compaction completed, but the summary was unavailable'
         });
     });
 
@@ -2807,7 +2807,7 @@ describe('codexRemoteLauncher', () => {
         expect(harness.compactThreadIds).toEqual(['thread-1']);
         expect(sessionEvents).toContainEqual({
             type: 'message',
-            message: 'Compaction completed'
+            message: 'Compaction completed, but the summary was unavailable'
         });
         expect(session.thinking).toBe(false);
     });
