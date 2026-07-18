@@ -26,7 +26,6 @@ export default function AdminPage() {
     const [password, setPassword] = useState('')
     const [role, setRole] = useState<'admin' | 'user'>('user')
     const [tokenName, setTokenName] = useState('')
-    const [memoryDraft, setMemoryDraft] = useState('')
     const [error, setError] = useState<string | null>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [pendingAction, setPendingAction] = useState<string | null>(null)
@@ -44,13 +43,11 @@ export default function AdminPage() {
         setError(null)
         setIsLoading(true)
         try {
-            const [tokenResult, machineResult, memoryResult] = await Promise.all([
-                request<{ tokens: Token[] }>('/api/tokens'), request<{ machines: Machine[] }>('/api/machines'),
-                request<{ memory: string | null }>('/api/memory')
+            const [tokenResult, machineResult] = await Promise.all([
+                request<{ tokens: Token[] }>('/api/tokens'), request<{ machines: Machine[] }>('/api/machines')
             ])
             setTokens(tokenResult.tokens)
             setMachines(machineResult.machines)
-            setMemoryDraft(memoryResult.memory ?? '')
             if (user.role === 'admin') setAccounts((await request<{ accounts: Account[] }>('/api/accounts')).accounts)
         } catch (cause) { setError(cause instanceof Error ? cause.message : '加载失败') }
         finally { setIsLoading(false) }
@@ -88,15 +85,6 @@ export default function AdminPage() {
         })
     }
 
-    const saveMemory = async () => {
-        await runAction('save-memory', async () => {
-            const result = await request<{ memory: string | null }>('/api/memory', {
-                method: 'PATCH', body: JSON.stringify({ memory: memoryDraft.trim() || null })
-            })
-            setMemoryDraft(result.memory ?? '')
-        })
-    }
-
     return <div className="h-full min-h-0 overflow-y-auto bg-[var(--app-bg)] text-[var(--app-fg)]">
         <header className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--app-divider)] bg-[var(--app-bg)] px-4 py-3">
             <div><div className="font-semibold">管理面板</div><div className="text-xs text-[var(--app-hint)]">用户、API Token 与机器授权</div></div>
@@ -111,7 +99,6 @@ export default function AdminPage() {
                 <CardContent className="space-y-2">{accounts.map(account => <div key={account.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3"><div><div className="flex items-center gap-2"><b>{account.username}</b><Badge variant={account.role === 'admin' ? 'success' : 'default'}>{account.role}</Badge>{account.disabledAt && <Badge variant="destructive">disabled</Badge>}</div><div className="text-xs text-[var(--app-hint)]">namespace: {account.defaultNamespace}</div></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={pendingAction !== null || account.id === user.id} onClick={() => updateAccount(account.id, { role: account.role === 'admin' ? 'user' : 'admin' })}>{account.role === 'admin' ? '降为用户' : '升为管理员'}</Button><Button size="sm" variant="outline" disabled={pendingAction !== null} onClick={async () => { const next = window.prompt(`为 ${account.username} 设置新密码（至少 8 位）`); if (next && next.length >= 8) await updateAccount(account.id, { password: next }) }}>设密码</Button><Button size="sm" variant="outline" disabled={pendingAction !== null || account.id === user.id} onClick={() => updateAccount(account.id, { disabled: !account.disabledAt })}>{account.disabledAt ? '启用' : '禁用'}</Button><Button size="sm" variant="destructive" disabled={pendingAction !== null || account.id === user.id} onClick={async () => { if (window.confirm(`确定删除 ${account.username}？`)) await runAction(`delete-${account.id}`, async () => { await request(`/api/accounts/${account.id}`, { method: 'DELETE' }); await refresh() }) }}>删除</Button></div></div>)}</CardContent>
                 <Dialog open={createOpen} onOpenChange={open => { if (!pendingAction) setCreateOpen(open) }}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>新建用户</DialogTitle></DialogHeader><form className="mt-4 space-y-3" onSubmit={createAccount}><input className={inputClass} placeholder="用户名" value={username} disabled={pendingAction !== null} onChange={e => { setUsername(e.target.value); setError(null) }} /><input className={inputClass} type="password" placeholder="密码（至少 8 位）" value={password} disabled={pendingAction !== null} onChange={e => { setPassword(e.target.value); setError(null) }} /><select className={inputClass} value={role} disabled={pendingAction !== null} onChange={e => setRole(e.target.value as 'admin' | 'user')}><option value="user">普通用户</option><option value="admin">管理员</option></select>{error && <div role="alert" className="text-sm text-red-500">{error}</div>}<div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={pendingAction !== null} onClick={() => setCreateOpen(false)}>取消</Button><Button disabled={!username.trim() || password.length < 8 || pendingAction !== null}>{pendingAction === 'create-account' ? '创建中…' : '创建'}</Button></div></form></DialogContent></Dialog>
             </Card>}
-            <Card><CardHeader><CardTitle>我的记忆</CardTitle><CardDescription>只在投递给 agent 时附加；数据库与聊天页面仍保留你输入的原始消息。</CardDescription></CardHeader><CardContent className="space-y-2"><textarea className={`${inputClass} min-h-28 resize-y`} maxLength={4000} value={memoryDraft} disabled={pendingAction !== null} placeholder="例如：我的电脑是 PR159-ALICE-PC" onChange={event => { setMemoryDraft(event.target.value); setError(null) }} /><div className="flex items-center justify-between gap-3"><span className="text-xs text-[var(--app-hint)]">{memoryDraft.length}/4000 · 下一条消息生效</span><Button size="sm" disabled={pendingAction !== null} onClick={saveMemory}>{pendingAction === 'save-memory' ? '保存中…' : '保存记忆'}</Button></div></CardContent></Card>
             <Card><CardHeader><CardTitle>我的 API Token</CardTitle><CardDescription>给 runner 使用；固定映射到账号 namespace，明文只在创建时显示一次。</CardDescription></CardHeader><CardContent className="space-y-3"><form className="grid gap-2 md:grid-cols-[1fr_1fr_auto]" onSubmit={createToken}><input className={inputClass} placeholder="名称（如 laptop）" value={tokenName} disabled={pendingAction !== null} onChange={e => { setTokenName(e.target.value); setError(null) }} /><input className={inputClass} value={user.defaultNamespace} readOnly aria-label="Token namespace" /><Button disabled={pendingAction !== null}>{pendingAction === 'create-token' ? '创建中…' : '创建 Token'}</Button></form>{createdToken && <div className="rounded-lg border border-green-500/40 bg-green-500/10 p-3 text-sm"><div className="flex items-center justify-between gap-2"><div className="font-medium">请立即复制保存：</div><Button size="sm" variant="outline" onClick={() => setCreatedToken(null)}>已保存，隐藏</Button></div><code className="mt-2 block break-all rounded bg-[var(--app-bg)] p-2">{createdToken}</code></div>}{tokens.map(item => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3"><div><div className="font-medium">{item.name || `token-${item.id}`}</div><div className="text-xs text-[var(--app-hint)]">namespace: {user.defaultNamespace}</div></div><Button size="sm" variant="destructive" disabled={pendingAction !== null} onClick={async () => { if (window.confirm('确认吊销这个 Token？')) await runAction(`revoke-${item.id}`, async () => { await request(`/api/tokens/${item.id}`, { method: 'DELETE' }); await refresh() }) }}>吊销</Button></div>)}</CardContent></Card>
             {user.role === 'admin' && <MachineGrants machines={machines} accounts={accounts.filter(account => account.id !== user.id)} request={request} />}
         </main>

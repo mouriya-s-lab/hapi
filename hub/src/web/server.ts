@@ -37,7 +37,6 @@ import type { Store } from '../store'
 import { mountMultiUserGateway } from '../../../fork-features/multi-user/hubMount'
 import type { MultiUserGatewayStore } from '../../../fork-features/multi-user/gatewayStore'
 import { createExecutionMiddleware, mountExecutionRoutes } from '../../../fork-features/multi-user/executionMount'
-import { gatewayMessageDeliveryMetadata } from '../../../fork-features/multi-user/memoryAdapter'
 import { resolveGatewayCliNamespace } from '../../../fork-features/multi-user/cliAdapter'
 
 // Normalise upstream close codes before forwarding to the browser client.
@@ -265,7 +264,7 @@ function createWebApp(options: {
     app.use('/api/*', createExecutionMiddleware({ store: multiUserStore, jwtSecret: options.jwtSecret }))
     app.route('/api', createEventsRoutes(options.getSseManager, options.getSyncEngine, options.getVisibilityTracker))
     app.route('/api', createSessionsRoutes(options.getSyncEngine))
-    app.route('/api', createMessagesRoutes(options.getSyncEngine, request => gatewayMessageDeliveryMetadata(request, options.jwtSecret)))
+    app.route('/api', createMessagesRoutes(options.getSyncEngine))
     app.route('/api', createPermissionsRoutes(options.getSyncEngine))
     app.route('/api', createMachinesRoutes(options.getSyncEngine))
     app.route('/api', createImportableSessionsRoutes(options.getSyncEngine))

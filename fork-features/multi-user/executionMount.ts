@@ -44,6 +44,7 @@ export function createExecutionMiddleware(deps: {
         const decision = dispatcher.authorize({ accountId, capability: capabilityFor(c.req.method), resource })
         if (decision.kind === 'deny') return c.json({ error: 'Insufficient permissions' }, 403)
         c.set('namespace', decision.context.namespace)
+        c.set('deliveryMetadata', { gatewayAccountId: accountId })
         c.set('registerCreatedSession' as never, ((sessionId: string) => deps.store.bindResource({
             resourceType: 'session',
             resourceId: sessionId,

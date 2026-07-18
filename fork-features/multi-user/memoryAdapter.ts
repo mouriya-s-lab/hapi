@@ -1,14 +1,11 @@
 import type { MultiUserGatewayStore } from './gatewayStore'
-import { gatewayAccountId } from './executionMount'
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
 export function createGatewayMemoryDelivery(store: MultiUserGatewayStore): {
-    metadataForAccount(accountId: number | null): Record<string, unknown>
     decorateForCli(content: unknown): unknown
 } {
     return {
-        metadataForAccount: accountId => accountId === null ? {} : { gatewayAccountId: accountId },
         decorateForCli(content) {
             if (!isRecord(content) || content.role !== 'user') return content
             const meta = isRecord(content.meta) ? content.meta : null
@@ -27,9 +24,4 @@ export function createGatewayMemoryDelivery(store: MultiUserGatewayStore): {
             return { ...content, content: { ...inner, text: `${context}\n\n${inner.text}` } }
         }
     }
-}
-
-export async function gatewayMessageDeliveryMetadata(request: Request, secret: Uint8Array): Promise<Record<string, unknown>> {
-    const accountId = await gatewayAccountId(request, secret)
-    return accountId === null ? {} : { gatewayAccountId: accountId }
 }
