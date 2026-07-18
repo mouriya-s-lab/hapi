@@ -853,6 +853,82 @@ describe('normalizeDecryptedMessage', () => {
         })
     })
 
+    it('uses the HAPI display UUID and preserves OMP reasoning usage on canonical output', () => {
+        const message = makeMessage({
+            role: 'agent',
+            content: {
+                type: 'output',
+                data: {
+                    type: 'assistant',
+                    uuid: 'display-uuid',
+                    providerMessageId: 'provider-response-id',
+                    parentUuid: 'display-parent',
+                    message: {
+                        role: 'assistant',
+                        model: 'openrouter/qwen3',
+                        content: [
+                            { type: 'thinking', thinking: 'native reasoning' },
+                            { type: 'text', text: 'native answer' }
+                        ],
+                        usage: {
+                            input_tokens: 120,
+                            output_tokens: 30,
+                            reasoning_output_tokens: 17,
+                            cost_usd: 0.031
+                        }
+                    }
+                }
+            }
+        })
+
+        const normalized = normalizeDecryptedMessage(message)
+        expect(normalized).toMatchObject({
+            role: 'agent',
+            model: 'openrouter/qwen3',
+            usage: {
+                input_tokens: 120,
+                output_tokens: 30,
+                reasoning_output_tokens: 17,
+                cost_usd: 0.031
+            },
+            content: [
+                { type: 'reasoning', text: 'native reasoning', uuid: 'display-uuid', parentUUID: 'display-parent' },
+                { type: 'text', text: 'native answer', uuid: 'display-uuid', parentUUID: 'display-parent' }
+            ]
+        })
+        expect(JSON.stringify(normalized)).not.toContain('provider-response-id')
+    })
+
+    it('routes unknown OMP warning frames through the generic event fallback without field loss', () => {
+        const frame = {
+            type: 'future_event',
+            nested: { added: true },
+            sequence: 42
+        }
+        const message = makeMessage({
+            role: 'agent',
+            content: {
+                type: 'codex',
+                data: {
+                    type: 'omp-rpc-warning',
+                    eventType: 'future_event',
+                    warning: 'Unknown OMP RPC event: future_event',
+                    frame
+                }
+            }
+        })
+
+        expect(normalizeDecryptedMessage(message)).toMatchObject({
+            role: 'event',
+            content: {
+                type: 'omp-rpc-warning',
+                eventType: 'future_event',
+                warning: 'Unknown OMP RPC event: future_event',
+                frame
+            }
+        })
+    })
+
     it('normalizes Codex context_compacted as a compact event', () => {
         const message = makeMessage({
             role: 'agent',

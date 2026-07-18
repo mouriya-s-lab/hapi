@@ -166,10 +166,19 @@ describe('OMP RPC protocol schemas', () => {
         }
     });
 
-    it('keeps unknown well-formed events as raw diagnostic frames', () => {
+    it('separates exhaustive known events from unknown raw diagnostic frames', () => {
+        expect(parseOmpInboundLine('{"type":"message_end","futureField":true}')).toEqual({
+            kind: 'event',
+            event: {
+                kind: 'known',
+                type: 'message_end',
+                raw: { type: 'message_end', futureField: true }
+            }
+        });
         expect(parseOmpInboundLine('{"type":"future_event","value":42}')).toEqual({
             kind: 'event',
             event: {
+                kind: 'unknown',
                 type: 'future_event',
                 raw: { type: 'future_event', value: 42 }
             }

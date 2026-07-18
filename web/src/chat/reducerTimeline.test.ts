@@ -1369,4 +1369,83 @@ describe('reduceTimeline', () => {
             activity: 'Completed: ok'
         })
     })
+
+    it('preserves OMP subagent retry ownership and replaces stale retry state with terminal failure', () => {
+        const retryState = {
+            attempt: 2,
+            maxAttempts: 4,
+            delayMs: 1500,
+            errorMessage: 'rate limited',
+            startedAtMs: 123456
+        }
+        const retryFailure = {
+            attempt: 4,
+            errorMessage: 'quota exhausted'
+        }
+        const messages: TracedMessage[] = [
+            {
+                id: 'omp-start',
+                localId: null,
+                createdAt: 1_700_000_000_000,
+                role: 'event',
+                content: {
+                    type: 'agent-run-start',
+                    cardId: 'omp-subagent:alpha',
+                    agentId: 'alpha',
+                    parentToolCallId: 'task-parent',
+                    input: { task: 'inspect files' },
+                    status: 'running',
+                    summary: 'Inspect files'
+                },
+                isSidechain: false
+            } as TracedMessage,
+            {
+                id: 'omp-retry',
+                localId: null,
+                createdAt: 1_700_000_001_000,
+                role: 'event',
+                content: {
+                    type: 'agent-run-update',
+                    cardId: 'omp-subagent:alpha',
+                    agentId: 'alpha',
+                    parentToolCallId: 'task-parent',
+                    status: 'running',
+                    statusText: 'Retrying provider request (2/4)',
+                    progress: { status: 'running', retryState },
+                    retryState
+                },
+                isSidechain: false
+            } as TracedMessage,
+            {
+                id: 'omp-failed',
+                localId: null,
+                createdAt: 1_700_000_002_000,
+                role: 'event',
+                content: {
+                    type: 'agent-run-update',
+                    cardId: 'omp-subagent:alpha',
+                    agentId: 'alpha',
+                    parentToolCallId: 'task-parent',
+                    status: 'failed',
+                    statusText: 'Failed',
+                    progress: { status: 'failed', retryFailure },
+                    retryFailure
+                },
+                isSidechain: false
+            } as TracedMessage
+        ]
+
+        const { blocks } = reduceTimeline(messages, makeContext())
+        const agentBlock = blocks[0] as any
+
+        expect(agentBlock.id).toBe('omp-subagent:alpha')
+        expect(agentBlock.tool.state).toBe('error')
+        expect(agentBlock.tool.input).toMatchObject({
+            agentId: 'alpha',
+            parentToolCallId: 'task-parent',
+            agentStatus: 'failed',
+            retryState: null,
+            retryFailure
+        })
+    })
 })

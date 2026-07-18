@@ -52,9 +52,15 @@ describe('buildMessageMetadataLabels', () => {
     it('renders provider-native OMP cost alongside usage', () => {
         const parts = buildMessageMetadataLabels({
             model: 'ollama/qwen3',
-            usage: { input_tokens: 120, output_tokens: 30, cost_usd: 0.031 }
+            usage: {
+                input_tokens: 120,
+                output_tokens: 30,
+                reasoning_output_tokens: 17,
+                cost_usd: 0.031
+            }
         })
         expect(parts).toContain('Model: ollama/qwen3')
+        expect(parts).toContain('Reasoning: 17 tokens')
         expect(parts).toContain('Cost: $0.0310')
     })
 
