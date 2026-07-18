@@ -10,5 +10,6 @@ export const settingsCategories = [
 export type SettingsCategory = typeof settingsCategories[number]
 
 export function getSettingsCategory(pathname: string): SettingsCategory | undefined {
-    return settingsCategories.find((category) => pathname === category.path || pathname.startsWith(`${category.path}/`))
+    return settingsCategories.find((category) => pathname === category.path
+        || (category.id !== 'fork' && pathname.startsWith(`${category.path}/`)))
 }
