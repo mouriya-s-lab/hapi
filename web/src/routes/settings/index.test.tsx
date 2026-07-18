@@ -35,6 +35,8 @@ vi.mock('@tanstack/react-router', () => ({
     useNavigate: () => navigate,
 }))
 
+vi.mock('@/lib/app-context', () => ({ useAppContext: () => ({ user: { role: 'admin' } }) }))
+
 vi.mock('@hapi/protocol', () => ({ PROTOCOL_VERSION: 1 }))
 
 vi.mock('@/hooks/useTheme', () => ({

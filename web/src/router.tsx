@@ -1014,9 +1014,9 @@ const settingsForkRoute = createRoute({
     component: ForkSettingsPage,
 })
 
-const settingsForkAccountRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'fork/account', component: AccountSettingsPage })
-const settingsForkUsersRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'fork/users', component: UsersSettingsPage })
-const settingsForkUserRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'fork/users/$accountId', component: UserSettingsPage })
+const settingsAccountRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'account', component: AccountSettingsPage })
+const settingsUsersRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'users', component: UsersSettingsPage })
+const settingsUserRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'users/$accountId', component: UserSettingsPage })
 
 // Web Share Target landing route. Service worker (`web/src/sw.ts`)
 // intercepts the manifest's `POST /share` and 303-redirects here with an
@@ -1059,9 +1059,9 @@ export const routeTree = rootRoute.addChildren([
         settingsVoiceAdvancedRoute,
         settingsAboutRoute,
         settingsForkRoute,
-        settingsForkAccountRoute,
-        settingsForkUsersRoute,
-        settingsForkUserRoute,
+        settingsAccountRoute,
+        settingsUsersRoute,
+        settingsUserRoute,
     ]),
     shareRoute,
 ])

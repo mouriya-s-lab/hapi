@@ -66,14 +66,14 @@ export default function UserSettingsPage() {
         })
     }
 
-    if (user.role !== 'admin') return <Navigate to="/settings/fork" replace />
+    if (user.role !== 'admin') return <Navigate to="/settings" replace />
 
-    if (creating) return <SettingsPageContent title={t('settings.fork.users.create')}>
+    if (creating) return <SettingsPageContent title={t('settings.fork.users.create')} backLabel={t('settings.fork.user.backToUsers')} onBack={() => navigate({ to: '/settings/users' })}>
         <SettingsSection><form className="space-y-3 p-3" onSubmit={event => {
             event.preventDefault()
             void run('create', async () => {
                 const result = await request<{ account: Account }>('/api/accounts', { method: 'POST', body: JSON.stringify({ username: username.trim(), password, role }) })
-                await navigate({ to: '/settings/fork/users/$accountId', params: { accountId: String(result.account.id) }, replace: true })
+                await navigate({ to: '/settings/users/$accountId', params: { accountId: String(result.account.id) }, replace: true })
             })
         }}>
             <input aria-label={t('settings.fork.user.username')} className={settingsInputClass} placeholder={t('settings.fork.user.username')} value={username} onChange={event => setUsername(event.target.value)} />
@@ -84,10 +84,10 @@ export default function UserSettingsPage() {
         </form></SettingsSection>
     </SettingsPageContent>
 
-    if (!account) return <SettingsPageContent title={t('settings.fork.user.title')}><SettingsSection><SettingsRow label={error ?? t('settings.fork.loading')} /></SettingsSection></SettingsPageContent>
+    if (!account) return <SettingsPageContent title={t('settings.fork.user.title')} backLabel={t('settings.fork.user.backToUsers')} onBack={() => navigate({ to: '/settings/users' })}><SettingsSection><SettingsRow label={error ?? t('settings.fork.loading')} /></SettingsSection></SettingsPageContent>
     const current = account.id === user.id
 
-    return <SettingsPageContent title={account.username} description={account.defaultNamespace}>
+    return <SettingsPageContent title={account.username} description={account.defaultNamespace} backLabel={t('settings.fork.user.backToUsers')} onBack={() => navigate({ to: '/settings/users' })}>
         {error ? <div role="alert" className="text-sm text-red-500">{error}</div> : null}
         <SettingsSection title={t('settings.fork.user.account')}>
             <SettingsRow label={t('settings.fork.user.role')} trailing={<Button size="sm" variant="outline" disabled={current || pending !== null} onClick={() => void mutate({ role: account.role === 'admin' ? 'user' : 'admin' })}>{account.role}</Button>} />
@@ -108,7 +108,7 @@ export default function UserSettingsPage() {
             if (!window.confirm(t('settings.fork.user.deleteConfirm', { username: account.username }))) return
             void run('delete', async () => {
                 await request(`/api/accounts/${account.id}`, { method: 'DELETE' })
-                await navigate({ to: '/settings/fork/users', replace: true })
+                await navigate({ to: '/settings/users', replace: true })
             })
         }}>{t('settings.fork.action.delete')}</Button>} /></SettingsSection> : null}
     </SettingsPageContent>

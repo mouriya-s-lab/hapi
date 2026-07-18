@@ -3,8 +3,7 @@ import { useLocation, useNavigate, useRouter } from '@tanstack/react-router'
 
 export function getSettingsBackTarget(pathname: string): string | null {
     if (pathname === '/settings') return '/sessions'
-    if (pathname.startsWith('/settings/fork/users/')) return '/settings/fork/users'
-    if (pathname === '/settings/fork/users' || pathname === '/settings/fork/account') return '/settings/fork'
+    if (pathname.startsWith('/settings/users/')) return '/settings/users'
     if (pathname === '/settings/voice/advanced' || pathname === '/settings/voice/voices') return '/settings/voice'
     if (pathname.startsWith('/settings/')) return '/settings'
     return null

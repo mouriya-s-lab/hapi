@@ -21,7 +21,7 @@ describe('UsersSettingsPage', () => {
     it('redirects a regular user away from the admin route', () => {
         role = 'user'
         render(<I18nProvider><UsersSettingsPage /></I18nProvider>)
-        expect(screen.getByTestId('redirect')).toHaveTextContent('/settings/fork:true')
+        expect(screen.getByTestId('redirect')).toHaveTextContent('/settings:true')
         expect(fetch).not.toHaveBeenCalled()
     })
 
@@ -29,6 +29,6 @@ describe('UsersSettingsPage', () => {
         render(<I18nProvider><UsersSettingsPage /></I18nProvider>)
         const button = await screen.findByRole('button', { name: 'Create user' })
         fireEvent.click(button)
-        await waitFor(() => expect(navigate).toHaveBeenCalledWith({ to: '/settings/fork/users/$accountId', params: { accountId: 'new' } }))
+        await waitFor(() => expect(navigate).toHaveBeenCalledWith({ to: '/settings/users/$accountId', params: { accountId: 'new' } }))
     })
 })
