@@ -1,53 +1,136 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MessageQueue2 } from '@/utils/MessageQueue2';
 import type { OmpMode, PermissionMode } from './types';
+import type {
+    OmpCommand,
+    OmpInboundEvent,
+    OmpModel,
+    OmpResponseDataByCommand,
+    OmpSessionState
+} from './rpc/types';
+
+type RpcHandler = (params: unknown) => unknown;
+type EventListener = (event: OmpInboundEvent) => void;
+type ClosedListener = (reason: Error) => void;
+
+function model(provider: string, id: string, name: string = id): OmpModel {
+    return {
+        id,
+        name,
+        api: 'openai-completions',
+        provider,
+        baseUrl: 'http://localhost',
+        reasoning: true,
+        input: ['text'],
+        contextWindow: 128_000,
+        maxTokens: 16_384,
+        thinking: {
+            mode: 'levels',
+            efforts: ['low', 'high'],
+            defaultLevel: 'high'
+        },
+        raw: {}
+    };
+}
+
+function state(currentModel: OmpModel | null): OmpSessionState {
+    return {
+        ...(currentModel ? { model: currentModel } : {}),
+        isStreaming: false,
+        isCompacting: false,
+        steeringMode: 'all',
+        followUpMode: 'all',
+        interruptMode: 'immediate',
+        sessionId: 'omp-session-1',
+        autoCompactionEnabled: true,
+        messageCount: 0,
+        queuedMessageCount: 0,
+        todoPhases: []
+    };
+}
 
 const harness = vi.hoisted(() => ({
-    setModelArgs: [] as Array<{ sessionId: string; modelId: string }>,
-    promptCount: 0,
-    promptContents: [] as unknown[],
+    connectArgs: [] as unknown[],
     events: [] as string[],
-    setModelImpl: null as null | ((sessionId: string, modelId: string) => Promise<void>)
+    prompts: [] as string[],
+    requests: [] as OmpCommand[],
+    eventListeners: [] as EventListener[],
+    closedListeners: [] as ClosedListener[],
+    close: vi.fn(async () => {}),
+    connectError: null as Error | null,
+    requestError: null as null | ((command: OmpCommand) => Error | null),
+    autoFinishPrompt: true,
+    currentModel: null as OmpModel | null,
+    availableModels: [] as OmpModel[]
 }));
 
-vi.mock('./utils/ompBackend', () => ({
-    createOmpBackend: vi.fn(() => ({
-        initialize: vi.fn(async () => {}),
-        newSession: vi.fn(async () => 'acp-session-1'),
-        loadSession: vi.fn(async () => 'acp-session-1'),
-        setModel: vi.fn(async (sessionId: string, modelId: string) => {
-            harness.events.push(`setModel:${modelId}`);
-            harness.setModelArgs.push({ sessionId, modelId });
-            if (harness.setModelImpl) {
-                await harness.setModelImpl(sessionId, modelId);
+vi.mock('./rpc/OmpRpcClient', () => ({
+    OmpRpcClient: {
+        connect: vi.fn(async (args: unknown) => {
+            harness.connectArgs.push(args);
+            if (harness.connectError) {
+                throw harness.connectError;
             }
-        }),
-        prompt: vi.fn(async (_sessionId: string, content: unknown[]) => {
-            harness.promptContents.push(content);
-            harness.events.push('prompt:start');
-            harness.promptCount++;
-            await new Promise<void>((resolve) => setImmediate(resolve));
-            harness.events.push('prompt:end');
-        }),
-        cancelPrompt: vi.fn(async () => {}),
-        respondToPermission: vi.fn(async () => {}),
-        onStderrError: vi.fn(),
-        onPermissionRequest: vi.fn(),
-        disconnect: vi.fn(async () => {}),
-        getSessionModelsMetadata: vi.fn(() => undefined)
-    }))
-}));
-
-vi.mock('@/codex/utils/buildHapiMcpBridge', () => ({
-    buildHapiMcpBridge: async () => ({
-        server: { stop: () => {} },
-        mcpServers: {}
-    })
-}));
-
-vi.mock('./utils/permissionHandler', () => ({
-    OmpPermissionHandler: class {
-        async cancelAll(): Promise<void> {}
+            return {
+                state: 'ready',
+                discovery: {
+                    version: '17.0.4',
+                    state: state(harness.currentModel),
+                    commands: [],
+                    models: harness.availableModels
+                },
+                request: vi.fn(async (command: OmpCommand) => {
+                    harness.requests.push(command);
+                    const failure = harness.requestError?.(command);
+                    if (failure) {
+                        throw failure;
+                    }
+                    switch (command.type) {
+                        case 'prompt':
+                            harness.prompts.push(command.message);
+                            harness.events.push(`prompt:${command.message}`);
+                            if (harness.autoFinishPrompt) {
+                                queueMicrotask(() => {
+                                    for (const listener of harness.eventListeners) {
+                                        listener({ type: 'agent_end', raw: { type: 'agent_end' } });
+                                    }
+                                });
+                            }
+                            return { agentInvoked: true } satisfies OmpResponseDataByCommand['prompt'];
+                        case 'set_model': {
+                            const next = harness.availableModels.find((candidate) => (
+                                candidate.provider === command.provider && candidate.id === command.modelId
+                            ));
+                            if (!next) {
+                                throw new Error(`missing fake model ${command.provider}/${command.modelId}`);
+                            }
+                            harness.events.push(`set_model:${command.provider}/${command.modelId}`);
+                            harness.currentModel = next;
+                            return next;
+                        }
+                        case 'get_state':
+                            return state(harness.currentModel);
+                        case 'abort':
+                            harness.events.push('abort');
+                            return undefined;
+                        default:
+                            throw new Error(`Unexpected launcher command: ${command.type}`);
+                    }
+                }),
+                onEvent(listener: EventListener) {
+                    harness.eventListeners.push(listener);
+                    return () => {};
+                },
+                onDiagnostic() {
+                    return () => {};
+                },
+                onClosed(listener: ClosedListener) {
+                    harness.closedListeners.push(listener);
+                    return () => {};
+                },
+                close: harness.close
+            };
+        })
     }
 }));
 
@@ -65,17 +148,16 @@ vi.mock('@/ui/logger', () => ({
 
 import { ompRemoteLauncher } from './ompRemoteLauncher';
 
-function createMode(model?: string): OmpMode {
+function createMode(modelId?: string): OmpMode {
     return {
         permissionMode: 'default' as PermissionMode,
-        model
+        model: modelId
     };
 }
 
-function createPlanMode(model?: string): OmpMode {
+function createPlanMode(): OmpMode {
     return {
-        permissionMode: 'plan' as PermissionMode,
-        model
+        permissionMode: 'plan' as PermissionMode
     };
 }
 
@@ -86,7 +168,10 @@ function createResetMode(): OmpMode {
     };
 }
 
-function createSessionStub(items: Array<{ message: string; mode: OmpMode }>) {
+function createSessionStub(
+    items: Array<{ message: string; mode: OmpMode }>,
+    options: { launchModel?: string | null; sessionId?: string | null } = {}
+) {
     const queue = new MessageQueue2<OmpMode>((mode) => JSON.stringify(mode));
     items.forEach(({ message, mode }, index) => {
         if (index === 0 && items.length > 1) {
@@ -98,11 +183,10 @@ function createSessionStub(items: Array<{ message: string; mode: OmpMode }>) {
     queue.close();
 
     const sessionEvents: Array<{ type: string; [key: string]: unknown }> = [];
-    const rpcHandlers = new Map<string, (params: unknown) => unknown>();
-
+    const rpcHandlers = new Map<string, RpcHandler>();
     const client = {
         rpcHandlerManager: {
-            registerHandler(method: string, handler: (params: unknown) => unknown) {
+            registerHandler(method: string, handler: RpcHandler) {
                 rpcHandlers.set(method, handler);
             }
         },
@@ -118,8 +202,11 @@ function createSessionStub(items: Array<{ message: string; mode: OmpMode }>) {
         logPath: '/tmp/hapi-omp-test/test.log',
         client,
         queue,
-        sessionId: null as string | null,
+        sessionId: options.sessionId ?? null,
         thinking: false,
+        getModel() {
+            return options.launchModel;
+        },
         getPermissionMode() {
             return 'default' as const;
         },
@@ -140,178 +227,112 @@ function createSessionStub(items: Array<{ message: string; mode: OmpMode }>) {
     return { session, sessionEvents, rpcHandlers };
 }
 
-describe('ompRemoteLauncher inline model switch', () => {
+async function waitForRequest(type: OmpCommand['type']): Promise<void> {
+    await vi.waitFor(() => {
+        expect(harness.requests.some((request) => request.type === type)).toBe(true);
+    });
+}
+
+describe('ompRemoteLauncher RPC lifecycle', () => {
     afterEach(() => {
-        harness.setModelArgs = [];
-        harness.promptCount = 0;
-        harness.promptContents = [];
+        harness.connectArgs = [];
         harness.events = [];
-        harness.setModelImpl = null;
+        harness.prompts = [];
+        harness.requests = [];
+        harness.eventListeners = [];
+        harness.closedListeners = [];
+        harness.close.mockReset();
+        harness.close.mockResolvedValue(undefined);
+        harness.connectError = null;
+        harness.requestError = null;
+        harness.autoFinishPrompt = true;
+        harness.currentModel = model('ollama', 'launch-default', 'Launch default');
+        harness.availableModels = [
+            harness.currentModel,
+            model('ollama', 'a', 'Model A'),
+            model('ollama', 'b', 'Model B'),
+            model('mlx', 'qwen3:0.6b', 'MLX Qwen3')
+        ];
     });
 
-    it('calls setModel between turns when the queued model differs', async () => {
+    it('connects through native RPC with launch model and resume session', async () => {
+        const { session } = createSessionStub(
+            [{ message: 'first', mode: createMode() }],
+            { launchModel: 'ollama/a', sessionId: 'resume-me' }
+        );
+
+        await ompRemoteLauncher(session as never);
+
+        expect(harness.connectArgs).toEqual([expect.objectContaining({
+            cwd: '/tmp/hapi-omp-test',
+            model: 'ollama/a',
+            resumeSessionId: 'resume-me'
+        })]);
+        expect(session.sessionId).toBe('omp-session-1');
+        expect(harness.close).toHaveBeenCalledOnce();
+    });
+
+    it('serializes native model switching between completed turns', async () => {
+        harness.currentModel = model('ollama', 'a', 'Model A');
+        harness.availableModels[0] = harness.currentModel;
         const { session } = createSessionStub([
-            { message: 'first', mode: createMode('ollama/exaone:4.5-33b-q8') },
+            { message: 'first', mode: createMode('ollama/a') },
             { message: 'second', mode: createMode('mlx/qwen3:0.6b') }
         ]);
 
         await ompRemoteLauncher(session as never);
 
-        expect(harness.setModelArgs).toEqual([
-            { sessionId: 'acp-session-1', modelId: 'mlx/qwen3:0.6b' }
+        expect(harness.events).toEqual([
+            'prompt:first',
+            'set_model:mlx/qwen3:0.6b',
+            'prompt:second'
         ]);
-        expect(harness.promptCount).toBe(2);
+        expect(harness.requests.filter((request) => request.type === 'set_model')).toEqual([
+            { type: 'set_model', provider: 'mlx', modelId: 'qwen3:0.6b' }
+        ]);
     });
 
-    it('does not call setModel when the model is unchanged across turns', async () => {
+    it('does not switch when the requested model is already active', async () => {
+        harness.currentModel = model('ollama', 'a', 'Model A');
+        harness.availableModels[0] = harness.currentModel;
         const { session } = createSessionStub([
-            { message: 'first', mode: createMode('ollama/exaone:4.5-33b-q8') },
-            { message: 'second', mode: createMode('ollama/exaone:4.5-33b-q8') }
-        ]);
-
-        await ompRemoteLauncher(session as never);
-
-        expect(harness.setModelArgs).toEqual([]);
-        expect(harness.promptCount).toBe(2);
-    });
-
-    it('latches inline switching off after a method-not-found response and notifies the user once', async () => {
-        harness.setModelImpl = async () => {
-            throw new Error('Method not found: session/set_model');
-        };
-        const { session, sessionEvents } = createSessionStub([
             { message: 'first', mode: createMode('ollama/a') },
-            { message: 'second', mode: createMode('ollama/b') },
-            { message: 'third', mode: createMode('ollama/c') }
+            { message: 'second', mode: createMode('ollama/a') }
         ]);
 
         await ompRemoteLauncher(session as never);
 
-        // Only one setModel attempt — latched off after the first method-not-found
-        expect(harness.setModelArgs).toEqual([
-            { sessionId: 'acp-session-1', modelId: 'ollama/b' }
-        ]);
-        const unsupportedMessages = sessionEvents.filter(
-            (event) =>
-                event.type === 'message' &&
-                typeof event.message === 'string' &&
-                event.message.includes('does not support inline model switching')
-        );
-        expect(unsupportedMessages.length).toBe(1);
-        expect(harness.promptCount).toBe(3);
+        expect(harness.requests.some((request) => request.type === 'set_model')).toBe(false);
+        expect(harness.prompts).toEqual(['first', 'second']);
     });
 
-    it('reports a transient setModel error and continues with the previous model', async () => {
-        let attempts = 0;
-        harness.setModelImpl = async () => {
-            attempts++;
-            throw new Error('Transient backend failure');
-        };
-        const { session, sessionEvents } = createSessionStub([
-            { message: 'first', mode: createMode('ollama/a') },
-            { message: 'second', mode: createMode('ollama/b') }
-        ]);
-
-        await ompRemoteLauncher(session as never);
-
-        expect(attempts).toBe(1);
-        const failureMessages = sessionEvents.filter(
-            (event) =>
-                event.type === 'message' &&
-                typeof event.message === 'string' &&
-                event.message.includes('Failed to switch model')
-        );
-        expect(failureMessages.length).toBe(1);
-        expect(failureMessages[0]?.message).toContain('ollama/b');
-        expect(harness.promptCount).toBe(2);
-    });
-
-    it('resets to the backend launch-time default model when the queued mode.model is null', async () => {
-        // Seed the backend with a launch-time default model so the launcher
-        // captures it as `defaultBackendModel`. Without that, `/model default`
-        // resolves to null and the launcher has nothing to switch back to.
-        const ompBackendModule = await import('./utils/ompBackend');
-        const factory = (ompBackendModule as unknown as { createOmpBackend: ReturnType<typeof vi.fn> }).createOmpBackend;
-        const originalImpl = factory.getMockImplementation();
-        factory.mockImplementationOnce(() => {
-            const backend = (originalImpl as () => Record<string, unknown>)();
-            backend.getSessionModelsMetadata = vi.fn(() => ({
-                currentModelId: 'ollama/launch-default',
-                availableModels: []
-            }));
-            return backend;
-        });
-
+    it('resets to the launch-time native model', async () => {
         const { session } = createSessionStub([
-            { message: 'first', mode: createMode('ollama/custom') },
+            { message: 'first', mode: createMode('ollama/a') },
             { message: 'second', mode: createResetMode() }
         ]);
 
         await ompRemoteLauncher(session as never);
 
-        // Switch to custom on turn 1, then back to the launch-time default on turn 2.
-        expect(harness.setModelArgs).toEqual([
-            { sessionId: 'acp-session-1', modelId: 'ollama/custom' },
-            { sessionId: 'acp-session-1', modelId: 'ollama/launch-default' }
+        expect(harness.requests.filter((request) => request.type === 'set_model')).toEqual([
+            { type: 'set_model', provider: 'ollama', modelId: 'a' },
+            { type: 'set_model', provider: 'ollama', modelId: 'launch-default' }
         ]);
-        expect(harness.promptCount).toBe(2);
     });
 
-    it('injects plan-mode instructions into plan turns', async () => {
+    it('temporarily preserves plan-mode instruction injection', async () => {
         const { session } = createSessionStub([
             { message: 'design the fix', mode: createPlanMode() }
         ]);
 
         await ompRemoteLauncher(session as never);
 
-        const content = harness.promptContents[0] as Array<{ type: string; text: string }>;
-        expect(content[0]?.text).toContain('You are in plan mode');
-        expect(content[0]?.text).toContain('Do not execute tools');
-        expect(content[0]?.text).toContain('design the fix');
+        expect(harness.prompts[0]).toContain('You are in plan mode');
+        expect(harness.prompts[0]).toContain('Do not execute tools');
+        expect(harness.prompts[0]).toContain('design the fix');
     });
 
-    it('registers a listOpencodeModels RPC handler that returns the backend cache', async () => {
-        const fixtureModels = [
-            { modelId: 'ollama/exaone:4.5-33b-q8', name: 'Ollama EXAONE' },
-            { modelId: 'mlx/qwen3:0.6b', name: 'MLX Qwen3' }
-        ];
-        const ompBackendModule = await import('./utils/ompBackend');
-        const factory = (ompBackendModule as unknown as { createOmpBackend: ReturnType<typeof vi.fn> }).createOmpBackend;
-        factory.mockImplementationOnce(() => ({
-            initialize: vi.fn(async () => {}),
-            newSession: vi.fn(async () => 'acp-session-1'),
-            loadSession: vi.fn(async () => 'acp-session-1'),
-            setModel: vi.fn(async () => {}),
-            prompt: vi.fn(async () => {}),
-            cancelPrompt: vi.fn(async () => {}),
-            respondToPermission: vi.fn(async () => {}),
-            onStderrError: vi.fn(),
-            onPermissionRequest: vi.fn(),
-            disconnect: vi.fn(async () => {}),
-            getSessionModelsMetadata: vi.fn((sessionId: string) => {
-                if (sessionId === 'acp-session-1') {
-                    return { availableModels: fixtureModels, currentModelId: 'ollama/exaone:4.5-33b-q8' };
-                }
-                return undefined;
-            })
-        }));
-
-        const { session, rpcHandlers } = createSessionStub([
-            { message: 'first', mode: createMode('ollama/exaone:4.5-33b-q8') }
-        ]);
-        await ompRemoteLauncher(session as never);
-
-        const handler = rpcHandlers.get('listOpencodeModels');
-        expect(handler).toBeDefined();
-        const result = await handler!(undefined) as Record<string, unknown>;
-        expect(result).toEqual({
-            success: true,
-            availableModels: fixtureModels,
-            currentModelId: 'ollama/exaone:4.5-33b-q8'
-        });
-    });
-
-    it('listOpencodeModels handler returns unavailable when backend has no metadata', async () => {
+    it('serves the native discovery model catalog through the transitional handler', async () => {
         const { session, rpcHandlers } = createSessionStub([
             { message: 'first', mode: createMode() }
         ]);
@@ -319,28 +340,67 @@ describe('ompRemoteLauncher inline model switch', () => {
 
         const handler = rpcHandlers.get('listOpencodeModels');
         expect(handler).toBeDefined();
-        const result = await handler!(undefined) as Record<string, unknown>;
-        expect(result).toEqual({
-            success: false,
-            error: 'omp model metadata is not available'
+        await expect(handler!(undefined)).resolves.toEqual({
+            success: true,
+            availableModels: harness.availableModels.map((candidate) => ({
+                modelId: candidate.id,
+                name: candidate.name,
+                reasoningEfforts: [
+                    { value: 'low', name: 'low', isDefault: false },
+                    { value: 'high', name: 'high', isDefault: true }
+                ]
+            })),
+            currentModelId: 'launch-default'
         });
     });
 
-    it('serializes setModel after the previous prompt resolves', async () => {
+    it('routes remote abort through the native abort command', async () => {
+        harness.autoFinishPrompt = false;
+        const { session, rpcHandlers } = createSessionStub([
+            { message: 'wait for abort', mode: createMode() }
+        ]);
+        const launch = ompRemoteLauncher(session as never);
+        await waitForRequest('prompt');
+
+        const abort = rpcHandlers.get('abort');
+        expect(abort).toBeDefined();
+        await abort!(undefined);
+        await launch;
+
+        expect(harness.requests.some((request) => request.type === 'abort')).toBe(true);
+    });
+
+    it('propagates native RPC connection failure without an ACP fallback', async () => {
+        harness.connectError = new Error('OMP RPC discovery failed');
         const { session } = createSessionStub([
-            { message: 'first', mode: createMode('ollama/a') },
-            { message: 'second', mode: createMode('ollama/b') }
+            { message: 'first', mode: createMode() }
         ]);
 
-        await ompRemoteLauncher(session as never);
+        await expect(ompRemoteLauncher(session as never)).rejects.toThrow('OMP RPC discovery failed');
+        expect(harness.connectArgs).toHaveLength(1);
+    });
 
-        // Order must be: prompt(1) start/end → setModel → prompt(2) start/end
-        expect(harness.events).toEqual([
-            'prompt:start',
-            'prompt:end',
-            'setModel:ollama/b',
-            'prompt:start',
-            'prompt:end'
+    it('propagates transport closure while a turn is active', async () => {
+        harness.autoFinishPrompt = false;
+        const { session } = createSessionStub([
+            { message: 'first', mode: createMode() }
         ]);
+        const launch = ompRemoteLauncher(session as never);
+        await waitForRequest('prompt');
+
+        for (const listener of harness.closedListeners) {
+            listener(new Error('OMP RPC transport crashed'));
+        }
+
+        await expect(launch).rejects.toThrow('OMP RPC transport crashed');
+    });
+
+    it('propagates cleanup failure', async () => {
+        harness.close.mockRejectedValueOnce(new Error('OMP RPC close failed'));
+        const { session } = createSessionStub([
+            { message: 'first', mode: createMode() }
+        ]);
+
+        await expect(ompRemoteLauncher(session as never)).rejects.toThrow('OMP RPC close failed');
     });
 });
