@@ -20,7 +20,8 @@ const createAccountSchema = z.object({
 const updateAccountSchema = z.object({
     password: z.string().min(8).optional(),
     role: z.enum(['admin', 'user']).optional(),
-    disabled: z.boolean().optional()
+    disabled: z.boolean().optional(),
+    memory: z.string().max(4000).nullable().optional()
 })
 const updateMemorySchema = z.object({ memory: z.string().max(4000).nullable() })
 const createTokenSchema = z.object({ name: z.string().trim().max(80).nullable().optional() })
@@ -32,7 +33,8 @@ const publicAccount = (account: ReturnType<MultiUserGatewayStore['getAccount']>)
     username: account.username,
     role: account.role,
     defaultNamespace: account.defaultNamespace,
-    disabledAt: account.disabledAt
+    disabledAt: account.disabledAt,
+    memory: account.memory
 })
 
 export function createMultiUserGatewayRoutes(deps: {
@@ -156,7 +158,8 @@ export function createMultiUserGatewayRoutes(deps: {
         const account = deps.store.updateAccount(id, {
             role: parsed.data.role,
             disabled: parsed.data.disabled,
-            passwordHash: parsed.data.password ? hashPassword(parsed.data.password) : undefined
+            passwordHash: parsed.data.password ? hashPassword(parsed.data.password) : undefined,
+            memory: parsed.data.memory
         })
         return account ? c.json({ account: publicAccount(account) }) : c.json({ error: 'Not found' }, 404)
     })

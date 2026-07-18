@@ -62,6 +62,22 @@ describe('multi-user gateway routes', () => {
         expect(await (await app.fetch(new Request('http://gateway/accounts', { headers: { authorization: `Bearer ${aliceJwt}` } }))).json()).toEqual({ error: 'Admin required' })
     })
 
+    it('lets an administrator edit the selected account memory without changing another account', async () => {
+        const store = new MultiUserGatewayStore(':memory:')
+        stores.push(store)
+        store.createAccount('admin', 'admin', 'admin-ns', hashPassword('password-123'))
+        const alice = store.createAccount('alice', 'user', 'alice-ns', hashPassword('password-456'))
+        const bob = store.createAccount('bob', 'user', 'bob-ns', hashPassword('password-789'))
+        const app = createMultiUserGatewayRoutes({ store, jwtSecret: new TextEncoder().encode('x'.repeat(32)), coreUserId: 7 })
+        const adminJwt = (await (await app.fetch(jsonRequest('/auth', { username: 'admin', password: 'password-123' }))).json() as { token: string }).token
+        const aliceJwt = (await (await app.fetch(jsonRequest('/auth', { username: 'alice', password: 'password-456' }))).json() as { token: string }).token
+
+        expect((await app.fetch(jsonRequest(`/accounts/${bob.id}`, { memory: 'BOB-MANAGED' }, aliceJwt, 'PATCH'))).status).toBe(403)
+        expect((await app.fetch(jsonRequest(`/accounts/${bob.id}`, { memory: 'BOB-MANAGED' }, adminJwt, 'PATCH'))).status).toBe(200)
+        expect(store.getAccount(bob.id)?.memory).toBe('BOB-MANAGED')
+        expect(store.getAccount(alice.id)?.memory).toBeNull()
+    })
+
     it('lets only an owner administer machine grants', async () => {
         const store = new MultiUserGatewayStore(':memory:')
         stores.push(store)
