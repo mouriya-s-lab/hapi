@@ -96,6 +96,18 @@ describe('buildForkDeps', () => {
         expect(res.metadataPatch.claudeSessionId).toBe('new-prov')
     })
 
+    it('forkProvider preserves the provider error returned by the RPC envelope', async () => {
+        const { store } = fakeStore()
+        const syncEngine = {
+            async forkProviderSession() {
+                return { error: "lastTurnId 'turn-1' identifies an in-progress turn" }
+            }
+        }
+        const deps = buildForkDeps({ store, syncEngine: syncEngine as any, namespace: 'default' })
+        await expect(deps.forkProvider('mac-1', { flavor: 'codex', payload: {} }))
+            .rejects.toThrow("lastTurnId 'turn-1' identifies an in-progress turn")
+    })
+
     it('forkProvider throws on missing providerSessionId', async () => {
         const { store } = fakeStore()
         const syncEngine = {
