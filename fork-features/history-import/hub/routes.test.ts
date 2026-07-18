@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'bun:test'
 import { Hono } from 'hono'
-import type { Machine, SyncEngine } from '../../sync/syncEngine'
-import type { WebAppEnv } from '../middleware/auth'
-import { createImportableSessionsRoutes } from './importableSessions'
+import type { Machine, SyncEngine } from '../../../hub/src/sync/syncEngine'
+import type { WebAppEnv } from '../../../hub/src/web/middleware/auth'
+import { createImportableSessionsRoutes } from './routes'
 
 const machine = {
     id: 'machine-1', namespace: 'default', seq: 1, createdAt: 1, updatedAt: 1,

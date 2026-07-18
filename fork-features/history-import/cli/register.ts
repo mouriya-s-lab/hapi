@@ -1,9 +1,9 @@
-import type { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager'
-import { listImportableClaudeSessions } from '@/claude/utils/importableSessionCatalog'
-import { listImportableCodexSessions } from '@/codex/utils/importableSessionCatalog'
+import type { RpcHandlerManager } from '../../../cli/src/api/rpc/RpcHandlerManager'
+import { listImportableClaudeSessions } from './claudeCatalog'
+import { listImportableCodexSessions } from './codexCatalog'
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import type { ImportProviderSessionRequest, ImportProviderSessionResponse, ListImportableSessionsRequest, ListImportableSessionsResponse } from '@hapi/protocol/apiTypes'
-import { importProviderSession } from '../importProviderSession'
+import { importProviderSession } from './importProviderSession'
 
 export function registerImportableSessionHandlers(rpcHandlerManager: RpcHandlerManager): void {
     rpcHandlerManager.registerHandler<ListImportableSessionsRequest, ListImportableSessionsResponse>(

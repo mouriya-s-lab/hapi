@@ -54,7 +54,7 @@ import { SessionTypeSelector } from './SessionTypeSelector'
 import { YoloToggle } from './YoloToggle'
 import { formatRunnerSpawnError } from '../../utils/formatRunnerSpawnError'
 import { Button } from '@/components/ui/button'
-import { ImportExistingSessionsDialog } from './ImportExistingSessionsDialog'
+import { ImportExistingSessionsDialog } from '../../fork-features/history-import/ImportExistingSessionsDialog'
 
 export function NewSession(props: {
     api: ApiClient

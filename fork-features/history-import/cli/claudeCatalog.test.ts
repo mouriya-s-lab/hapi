@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mkdir, rm, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { listImportableClaudeSessions } from './importableSessionCatalog'
+import { listImportableClaudeSessions } from './claudeCatalog'
 
 describe('listImportableClaudeSessions', () => {
     const root = join(tmpdir(), `claude-import-catalog-${process.pid}`)

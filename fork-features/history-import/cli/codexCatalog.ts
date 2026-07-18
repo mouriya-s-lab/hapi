@@ -1,6 +1,6 @@
 import type { ListImportableSessionsRequest, ListImportableSessionsResponse } from '@hapi/protocol/apiTypes'
-import { CodexAppServerClient } from '../codexAppServerClient'
-import { run as runRipgrep } from '@/modules/ripgrep'
+import { CodexAppServerClient } from '../../../cli/src/codex/codexAppServerClient'
+import { run as runRipgrep } from '../../../cli/src/modules/ripgrep'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 

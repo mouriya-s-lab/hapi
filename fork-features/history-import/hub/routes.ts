@@ -2,9 +2,9 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import type { ImportExistingSessionResponse, ImportableSessionProvider, ImportableSessionsPage } from '@hapi/protocol/apiTypes'
 import type { Metadata } from '@hapi/protocol/types'
-import type { SyncEngine } from '../../sync/syncEngine'
-import type { WebAppEnv } from '../middleware/auth'
-import { requireMachine } from './guards'
+import type { SyncEngine } from '../../../hub/src/sync/syncEngine'
+import type { WebAppEnv } from '../../../hub/src/web/middleware/auth'
+import { requireMachine } from '../../../hub/src/web/routes/guards'
 
 const ProviderSchema = z.enum(['claude', 'codex'])
 const ExternalSessionIdSchema = z.uuid()

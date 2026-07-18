@@ -5,7 +5,7 @@ import { basename, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { ImportableSessionSummary, ListImportableSessionsResponse } from '@hapi/protocol/apiTypes'
 import type { ListImportableSessionsRequest } from '@hapi/protocol/apiTypes'
-import { run as runRipgrep } from '@/modules/ripgrep'
+import { run as runRipgrep } from '../../../cli/src/modules/ripgrep'
 
 const PAGE_SIZE = 50
 
@@ -79,7 +79,7 @@ async function summarize(path: string, updatedAt: number): Promise<ImportableSes
     }
 }
 
-export async function resolveImportableClaudeSession(externalSessionId: string): Promise<ImportableSessionSummary | null> {
+export async function resolveImportableClaudeSession(externalSessionId: string): Promise<(ImportableSessionSummary & { path: string }) | null> {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(externalSessionId)) {
         throw new Error('Invalid Claude session ID')
     }
@@ -90,7 +90,7 @@ export async function resolveImportableClaudeSession(externalSessionId: string):
         const entry = (await readdir(join(root, project.name), { withFileTypes: true })).find((candidate) => candidate.name === fileName)
         if (!entry?.isFile()) continue
         const path = join(root, project.name, fileName)
-        return await summarize(path, (await stat(path)).mtimeMs)
+        return { ...await summarize(path, (await stat(path)).mtimeMs), path }
     }
     return null
 }

@@ -1,10 +1,9 @@
-import { bootstrapSession } from '@/agent/sessionFactory'
-import { createSessionScanner } from '@/claude/utils/sessionScanner'
-import { isClaudeChatVisibleMessage } from '@/claude/utils/chatVisibility'
-import { resolveImportableClaudeSession } from '@/claude/utils/importableSessionCatalog'
-import type { RawJSONLines } from '@/claude/types'
-import { CodexAppServerClient } from '@/codex/codexAppServerClient'
-import { convertCodexEvent, type CodexSessionEvent } from '@/codex/utils/codexEventConverter'
+import { bootstrapSession } from '../../../cli/src/agent/sessionFactory'
+import { isClaudeChatVisibleMessage } from '../../../cli/src/claude/utils/chatVisibility'
+import { resolveImportableClaudeSession } from './claudeCatalog'
+import { RawJSONLinesSchema } from '../../../cli/src/claude/types'
+import { CodexAppServerClient } from '../../../cli/src/codex/codexAppServerClient'
+import { convertCodexEvent, type CodexSessionEvent } from '../../../cli/src/codex/utils/codexEventConverter'
 import type { ImportProviderSessionRequest, ImportProviderSessionResponse } from '@hapi/protocol/apiTypes'
 import { createReadStream } from 'node:fs'
 import { createInterface } from 'node:readline'
@@ -75,6 +74,28 @@ async function replayCodexHistory(path: string, send: {
     return messageCount
 }
 
+async function replayClaudeHistory(path: string, send: (message: ReturnType<typeof RawJSONLinesSchema.parse>) => void): Promise<number> {
+    const input = createReadStream(path, { encoding: 'utf8' })
+    const lines = createInterface({ input, crlfDelay: Infinity })
+    let messageCount = 0
+    try {
+        for await (const line of lines) {
+            if (!line.trim()) continue
+            const parsed = RawJSONLinesSchema.safeParse(JSON.parse(line) as unknown)
+            if (!parsed.success) continue
+            const message = parsed.data
+            if (message.type === 'summary' || message.isMeta || message.isCompactSummary || message.isSidechain) continue
+            if (!isClaudeChatVisibleMessage(message)) continue
+            send(message)
+            messageCount += 1
+        }
+    } finally {
+        lines.close()
+        input.destroy()
+    }
+    return messageCount
+}
+
 export async function importProviderSession(request: ImportProviderSessionRequest): Promise<ImportProviderSessionResponse> {
     const codexSource = request.provider === 'codex'
         ? await resolveCodexTranscriptPath(request.externalSessionId)
@@ -101,19 +122,10 @@ export async function importProviderSession(request: ImportProviderSessionReques
                 activity: () => bootstrap.session.notifyUserActivity()
             })
         } else {
-            messageCount = 0
-            const scanner = await createSessionScanner({
-                sessionId: request.externalSessionId,
-                workingDirectory: claudeSource!.cwd,
-                replayExistingHistory: true,
-                onMessage: (message: RawJSONLines) => {
-                    if (message.type === 'summary' || message.isMeta || message.isCompactSummary || message.isSidechain) return
-                    if (!isClaudeChatVisibleMessage(message)) return
-                    bootstrap.session.sendClaudeSessionMessage(message)
-                    messageCount += 1
-                }
-            })
-            await scanner.cleanup()
+            messageCount = await replayClaudeHistory(
+                claudeSource!.path,
+                (message) => bootstrap.session.sendClaudeSessionMessage(message)
+            )
         }
 
         bootstrap.session.updateMetadata((metadata) => ({
