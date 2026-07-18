@@ -343,6 +343,27 @@ describe('buildForkDeps', () => {
         ])
     })
 
+    it('listMessages exposes HAPI user text for provider-native fork alignment', () => {
+        const store = {
+            sessions: { getSession: () => null },
+            messages: {
+                getAllMessages: () => [{
+                    id: 'u1',
+                    seq: 1,
+                    content: { role: 'user', content: { type: 'text', text: '/rename Native title' } }
+                }],
+                copyMessageToSession: () => ({ id: 'ok' })
+            }
+        }
+        const deps = buildForkDeps({ store: store as any, syncEngine: {} as any, namespace: 'default' })
+        expect(deps.listMessages('src')).toEqual([{
+            id: 'u1',
+            seq: 1,
+            role: 'user',
+            text: '/rename Native title'
+        }])
+    })
+
     it('listMessages returns role=unknown when content lacks role field', () => {
         const store = {
             sessions: { getSession: () => null },

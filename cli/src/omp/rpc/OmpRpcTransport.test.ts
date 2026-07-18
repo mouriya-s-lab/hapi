@@ -105,6 +105,17 @@ describe('buildOmpRpcArgs', () => {
             '--resume', 'native-session'
         ]);
     });
+
+    it('uses the native startup fork flag for a HEAD session fork', () => {
+        expect(buildOmpRpcArgs({
+            cwd: '/workspace',
+            forkSessionId: 'source-session'
+        })).toEqual([
+            '--mode', 'rpc',
+            '--yolo',
+            '--fork', 'source-session'
+        ]);
+    });
 });
 
 describe('OmpRpcTransport', () => {

@@ -2,6 +2,7 @@ import { getForkCapability, isForkCapableFlavor } from './forkCapabilities'
 import type { ClaudeLaunch } from '../../shared/src/types'
 import type { ForkPoint } from './rpcPayloads'
 import { randomInt } from 'node:crypto'
+import { parseOmpSessionMutation } from '@hapi/protocol/ompSessionMutation'
 
 export class HttpError extends Error {
     constructor(public status: number, message: string) {
@@ -48,6 +49,7 @@ export interface ForkMessage {
     id: string
     seq: number
     role: string
+    text?: string
 }
 
 /**
@@ -128,6 +130,8 @@ export interface ResolvedForkPoint {
     /** Target message seq — hub-DB `copyMessages` uses this as `upToSeq`. */
     targetSeq: number
     isFirstUserTurn: boolean
+    targetText?: string
+    matchingTextTailOffset?: number
 }
 
 function forkTitle(sourceTitle: string): string {
@@ -176,8 +180,42 @@ function resolveForkPoint(
     if (target.role !== 'user') {
         throw new HttpError(400, `fork point must be a user message (message ${messageId} has role ${target.role})`)
     }
-    const tailOffset = msgs.filter((m) => m.seq > target.seq && m.role === 'user').length
+    if (flavor === 'omp' && target.text !== undefined && parseOmpSessionMutation(target.text)) {
+        throw new HttpError(400, 'OMP session commands are not native branch targets')
+    }
+    const followingUserMessages = msgs.filter((m) => m.seq > target.seq && m.role === 'user')
+    if (flavor === 'omp') {
+        const crossedBoundary = followingUserMessages.some((message) => {
+            if (message.text === undefined) return false
+            const mutation = parseOmpSessionMutation(message.text)
+            return mutation?.type === 'new_session'
+                || mutation?.type === 'handoff'
+                || mutation?.type === 'resume_session'
+                || mutation?.type === 'resume_session_picker'
+        })
+        if (crossedBoundary) {
+            throw new HttpError(400, 'OMP rewind cannot cross a native session boundary')
+        }
+    }
+    const tailOffset = followingUserMessages.filter((message) => (
+        flavor !== 'omp'
+        || message.text === undefined
+        || parseOmpSessionMutation(message.text) === null
+    )).length
     const isFirstUserTurn = !msgs.some((m) => m.seq < target.seq && m.role === 'user')
+    if (flavor === 'omp') {
+        if (target.text === undefined || target.text.length === 0) {
+            throw new HttpError(400, 'OMP rewind requires a non-empty source user message')
+        }
+        return {
+            messageId,
+            tailOffset,
+            targetSeq: target.seq,
+            isFirstUserTurn,
+            targetText: target.text,
+            matchingTextTailOffset: followingUserMessages.filter((message) => message.text === target.text).length
+        }
+    }
     return { messageId, tailOffset, targetSeq: target.seq, isFirstUserTurn }
 }
 
@@ -238,6 +276,12 @@ export async function forkSession(args: {
                               messageId: resolvedForkPoint.messageId,
                               tailOffset: resolvedForkPoint.tailOffset,
                               isFirstUserTurn: resolvedForkPoint.isFirstUserTurn,
+                              ...(resolvedForkPoint.targetText !== undefined
+                                  ? { targetText: resolvedForkPoint.targetText }
+                                  : {}),
+                              ...(resolvedForkPoint.matchingTextTailOffset !== undefined
+                                  ? { matchingTextTailOffset: resolvedForkPoint.matchingTextTailOffset }
+                                  : {}),
                               ...(providerAnchor !== undefined ? { providerAnchor } : {})
                           }
                       }

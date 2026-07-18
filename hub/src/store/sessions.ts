@@ -59,7 +59,8 @@ const SIMPLE_RESUME_TOKENS = [
     'opencodeSessionId',
     'grokSessionId',
     'cursorSessionId',
-    'kimiSessionId'
+    'kimiSessionId',
+    'ompSession'
 ] as const
 
 function preservePendingClaudeLaunch(

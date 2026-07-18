@@ -56,7 +56,7 @@ const FLAVOR_FORK_CAPABILITIES = {
     kimi: { fork: 'none', files: 'none' },
     opencode: { fork: 'none', files: 'none' },
     pi: { fork: 'none', files: 'none' },
-    omp: { fork: 'none', files: 'none' }
+    omp: { fork: 'at-message', files: 'none' }
 } as const satisfies Record<string, FlavorForkCapability>
 
 export function getForkCapability(flavor: string): FlavorForkCapability {

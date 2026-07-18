@@ -14,8 +14,12 @@ describe('forkCapabilities', () => {
         expect(getForkCapability('codex')).toEqual({ fork: 'at-message', files: 'none' })
     })
 
-    it('cursor/gemini/kimi/opencode/pi/omp report no fork', () => {
-        for (const flavor of ['cursor', 'gemini', 'kimi', 'opencode', 'pi', 'omp']) {
+    it('omp reports at-message fork through native branch(entryId)', () => {
+        expect(getForkCapability('omp')).toEqual({ fork: 'at-message', files: 'none' })
+    })
+
+    it('cursor/gemini/kimi/opencode/pi report no fork', () => {
+        for (const flavor of ['cursor', 'gemini', 'kimi', 'opencode', 'pi']) {
             expect(getForkCapability(flavor)).toEqual({ fork: 'none', files: 'none' })
         }
     })
@@ -33,6 +37,7 @@ describe('forkCapabilities', () => {
     it('isForkCapableFlavor is true iff fork !== none', () => {
         expect(isForkCapableFlavor('claude')).toBe(true)
         expect(isForkCapableFlavor('codex')).toBe(true)
+        expect(isForkCapableFlavor('omp')).toBe(true)
         expect(isForkCapableFlavor('cursor')).toBe(false)
         expect(isForkCapableFlavor('does-not-exist')).toBe(false)
     })
@@ -41,6 +46,7 @@ describe('forkCapabilities', () => {
         const all = getAllForkCapabilities()
         expect(all.claude).toEqual({ fork: 'at-message', files: 'none' })
         expect(all.codex).toEqual({ fork: 'at-message', files: 'none' })
+        expect(all.omp).toEqual({ fork: 'at-message', files: 'none' })
         expect(all.cursor).toEqual({ fork: 'none', files: 'none' })
         // Mutating the returned map does not affect subsequent reads.
         all.claude = { fork: 'none', files: 'none' }

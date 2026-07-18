@@ -47,6 +47,24 @@ describe('rpcPayloads', () => {
         expect(payload.forkPoint).toEqual({ messageId: 'm-42', tailOffset: 3, isFirstUserTurn: false })
     })
 
+    it('preserves OMP text mapping fields on a per-message fork', () => {
+        const payload = ForkSpawnPayloadSchema.parse({
+            sourceMetadata: { path: '/w', host: 'h' },
+            sourceCwd: '/w',
+            forkPoint: {
+                messageId: 'm-42',
+                tailOffset: 3,
+                isFirstUserTurn: false,
+                targetText: 'repeat prompt',
+                matchingTextTailOffset: 1
+            }
+        })
+        expect(payload.forkPoint).toMatchObject({
+            targetText: 'repeat prompt',
+            matchingTextTailOffset: 1
+        })
+    })
+
     it('parses ForkSpawnPayload without forkPoint (HEAD fork, backward-compat)', () => {
         const payload = ForkSpawnPayloadSchema.parse({
             sourceMetadata: { path: '/w', host: 'h' },

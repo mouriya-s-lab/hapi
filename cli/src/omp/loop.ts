@@ -6,6 +6,7 @@ import { ompLocalLauncher } from './ompLocalLauncher';
 import { ompRemoteLauncher } from './ompRemoteLauncher';
 import { ApiClient, ApiSessionClient } from '@/lib';
 import type { OmpMode, PermissionMode } from './types';
+import type { OmpNativeSession } from '@hapi/protocol/types';
 
 interface OmpLoopOptions {
     path: string;
@@ -18,6 +19,7 @@ interface OmpLoopOptions {
     permissionMode?: PermissionMode;
     model?: string;
     resumeSessionId?: string;
+    nativeSession?: OmpNativeSession;
     onSessionReady?: (session: OmpSession) => void;
 }
 
@@ -37,12 +39,9 @@ export async function ompLoop(opts: OmpLoopOptions): Promise<void> {
         mode: startingMode,
         startedBy,
         startingMode,
-        permissionMode: opts.permissionMode ?? 'default'
+        permissionMode: opts.permissionMode ?? 'default',
+        nativeSession: opts.nativeSession
     });
-
-    if (opts.resumeSessionId) {
-        session.onSessionFound(opts.resumeSessionId);
-    }
 
     const getCurrentModel = (): string | undefined => {
         const sessionModel = session.getModel();

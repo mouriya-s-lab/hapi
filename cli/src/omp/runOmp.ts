@@ -82,7 +82,7 @@ export async function runOmp(opts: {
     });
 
     lifecycle.registerProcessHandlers();
-    registerKillSessionHandler(session.rpcHandlerManager, lifecycle.cleanupAndExit);
+    registerKillSessionHandler(session.rpcHandlerManager, lifecycle);
     registerLocalHandoffHandler(session.rpcHandlerManager, lifecycle);
 
     const syncSessionMode = () => {
@@ -103,7 +103,10 @@ export async function runOmp(opts: {
             permissionMode: currentPermissionMode,
             model: resolvedModel
         };
-        messageQueue.push(formattedText, mode, localId);
+        // OMP exposes branch targets as one entry per native user prompt.
+        // Preserve that 1:1 boundary instead of letting MessageQueue2 merge
+        // adjacent HAPI messages into one native prompt.
+        messageQueue.pushIsolated(formattedText, mode, localId);
     });
 
     session.onCancelQueuedMessage((localId) => {
@@ -165,6 +168,9 @@ export async function runOmp(opts: {
             permissionMode: currentPermissionMode,
             model: machineDefault,
             resumeSessionId: opts.resumeSessionId,
+            nativeSession: bootstrap.metadata.ompSession?.id === opts.resumeSessionId
+                ? bootstrap.metadata.ompSession
+                : undefined,
             onModeChange: createModeChangeHandler(session),
             onSessionReady: (instance) => {
                 sessionWrapperRef.current = instance;
@@ -174,6 +180,8 @@ export async function runOmp(opts: {
     } catch (error) {
         crashed = true;
         lifecycle.markCrash(error);
+        const detail = error instanceof Error ? error.message : String(error);
+        session.sendSessionEvent({ type: 'message', message: `OMP session failed: ${detail}` });
         logger.debug('[omp] Loop error:', error);
     } finally {
         const localFailure = sessionWrapperRef.current?.localLaunchFailure;

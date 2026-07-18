@@ -8,6 +8,8 @@ import { spawnClaudeFork } from './providers/claudeForkSpawn'
 import { createCodexForkProvider, type CodexForkClient } from './providers/codexFork'
 import { createCodexForkClient } from './providers/codexForkClient'
 import { CodexAppServerClient } from '../../cli/src/codex/codexAppServerClient'
+import { createOmpForkProvider } from './providers/ompFork'
+import { OmpRpcClient } from '../../cli/src/omp/rpc/OmpRpcClient'
 
 // Claude: production spawn primitive is a one-shot child process.
 wireClaudeForkSpawn(spawnClaudeFork)
@@ -28,3 +30,5 @@ async function makeShortLivedCodexForkClient(): Promise<CodexForkClient> {
 }
 
 registerForkProvider('codex', createCodexForkProvider(makeShortLivedCodexForkClient))
+
+registerForkProvider('omp', createOmpForkProvider((config) => OmpRpcClient.connect(config)))

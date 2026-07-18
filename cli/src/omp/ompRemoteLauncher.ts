@@ -14,7 +14,15 @@ import { PLAN_MODE_INSTRUCTION } from './utils/systemPrompt';
 import { buildOmpEnv } from './utils/config';
 import { OmpRpcClient } from './rpc/OmpRpcClient';
 import { OmpRpcEventAdapter } from './rpc/OmpRpcEventAdapter';
-import type { OmpModel } from './rpc/types';
+import type { OmpModel, OmpRpcSpawnConfig } from './rpc/types';
+import {
+    nativeSessionSnapshotFromState,
+    OmpSessionStateReconciler,
+    parseOmpSessionMutation,
+    runOmpSessionMutation,
+    type OmpSessionMutationCommand,
+} from './rpc/sessionLifecycle';
+import { resolveOmpSessionPath } from './utils/ompSessionScanner';
 
 type TurnWaiter = {
     promise: Promise<void>;
@@ -62,6 +70,7 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
     private currentModel: OmpModel | null = null;
     private defaultModel: OmpModel | null = null;
     private availableModels: OmpModel[] = [];
+    private sessionReconciler: OmpSessionStateReconciler | null = null;
 
     constructor(session: OmpSession) {
         super(process.env.DEBUG ? session.logPath : undefined);
@@ -82,12 +91,15 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
     protected async runMainLoop(): Promise<void> {
         const session = this.session;
         const requestedSpawnModel = session.getModel();
-        const client = await OmpRpcClient.connect({
+        const spawnBase = {
             cwd: session.path,
             env: buildOmpEnv(),
-            model: typeof requestedSpawnModel === 'string' ? requestedSpawnModel : undefined,
-            resumeSessionId: session.sessionId ?? undefined
-        });
+            model: typeof requestedSpawnModel === 'string' ? requestedSpawnModel : undefined
+        };
+        const spawnConfig: OmpRpcSpawnConfig = session.sessionId
+            ? { ...spawnBase, resumeSessionId: session.sessionId }
+            : spawnBase;
+        const client = await OmpRpcClient.connect(spawnConfig);
         this.client = client;
         this.availableModels = client.discovery.models;
         this.currentModel = client.discovery.state.model ?? null;
@@ -98,7 +110,12 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
             + `session=${client.discovery.state.sessionId} commands=${client.discovery.commands.length} `
             + `models=${client.discovery.models.length}`
         );
-        session.onSessionFound(client.discovery.state.sessionId);
+        session.applyNativeSessionSnapshot(nativeSessionSnapshotFromState(client.discovery.state));
+        const sessionReconciler = new OmpSessionStateReconciler(
+            client,
+            session.applyNativeSessionSnapshot
+        );
+        this.sessionReconciler = sessionReconciler;
 
         const eventAdapter = new OmpRpcEventAdapter({
             onAgentMessage: (message) => {
@@ -114,6 +131,14 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
                 if (!agentInvoked) {
                     this.finishCurrentTurn();
                 }
+            },
+            onSessionInfoUpdate: () => {
+                void sessionReconciler.reconcile().catch((error) => {
+                    const failure = error instanceof Error ? error : new Error(String(error));
+                    this.transportFailure = failure;
+                    this.failCurrentTurn(failure);
+                    this.queueAbortController.abort(failure);
+                });
             },
             onDiagnostic: (message) => logger.warn(`[omp-remote] ${message}`)
         });
@@ -172,6 +197,45 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
             this.applyDisplayMode(batch.mode.permissionMode, this.currentModel?.id);
             this.messageBuffer.addMessage(batch.message, 'user');
 
+            const mutation = parseOmpSessionMutation(batch.message);
+            if (mutation) {
+                session.onThinkingChange(true);
+                try {
+                    if (mutation.type === 'invalid_session_command') {
+                        throw new Error(mutation.message);
+                    }
+                    if (mutation.type === 'resume_session_picker') {
+                        throw new Error('Use /resume <session id> when controlling OMP remotely');
+                    }
+                    let rpcMutation: OmpSessionMutationCommand;
+                    if (mutation.type === 'resume_session') {
+                        const sessionPath = await resolveOmpSessionPath(mutation.sessionArg, session.path);
+                        if (sessionPath === null) {
+                            throw new Error(`Session "${mutation.sessionArg}" not found`);
+                        }
+                        rpcMutation = { type: 'switch_session', sessionPath };
+                    } else {
+                        rpcMutation = mutation;
+                    }
+                    await runOmpSessionMutation(
+                        client,
+                        rpcMutation,
+                        session.applyNativeSessionSnapshot
+                    );
+                } catch (error) {
+                    const detail = error instanceof Error ? error.message : String(error);
+                    logger.warn('[omp-remote] RPC session mutation failed', error);
+                    session.sendSessionEvent({
+                        type: 'message',
+                        message: `Oh My Pi RPC session mutation failed: ${detail}`
+                    });
+                    this.messageBuffer.addMessage(`Oh My Pi RPC session mutation failed: ${detail}`, 'status');
+                } finally {
+                    session.onThinkingChange(false);
+                    await this.sendReadyIfIdle();
+                }
+                continue;
+            }
             const message = batch.mode.permissionMode === 'plan'
                 ? `${PLAN_MODE_INSTRUCTION}\n\n${batch.message}`
                 : batch.message;
@@ -185,6 +249,7 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
                     turn.resolve();
                 }
                 await turn.promise;
+                await sessionReconciler.reconcile();
             } catch (error) {
                 const detail = error instanceof Error ? error.message : String(error);
                 logger.warn('[omp-remote] RPC prompt failed', error);
@@ -207,6 +272,8 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         this.clearAbortHandlers(this.session.client.rpcHandlerManager);
         this.queueAbortController.abort(new Error('OMP remote launcher cleanup'));
         this.finishCurrentTurn();
+        await this.sessionReconciler?.drain();
+        this.sessionReconciler = null;
         const client = this.client;
         this.client = null;
         if (client) {
@@ -311,8 +378,8 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
 
     private async handleSwitchFromUi(): Promise<void> {
         await this.requestExit('switch', async () => {
-            await this.handleAbort();
             this.queueAbortController.abort(new Error('OMP remote switch'));
+            this.finishCurrentTurn();
         });
     }
 

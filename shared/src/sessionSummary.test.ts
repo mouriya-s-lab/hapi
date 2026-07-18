@@ -77,6 +77,18 @@ describe('toSessionSummary', () => {
         expect(summary.metadata?.agentSessionId).toBe('grok-session-1')
     })
 
+    it('uses the OMP native snapshot id as the resume token', () => {
+        const session = makeSession({
+            metadata: {
+                path: '/work',
+                host: 'host',
+                flavor: 'omp',
+                ompSession: { id: 'omp-native', file: '/sessions/omp-native.jsonl' }
+            }
+        })
+        expect(toSessionSummary(session).metadata?.agentSessionId).toBe('omp-native')
+    })
+
     it('includes pending request kinds and background task count', () => {
         const summary = toSessionSummary(makeSession({
             backgroundTaskCount: 2,

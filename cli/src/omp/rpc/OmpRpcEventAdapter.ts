@@ -83,6 +83,7 @@ export type OmpRpcEventAdapterCallbacks = {
     onTurnStarted: () => void;
     onTurnFinished: () => void;
     onPromptResult: (agentInvoked: boolean) => void;
+    onSessionInfoUpdate: () => void;
     onDiagnostic: (message: string) => void;
 };
 
@@ -146,6 +147,9 @@ export class OmpRpcEventAdapter {
             case 'retry_fallback_succeeded':
                 this.handleStatusEvent(event.raw, 'OMP fallback model succeeded');
                 return;
+            case 'session_info_update':
+                this.callbacks.onSessionInfoUpdate();
+                return;
             case 'auto_compaction_start':
                 this.handleStatusEvent(event.raw, 'OMP compaction started');
                 return;
@@ -159,7 +163,6 @@ export class OmpRpcEventAdapter {
             case 'irc_message':
             case 'goal_updated':
             case 'available_commands_update':
-            case 'session_info_update':
             case 'config_update':
             case 'command_output':
             case 'extension_error':
