@@ -13,7 +13,7 @@ export default function ForkSettingsPage() {
         <SettingsPageContent title={t('settings.fork.title')} description={t('settings.fork.description')}>
             <SettingsSection>
                 <HistoryImportSettingsRow />
-                <SettingsLinkRow label="我的账号" description="管理记忆与 API Token。" onClick={() => navigate({ to: '/settings/fork/account' })} />
+                <SettingsLinkRow label={t('settings.fork.account.title')} description={t('settings.fork.account.description')} onClick={() => navigate({ to: '/settings/fork/account' })} />
                 {user.role === 'admin' ? (
                     <SettingsLinkRow
                         label={t('settings.fork.users.title')}

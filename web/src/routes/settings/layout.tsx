@@ -18,7 +18,13 @@ export default function SettingsLayout() {
     const navigate = useNavigate()
     const pathname = useLocation({ select: (location) => location.pathname })
     const category = getSettingsCategory(pathname)
-    const mobileTitleKey = pathname === '/settings/voice/voices'
+    const mobileTitleKey = pathname === '/settings/fork/account'
+        ? 'settings.fork.account.title'
+        : pathname === '/settings/fork/users'
+            ? 'settings.fork.users.title'
+            : pathname.startsWith('/settings/fork/users/')
+                ? 'settings.fork.user.title'
+                : pathname === '/settings/voice/voices'
         ? 'settings.voice.voice'
         : pathname === '/settings/voice/advanced'
             ? 'settings.voice.advanced.title'
