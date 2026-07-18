@@ -49,6 +49,7 @@ export type {
     AttachmentMetadata,
     CodexCollaborationMode,
     Metadata,
+    OmpInputMode,
     PermissionMode,
     Machine,
     MachineHealth,

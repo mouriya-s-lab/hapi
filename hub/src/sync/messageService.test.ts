@@ -119,6 +119,32 @@ describe('MessageService CLI delivery extension', () => {
         service.releaseMatureScheduledMessages(Date.now())
         expect(updates.at(-1)).toMatchObject({ body: { message: { content: { decorated: true } } } })
     })
+
+    it('persists and delivers the explicit OMP input command in user message metadata', async () => {
+        const store = makeStore()
+        const session = makeSession(store, 'omp-input-mode')
+        const updates: unknown[] = []
+        const io = {
+            of: () => ({
+                to: () => ({ emit: (_event: string, update: unknown) => { updates.push(update) } }),
+                adapter: { rooms: { get: () => new Set(['socket-1']) } }
+            })
+        } as unknown as Server
+        const service = new MessageService(store, io, makePublisher() as any)
+
+        await service.sendMessage(session.id, {
+            text: 'steer now',
+            localId: 'steer-1',
+            ompInputMode: 'steer'
+        })
+
+        expect(updates[0]).toMatchObject({
+            body: { message: { content: { meta: { ompInputMode: 'steer' } } } }
+        })
+        expect(service.getMessagesPage(session.id, { limit: 10, before: null }).messages[0]?.content).toMatchObject({
+            meta: { ompInputMode: 'steer' }
+        })
+    })
 })
 
 describe('MessageService goal status filtering', () => {

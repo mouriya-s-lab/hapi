@@ -5,6 +5,7 @@ import type {
     FileSearchResponse,
     MachinesResponse,
     MessagesResponse,
+    OmpInputMode,
     PermissionMode,
     PushSubscriptionPayload,
     PushUnsubscribePayload,
@@ -401,14 +402,15 @@ export class ApiClient {
         )
     }
 
-    async sendMessage(sessionId: string, text: string, localId?: string | null, attachments?: AttachmentMetadata[], scheduledAt?: number | null): Promise<void> {
+    async sendMessage(sessionId: string, text: string, localId?: string | null, attachments?: AttachmentMetadata[], scheduledAt?: number | null, ompInputMode?: OmpInputMode): Promise<void> {
         await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
             method: 'POST',
             body: JSON.stringify({
                 text,
                 localId: localId ?? undefined,
                 attachments: attachments ?? undefined,
-                scheduledAt: scheduledAt ?? undefined
+                scheduledAt: scheduledAt ?? undefined,
+                ompInputMode: ompInputMode ?? undefined
             })
         })
     }

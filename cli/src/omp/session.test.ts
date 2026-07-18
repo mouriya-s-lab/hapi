@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MessageQueue2 } from '@/utils/MessageQueue2';
+import { OmpInputQueue } from './OmpInputQueue';
 import { OmpSession } from './session';
 import type { OmpMode } from './types';
 
@@ -19,7 +19,7 @@ function createSession() {
         path: '/work',
         logPath: '/logs/omp.log',
         sessionId: 'requested-resume-id',
-        messageQueue: new MessageQueue2<OmpMode>(() => 'mode'),
+        messageQueue: new OmpInputQueue(() => 'mode'),
         onModeChange: () => undefined,
         startedBy: 'runner',
         startingMode: 'remote'

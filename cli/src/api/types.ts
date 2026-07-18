@@ -3,6 +3,7 @@ import {
     AttachmentMetadataSchema,
     MachineMetadataSchema,
     MetadataSchema,
+    OmpInputModeSchema,
     RunnerStateSchema
 } from '@hapi/protocol/schemas'
 import {
@@ -63,6 +64,7 @@ export type {
 
 export const MessageMetaSchema = z.object({
     sentFrom: z.string().optional(),
+    ompInputMode: OmpInputModeSchema.optional(),
     fallbackModel: z.string().nullable().optional(),
     customSystemPrompt: z.string().nullable().optional(),
     appendSystemPrompt: z.string().nullable().optional(),

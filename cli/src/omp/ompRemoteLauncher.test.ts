@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MessageQueue2 } from '@/utils/MessageQueue2';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { OmpInputQueue } from './OmpInputQueue';
 import type { OmpMode, PermissionMode } from './types';
 import type {
     OmpCommand,
@@ -8,6 +11,7 @@ import type {
     OmpResponseDataByCommand,
     OmpSessionState
 } from './rpc/types';
+import type { AttachmentMetadata, OmpInputMode } from '@hapi/protocol/types';
 
 type RpcHandler = (params: unknown) => unknown;
 type EventListener = (event: OmpInboundEvent) => void;
@@ -36,7 +40,7 @@ function model(provider: string, id: string, name: string = id): OmpModel {
 function state(currentModel: OmpModel | null): OmpSessionState {
     return {
         ...(currentModel ? { model: currentModel } : {}),
-        isStreaming: false,
+        isStreaming: harness.stateStreaming,
         isCompacting: false,
         steeringMode: 'all',
         followUpMode: 'all',
@@ -46,7 +50,7 @@ function state(currentModel: OmpModel | null): OmpSessionState {
         ...(harness.sessionName ? { sessionName: harness.sessionName } : {}),
         autoCompactionEnabled: true,
         messageCount: 0,
-        queuedMessageCount: 0,
+        queuedMessageCount: harness.queuedMessageCount,
         todoPhases: []
     };
 }
@@ -62,6 +66,9 @@ const harness = vi.hoisted(() => ({
     connectError: null as Error | null,
     requestError: null as null | ((command: OmpCommand) => Error | null),
     autoFinishPrompt: true,
+    promptResponse: { agentInvoked: true } as OmpResponseDataByCommand['prompt'],
+    stateStreaming: false,
+    queuedMessageCount: 0,
     currentModel: null as OmpModel | null,
     availableModels: [] as OmpModel[],
     sessionId: 'omp-session-1',
@@ -101,7 +108,16 @@ vi.mock('./rpc/OmpRpcClient', () => ({
                                     }
                                 });
                             }
-                            return { agentInvoked: true } satisfies OmpResponseDataByCommand['prompt'];
+                            return harness.promptResponse;
+                        case 'steer':
+                            harness.events.push(`steer:${command.message}`);
+                            return undefined;
+                        case 'follow_up':
+                            harness.events.push(`follow_up:${command.message}`);
+                            return undefined;
+                        case 'abort_and_prompt':
+                            harness.events.push(`abort_and_prompt:${command.message}`);
+                            return undefined;
                         case 'set_model': {
                             const next = harness.availableModels.find((candidate) => (
                                 candidate.provider === command.provider && candidate.id === command.modelId
@@ -193,16 +209,24 @@ function createResetMode(): OmpMode {
 }
 
 function createSessionStub(
-    items: Array<{ message: string; mode: OmpMode }>,
+    items: Array<{
+        message: string;
+        mode: OmpMode;
+        inputMode?: OmpInputMode;
+        attachments?: AttachmentMetadata[];
+        localId?: string;
+    }>,
     options: { launchModel?: string | null; sessionId?: string | null; closeQueue?: boolean } = {}
 ) {
-    const queue = new MessageQueue2<OmpMode>((mode) => JSON.stringify(mode));
-    items.forEach(({ message, mode }, index) => {
-        if (index === 0 && items.length > 1) {
-            queue.pushIsolateAndClear(message, mode);
-        } else {
-            queue.push(message, mode);
-        }
+    const queue = new OmpInputQueue((mode) => JSON.stringify(mode));
+    items.forEach(({ message, mode, inputMode, attachments, localId }) => {
+        queue.push({
+            text: message,
+            mode,
+            inputMode: inputMode ?? 'prompt',
+            attachments,
+            localId
+        });
     });
     if (options.closeQueue !== false) {
         queue.close();
@@ -210,6 +234,7 @@ function createSessionStub(
 
     const sessionEvents: Array<{ type: string; [key: string]: unknown }> = [];
     const snapshots: Array<{ id: string; file: string; name?: string }> = [];
+    const consumedLocalIds: string[][] = [];
     const rpcHandlers = new Map<string, RpcHandler>();
     const client = {
         rpcHandlerManager: {
@@ -251,8 +276,9 @@ function createSessionStub(
         },
         sendUserMessage(_text: string) {}
     };
+    queue.onBatchConsumed = (localIds) => consumedLocalIds.push(localIds);
 
-    return { session, sessionEvents, rpcHandlers, snapshots };
+    return { session, sessionEvents, rpcHandlers, snapshots, consumedLocalIds };
 }
 
 async function waitForRequest(type: OmpCommand['type']): Promise<void> {
@@ -261,8 +287,22 @@ async function waitForRequest(type: OmpCommand['type']): Promise<void> {
     });
 }
 
+async function waitForRequestCount(type: OmpCommand['type'], count: number): Promise<void> {
+    await vi.waitFor(() => {
+        expect(harness.requests.filter((request) => request.type === type)).toHaveLength(count);
+    });
+}
+
+function emitEvent(type: string, raw: Record<string, unknown> = {}): void {
+    for (const listener of harness.eventListeners) {
+        listener({ type, raw: { type, ...raw } });
+    }
+}
+
+const createdDirectories: string[] = [];
+
 describe('ompRemoteLauncher RPC lifecycle', () => {
-    afterEach(() => {
+    afterEach(async () => {
         harness.connectArgs = [];
         harness.events = [];
         harness.prompts = [];
@@ -274,6 +314,9 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         harness.connectError = null;
         harness.requestError = null;
         harness.autoFinishPrompt = true;
+        harness.promptResponse = { agentInvoked: true };
+        harness.stateStreaming = false;
+        harness.queuedMessageCount = 0;
         harness.currentModel = model('ollama', 'launch-default', 'Launch default');
         harness.availableModels = [
             harness.currentModel,
@@ -284,6 +327,9 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         harness.sessionId = 'omp-session-1';
         harness.sessionName = 'OMP session one';
         harness.resumePaths = {};
+        await Promise.all(createdDirectories.splice(0).map((directory) => (
+            rm(directory, { recursive: true, force: true })
+        )));
     });
 
     it('connects through native RPC with launch model and resume session', async () => {
@@ -438,6 +484,35 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         ]);
     });
 
+    it('holds a different config hash until the active native turn finishes', async () => {
+        harness.autoFinishPrompt = false;
+        harness.currentModel = model('ollama', 'a', 'Model A');
+        harness.availableModels[0] = harness.currentModel;
+        const { session } = createSessionStub([
+            { message: 'first', mode: createMode('ollama/a') },
+            { message: 'second', mode: createMode('mlx/qwen3:0.6b') }
+        ], { closeQueue: false });
+        const launch = ompRemoteLauncher(session as never);
+        await waitForRequest('prompt');
+        emitEvent('agent_start');
+        await vi.waitFor(() => expect(session.queue.heldSize()).toBe(1));
+
+        expect(harness.prompts).toEqual(['first']);
+        expect(harness.requests.some((request) => request.type === 'set_model')).toBe(false);
+        emitEvent('agent_end');
+        await waitForRequestCount('prompt', 2);
+        session.queue.close();
+        emitEvent('agent_start');
+        emitEvent('agent_end');
+        await launch;
+
+        expect(harness.events).toEqual([
+            'prompt:first',
+            'set_model:mlx/qwen3:0.6b',
+            'prompt:second'
+        ]);
+    });
+
     it('does not switch when the requested model is already active', async () => {
         harness.currentModel = model('ollama', 'a', 'Model A');
         harness.availableModels[0] = harness.currentModel;
@@ -516,6 +591,236 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         expect(harness.requests.some((request) => request.type === 'abort')).toBe(true);
     });
 
+    it('dispatches streaming prompt, steer, follow-up, and abort-and-prompt as distinct native commands', async () => {
+        harness.autoFinishPrompt = false;
+        const { session, consumedLocalIds, sessionEvents } = createSessionStub([
+            { message: 'long turn', mode: createMode(), localId: 'initial' }
+        ], { closeQueue: false });
+        const launch = ompRemoteLauncher(session as never);
+        await waitForRequest('prompt');
+        emitEvent('agent_start');
+
+        session.queue.push({
+            text: 'correct direction',
+            mode: createMode(),
+            inputMode: 'steer',
+            localId: 'steer'
+        });
+        await waitForRequest('steer');
+        session.queue.push({
+            text: 'next task',
+            mode: createMode(),
+            inputMode: 'follow_up',
+            localId: 'follow-up-one'
+        });
+        session.queue.push({
+            text: 'cancel me',
+            mode: createMode(),
+            inputMode: 'follow_up',
+            localId: 'follow-up-two'
+        });
+        await waitForRequest('follow_up');
+        await vi.waitFor(() => expect(session.queue.heldSize()).toBe(1));
+        expect(sessionEvents.some((event) => event.type === 'ready')).toBe(false);
+        expect(session.queue.cancelByLocalId('follow-up-two')).toBe(true);
+
+        session.queue.push({
+            text: 'replace the turn',
+            mode: createMode(),
+            inputMode: 'abort_and_prompt',
+            localId: 'replace'
+        });
+        await Promise.resolve();
+        expect(harness.requests.some((request) => request.type === 'abort_and_prompt')).toBe(false);
+        emitEvent('message_end', {
+            message: { role: 'user', content: [{ type: 'text', text: 'next task' }] }
+        });
+        await waitForRequest('abort_and_prompt');
+        session.queue.close();
+        emitEvent('agent_end');
+        emitEvent('agent_start');
+        emitEvent('agent_end');
+        await launch;
+
+        expect(harness.requests.filter((request) => (
+            request.type === 'prompt'
+            || request.type === 'steer'
+            || request.type === 'follow_up'
+            || request.type === 'abort_and_prompt'
+        ))).toEqual([
+            expect.objectContaining({ type: 'prompt', message: 'long turn' }),
+            expect.objectContaining({ type: 'steer', message: 'correct direction' }),
+            expect.objectContaining({ type: 'follow_up', message: 'next task' }),
+            expect.objectContaining({ type: 'abort_and_prompt', message: 'replace the turn' })
+        ]);
+        expect(harness.requests.some((request) => (
+            'message' in request && request.message === 'cancel me'
+        ))).toBe(false);
+        expect(consumedLocalIds.flat()).toEqual([
+            'initial',
+            'steer',
+            'follow-up-one',
+            'replace'
+        ]);
+        expect(sessionEvents.some((event) => event.type === 'ready')).toBe(true);
+    });
+
+    it('marks ordinary streaming prompts with an explicit followUp behavior', async () => {
+        harness.autoFinishPrompt = false;
+        const { session } = createSessionStub([
+            { message: 'active', mode: createMode() }
+        ], { closeQueue: false });
+        const launch = ompRemoteLauncher(session as never);
+        await waitForRequest('prompt');
+        emitEvent('agent_start');
+        session.queue.push({ text: 'queued ordinary prompt', mode: createMode(), inputMode: 'prompt' });
+
+        await waitForRequestCount('prompt', 2);
+        const prompts = harness.requests.filter((request): request is Extract<OmpCommand, { type: 'prompt' }> => (
+            request.type === 'prompt'
+        ));
+        expect(prompts[1]).toEqual(expect.objectContaining({
+            type: 'prompt',
+            message: 'queued ordinary prompt',
+            streamingBehavior: 'followUp'
+        }));
+        session.queue.close();
+        emitEvent('message_end', {
+            message: { role: 'user', content: [{ type: 'text', text: 'queued ordinary prompt' }] }
+        });
+        emitEvent('agent_end');
+        await launch;
+    });
+
+    it('waits for prompt_result when prompt response omits agentInvoked', async () => {
+        harness.autoFinishPrompt = false;
+        harness.promptResponse = undefined;
+        const { session, sessionEvents } = createSessionStub([
+            { message: '/local-only-command', mode: createMode() }
+        ]);
+        const launch = ompRemoteLauncher(session as never);
+        let finished = false;
+        void launch.then(() => {
+            finished = true;
+        });
+        await waitForRequest('prompt');
+        await Promise.resolve();
+        expect(finished).toBe(false);
+
+        emitEvent('prompt_result', { agentInvoked: false });
+        await launch;
+        expect(sessionEvents.some((event) => event.type === 'ready')).toBe(true);
+    });
+
+    it('suppresses ready while OMP reports streaming or queued native work', async () => {
+        harness.autoFinishPrompt = false;
+        const { session, sessionEvents } = createSessionStub([
+            { message: 'native queue check', mode: createMode() }
+        ], { closeQueue: false });
+        const launch = ompRemoteLauncher(session as never);
+        await waitForRequest('prompt');
+        emitEvent('agent_start');
+        harness.queuedMessageCount = 1;
+        emitEvent('agent_end');
+        await vi.waitFor(() => {
+            expect(harness.requests.filter((request) => request.type === 'get_state').length).toBeGreaterThan(0);
+        });
+        expect(sessionEvents.some((event) => event.type === 'ready')).toBe(false);
+
+        harness.queuedMessageCount = 0;
+        emitEvent('agent_start');
+        emitEvent('agent_end');
+        await vi.waitFor(() => {
+            expect(sessionEvents.some((event) => event.type === 'ready')).toBe(true);
+        });
+        expect(session.thinking).toBe(false);
+        session.queue.close();
+        await launch;
+    });
+
+    it('sends image bytes through native ImageContent and never inserts @path text', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'hapi-omp-launcher-image-'));
+        createdDirectories.push(directory);
+        const path = join(directory, 'sample.png');
+        const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+        await writeFile(path, bytes);
+        const { session } = createSessionStub([{
+            message: 'describe this image',
+            mode: createMode(),
+            attachments: [{
+                id: 'image',
+                filename: 'sample.png',
+                mimeType: 'image/png',
+                size: bytes.length,
+                path
+            }]
+        }]);
+
+        await ompRemoteLauncher(session as never);
+
+        const prompt = harness.requests.find((request) => request.type === 'prompt');
+        expect(prompt).toEqual(expect.objectContaining({
+            type: 'prompt',
+            message: 'describe this image',
+            images: [{
+                type: 'image',
+                data: bytes.toString('base64'),
+                mimeType: 'image/png'
+            }]
+        }));
+        expect(harness.prompts[0]).not.toContain(path);
+        expect(harness.prompts[0]).not.toContain('@');
+    });
+
+    it('reports and consumes unsupported non-image-only input without prompting OMP', async () => {
+        const { session, sessionEvents, consumedLocalIds } = createSessionStub([{
+            message: '',
+            mode: createMode(),
+            localId: 'document-only',
+            attachments: [{
+                id: 'document',
+                filename: 'notes.txt',
+                mimeType: 'text/plain',
+                size: 5,
+                path: '/uploads/notes.txt'
+            }]
+        }]);
+
+        await ompRemoteLauncher(session as never);
+
+        expect(harness.requests.some((request) => request.type === 'prompt')).toBe(false);
+        expect(sessionEvents).toContainEqual({
+            type: 'message',
+            message: 'OMP RPC supports image attachments only; ignored: notes.txt (text/plain)'
+        });
+        expect(sessionEvents).toContainEqual({
+            type: 'message',
+            message: 'Oh My Pi RPC input failed: OMP RPC received no text or supported image attachment'
+        });
+        expect(consumedLocalIds).toEqual([['document-only']]);
+    });
+
+    it('keeps the session usable for a new prompt after native abort', async () => {
+        harness.autoFinishPrompt = false;
+        const { session, rpcHandlers } = createSessionStub([
+            { message: 'abort this', mode: createMode() }
+        ], { closeQueue: false });
+        const launch = ompRemoteLauncher(session as never);
+        await waitForRequest('prompt');
+        emitEvent('agent_start');
+        const abort = rpcHandlers.get('abort');
+        await abort!(undefined);
+
+        session.queue.push({ text: 'works after abort', mode: createMode(), inputMode: 'prompt' });
+        await waitForRequestCount('prompt', 2);
+        session.queue.close();
+        emitEvent('agent_start');
+        emitEvent('agent_end');
+        await launch;
+
+        expect(harness.prompts).toEqual(['abort this', 'works after abort']);
+    });
+
     it('switches launchers without aborting the native turn or clearing queued input', async () => {
         harness.autoFinishPrompt = false;
         const { session, rpcHandlers } = createSessionStub([
@@ -523,7 +828,11 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         ], { closeQueue: false });
         const launch = ompRemoteLauncher(session as never);
         await waitForRequest('prompt');
-        session.queue.push('queued for local', createMode());
+        session.queue.push({
+            text: 'queued for local',
+            mode: createMode(),
+            inputMode: 'prompt'
+        });
 
         const switchHandler = rpcHandlers.get('switch');
         expect(switchHandler).toBeDefined();

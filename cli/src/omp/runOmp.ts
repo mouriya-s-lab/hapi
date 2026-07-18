@@ -1,6 +1,5 @@
 import { logger } from '@/ui/logger';
 import { ompLoop } from './loop';
-import { MessageQueue2 } from '@/utils/MessageQueue2';
 import { hashObject } from '@/utils/deterministicJson';
 import { registerKillSessionHandler } from '@/claude/registerKillSessionHandler';
 import type { AgentState } from '@/api/types';
@@ -11,9 +10,9 @@ import { registerLocalHandoffHandler } from '@/agent/localHandoff';
 import { createModeChangeHandler, createRunnerLifecycle, setControlledByUser } from '@/agent/runnerLifecycle';
 import { isPermissionModeAllowedForFlavor } from '@hapi/protocol';
 import { PermissionModeSchema } from '@hapi/protocol/schemas';
-import { formatMessageWithAttachments } from '@/utils/attachmentFormatter';
 import { getInvokedCwd } from '@/utils/invokedCwd';
 import { resolveOmpRuntimeConfig } from './utils/config';
+import { OmpInputQueue } from './OmpInputQueue';
 
 export async function runOmp(opts: {
     startedBy?: 'runner' | 'terminal';
@@ -65,7 +64,7 @@ export async function runOmp(opts: {
 
     setControlledByUser(session, startingMode);
 
-    const messageQueue = new MessageQueue2<OmpMode>((mode) => hashObject({
+    const messageQueue = new OmpInputQueue((mode) => hashObject({
         permissionMode: mode.permissionMode,
         model: mode.model
     }));
@@ -98,15 +97,17 @@ export async function runOmp(opts: {
     };
 
     session.onUserMessage((message, localId) => {
-        const formattedText = formatMessageWithAttachments(message.content.text, message.content.attachments);
         const mode: OmpMode = {
             permissionMode: currentPermissionMode,
             model: resolvedModel
         };
-        // OMP exposes branch targets as one entry per native user prompt.
-        // Preserve that 1:1 boundary instead of letting MessageQueue2 merge
-        // adjacent HAPI messages into one native prompt.
-        messageQueue.pushIsolated(formattedText, mode, localId);
+        messageQueue.push({
+            text: message.content.text,
+            attachments: message.content.attachments,
+            inputMode: message.meta?.ompInputMode ?? 'prompt',
+            mode,
+            localId
+        });
     });
 
     session.onCancelQueuedMessage((localId) => {

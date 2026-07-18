@@ -4,6 +4,7 @@ import {
     CodexCollaborationModeSchema,
     DecryptedMessageSchema,
     MachineSchema,
+    OmpInputModeSchema,
     PermissionModeSchema,
     SessionSchema
 } from './schemas'
@@ -243,6 +244,7 @@ export const SendMessageRequestSchema = z.object({
     text: z.string(),
     localId: z.string().min(1).optional(),
     attachments: z.array(AttachmentMetadataSchema).optional(),
+    ompInputMode: OmpInputModeSchema.optional(),
     scheduledAt: z.number().int().positive().nullable().optional()
 }).refine(
     (data) => data.scheduledAt == null || typeof data.localId === 'string',
