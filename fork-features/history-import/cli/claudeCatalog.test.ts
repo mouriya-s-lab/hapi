@@ -41,4 +41,21 @@ describe('listImportableClaudeSessions', () => {
         const filtered = await listImportableClaudeSessions({ provider: 'claude', cwd: '/workspace', query: 'prompt 50' })
         expect(filtered.sessions.map((session) => session.preview)).toEqual(['prompt 50'])
     })
+
+    it('keeps valid sessions visible when another transcript has a partial final line', async () => {
+        process.env.CLAUDE_CONFIG_DIR = root
+        const project = join(root, 'projects', 'partial-write')
+        await mkdir(project, { recursive: true })
+        await writeFile(join(project, '11111111-1111-4111-8111-111111111111.jsonl'), [
+            JSON.stringify({ type: 'user', cwd: '/valid', message: { role: 'user', content: 'visible prompt' } }),
+            '{"type":"assistant"'
+        ].join('\n'))
+        await writeFile(join(project, '22222222-2222-4222-8222-222222222222.jsonl'), '{"type":"assistant"')
+
+        const page = await listImportableClaudeSessions({ provider: 'claude' })
+
+        expect(page.sessions).toHaveLength(1)
+        expect(page.sessions[0]?.cwd).toBe('/valid')
+        expect(page.sessions[0]?.preview).toBe('visible prompt')
+    })
 })

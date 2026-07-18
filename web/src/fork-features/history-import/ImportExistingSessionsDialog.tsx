@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import type { ApiClient } from '@/api/client'
+import type { Machine } from '@/types/api'
 import type { ImportableSessionProvider, ImportableSessionsPage } from '@hapi/protocol/apiTypes'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -13,12 +14,13 @@ function SearchIcon() {
 
 export function ImportExistingSessionsDialog(props: {
     api: ApiClient
-    machineId: string
+    machines: Machine[]
     open: boolean
     onOpenChange: (open: boolean) => void
     onSuccess: (sessionId: string) => void
 }) {
     const { t } = useTranslation()
+    const [machineId, setMachineId] = useState('')
     const [provider, setProvider] = useState<ImportableSessionProvider>('codex')
     const [page, setPage] = useState<ImportableSessionsPage>(emptyPage)
     const [loading, setLoading] = useState(false)
@@ -31,12 +33,18 @@ export function ImportExistingSessionsDialog(props: {
     const [pageIndex, setPageIndex] = useState(0)
     const requestGeneration = useRef(0)
 
+    useEffect(() => {
+        if (props.machines.some((machine) => machine.id === machineId)) return
+        setMachineId(props.machines.find((machine) => machine.active)?.id ?? props.machines[0]?.id ?? '')
+    }, [props.machines, machineId])
+
     const load = async (requestedProvider: ImportableSessionProvider, cursor: string | undefined, requestedFilters: typeof filters) => {
         const generation = ++requestGeneration.current
         setLoading(true)
         setError(null)
         try {
-            const next = await props.api.listImportableSessions(props.machineId, requestedProvider, {
+            if (!machineId) return
+            const next = await props.api.listImportableSessions(machineId, requestedProvider, {
                 cursor,
                 cwd: requestedFilters.cwd || undefined,
                 query: requestedFilters.query || undefined
@@ -63,8 +71,8 @@ export function ImportExistingSessionsDialog(props: {
         setLoading(false)
         setCursorHistory([undefined])
         setPageIndex(0)
-        if (props.open) void load(provider, undefined, filters)
-    }, [props.open, provider, props.machineId])
+        if (props.open && machineId) void load(provider, undefined, filters)
+    }, [props.open, provider, machineId])
 
     const applyFilters = (event: FormEvent) => {
         event.preventDefault()
@@ -92,7 +100,8 @@ export function ImportExistingSessionsDialog(props: {
         setImporting(externalSessionId)
         setError(null)
         try {
-            const result = await props.api.importExistingSession(props.machineId, provider, externalSessionId)
+            if (!machineId) throw new Error(t('newSession.import.machineRequired'))
+            const result = await props.api.importExistingSession(machineId, provider, externalSessionId)
             if (result.type === 'error') throw new Error(result.error)
             props.onSuccess(result.sessionId)
         } catch (value) {
@@ -108,6 +117,13 @@ export function ImportExistingSessionsDialog(props: {
                 <DialogTitle>{t('newSession.import.title')}</DialogTitle>
                 <DialogDescription>{t('newSession.import.description')}</DialogDescription>
             </DialogHeader>
+            <label className="grid gap-1 px-6 text-xs font-medium text-[var(--app-hint)]">
+                {t('newSession.import.machine')}
+                <select value={machineId} onChange={(event) => setMachineId(event.target.value)} className="h-9 rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 text-sm text-[var(--app-fg)]">
+                    <option value="">{t('newSession.import.machineRequired')}</option>
+                    {props.machines.map((machine) => <option key={machine.id} value={machine.id}>{machine.metadata?.host ?? machine.id}</option>)}
+                </select>
+            </label>
             <div className="grid grid-cols-2 border-b border-[var(--app-divider)]" role="tablist">
                 {(['codex', 'claude'] as const).map((value) => <button
                     key={value}

@@ -329,7 +329,7 @@ state machine, so the narrow fix remains in the upstream-owned files.
 ## history-import (2026-07-18)
 
 Historical Claude/Codex catalog, transcript replay, CLI RPC registration,
-Hub routes, and the Web dialog live in `fork-features/history-import/` and
+Hub routes, and the Settings UI live in `fork-features/history-import/` and
 `web/src/fork-features/history-import/`. Upstream-owned files contain only
 closed-boundary hooks and shared protocol extensions.
 
@@ -341,7 +341,6 @@ closed-boundary hooks and shared protocol extensions.
 | `hub/src/sync/rpcGateway.ts`, `hub/src/sync/syncEngine.ts` | Machine RPC and the engine gateway are private closed methods | Fork-owned routes require two narrow public adapters; exporting generic machine RPC would widen more surface | Authenticated route -> sync engine -> machine RPC | List, import, repeat-import, and conflict paths through a live Hub |
 | `hub/src/web/server.ts`, `hub/tsconfig.json` | No external route-mount or extra-root registration API | The authenticated Hono app must mount the fork-owned route and compile its external root | Hub startup -> authenticated API -> history-import route | Cold-start Hub and call both history-import endpoints |
 | `web/src/api/client.ts` | The authenticated request primitive is private | The fork-owned dialog needs two typed methods that retain the existing token refresh and error behavior | Dialog -> authenticated API client -> Hub route | Import and open a session after an auth refresh |
-| `web/src/components/NewSession/index.tsx` | No New Session affordance registry | The fork-owned dialog needs one button/state slot after machine selection | New Session -> Import -> provider dialog | Select a machine, open dialog, import, and navigate to the session |
 | `web/src/lib/locales/en.ts`, `web/src/lib/locales/zh-CN.ts` | Locale dictionaries have no feature-bundle registration API | The fork-owned dialog uses the existing typed translation namespace | Dialog render -> locale lookup | Render the full dialog in English and Chinese |
 
 Each upstream sync must remove these hooks if native registration or extension

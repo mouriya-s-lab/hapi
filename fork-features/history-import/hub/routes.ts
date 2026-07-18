@@ -15,7 +15,7 @@ function providerSessionId(metadata: Metadata, provider: ImportableSessionProvid
 
 export function createImportableSessionsRoutes(getSyncEngine: () => SyncEngine | null): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
-    const imports = new Map<string, Promise<ImportExistingSessionResponse>>()
+    const imports = new Map<string, { machineId: string; operation: Promise<ImportExistingSessionResponse> }>()
 
     app.get('/machines/:id/importable-sessions', async (c) => {
         const engine = getSyncEngine()
@@ -67,7 +67,10 @@ export function createImportableSessionsRoutes(getSyncEngine: () => SyncEngine |
         const key = `${namespace}:${provider}:${externalSessionId}`
         const active = imports.get(key)
         if (active) {
-            const result = await active
+            if (active.machineId !== machineId) {
+                return c.json({ type: 'error', error: 'Provider session UUID is already owned by another machine' } satisfies ImportExistingSessionResponse, 409)
+            }
+            const result = await active.operation
             return c.json(result, result.type === 'success' ? 200 : 500)
         }
 
@@ -80,7 +83,7 @@ export function createImportableSessionsRoutes(getSyncEngine: () => SyncEngine |
             }
             return { type: 'error', error: result.error }
         })()
-        imports.set(key, operation)
+        imports.set(key, { machineId, operation })
         try {
             const result = await operation
             return c.json(result, result.type === 'success' ? 200 : 500)

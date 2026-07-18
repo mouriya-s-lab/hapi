@@ -760,6 +760,8 @@ export default {
   'newSession.import.openDialog': '导入已有会话',
   'newSession.import.title': '导入已有会话',
   'newSession.import.description': '从这台机器选择 Claude Code 或 Codex 会话。',
+  'newSession.import.machine': '机器',
+  'newSession.import.machineRequired': '请选择机器',
   'newSession.import.open': '打开',
   'newSession.import.import': '导入',
   'newSession.import.importing': '导入中…',
@@ -774,6 +776,8 @@ export default {
   'newSession.import.page': '第 {page} 页',
   'newSession.import.previous': '上一页',
   'newSession.import.next': '下一页',
+  'settings.fork.import.title': '导入 Agent 会话',
+  'settings.fork.import.description': '从已连接的机器导入 Claude Code 或 Codex 历史。',
 
   // Web Share Target 分享面板
   'share.title': '分享到 HAPI',

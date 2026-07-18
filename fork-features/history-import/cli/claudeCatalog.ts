@@ -52,7 +52,12 @@ async function summarize(path: string, updatedAt: number): Promise<ImportableSes
     try {
         for await (const line of lines) {
             if (!line) continue
-            const value: unknown = JSON.parse(line)
+            let value: unknown
+            try {
+                value = JSON.parse(line)
+            } catch {
+                continue
+            }
             if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`Invalid Claude transcript record: ${path}`)
             const record = value as Record<string, unknown>
             if (!cwd && typeof record.cwd === 'string') cwd = record.cwd
@@ -129,7 +134,13 @@ export async function listImportableClaudeSessions(request: ListImportableSessio
     candidates.sort((left, right) => right.updatedAt - left.updatedAt || right.externalSessionId.localeCompare(left.externalSessionId))
     const page = candidates.slice(0, PAGE_SIZE)
     const sessions = []
-    for (const candidate of page) sessions.push(await summarize(candidate.path, candidate.updatedAt))
+    for (const candidate of page) {
+        try {
+            sessions.push(await summarize(candidate.path, candidate.updatedAt))
+        } catch {
+            continue
+        }
+    }
     const last = page.at(-1)
     return {
         sessions,

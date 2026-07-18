@@ -92,7 +92,7 @@ describe('importable session routes', () => {
         expect(calls).toEqual([['machine-1', 'codex', externalSessionId]])
     })
 
-    it('coalesces concurrent imports across machine ids by provider UUID', async () => {
+    it('coalesces concurrent imports on the same machine', async () => {
         let imports = 0
         let release!: () => void
         const gate = new Promise<void>((resolve) => { release = resolve })
@@ -111,6 +111,29 @@ describe('importable session routes', () => {
         release()
         expect(await (await first).json()).toEqual({ type: 'success', sessionId: 'direct-import', alreadyImported: false })
         expect(await (await second).json()).toEqual({ type: 'success', sessionId: 'direct-import', alreadyImported: false })
+        expect(imports).toBe(1)
+    })
+
+    it('rejects a concurrent import of the same provider UUID from another machine', async () => {
+        let imports = 0
+        let release!: () => void
+        const gate = new Promise<void>((resolve) => { release = resolve })
+        const app = appFor({
+            getMachine: (machineId) => ({ ...machine, id: machineId }) as Machine,
+            getSessionsByNamespace: () => [] as never,
+            importProviderSessionForMachine: async () => {
+                imports += 1
+                await gate
+                return { type: 'success', sessionId: 'machine-1-import', messageCount: 1 }
+            }
+        })
+        const first = app.request(`/api/machines/machine-1/importable-sessions/codex/${externalSessionId}`, { method: 'POST' })
+        await Promise.resolve()
+        const second = await app.request(`/api/machines/machine-2/importable-sessions/codex/${externalSessionId}`, { method: 'POST' })
+        expect(second.status).toBe(409)
+        expect(await second.json()).toEqual({ type: 'error', error: 'Provider session UUID is already owned by another machine' })
+        release()
+        expect(await (await first).json()).toEqual({ type: 'success', sessionId: 'machine-1-import', alreadyImported: false })
         expect(imports).toBe(1)
     })
 

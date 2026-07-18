@@ -756,6 +756,8 @@ export default {
   'newSession.import.openDialog': 'Import existing session',
   'newSession.import.title': 'Import existing session',
   'newSession.import.description': 'Select a Claude Code or Codex session from this machine.',
+  'newSession.import.machine': 'Machine',
+  'newSession.import.machineRequired': 'Select a machine',
   'newSession.import.open': 'Open',
   'newSession.import.import': 'Import',
   'newSession.import.importing': 'Importing…',
@@ -770,6 +772,8 @@ export default {
   'newSession.import.page': 'Page {page}',
   'newSession.import.previous': 'Previous',
   'newSession.import.next': 'Next',
+  'settings.fork.import.title': 'Import agent sessions',
+  'settings.fork.import.description': 'Import Claude Code or Codex history from a connected machine.',
 
   // Web Share Target picker
   'share.title': 'Share to HAPI',

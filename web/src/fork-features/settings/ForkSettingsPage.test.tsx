@@ -8,6 +8,7 @@ let role: 'admin' | 'user' = 'admin'
 
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => navigate }))
 vi.mock('@/lib/app-context', () => ({ useAppContext: () => ({ user: { role } }) }))
+vi.mock('../history-import/HistoryImportSettingsRow', () => ({ HistoryImportSettingsRow: () => <button type="button">Import agent sessions</button> }))
 
 function renderPage() {
     return render(<I18nProvider><ForkSettingsPage /></I18nProvider>)
@@ -27,5 +28,10 @@ describe('ForkSettingsPage', () => {
         role = 'user'
         view.rerender(<I18nProvider><ForkSettingsPage /></I18nProvider>)
         expect(screen.queryByRole('button', { name: /User management/ })).not.toBeInTheDocument()
+    })
+
+    it('keeps history import in fork settings', () => {
+        renderPage()
+        expect(screen.getByRole('button', { name: 'Import agent sessions' })).toBeInTheDocument()
     })
 })
