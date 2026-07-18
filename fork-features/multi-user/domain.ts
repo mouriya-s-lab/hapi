@@ -10,6 +10,7 @@ export type Account = {
     role: AccountRole
     defaultNamespace: string
     disabledAt: number | null
+    memory: string | null
 }
 
 export type ApiToken = {

@@ -76,7 +76,8 @@ export class MessageService {
         private readonly store: Store,
         private readonly io: Server,
         private readonly publisher: EventPublisher,
-        private readonly onSessionActivity?: (sessionId: string, updatedAt: number) => void
+        private readonly onSessionActivity?: (sessionId: string, updatedAt: number) => void,
+        private readonly decorateForCli: (content: unknown) => unknown = content => content
     ) {
     }
 
@@ -227,7 +228,7 @@ export class MessageService {
             id: message.id,
             seq: message.seq,
             localId: message.localId,
-            content: message.content,
+            content: this.decorateForCli(message.content),
             createdAt: message.createdAt,
             invokedAt: message.invokedAt,
             scheduledAt: message.scheduledAt
@@ -438,6 +439,7 @@ export class MessageService {
             attachments?: AttachmentMetadata[]
             sentFrom?: 'telegram-bot' | 'webapp'
             scheduledAt?: number | null
+            deliveryMetadata?: Record<string, unknown>
         }
     ): Promise<void> {
         // Defence-in-depth invariant for non-REST callers (Telegram bot, MCP,
@@ -462,7 +464,8 @@ export class MessageService {
                 attachments: payload.attachments
             },
             meta: {
-                sentFrom
+                sentFrom,
+                ...payload.deliveryMetadata
             }
         }
 
@@ -494,7 +497,7 @@ export class MessageService {
                         seq: msg.seq,
                         createdAt: msg.createdAt,
                         localId: msg.localId,
-                        content: msg.content
+                        content: this.decorateForCli(msg.content)
                     }
                 }
             }
@@ -584,7 +587,7 @@ export class MessageService {
                         seq: msg.seq,
                         createdAt: msg.createdAt,
                         localId: msg.localId,
-                        content: msg.content
+                        content: this.decorateForCli(msg.content)
                     }
                 }
             }

@@ -10,7 +10,7 @@ import type { Capability, ResourceType } from './domain'
 import { streamSSE } from 'hono/streaming'
 import { randomUUID } from 'node:crypto'
 
-async function gatewayAccountId(request: Request, secret: Uint8Array): Promise<number | null> {
+export async function gatewayAccountId(request: Request, secret: Uint8Array): Promise<number | null> {
     const authorization = request.headers.get('authorization')
     const queryToken = new URL(request.url).searchParams.get('token')
     const token = authorization?.startsWith('Bearer ') ? authorization.slice(7) : queryToken
@@ -44,6 +44,7 @@ export function createExecutionMiddleware(deps: {
         const decision = dispatcher.authorize({ accountId, capability: capabilityFor(c.req.method), resource })
         if (decision.kind === 'deny') return c.json({ error: 'Insufficient permissions' }, 403)
         c.set('namespace', decision.context.namespace)
+        c.set('deliveryMetadata', { gatewayAccountId: accountId })
         c.set('registerCreatedSession' as never, ((sessionId: string) => deps.store.bindResource({
             resourceType: 'session',
             resourceId: sessionId,

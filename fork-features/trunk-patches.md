@@ -192,8 +192,9 @@ because the hub and web app do not expose registration APIs for these seams.
 
 | File | Necessary hook |
 |---|---|
-| `hub/src/startHub.ts` | Construct the gateway store and adapters; inject CLI, terminal, notification, and web dependencies. |
-| `hub/src/web/server.ts` | Mount gateway routes, aggregate execution routes, and the resource authorization middleware. |
+| `hub/src/startHub.ts` | Construct the gateway store and inject fork-owned adapters into generic Hub seams. |
+| `hub/src/web/server.ts`, `hub/src/web/routes/messages.ts` | Mount gateway routes and pass opaque delivery metadata from authenticated web requests. |
+| `hub/src/sync/syncEngine.ts`, `hub/src/sync/messageService.ts` | Provide a generic CLI-delivery transform while leaving stored and SSE message content unchanged. |
 | `hub/src/web/routes/cli.ts` | Resolve gateway API tokens to a core namespace for runner HTTP registration. |
 | `hub/src/socket/server.ts`, `hub/src/socket/socketTypes.ts` | Accept namespace resolvers for gateway-authenticated CLI and terminal sockets. |
 | `hub/src/socket/handlers/terminal.ts` | Replace the authenticated account namespace with the dispatcher's authorized resource namespace. |

@@ -7,6 +7,25 @@ import type { WebAppEnv } from '../../hub/src/web/middleware/auth'
 import { MultiUserGatewayStore } from './gatewayStore'
 
 describe('createExecutionMiddleware', () => {
+    it('exposes authenticated account identity as opaque delivery metadata', async () => {
+        const store = new MultiUserGatewayStore(':memory:')
+        const owner = store.createAccount('owner', 'user', 'owner-namespace', null)
+        store.bindResource({ resourceType: 'session', resourceId: 'owned', ownerAccountId: owner.id, coreNamespace: owner.defaultNamespace })
+        const jwtSecret = new TextEncoder().encode('test-secret-test-secret-test-secret')
+        const token = await new SignJWT({ gaid: owner.id }).setProtectedHeader({ alg: 'HS256' }).sign(jwtSecret)
+        const app = new Hono<WebAppEnv>()
+        app.use('*', createExecutionMiddleware({ store, jwtSecret }))
+        app.post('/api/sessions/:id/messages', c => c.json(c.get('deliveryMetadata')))
+
+        const response = await app.request('/api/sessions/owned/messages', {
+            method: 'POST', headers: { authorization: `Bearer ${token}` }
+        })
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ gatewayAccountId: owner.id })
+        store.close()
+    })
+
     it('binds a fork-created session to the source session owner', async () => {
         const store = new MultiUserGatewayStore(':memory:')
         const owner = store.createAccount('owner', 'user', 'owner-namespace', null)

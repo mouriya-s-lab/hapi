@@ -93,6 +93,34 @@ function makePublisher() {
 // Tests
 // ---------------------------------------------------------------------------
 
+describe('MessageService CLI delivery extension', () => {
+    it('decorates immediate, reconnect, and mature scheduled delivery without changing persistence or SSE', async () => {
+        const store = makeStore()
+        const session = makeSession(store, 'delivery-extension')
+        const updates: unknown[] = []
+        const io = {
+            of: () => ({
+                to: () => ({ emit: (_event: string, update: unknown) => { updates.push(update) } }),
+                adapter: { rooms: { get: () => new Set(['socket-1']) } }
+            })
+        } as unknown as Server
+        const publisher = makePublisher()
+        const decorate = (content: unknown) => ({ decorated: true, original: content })
+        const service = new MessageService(store, io, publisher as any, undefined, decorate)
+
+        await service.sendMessage(session.id, { text: 'raw immediate', localId: 'immediate', deliveryMetadata: { accountId: 1 } })
+        expect(updates[0]).toMatchObject({ body: { message: { content: { decorated: true } } } })
+        expect(service.getMessagesPage(session.id, { limit: 10, before: null }).messages[0]?.content).toMatchObject({ content: { text: 'raw immediate' } })
+        expect(publisher.events.find(event => event.type === 'message-received')).toMatchObject({ message: { content: { content: { text: 'raw immediate' } } } })
+        expect(service.getDeliverableMessagesAfter(session.id, { afterSeq: 0, limit: 10, now: Date.now() })[0]?.content).toMatchObject({ decorated: true })
+
+        await service.sendMessage(session.id, { text: 'raw scheduled', localId: 'scheduled', scheduledAt: Date.now() + 20 })
+        await Bun.sleep(30)
+        service.releaseMatureScheduledMessages(Date.now())
+        expect(updates.at(-1)).toMatchObject({ body: { message: { content: { decorated: true } } } })
+    })
+})
+
 describe('MessageService goal status filtering', () => {
     function redundantGoalStatusContent(message: string): unknown {
         return {
