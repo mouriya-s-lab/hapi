@@ -154,7 +154,8 @@ export class SyncEngine {
         private readonly store: Store,
         io: Server,
         rpcRegistry: RpcRegistry,
-        sseManager: SSEManager
+        sseManager: SSEManager,
+        decorateMessageForCli?: (content: unknown) => unknown
     ) {
         this.eventPublisher = new EventPublisher(sseManager, (event) => this.resolveNamespace(event))
         this.sessionCache = new SessionCache(store, this.eventPublisher)
@@ -163,7 +164,8 @@ export class SyncEngine {
             store,
             io,
             this.eventPublisher,
-            (sessionId, updatedAt) => this.recordSessionActivity(sessionId, updatedAt)
+            (sessionId, updatedAt) => this.recordSessionActivity(sessionId, updatedAt),
+            decorateMessageForCli
         )
         this.rpcGateway = new RpcGateway(io, rpcRegistry)
         this.reloadAll()
@@ -497,7 +499,7 @@ export class SyncEngine {
             }>
             sentFrom?: 'telegram-bot' | 'webapp'
             scheduledAt?: number | null
-            gatewayAccountId?: number | null
+            deliveryMetadata?: Record<string, unknown>
         }
     ): Promise<void> {
         await this.messageService.sendMessage(sessionId, payload)

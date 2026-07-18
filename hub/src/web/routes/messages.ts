@@ -6,7 +6,7 @@ import { requireSessionFromParam, requireSyncEngine } from './guards'
 
 export function createMessagesRoutes(
     getSyncEngine: () => SyncEngine | null,
-    resolveGatewayAccountId?: (request: Request) => Promise<number | null>
+    resolveDeliveryMetadata?: (request: Request) => Promise<Record<string, unknown>>
 ): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
 
@@ -74,14 +74,14 @@ export function createMessagesRoutes(
             return c.json({ error: 'Message requires text or attachments' }, 400)
         }
 
-        const gatewayAccountId = await resolveGatewayAccountId?.(c.req.raw) ?? null
+        const deliveryMetadata = await resolveDeliveryMetadata?.(c.req.raw) ?? {}
         await engine.sendMessage(sessionId, {
             text: parsed.data.text,
             localId: parsed.data.localId,
             attachments: parsed.data.attachments,
             sentFrom: 'webapp',
             scheduledAt: parsed.data.scheduledAt,
-            gatewayAccountId
+            deliveryMetadata
         })
         return c.json({ ok: true })
     })

@@ -15,8 +15,6 @@ import { MessageService } from './messageService'
 import { Store } from '../store'
 import type { Server } from 'socket.io'
 import type { Session, SyncEvent } from '@hapi/protocol/types'
-import { MultiUserGatewayStore } from '../../../fork-features/multi-user/gatewayStore'
-import { configureGatewayMemory } from '../../../fork-features/multi-user/memoryAdapter'
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -91,14 +89,14 @@ function makePublisher() {
     }
 }
 
-describe('MessageService gateway account memory', () => {
-    it('keeps persisted and SSE text raw while decorating immediate, reconnect, and mature CLI delivery', async () => {
-        const gatewayStore = new MultiUserGatewayStore(':memory:')
-        const alice = gatewayStore.createAccount('alice', 'user', 'alice-ns')
-        gatewayStore.updateAccount(alice.id, { memory: 'ALICE-ONLY-CONTEXT' })
-        configureGatewayMemory(gatewayStore)
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('MessageService CLI delivery extension', () => {
+    it('decorates immediate, reconnect, and mature scheduled delivery without changing persistence or SSE', async () => {
         const store = makeStore()
-        const session = makeSession(store, 'gateway-memory-delivery')
+        const session = makeSession(store, 'delivery-extension')
         const updates: unknown[] = []
         const io = {
             of: () => ({
@@ -107,30 +105,21 @@ describe('MessageService gateway account memory', () => {
             })
         } as unknown as Server
         const publisher = makePublisher()
-        const service = new MessageService(store, io, publisher as any)
+        const decorate = (content: unknown) => ({ decorated: true, original: content })
+        const service = new MessageService(store, io, publisher as any, undefined, decorate)
 
-        await service.sendMessage(session.id, { text: 'raw immediate', localId: 'immediate', gatewayAccountId: alice.id })
-        const immediate = updates[0] as { body: { message: { content: { content: { text: string } } } } }
-        expect(immediate.body.message.content.content.text).toContain('ALICE-ONLY-CONTEXT')
+        await service.sendMessage(session.id, { text: 'raw immediate', localId: 'immediate', deliveryMetadata: { accountId: 1 } })
+        expect(updates[0]).toMatchObject({ body: { message: { content: { decorated: true } } } })
         expect(service.getMessagesPage(session.id, { limit: 10, before: null }).messages[0]?.content).toMatchObject({ content: { text: 'raw immediate' } })
         expect(publisher.events.find(event => event.type === 'message-received')).toMatchObject({ message: { content: { content: { text: 'raw immediate' } } } })
+        expect(service.getDeliverableMessagesAfter(session.id, { afterSeq: 0, limit: 10, now: Date.now() })[0]?.content).toMatchObject({ decorated: true })
 
-        const backfill = service.getDeliverableMessagesAfter(session.id, { afterSeq: 0, limit: 10, now: Date.now() })
-        expect((backfill[0]?.content as { content: { text: string } }).content.text).toContain('ALICE-ONLY-CONTEXT')
-
-        await service.sendMessage(session.id, { text: 'raw scheduled', localId: 'scheduled', scheduledAt: Date.now() + 50, gatewayAccountId: alice.id })
-        await Bun.sleep(60)
+        await service.sendMessage(session.id, { text: 'raw scheduled', localId: 'scheduled', scheduledAt: Date.now() + 20 })
+        await Bun.sleep(30)
         service.releaseMatureScheduledMessages(Date.now())
-        const mature = updates.at(-1) as { body: { message: { content: { content: { text: string } } } } }
-        expect(mature.body.message.content.content.text).toContain('ALICE-ONLY-CONTEXT')
-        expect(mature.body.message.content.content.text).toContain('raw scheduled')
-        gatewayStore.close()
+        expect(updates.at(-1)).toMatchObject({ body: { message: { content: { decorated: true } } } })
     })
 })
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('MessageService goal status filtering', () => {
     function redundantGoalStatusContent(message: string): unknown {

@@ -23,7 +23,7 @@ import { createMultiUserGatewayStore } from '../../fork-features/multi-user/hubM
 import { resolveTerminalNamespace } from '../../fork-features/multi-user/socketAdapter'
 import { MultiUserNotificationAdapter } from '../../fork-features/multi-user/notificationAdapter'
 import { resolveGatewayCliNamespace } from '../../fork-features/multi-user/cliAdapter'
-import { configureGatewayMemory } from '../../fork-features/multi-user/memoryAdapter'
+import { createGatewayMemoryDelivery } from '../../fork-features/multi-user/memoryAdapter'
 
 /** Format config source for logging */
 function formatSource(source: ConfigSource | 'generated'): string {
@@ -172,7 +172,7 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
 
     const store = new Store(config.dbPath)
     const multiUserGatewayStore = createMultiUserGatewayStore(config.dataDir, config.cliApiToken)
-    configureGatewayMemory(multiUserGatewayStore)
+    const gatewayMemoryDelivery = createGatewayMemoryDelivery(multiUserGatewayStore)
     const jwtSecret = await getOrCreateJwtSecret()
     const vapidKeys = await getOrCreateVapidKeys(config.dataDir)
     const vapidSubject = process.env.VAPID_SUBJECT ?? 'mailto:admin@hapi.run'
@@ -209,7 +209,7 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
         resolveCliNamespace: token => resolveGatewayCliNamespace(multiUserGatewayStore, token)
     })
 
-    syncEngine = new SyncEngine(store, socketServer.io, socketServer.rpcRegistry, sseManager)
+    syncEngine = new SyncEngine(store, socketServer.io, socketServer.rpcRegistry, sseManager, gatewayMemoryDelivery.decorateForCli)
 
     const notificationChannels: NotificationChannel[] = [
         new MultiUserNotificationAdapter(
