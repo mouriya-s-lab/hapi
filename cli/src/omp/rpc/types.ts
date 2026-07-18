@@ -290,10 +290,61 @@ export type OmpRpcRawResponse =
         error: string;
     };
 
-export type OmpInboundEvent = {
+export const OMP_KNOWN_EVENT_TYPES = [
+    'agent_start',
+    'agent_end',
+    'turn_start',
+    'turn_end',
+    'message_start',
+    'message_update',
+    'message_end',
+    'tool_execution_start',
+    'tool_execution_update',
+    'tool_execution_end',
+    'auto_compaction_start',
+    'auto_compaction_end',
+    'auto_retry_start',
+    'auto_retry_end',
+    'retry_fallback_applied',
+    'retry_fallback_succeeded',
+    'ttsr_triggered',
+    'todo_reminder',
+    'todo_auto_clear',
+    'irc_message',
+    'notice',
+    'thinking_level_changed',
+    'goal_updated',
+    'available_commands_update',
+    'prompt_result',
+    'subagent_lifecycle',
+    'subagent_progress',
+    'subagent_event',
+    'extension_ui_request',
+    'host_tool_call',
+    'host_tool_cancel',
+    'host_uri_request',
+    'host_uri_cancel',
+    'command_output',
+    'session_info_update',
+    'config_update',
+    'extension_error'
+] as const;
+
+export type OmpKnownEventType = typeof OMP_KNOWN_EVENT_TYPES[number];
+
+export type OmpKnownEvent = {
+    kind: 'known';
+    type: OmpKnownEventType;
+    raw: JsonObject;
+};
+
+export type UnknownOmpEvent = {
+    kind: 'unknown';
     type: string;
     raw: JsonObject;
 };
+
+export type OmpInboundEvent = OmpKnownEvent | UnknownOmpEvent;
 
 export type OmpRpcTransportState = 'starting' | 'discovering' | 'ready' | 'closing' | 'closed';
 

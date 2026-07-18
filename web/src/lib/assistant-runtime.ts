@@ -157,6 +157,7 @@ function turnFingerprint(
         `m=${model ?? ''}`,
         `i=${usage.input_tokens}`,
         `o=${usage.output_tokens}`,
+        `r=${usage.reasoning_output_tokens ?? ''}`,
         `cc=${usage.cache_creation_input_tokens ?? ''}`,
         `cr=${usage.cache_read_input_tokens ?? ''}`,
         `t=${usage.service_tier ?? ''}`,
@@ -179,6 +180,10 @@ function addUsage(target: UsageData, addend: UsageData): UsageData {
     return {
         input_tokens: target.input_tokens + addend.input_tokens,
         output_tokens: target.output_tokens + addend.output_tokens,
+        reasoning_output_tokens: sumOptional(
+            target.reasoning_output_tokens,
+            addend.reasoning_output_tokens
+        ),
         cache_creation_input_tokens: sumOptional(
             target.cache_creation_input_tokens,
             addend.cache_creation_input_tokens

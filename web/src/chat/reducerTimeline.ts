@@ -63,6 +63,7 @@ function mapAgentRunStatusToToolState(status: string | null): ToolCallBlock['too
         || status === 'error'
         || status === 'canceled'
         || status === 'cancelled'
+        || status === 'aborted'
         || status === 'notFound'
         || status === 'not_found'
     ) return 'error'
@@ -121,6 +122,16 @@ function getAgentRunDisplayPatch(event: Record<string, unknown>): Record<string,
     if (summary) patch.summary = summary
     if (activity) patch.activity = activity
     if (activityKind) patch.activityKind = activityKind
+    for (const key of ['parentToolCallId', 'progress'] as const) {
+        if (event[key] !== undefined) patch[key] = event[key]
+    }
+    if (event.progress !== undefined) {
+        patch.retryState = event.retryState ?? null
+        patch.retryFailure = event.retryFailure ?? null
+    } else {
+        if (event.retryState !== undefined) patch.retryState = event.retryState
+        if (event.retryFailure !== undefined) patch.retryFailure = event.retryFailure
+    }
 
     return patch
 }

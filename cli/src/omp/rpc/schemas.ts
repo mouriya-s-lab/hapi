@@ -9,7 +9,7 @@ import type {
     OmpResponseData,
     OmpRpcRawResponse
 } from './types';
-import { OMP_EFFORT_LEVELS, OMP_THINKING_LEVELS } from './types';
+import { OMP_EFFORT_LEVELS, OMP_KNOWN_EVENT_TYPES, OMP_THINKING_LEVELS } from './types';
 
 const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
     z.string(),
@@ -27,6 +27,7 @@ const ConfiguredThinkingLevelSchema = z.union([ThinkingLevelSchema, z.literal('a
 const QueueModeSchema = z.enum(['all', 'one-at-a-time']);
 const InterruptModeSchema = z.enum(['immediate', 'wait']);
 const SubscriptionLevelSchema = z.enum(['off', 'progress', 'events']);
+const KnownEventTypeSchema = z.enum(OMP_KNOWN_EVENT_TYPES);
 
 const TodoItemSchema = z.object({
     content: z.string(),
@@ -228,9 +229,12 @@ export function parseOmpInboundLine(line: string): ParsedOmpInboundLine {
     if (type === 'response') {
         return { kind: 'response', response: RawResponseSchema.parse(parsed) };
     }
+    const knownType = KnownEventTypeSchema.safeParse(type);
     return {
         kind: 'event',
-        event: { type, raw }
+        event: knownType.success
+            ? { kind: 'known', type: knownType.data, raw }
+            : { kind: 'unknown', type, raw }
     };
 }
 

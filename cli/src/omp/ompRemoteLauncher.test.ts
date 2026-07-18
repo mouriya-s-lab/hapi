@@ -9,8 +9,11 @@ import type {
     OmpInboundEvent,
     OmpModel,
     OmpResponseDataByCommand,
-    OmpSessionState
+    OmpSessionState,
+    OmpSubagentSnapshot
 } from './rpc/types';
+import { parseOmpInboundLine } from './rpc/schemas';
+import type { RawJSONLines } from '@/claude/types';
 import type { AttachmentMetadata, OmpInputMode } from '@hapi/protocol/types';
 
 type RpcHandler = (params: unknown) => unknown;
@@ -78,7 +81,9 @@ const harness = vi.hoisted(() => ({
     contextUsage: { tokens: 1_024, contextWindow: 128_000, percent: 0.8 },
     sessionId: 'omp-session-1',
     sessionName: 'OMP session one' as string | null,
-    resumePaths: {} as Record<string, string>
+    resumePaths: {} as Record<string, string>,
+    subagents: [] as OmpSubagentSnapshot[],
+    subagentMessages: {} as Record<string, OmpResponseDataByCommand['get_subagent_messages']>
 }));
 
 vi.mock('./rpc/OmpRpcClient', () => ({
@@ -109,7 +114,8 @@ vi.mock('./rpc/OmpRpcClient', () => ({
                             if (harness.autoFinishPrompt) {
                                 queueMicrotask(() => {
                                     for (const listener of harness.eventListeners) {
-                                        listener({ type: 'agent_end', raw: { type: 'agent_end' } });
+                                        const parsed = parseOmpInboundLine('{"type":"agent_end"}');
+                                        if (parsed.kind === 'event') listener(parsed.event);
                                     }
                                 });
                             }
@@ -167,6 +173,17 @@ vi.mock('./rpc/OmpRpcClient', () => ({
                         }
                         case 'get_state':
                             return state(harness.currentModel);
+                        case 'set_subagent_subscription':
+                            return { level: command.level };
+                        case 'get_subagents':
+                            return { subagents: harness.subagents };
+                        case 'get_subagent_messages': {
+                            const result = command.subagentId
+                                ? harness.subagentMessages[command.subagentId]
+                                : undefined;
+                            if (!result) throw new Error(`missing fake subagent transcript ${command.subagentId ?? ''}`);
+                            return result;
+                        }
                         case 'new_session':
                             harness.sessionId = 'omp-session-2';
                             harness.sessionName = null;
@@ -271,6 +288,7 @@ function createSessionStub(
     const snapshots: Array<{ id: string; file: string; name?: string }> = [];
     const consumedLocalIds: string[][] = [];
     const agentMessages: unknown[] = [];
+    const canonicalMessages: RawJSONLines[] = [];
     const thinkingStates: import('@hapi/protocol/omp').OmpThinkingState[] = [];
     const rpcHandlers = new Map<string, RpcHandler>();
     let runtimeConfigApplier: ((config: import('./session').OmpRuntimeConfigRequest) => Promise<import('./session').OmpRuntimeConfigApplied>) | null = null;
@@ -282,6 +300,9 @@ function createSessionStub(
         },
         sendAgentMessage(message: unknown) {
             agentMessages.push(message);
+        },
+        sendClaudeSessionMessage(message: RawJSONLines) {
+            canonicalMessages.push(message);
         },
         sendUserMessage(_text: string) {},
         sendSessionEvent(event: { type: string; [key: string]: unknown }) {
@@ -341,6 +362,7 @@ function createSessionStub(
         snapshots,
         consumedLocalIds,
         agentMessages,
+        canonicalMessages,
         thinkingStates,
         getRuntimeConfigApplier: () => runtimeConfigApplier
     };
@@ -359,8 +381,10 @@ async function waitForRequestCount(type: OmpCommand['type'], count: number): Pro
 }
 
 function emitEvent(type: string, raw: Record<string, unknown> = {}): void {
+    const parsed = parseOmpInboundLine(JSON.stringify({ type, ...raw }));
+    if (parsed.kind !== 'event') throw new Error(`Expected OMP event, received ${parsed.kind}`);
     for (const listener of harness.eventListeners) {
-        listener({ type, raw: { type, ...raw } });
+        listener(parsed.event);
     }
 }
 
@@ -395,6 +419,8 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         harness.configuredThinking = 'high';
         harness.contextUsage = { tokens: 1_024, contextWindow: 128_000, percent: 0.8 };
         harness.resumePaths = {};
+        harness.subagents = [];
+        harness.subagentMessages = {};
         await Promise.all(createdDirectories.splice(0).map((directory) => (
             rm(directory, { recursive: true, force: true })
         )));
@@ -430,16 +456,12 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         const launch = ompRemoteLauncher(session as never);
         await waitForRequest('prompt');
 
-        for (const listener of harness.eventListeners) {
-            listener({ type: 'session_info_update', raw: { type: 'session_info_update' } });
-        }
+        emitEvent('session_info_update');
         await vi.waitFor(() => {
             expect(harness.requests.filter((request) => request.type === 'get_state').length).toBeGreaterThan(0);
             expect(snapshots.length).toBeGreaterThan(1);
         });
-        for (const listener of harness.eventListeners) {
-            listener({ type: 'agent_end', raw: { type: 'agent_end' } });
-        }
+        emitEvent('agent_end');
         await launch;
     });
 
@@ -451,11 +473,112 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         await ompRemoteLauncher(session as never);
 
         expect(harness.requests.map((request) => request.type)).toEqual([
+            'set_subagent_subscription',
+            'get_subagents',
             'prompt',
             'get_state',
             'get_state'
         ]);
         expect(snapshots).toHaveLength(2);
+    });
+
+    it('restores active subagents before transcript replay and deduplicates a repeated live message', async () => {
+        const childMessage = {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'restored child answer' }],
+            provider: 'ollama',
+            model: 'qwen3',
+            responseId: 'child-response-1',
+            usage: {
+                input: 11,
+                output: 7,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 18,
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+            },
+            stopReason: 'stop'
+        };
+        harness.subagents = [{
+            id: 'child-1',
+            index: 0,
+            agent: 'task',
+            agentSource: 'bundled',
+            description: 'restored worker',
+            status: 'running',
+            sessionFile: '/sessions/child-1.jsonl',
+            lastUpdate: 123456,
+            parentToolCallId: 'parent-tool'
+        }];
+        harness.subagentMessages = {
+            'child-1': {
+                sessionFile: '/sessions/child-1.jsonl',
+                fromByte: 0,
+                nextByte: 256,
+                reset: false,
+                entries: [],
+                messages: [{ role: 'assistant', raw: childMessage }]
+            }
+        };
+        const { session, agentMessages } = createSessionStub([], { closeQueue: false });
+        const launch = ompRemoteLauncher(session as never);
+
+        await vi.waitFor(() => {
+            expect(agentMessages).toContainEqual(expect.objectContaining({
+                type: 'agent-run-trace',
+                agentId: 'child-1',
+                cardId: 'omp-subagent:child-1',
+                parentToolCallId: 'parent-tool',
+                message: expect.objectContaining({
+                    type: 'message',
+                    message: 'restored child answer'
+                })
+            }));
+        });
+        emitEvent('subagent_event', {
+            payload: {
+                id: 'child-1',
+                event: { type: 'message_end', message: childMessage }
+            }
+        });
+        emitEvent('subagent_lifecycle', {
+            payload: {
+                id: 'child-1',
+                index: 0,
+                agent: 'task',
+                agentSource: 'bundled',
+                description: 'restored worker',
+                status: 'completed',
+                parentToolCallId: 'parent-tool'
+            }
+        });
+
+        const childStarts = agentMessages.filter((message) => (
+            typeof message === 'object'
+            && message !== null
+            && 'type' in message
+            && message.type === 'agent-run-start'
+        ));
+        const childTraces = agentMessages.filter((message) => (
+            typeof message === 'object'
+            && message !== null
+            && 'type' in message
+            && message.type === 'agent-run-trace'
+        ));
+        expect(childStarts).toHaveLength(1);
+        expect(childTraces).toHaveLength(1);
+        expect(harness.requests.filter((request) => (
+            request.type === 'set_subagent_subscription'
+            || request.type === 'get_subagents'
+            || request.type === 'get_subagent_messages'
+        ))).toEqual([
+            { type: 'set_subagent_subscription', level: 'events' },
+            { type: 'get_subagents' },
+            { type: 'get_subagent_messages', subagentId: 'child-1', fromByte: 0 }
+        ]);
+
+        session.queue.close();
+        await launch;
     });
 
     it('routes clear and rename through native mutations with immediate snapshots', async () => {
@@ -720,7 +843,7 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
 
     it('forwards OMP model, tokens, authoritative context, and cost', async () => {
         harness.contextUsage = { tokens: 4_096, contextWindow: 128_000, percent: 3.2 };
-        const { session, agentMessages } = createSessionStub([], { closeQueue: false });
+        const { session, agentMessages, canonicalMessages } = createSessionStub([], { closeQueue: false });
         const launch = ompRemoteLauncher(session as never);
         await vi.waitFor(() => expect(harness.eventListeners.length).toBeGreaterThan(0));
 
@@ -761,26 +884,25 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
                 costUsd: 0.031
             }
         }));
-        expect(agentMessages).toContainEqual({
-            type: 'reasoning',
-            message: 'native reasoning',
-            id: expect.any(String)
-        });
-        expect(agentMessages).toContainEqual({
-            type: 'message',
-            message: 'native answer',
-            model: 'ollama/launch-default',
-            usage: {
-                total: {
-                    inputTokens: 120,
-                    outputTokens: 30,
-                    totalTokens: 160,
-                    thoughtTokens: 5,
-                    cachedInputTokens: 10
-                },
-                costUsd: 0.031
-            }
-        });
+        expect(canonicalMessages).toContainEqual(expect.objectContaining({
+            type: 'assistant',
+            uuid: expect.any(String),
+            providerMessageId: undefined,
+            message: expect.objectContaining({
+                role: 'assistant',
+                model: 'ollama/launch-default',
+                content: [
+                    { type: 'thinking', thinking: 'native reasoning' },
+                    { type: 'text', text: 'native answer' }
+                ],
+                usage: expect.objectContaining({
+                    input_tokens: 120,
+                    output_tokens: 30,
+                    reasoning_output_tokens: 5,
+                    cost_usd: 0.031
+                })
+            })
+        }));
 
         session.queue.close();
         await launch;
@@ -802,7 +924,7 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         expect(harness.requests.some((request) => (
             request.type === 'set_host_tools'
             || ('type' in request && ![
-                'prompt', 'get_state'
+                'prompt', 'get_state', 'set_subagent_subscription', 'get_subagents'
             ].includes(request.type))
         ))).toBe(false);
         expect(harness.prompts).toEqual(['plain turn']);

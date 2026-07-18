@@ -16,8 +16,10 @@ import { OmpRpcClient } from './rpc/OmpRpcClient';
 import { OmpRpcEventAdapter } from './rpc/OmpRpcEventAdapter';
 import type {
     OmpContextUsage,
+    OmpInboundEvent,
     OmpModel,
     OmpRpcSpawnConfig,
+    OmpSubagentSnapshot,
     OmpSessionState
 } from './rpc/types';
 import type { AgentMessage } from '@/agent/types';
@@ -74,6 +76,7 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
     private confirmedConfiguredThinking: OmpConfiguredThinkingLevel | null = null;
     private lastPersistedThinkingKey: string | null = null;
     private readonly eventTasks = new Set<Promise<void>>();
+    private readonly subagentTranscriptCursors = new Map<string, number>();
     private sessionReconciler: OmpSessionStateReconciler | null = null;
     private removeQueueChangeListener: (() => void) | null = null;
     private changeVersion = 0;
@@ -138,6 +141,24 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
             onAgentMessage: (message) => {
                 this.forwardAgentMessage(message);
             },
+            onCanonicalMessage: (message) => {
+                session.client.sendClaudeSessionMessage(message);
+            },
+            onAgentRunEvent: (event) => {
+                session.sendAgentMessage(event);
+            },
+            onAgentRunTrace: (scope, message) => {
+                const converted = convertAgentMessage(message);
+                if (!converted) return;
+                session.sendAgentMessage({
+                    type: 'agent-run-trace',
+                    ...scope,
+                    message: converted
+                });
+            },
+            onStructuredEvent: (event) => {
+                session.sendAgentMessage(event);
+            },
             onInkMessage: (message, type) => this.messageBuffer.addMessage(message, type),
             onUserMessageCommitted: (steering) => {
                 if (!steering && this.nativeFollowUpOutstanding) {
@@ -186,7 +207,15 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
             onThinkingStateChanged: (state) => this.handleThinkingStateChanged(state),
             onDiagnostic: (message) => logger.warn(`[omp-remote] ${message}`)
         });
-        client.onEvent((event) => eventAdapter.handle(event));
+        const bufferedEvents: OmpInboundEvent[] = [];
+        let subagentSnapshotApplied = false;
+        client.onEvent((event) => {
+            if (!subagentSnapshotApplied) {
+                bufferedEvents.push(event);
+                return;
+            }
+            eventAdapter.handle(event);
+        });
         client.onDiagnostic((message) => logger.warn(`[omp-remote] ${message}`));
         client.onClosed((reason) => {
             if (this.shouldExit) {
@@ -195,6 +224,17 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
             this.handleTransportFailure(reason);
         });
         this.removeQueueChangeListener = session.queue.onChange(() => this.signalChange());
+
+        await client.request({ type: 'set_subagent_subscription', level: 'events' });
+        const { subagents } = await client.request({ type: 'get_subagents' });
+        eventAdapter.seedSubagents(subagents);
+        for (const event of bufferedEvents.splice(0)) {
+            eventAdapter.handle(event);
+        }
+        subagentSnapshotApplied = true;
+        await Promise.all(subagents.map(async (snapshot) => {
+            await this.syncSubagentTranscript(client, eventAdapter, snapshot);
+        }));
 
         session.client.rpcHandlerManager.registerHandler<Record<string, never>, ListOmpModelsResponse>(
             RPC_METHODS.ListOmpModels,
@@ -276,6 +316,7 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         this.signalChange();
         await this.sessionReconciler?.drain();
         this.sessionReconciler = null;
+        this.subagentTranscriptCursors.clear();
         await Promise.allSettled(this.eventTasks);
         const client = this.client;
         this.client = null;
@@ -578,6 +619,25 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
             .catch((error) => this.handleTransportFailure(error))
             .finally(() => this.eventTasks.delete(tracked));
         this.eventTasks.add(tracked);
+    }
+
+    private async syncSubagentTranscript(
+        client: OmpRpcClient,
+        eventAdapter: OmpRpcEventAdapter,
+        snapshot: OmpSubagentSnapshot
+    ): Promise<void> {
+        if (!snapshot.sessionFile) return;
+        const fromByte = this.subagentTranscriptCursors.get(snapshot.id) ?? 0;
+        const transcript = await client.request({
+            type: 'get_subagent_messages',
+            subagentId: snapshot.id,
+            fromByte
+        });
+        this.subagentTranscriptCursors.set(snapshot.id, transcript.nextByte);
+        eventAdapter.seedSubagentMessages(
+            snapshot.id,
+            transcript.messages.map((message) => message.raw)
+        );
     }
 
     private forwardAgentMessage(message: AgentMessage): void {

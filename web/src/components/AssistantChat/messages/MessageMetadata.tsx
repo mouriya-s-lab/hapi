@@ -45,6 +45,9 @@ export function buildMessageMetadataLabels({ durationMs, usage, model, turnCount
         const formatToken = (n: number) => n.toLocaleString()
         const usageLabel = isAggregated ? 'Total' : 'Usage'
         parts.push(`${usageLabel}: ${formatToken(total)} billable tokens (${formatToken(usage.input_tokens)} in / ${formatToken(usage.output_tokens)} out)`)
+        if (typeof usage.reasoning_output_tokens === 'number' && usage.reasoning_output_tokens > 0) {
+            parts.push(`Reasoning: ${formatToken(usage.reasoning_output_tokens)} tokens`)
+        }
         if (typeof usage.cost_usd === 'number') {
             parts.push(`Cost: $${usage.cost_usd.toFixed(4)}`)
         }

@@ -141,6 +141,22 @@ export type EventPresentation = {
 }
 
 export function getEventPresentation(event: AgentEvent): EventPresentation {
+    if (event.type === 'omp-rpc-warning') {
+        const warning = typeof event.warning === 'string' ? event.warning : 'Unknown OMP RPC event'
+        return { icon: '⚠️', text: warning }
+    }
+    if (event.type === 'omp-retry') {
+        const phase = typeof event.phase === 'string' ? event.phase : 'updated'
+        return { icon: phase === 'finished' || phase === 'fallback-succeeded' ? '✓' : '⏳', text: `OMP retry ${phase}` }
+    }
+    if (event.type === 'omp-notice') {
+        const message = typeof event.message === 'string' ? event.message : 'OMP notice'
+        return { icon: event.level === 'error' ? '⚠️' : null, text: message }
+    }
+    if (event.type === 'omp-extension-error') {
+        const message = typeof event.message === 'string' ? event.message : 'OMP extension error'
+        return { icon: '⚠️', text: message }
+    }
     if (event.type === 'api-error') {
         const { retryAttempt, maxRetries } = event as { retryAttempt: number; maxRetries: number }
         if (maxRetries > 0 && retryAttempt >= maxRetries) {
