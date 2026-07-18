@@ -61,7 +61,9 @@ import ForkSettingsPage from '@/fork-features/settings/ForkSettingsPage'
 import SharePage from '@/routes/share'
 import { setSharePendingTransfer } from '@/lib/sharePendingState'
 import { deleteShareTransfer } from '@/lib/shareTransfer'
-import AdminPage from '@/fork-features/multi-user/AdminPage'
+import UsersSettingsPage from '@/fork-features/multi-user/UsersSettingsPage'
+import UserSettingsPage from '@/fork-features/multi-user/UserSettingsPage'
+import AccountSettingsPage from '@/fork-features/multi-user/AccountSettingsPage'
 
 function BackIcon(props: { className?: string }) {
     return (
@@ -958,12 +960,6 @@ const settingsRoute = createRoute({
     component: SettingsLayout,
 })
 
-const adminRoute = createRoute({
-    getParentRoute: () => rootRoute,
-    path: '/admin',
-    component: AdminPage,
-})
-
 const settingsIndexRoute = createRoute({
     getParentRoute: () => settingsRoute,
     path: '/',
@@ -1018,6 +1014,10 @@ const settingsForkRoute = createRoute({
     component: ForkSettingsPage,
 })
 
+const settingsForkAccountRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'fork/account', component: AccountSettingsPage })
+const settingsForkUsersRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'fork/users', component: UsersSettingsPage })
+const settingsForkUserRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'fork/users/$accountId', component: UserSettingsPage })
+
 // Web Share Target landing route. Service worker (`web/src/sw.ts`)
 // intercepts the manifest's `POST /share` and 303-redirects here with an
 // IDB transfer id. `error=ingest` is set when the SW failed to write IDB.
@@ -1049,7 +1049,6 @@ export const routeTree = rootRoute.addChildren([
         ]),
     ]),
     browseRoute,
-    adminRoute,
     settingsRoute.addChildren([
         settingsIndexRoute,
         settingsGeneralRoute,
@@ -1060,6 +1059,9 @@ export const routeTree = rootRoute.addChildren([
         settingsVoiceAdvancedRoute,
         settingsAboutRoute,
         settingsForkRoute,
+        settingsForkAccountRoute,
+        settingsForkUsersRoute,
+        settingsForkUserRoute,
     ]),
     shareRoute,
 ])
