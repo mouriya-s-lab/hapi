@@ -58,6 +58,7 @@ import SettingsVoicePage from '@/routes/settings/voice'
 import SettingsVoiceVoicesPage from '@/routes/settings/voice-voices'
 import SettingsVoiceAdvancedPage from '@/routes/settings/voice-advanced'
 import SettingsAboutPage from '@/routes/settings/about'
+import ForkSettingsPage from '@/fork-features/settings/ForkSettingsPage'
 import SharePage from '@/routes/share'
 import { setSharePendingTransfer } from '@/lib/sharePendingState'
 import { deleteShareTransfer } from '@/lib/shareTransfer'
@@ -98,27 +99,6 @@ function PlusIcon(props: { className?: string }) {
         >
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
-    )
-}
-
-function CodexImportIcon(props: { className?: string }) {
-    return (
-        <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={props.className}
-        >
-            {/* 中文注释：入口图标改成纯更新箭头，弱化“聊天”含义，避免用户误解成会话本身而不是导入动作。 */}
-            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-            <path d="M21 3v6h-6" />
         </svg>
     )
 }
@@ -169,10 +149,11 @@ function getMachineTitle(machine: Machine): string {
 }
 
 function SessionsPage() {
-    const { api, user } = useAppContext()
+    const { api } = useAppContext()
     const navigate = useNavigate()
     const queryClient = useQueryClient()
     const pathname = useLocation({ select: location => location.pathname })
+    const { importCodex } = sessionsRoute.useSearch()
     const sidebarScrollRef = useRef<HTMLDivElement>(null)
     // Keep the persistent sidebar from jumping when Router's per-route scroll
     // restoration fires on navigation (issue #31).
@@ -410,6 +391,12 @@ function SessionsPage() {
         }
     }, [addToast, api, formatCodexSyncFailureBody, isLoadingCodexSessions, normalizeCodexScriptError, t])
 
+    useEffect(() => {
+        if (!importCodex) return
+        void openCodexImportDialog()
+        navigate({ to: '/sessions', search: {}, replace: true })
+    }, [importCodex, navigate, openCodexImportDialog])
+
     const handleImportCodexSessions = useCallback(async (sessionIds: string[]) => {
         if (isSyncingCodexSession || isLoadingCodexSessions) return
 
@@ -502,23 +489,6 @@ function SessionsPage() {
                             {t('sessions.count', { n: visibleSessions.length, m: projectCount })}
                         </div>
                         <div className="flex items-center gap-2">
-                            {user.role === 'admin' && <button
-                                type="button"
-                                onClick={() => navigate({ to: '/admin' })}
-                                className="rounded-full px-2 py-1 text-xs text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)]"
-                                title="管理面板"
-                            >管理</button>}
-                            <button
-                                type="button"
-                                onClick={() => void openCodexImportDialog()}
-                                disabled={isSyncingCodexSession || isLoadingCodexSessions}
-                                aria-label={t('codexSync.tooltip')}
-                                aria-busy={isSyncingCodexSession || isLoadingCodexSessions}
-                                className="p-1.5 rounded-full text-[var(--app-hint)] hover:text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)] transition-colors disabled:opacity-60 disabled:cursor-wait"
-                                title={t('codexSync.tooltip')}
-                            >
-                                <CodexImportIcon className={`h-5 w-5 ${isLoadingCodexSessions ? 'animate-spin' : ''}`} />
-                            </button>
                             <button
                                 type="button"
                                 onClick={() => navigate({ to: '/browse' })}
@@ -1135,6 +1105,10 @@ const indexRoute = createRoute({
 const sessionsRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/sessions',
+    validateSearch: (search: Record<string, unknown>): { importCodex?: boolean } => {
+        const importCodex = search.importCodex === true || search.importCodex === 'true'
+        return importCodex ? { importCodex: true } : {}
+    },
     component: SessionsPage,
 })
 
@@ -1313,6 +1287,12 @@ const settingsAboutRoute = createRoute({
     component: SettingsAboutPage,
 })
 
+const settingsForkRoute = createRoute({
+    getParentRoute: () => settingsRoute,
+    path: 'fork',
+    component: ForkSettingsPage,
+})
+
 // Web Share Target landing route. Service worker (`web/src/sw.ts`)
 // intercepts the manifest's `POST /share` and 303-redirects here with an
 // IDB transfer id. `error=ingest` is set when the SW failed to write IDB.
@@ -1354,6 +1334,7 @@ export const routeTree = rootRoute.addChildren([
         settingsVoiceVoicesRoute,
         settingsVoiceAdvancedRoute,
         settingsAboutRoute,
+        settingsForkRoute,
     ]),
     shareRoute,
 ])
