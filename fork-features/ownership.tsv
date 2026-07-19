@@ -4,6 +4,7 @@
 .github/workflows/release.yml	trunk-patch	#179	origin-only delta; fork commits 69c5250d,78b888ec; disposition fork-specific #179: fork release/build metadata; fork release publishing policy
 .github/workflows/sync-upstream.yml	fork-owned	#179	origin-only delta; fork commits 9f8f9e97
 Dockerfile	fork-owned	#179	origin-only delta; fork commits 8edeeef3,6da30689
+README.md	trunk-patch	#203	origin-only delta; disposition fork-specific #203: advertise the fork-owned OMP flavor and guide
 bun.lock	trunk-patch	#171	origin-only delta; fork commits a6f9e3f9,45b07ac7,c36d2daf,d3199037
 cli/README.md	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/agent/backends/acp/AcpMessageHandler.test.ts	trunk-patch	#175	origin-only delta; fork commits d28853c7
@@ -121,6 +122,7 @@ cli/src/ui/ink/OmpDisplay.tsx	fork-owned	#172	origin-only delta; fork commits 36
 cli/src/ui/tokenInit.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/ui/tokenInit.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/tsconfig.json	trunk-patch	#170	origin-only delta; fork commits 206da967
+docs/.vitepress/config.ts	trunk-patch	#203	origin-only delta; disposition fork-specific #203: expose the OMP guide in the closed sidebar table
 docs/evidence/109-multi-user-gateway/pr159-b3922ef4-fresh/01-password-login.jpg	fork-owned	#171	origin-only delta; fork commits 7e004cc7,d36af3c5
 docs/evidence/109-multi-user-gateway/pr159-b3922ef4-fresh/02-wrong-password.jpg	fork-owned	#171	origin-only delta; fork commits 7e004cc7,d36af3c5
 docs/evidence/109-multi-user-gateway/pr159-b3922ef4-fresh/03-api-token-login.jpg	fork-owned	#171	origin-only delta; fork commits d36af3c5
@@ -134,6 +136,7 @@ docs/evidence/109-multi-user-gateway/pr159-b3922ef4-fresh/10-create-account-dial
 docs/evidence/109-multi-user-gateway/pr159-b3922ef4-fresh/11-login-state-audit.jpg	fork-owned	#171	origin-only delta; fork commits ba37bcfb
 docs/evidence/109-multi-user-gateway/pr159-b3922ef4-fresh/12-regular-user-clean-admin.jpg	fork-owned	#171	origin-only delta; fork commits ba37bcfb
 docs/guide/installation.md	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+docs/guide/omp.md	fork-owned	#203	origin-only delta; OMP native RPC product guide
 docs/public/schemas/settings.schema.json	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 docs/superpowers/evidence/2026-06-28-session-fork-claude/01-sessions-list-after-fork.jpg	fork-owned	#170	origin-only delta; fork commits aee648ee
 docs/superpowers/evidence/2026-06-28-session-fork-claude/02-fork-session-opened.jpg	fork-owned	#170	origin-only delta; fork commits aee648ee
@@ -299,7 +302,7 @@ web/src/components/AssistantChat/messages/MessageActions.tsx	upstream-sync	#180	
 web/src/components/AssistantChat/messages/MessageAttachments.tsx	trunk-patch	#176	origin-only delta; fork commits b4c31e88
 web/src/components/AssistantChat/messages/SpeakSummaryButton.tsx	fork-owned	#179	origin-only delta; fork commits 7faed2eb
 web/src/components/AssistantChat/messages/SystemMessage.tsx	trunk-patch	#179	origin-only delta; fork commits 92f048f7; disposition fork-specific #179: Codex compact summary feature
-web/src/components/AssistantChat/messages/ToolMessage.tsx	trunk-patch	#176	origin-only delta; fork commits 3edb7db8,302180e5,b4c31e88,d28853c7
+web/src/components/AssistantChat/messages/ToolMessage.tsx	trunk-patch	#176,#203	origin-only delta; fork commits 3edb7db8,302180e5,b4c31e88,d28853c7; disposition fork-specific #203: OMP event visibility guard
 web/src/components/AssistantChat/messages/UserMessage.test.tsx	fork-owned	#170	origin-only delta; fork commits 253e5184,5262a261
 web/src/components/AssistantChat/messages/UserMessage.tsx	trunk-patch	#178	origin-only delta; fork commits 302180e5,253e5184,5262a261
 web/src/components/AssistantChat/messages/user-bubble.test.tsx	trunk-patch	#178	origin-only delta; fork commits 302180e5
@@ -346,7 +349,8 @@ web/src/components/ToolCard/groupedPresentation.test.ts	upstream-sync	#180	merge
 web/src/components/ToolCard/toolDetailDuration.test.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/components/ToolCard/toolDuration.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/components/ToolCard/toolDuration.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-web/src/components/ToolCard/trace.test.tsx	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
+web/src/components/ToolCard/trace.test.tsx	trunk-patch	#203	both refs changed; disposition fork-specific #203: OMP nested-event visibility coverage
+web/src/components/ToolCard/trace.tsx	trunk-patch	#203	origin-only delta; disposition fork-specific #203: OMP nested-event visibility guard
 web/src/components/ToolCard/views/WriteView.tsx	trunk-patch	#177	origin-only delta; fork commits f00c8228
 web/src/components/ToolCard/views/_results.test.tsx	trunk-patch	#177	both refs changed; fork commits e2a200a8,72c96399,e737b4b3
 web/src/components/ToolCard/views/_results.tsx	trunk-patch	#177	origin-only delta; fork commits e2a200a8,302180e5,72c96399,473d69b4,e737b4b3
@@ -368,6 +372,9 @@ web/src/components/icons.tsx	trunk-patch	#179	origin-only delta; fork commits 7f
 web/src/components/ui/Toast.tsx	upstream-fix	#179	origin-only delta; fork commits d1f9f394; disposition upstream-issue https://github.com/tiann/hapi/issues/1077: general fix reported against latest upstream main
 web/src/fork-features/multi-user/AdminPage.tsx	fork-owned	#171	origin-only delta; fork commits ba37bcfb,8cae045d,b3922ef4,a6f9e3f9
 web/src/fork-features/multi-user/LoginPrompt.tsx	fork-owned	#171	origin-only delta; fork commits ba37bcfb,a6f9e3f9
+web/src/fork-features/omp-product/eventVisibility.test.ts	fork-owned	#203	origin-only delta; OMP event visibility policy coverage
+web/src/fork-features/omp-product/eventVisibility.ts	fork-owned	#203	origin-only delta; OMP event visibility policy
+web/src/fork-features/omp-product/nestedEventVisibility.test.tsx	fork-owned	#203	origin-only delta; OMP nested renderer integration coverage
 web/src/fork-features/task-panel/TodoPanel.test.tsx	fork-owned	#181	origin-only delta; fork commits 97be5733,17fee65e
 web/src/fork-features/task-panel/TodoPanel.tsx	fork-owned	#181	origin-only delta; fork commits 17fee65e
 web/src/hooks/mutations/useCcSwitchProvider.test.tsx	fork-owned	#173	origin-only delta; fork commits 44f2bce5,51929072,9e76994b,faec872c
@@ -399,8 +406,8 @@ web/src/hooks/useThemeColors.test.ts	upstream-fix	#179	both refs changed; fork c
 web/src/hooks/useThemeColors.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 web/src/index.css	upstream-fix	#179	both refs changed; fork commits a2d26372; disposition upstream-issue https://github.com/tiann/hapi/issues/1074: general fix reported against latest upstream main
 web/src/lib/app-context.tsx	trunk-patch	#171	origin-only delta; fork commits a6f9e3f9
-web/src/lib/assistant-runtime.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
-web/src/lib/assistant-runtime.ts	trunk-patch	#176	origin-only delta; fork commits b4c31e88,253e5184
+web/src/lib/assistant-runtime.test.ts	trunk-patch	#203	both refs changed; disposition fork-specific #203: OMP main-timeline event visibility coverage
+web/src/lib/assistant-runtime.ts	trunk-patch	#176,#203	origin-only delta; fork commits b4c31e88,253e5184; disposition fork-specific #203: filter unsupported OMP quota cards
 web/src/lib/changelog.test.ts	fork-owned	#179	origin-only delta; fork commits 4a0c5f0b
 web/src/lib/changelog.ts	fork-owned	#179	origin-only delta; fork commits 4a0c5f0b
 web/src/lib/file-preview.ts	fork-owned	#177	origin-only delta; fork commits e737b4b3

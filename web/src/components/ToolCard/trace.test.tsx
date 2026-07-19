@@ -4,7 +4,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import type { ToolCallBlock } from '@/chat/types'
+import type { AgentEventBlock, ChatBlock, ToolCallBlock } from '@/chat/types'
 import { TraceSection, getTaskTraceChildren, getTraceSummaryText } from '@/components/ToolCard/trace'
 
 // useTranslation returns a simple key-passthrough stub for tests
@@ -100,7 +100,7 @@ function makeTaskBlock(
 }
 
 function makeCodexAgentBlock(
-    children: ToolCallBlock[],
+    children: ChatBlock[],
     state: ToolCallBlock['tool']['state'] = 'completed',
     result: unknown = 'done',
 ): ToolCallBlock {
@@ -123,6 +123,15 @@ function makeCodexAgentBlock(
             result,
         },
         children,
+    }
+}
+
+function makeAgentEvent(id: string, event: AgentEventBlock['event']): AgentEventBlock {
+    return {
+        kind: 'agent-event',
+        id,
+        createdAt: 1000,
+        event,
     }
 }
 
@@ -360,6 +369,29 @@ describe('TraceSection', () => {
         fireEvent.click(childButtons[0])
         expect(container.textContent).toContain('Input')
         expect(container.textContent).toContain('Result')
+    })
+
+    it('hides Claude quota events only in OMP session traces', () => {
+        const block = makeCodexAgentBlock([
+            makeAgentEvent('quota', {
+                type: 'limit-warning',
+                utilization: 0.9,
+                endsAt: 1,
+                limitType: 'five_hour',
+            }),
+            makeAgentEvent('retry', { type: 'omp-retry', phase: 'started' }),
+        ])
+        const ompMetadata = { path: 'repo', host: 'local', flavor: 'omp' }
+        const claudeMetadata = { ...ompMetadata, flavor: 'claude' }
+        const { container, rerender } = render(
+            <TraceSection block={block} metadata={ompMetadata} />
+        )
+
+        expect(container.textContent).not.toContain('Usage limit')
+        expect(container.textContent).toContain('OMP retry started')
+
+        rerender(<TraceSection block={block} metadata={claudeMetadata} />)
+        expect(container.textContent).toContain('Usage limit 90%')
     })
 
     // Agent tool name — same Trace UX as Task

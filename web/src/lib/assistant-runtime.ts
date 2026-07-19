@@ -6,6 +6,7 @@ import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePic
 import { resolvePendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import { safeStringify } from '@hapi/protocol'
 import { renderEventLabel } from '@/chat/presentation'
+import { filterVisibleBlocksForFlavor } from '@/fork-features/omp-product/eventVisibility'
 import type { ChatBlock, CliOutputBlock, CodexReview, UsageData } from '@/chat/types'
 import type { AgentEvent, ToolCallBlock } from '@/chat/types'
 import type { ToolGroupBlock, VisibleChatBlock } from '@/chat/toolGroups'
@@ -609,6 +610,12 @@ export function useHappyRuntime(props: {
     pendingScheduleRef?: React.RefObject<PendingSchedule | null>
 }) {
     const isRunning = props.isRunning ?? props.session.thinking
+    const flavor = props.session.metadata?.flavor
+
+    const visibleBlocks = useMemo(
+        () => filterVisibleBlocksForFlavor(props.blocks, flavor),
+        [flavor, props.blocks]
+    )
 
     // Compute response-group aggregates once per block list so we can
     // inject the summed metadata onto each group's first visible block.
@@ -620,15 +627,15 @@ export function useHappyRuntime(props: {
     )
     const blocksWithThreadIds = useMemo(
         () => assignThreadMessageIdsWithStableWrappers(
-            props.blocks,
+            visibleBlocks,
             threadIdWrapperCacheRef.current
         ),
-        [props.blocks]
+        [visibleBlocks]
     )
 
     const aggregates = useMemo(
-        () => aggregateResponseGroups(props.blocks),
-        [props.blocks]
+        () => aggregateResponseGroups(visibleBlocks),
+        [visibleBlocks]
     )
 
     const convertBlock = useCallback(

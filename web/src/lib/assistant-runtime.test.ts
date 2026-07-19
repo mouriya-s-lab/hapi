@@ -1,12 +1,25 @@
-import { describe, expect, it } from 'vitest'
+import { renderHook } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
     type BlockWithThreadMessageId,
     aggregateResponseGroups,
     assignThreadMessageIds,
-    assignThreadMessageIdsWithStableWrappers
+    assignThreadMessageIdsWithStableWrappers,
+    useHappyRuntime
 } from './assistant-runtime'
 import type { AgentEventBlock, AgentTextBlock, CliOutputBlock, ToolCallBlock, UserTextBlock } from '@/chat/types'
 import type { ToolGroupBlock, VisibleChatBlock } from '@/chat/toolGroups'
+import type { Session } from '@/types/api'
+
+const assistantUiMocks = vi.hoisted(() => ({
+    useExternalMessageConverter: vi.fn((input: {
+        callback: (entry: { block: VisibleChatBlock; threadMessageId: string }) => unknown
+        messages: { block: VisibleChatBlock; threadMessageId: string }[]
+    }) => input.messages.map(input.callback)),
+    useExternalStoreRuntime: vi.fn((adapter: unknown) => adapter)
+}))
+
+vi.mock('@assistant-ui/react', () => assistantUiMocks)
 
 // Minimal builders for VisibleChatBlock fixtures. Tests focus on metadata
 // aggregation behavior across response groups; non-metadata fields default to
@@ -105,6 +118,71 @@ function toolGroup(id: string, tools: ToolCallBlock[], overrides: Partial<ToolGr
         ...overrides
     }
 }
+
+function session(flavor: string): Session {
+    return {
+        id: 'session-1',
+        namespace: 'default',
+        seq: 1,
+        createdAt: 0,
+        updatedAt: 0,
+        active: true,
+        activeAt: 0,
+        metadata: { path: 'repo', host: 'local', flavor },
+        metadataVersion: 1,
+        agentState: null,
+        agentStateVersion: 1,
+        thinking: false,
+        thinkingAt: 0,
+        model: null,
+        modelReasoningEffort: null,
+        effort: null,
+        serviceTier: null,
+        resumeWithSessionModel: false
+    }
+}
+
+describe('useHappyRuntime event visibility', () => {
+    afterEach(() => vi.clearAllMocks())
+
+    it('filters OMP quota events before the assistant-ui converter without changing Claude', () => {
+        const blocks: VisibleChatBlock[] = [
+            agentEvent('quota', {
+                type: 'limit-warning',
+                utilization: 0.9,
+                endsAt: 1,
+                limitType: 'five_hour'
+            }),
+            agentEvent('retry', { type: 'omp-retry', phase: 'started' }),
+            agentText('answer')
+        ]
+        const runtimeProps = {
+            blocks,
+            isSending: false,
+            onSendMessage: () => undefined,
+            onAbort: async () => undefined
+        }
+
+        const omp = renderHook(() => useHappyRuntime({
+            ...runtimeProps,
+            session: session('omp')
+        }))
+        const ompInput = assistantUiMocks.useExternalMessageConverter.mock.calls.at(-1)?.[0]
+        expect(ompInput?.messages.map(({ block }) => block.id)).toEqual(['retry', 'answer'])
+        omp.unmount()
+
+        renderHook(() => useHappyRuntime({
+            ...runtimeProps,
+            session: session('claude')
+        }))
+        const claudeInput = assistantUiMocks.useExternalMessageConverter.mock.calls.at(-1)?.[0]
+        expect(claudeInput?.messages.map(({ block }) => block.id)).toEqual([
+            'quota',
+            'retry',
+            'answer'
+        ])
+    })
+})
 
 describe('assignThreadMessageIds', () => {
     it('suffixes duplicate kind+id pairs so assistant-ui never sees repeated thread ids', () => {
