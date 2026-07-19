@@ -202,6 +202,9 @@ type PendingHostTool = {
     timer: ReturnType<typeof setTimeout>;
     cancelled: boolean;
     timedOut: boolean;
+    settling: boolean;
+    execution?: HostToolExecution;
+    discardPromise?: Promise<void>;
 };
 
 type HostToolExecution = {
@@ -262,6 +265,7 @@ export class OmpHostToolBridge {
             controller,
             cancelled: false,
             timedOut: false,
+            settling: false,
             timer: setTimeout(() => {
                 pending.timedOut = true;
                 controller.abort();
@@ -290,6 +294,7 @@ export class OmpHostToolBridge {
         clearTimeout(pending.timer);
         this.pending.delete(parsed.data.targetId);
         pending.controller.abort();
+        void this.discardExecution(pending);
     }
 
     close(): void {
@@ -297,6 +302,7 @@ export class OmpHostToolBridge {
             pending.cancelled = true;
             clearTimeout(pending.timer);
             pending.controller.abort();
+            void this.discardExecution(pending);
         }
         this.pending.clear();
     }
@@ -420,8 +426,9 @@ export class OmpHostToolBridge {
     }
 
     private async finishSuccess(pending: PendingHostTool, execution: HostToolExecution): Promise<void> {
-        if (!this.takePending(pending)) {
-            await execution.discard?.();
+        pending.execution = execution;
+        if (!this.beginTerminalWrite(pending, false)) {
+            await this.discardExecution(pending);
             return;
         }
         try {
@@ -430,28 +437,66 @@ export class OmpHostToolBridge {
                 id: pending.request.id,
                 result: execution.result
             });
+            if (!this.completePending(pending)) {
+                await this.discardExecution(pending);
+                return;
+            }
             execution.publish?.();
         } catch (error) {
-            await execution.discard?.();
+            this.removePending(pending);
+            await this.discardExecution(pending);
             throw error;
         }
     }
 
     private async finishError(pending: PendingHostTool, error: unknown): Promise<void> {
-        if (!this.takePending(pending)) return;
-        await this.options.client.sendControlFrame({
-            type: 'host_tool_result',
-            id: pending.request.id,
-            result: textResult(errorText(error)),
-            isError: true
-        });
+        if (!this.beginTerminalWrite(pending, true)) return;
+        try {
+            await this.options.client.sendControlFrame({
+                type: 'host_tool_result',
+                id: pending.request.id,
+                result: textResult(errorText(error)),
+                isError: true
+            });
+            this.completePending(pending);
+        } catch (writeError) {
+            this.removePending(pending);
+            throw writeError;
+        }
     }
 
-    private takePending(pending: PendingHostTool): boolean {
-        if (this.pending.get(pending.request.id) !== pending || pending.cancelled) return false;
+    private beginTerminalWrite(pending: PendingHostTool, allowTimedOut: boolean): boolean {
+        if (this.pending.get(pending.request.id) !== pending
+            || pending.cancelled
+            || pending.settling
+            || (!allowTimedOut && pending.timedOut)) {
+            return false;
+        }
         clearTimeout(pending.timer);
+        pending.settling = true;
+        return true;
+    }
+
+    private completePending(pending: PendingHostTool): boolean {
+        if (this.pending.get(pending.request.id) !== pending || pending.cancelled) return false;
         this.pending.delete(pending.request.id);
         return true;
+    }
+
+    private removePending(pending: PendingHostTool): void {
+        if (this.pending.get(pending.request.id) === pending) {
+            this.pending.delete(pending.request.id);
+        }
+    }
+
+    private discardExecution(pending: PendingHostTool): Promise<void> {
+        if (!pending.execution?.discard) return Promise.resolve();
+        pending.discardPromise ??= Promise.resolve()
+            .then(async () => await pending.execution?.discard?.())
+            .catch((error) => this.options.onFatal(
+                error instanceof Error ? error : new Error(String(error))
+            ));
+        return pending.discardPromise;
     }
 
     private track(task: Promise<void>): void {
