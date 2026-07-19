@@ -205,6 +205,60 @@ describe('OMP host tool bridge', () => {
         bridge.close();
     });
 
+    it('discards a generated artifact when cancel arrives during the terminal result write', async () => {
+        const resultGate = Promise.withResolvers<void>();
+        const fake = createFakeClient({
+            sendControlFrame: async (frame) => {
+                if (frame.type === 'host_tool_result') await resultGate.promise;
+            }
+        });
+        const sendAgentMessage = vi.fn();
+        const onFatal = vi.fn();
+        const bridge = new OmpHostToolBridge({
+            client: fake.client,
+            cwd: sourceDir,
+            sendAgentMessage,
+            sendSummary: vi.fn(),
+            onFatal
+        });
+        await bridge.register();
+        const imagePath = join(sourceDir, 'cancel-during-result.png');
+        await writeFile(imagePath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'));
+
+        bridge.handleCall({
+            type: 'host_tool_call',
+            id: 'cancel-during-result',
+            toolCallId: 'tool-cancel-during-result',
+            toolName: 'display_image',
+            arguments: { path: imagePath }
+        });
+        await vi.waitFor(() => expect(fake.frames.some(
+            (frame) => frame.type === 'host_tool_result' && frame.id === 'cancel-during-result'
+        )).toBe(true));
+        const terminalFrame = fake.frames.find(
+            (frame) => frame.type === 'host_tool_result' && frame.id === 'cancel-during-result'
+        );
+        if (terminalFrame?.type !== 'host_tool_result') {
+            throw new Error('Expected terminal host tool result frame');
+        }
+        const imageId = terminalFrame.result.details?.imageId;
+        expect(typeof imageId).toBe('string');
+        expect(getGeneratedImage(String(imageId))).not.toBeNull();
+
+        bridge.handleCancel({
+            type: 'host_tool_cancel',
+            id: 'cancel-frame',
+            targetId: 'cancel-during-result'
+        });
+        await vi.waitFor(() => expect(getGeneratedImage(String(imageId))).toBeNull());
+        resultGate.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(sendAgentMessage).not.toHaveBeenCalled();
+        expect(onFatal).not.toHaveBeenCalled();
+        bridge.close();
+    });
+
     it('discards registered media and file snapshots when the terminal frame write fails', async () => {
         const fake = createFakeClient({
             sendControlFrame: async (frame) => {
