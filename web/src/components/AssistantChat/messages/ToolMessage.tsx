@@ -9,6 +9,7 @@ import { isObject, safeStringify } from '@hapi/protocol'
 import { isSubagentToolName } from '@/chat/subagentTool'
 import { ToolGroupCard } from '@/components/ToolCard/ToolGroupCard'
 import { getEventPresentation } from '@/chat/presentation'
+import { isEventVisibleForFlavor } from '@/fork-features/omp-product/eventVisibility'
 import { CodeBlock } from '@/components/CodeBlock'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import { MessageStatusIndicator } from '@/components/AssistantChat/messages/MessageStatusIndicator'
@@ -329,6 +330,7 @@ function HappyNestedBlockList(props: {
                 }
 
                 if (block.kind === 'agent-event') {
+                    if (!isEventVisibleForFlavor(block.event, ctx.metadata?.flavor)) return null
                     const presentation = getEventPresentation(block.event)
                     return (
                         <div key={`event:${block.id}`} className="py-1">

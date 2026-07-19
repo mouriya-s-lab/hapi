@@ -201,6 +201,25 @@ queue-provider, message-metadata, metadata-variant, resume-projection,
 model/thinking-provider, session-route, and chat-render registration. Move the
 corresponding hook into the fork-owned OMP module as soon as such a seam exists.
 
+### OMP product integration (#211, 2026-07-19)
+
+OMP 17.0.4 exposes retry/fallback events but no quota utilization or reset
+timestamp. The shared Web renderer has no flavor-policy registration seam, so
+the OMP product path filters Claude-only `limit-warning` / `limit-reached`
+events before main-chat conversion and nested tool rendering. The policy and
+tests are fork-owned; native `omp-retry` events remain visible. The fork-owned
+product guide is linked from the upstream-owned README and closed VitePress
+sidebar table.
+
+| Files | Missing upstream seam | Why it cannot move out | Runtime path | Sync verification |
+|---|---|---|---|---|
+| `web/src/lib/assistant-runtime.ts`, `web/src/lib/assistant-runtime.test.ts`, `web/src/components/AssistantChat/messages/ToolMessage.tsx`, `web/src/components/ToolCard/trace.tsx`, and `web/src/components/ToolCard/trace.test.tsx` | No flavor-specific event visibility registry | OMP must not render Claude quota claims that its native protocol cannot produce, while the same shared renderer must keep those events for Claude | persisted event + session flavor → fork-owned visibility policy → main chat / nested trace | Inject both limit variants for OMP and Claude; verify only OMP hides them and `omp-retry` remains visible in the main converter, inline nested output, and trace modal |
+| `README.md`, `docs/.vitepress/config.ts` | No external product-guide registration table | The fork-owned OMP guide must be discoverable from the repository entry point and generated documentation sidebar | README / docs navigation → `docs/guide/omp.md` | Build docs, follow both links, and verify the guide states native `omp --mode rpc` rather than ACP |
+
+Every upstream sync must re-check for a flavor event-policy registry and docs
+navigation extension point. Remove these closed-table patches when equivalent
+typed seams exist.
+
 ### OMP host integration (#210, 2026-07-19)
 
 The three independent host bridges and login orchestration live in
