@@ -61,6 +61,7 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
     private heldInput: OmpQueuedInput | null = null;
     private nativeFollowUpOutstanding = false;
     private isStreaming = false;
+    private nativeTurnGeneration = 0;
     private dispatching = false;
     private transportFailure: Error | null = null;
     private displayModel: string | null = null;
@@ -182,6 +183,7 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
                 }
             },
             onTurnStarted: () => {
+                this.nativeTurnGeneration += 1;
                 this.isStreaming = true;
                 if (this.currentPrompt) {
                     this.currentPrompt.phase = 'streaming';
@@ -195,7 +197,6 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
                     this.currentPrompt.ignoreAgentEnds -= 1;
                 } else {
                     this.clearCurrentPrompt();
-                    this.nativeFollowUpOutstanding = false;
                 }
                 this.signalChange();
                 void sessionReconciler.reconcile().catch((error) => {
@@ -1017,16 +1018,21 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
     }
 
     private async handleAbort(): Promise<void> {
+        const abortedTurnGeneration = this.nativeTurnGeneration;
         const client = this.client;
         if (client?.state === 'ready') {
             await client.request({ type: 'abort' });
         }
-        this.nativeFollowUpOutstanding = false;
-        this.isStreaming = false;
-        this.clearCurrentPrompt();
+        const newerTurnIsActive = (
+            this.nativeTurnGeneration !== abortedTurnGeneration
+            && this.isStreaming
+        );
+        if (!newerTurnIsActive) {
+            this.isStreaming = false;
+            this.clearCurrentPrompt();
+        }
         this.signalChange();
         this.session.sendSessionEvent({ type: 'message', message: 'Session aborted' });
-        this.session.onThinkingChange(false);
         this.messageBuffer.addMessage('Turn aborted', 'status');
     }
 

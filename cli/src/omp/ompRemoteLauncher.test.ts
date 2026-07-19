@@ -74,6 +74,7 @@ const harness = vi.hoisted(() => ({
     close: vi.fn(async () => {}),
     connectError: null as Error | null,
     requestError: null as null | ((command: OmpCommand) => Error | null),
+    abortResponse: null as Promise<void> | null,
     autoFinishPrompt: true,
     promptResponse: { agentInvoked: true } as OmpResponseDataByCommand['prompt'],
     stateStreaming: false,
@@ -215,6 +216,9 @@ vi.mock('./rpc/OmpRpcClient', () => ({
                             return { savedPath: '/sessions/handoff.md' } satisfies OmpResponseDataByCommand['handoff'];
                         case 'abort':
                             harness.events.push('abort');
+                            if (harness.abortResponse) {
+                                await harness.abortResponse;
+                            }
                             return undefined;
                         default:
                             throw new Error(`Unexpected launcher command: ${command.type}`);
@@ -430,6 +434,7 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         harness.close.mockResolvedValue(undefined);
         harness.connectError = null;
         harness.requestError = null;
+        harness.abortResponse = null;
         harness.autoFinishPrompt = true;
         harness.promptResponse = { agentInvoked: true };
         harness.stateStreaming = false;
@@ -1018,6 +1023,70 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         await launch;
 
         expect(harness.requests.some((request) => request.type === 'abort')).toBe(true);
+        expect(session.thinking).toBe(false);
+    });
+
+    it('preserves a queued-steer turn that starts before the abort response', async () => {
+        harness.autoFinishPrompt = false;
+        const abortGate = Promise.withResolvers<void>();
+        harness.abortResponse = abortGate.promise;
+        const { session, rpcHandlers, sessionEvents } = createSessionStub([
+            { message: 'long turn', mode: createMode() }
+        ], { closeQueue: false });
+        const launch = ompRemoteLauncher(session as never);
+        await waitForRequest('prompt');
+        emitEvent('agent_start');
+
+        session.queue.push({
+            text: 'keep going',
+            mode: createMode(),
+            inputMode: 'steer'
+        });
+        await waitForRequest('steer');
+        session.queue.push({
+            text: 'next task',
+            mode: createMode(),
+            inputMode: 'follow_up'
+        });
+        await waitForRequest('follow_up');
+
+        sessionEvents.splice(0);
+        const abort = rpcHandlers.get('abort');
+        expect(abort).toBeDefined();
+        const abortRequest = Promise.resolve(abort!(undefined));
+        await waitForRequest('abort');
+        emitEvent('agent_end');
+        emitEvent('agent_start');
+        abortGate.resolve();
+        await abortRequest;
+
+        expect(session.thinking).toBe(true);
+        expect(sessionEvents.some((event) => event.type === 'ready')).toBe(false);
+
+        emitEvent('message_end', {
+            message: {
+                role: 'user',
+                content: [{ type: 'text', text: 'keep going' }],
+                steering: true
+            }
+        });
+        emitEvent('agent_end');
+        await Promise.resolve();
+        expect(session.thinking).toBe(false);
+        expect(sessionEvents.some((event) => event.type === 'ready')).toBe(false);
+
+        emitEvent('message_end', {
+            message: {
+                role: 'user',
+                content: [{ type: 'text', text: 'next task' }]
+            }
+        });
+        emitEvent('agent_start');
+        session.queue.close();
+        emitEvent('agent_end');
+        await launch;
+
+        expect(sessionEvents.some((event) => event.type === 'ready')).toBe(true);
     });
 
     it('dispatches streaming prompt, steer, follow-up, and abort-and-prompt as distinct native commands', async () => {
