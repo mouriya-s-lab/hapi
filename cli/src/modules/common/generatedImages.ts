@@ -155,6 +155,13 @@ export function getGeneratedImage(id: string): GeneratedImageMetadata | null {
     return generatedImages.get(id) ?? null
 }
 
+export function unregisterGeneratedImage(id: string): void {
+    const image = generatedImages.get(id)
+    if (!image) return
+    generatedImages.delete(id)
+    generatedImageBytes -= image.content.byteLength
+}
+
 export function clearGeneratedImages(): void {
     generatedImages.clear()
     generatedImageBytes = 0

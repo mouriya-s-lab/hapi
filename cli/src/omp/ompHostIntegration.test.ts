@@ -204,6 +204,52 @@ describe('OMP host tool bridge', () => {
         expect(sendAgentMessage).not.toHaveBeenCalled();
         bridge.close();
     });
+
+    it('discards registered media and file snapshots when the terminal frame write fails', async () => {
+        const fake = createFakeClient({
+            sendControlFrame: async (frame) => {
+                if (frame.type === 'host_tool_result') throw new Error('terminal frame write failed');
+            }
+        });
+        const sendAgentMessage = vi.fn();
+        const onFatal = vi.fn();
+        const bridge = new OmpHostToolBridge({
+            client: fake.client,
+            cwd: sourceDir,
+            sendAgentMessage,
+            sendSummary: vi.fn(),
+            onFatal
+        });
+        await bridge.register();
+        const imagePath = join(sourceDir, 'discard.png');
+        const filePath = join(sourceDir, 'discard.txt');
+        await writeFile(imagePath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'));
+        await writeFile(filePath, 'discarded file');
+
+        bridge.handleCall({
+            type: 'host_tool_call', id: 'image-write-failure', toolCallId: 'tool-image-failure', toolName: 'display_image', arguments: { path: imagePath }
+        });
+        bridge.handleCall({
+            type: 'host_tool_call', id: 'file-write-failure', toolCallId: 'tool-file-failure', toolName: 'send_file', arguments: { path: filePath }
+        });
+
+        await vi.waitFor(() => expect(onFatal).toHaveBeenCalledTimes(2));
+        const imageFrame = fake.frames.find((frame) => frame.type === 'host_tool_result' && frame.id === 'image-write-failure');
+        const fileFrame = fake.frames.find((frame) => frame.type === 'host_tool_result' && frame.id === 'file-write-failure');
+        expect(imageFrame?.type).toBe('host_tool_result');
+        expect(fileFrame?.type).toBe('host_tool_result');
+        if (imageFrame?.type !== 'host_tool_result' || fileFrame?.type !== 'host_tool_result') {
+            throw new Error('Expected terminal host tool result frames');
+        }
+        const imageId = imageFrame.result.details?.imageId;
+        const fileId = fileFrame.result.details?.fileId;
+        expect(typeof imageId).toBe('string');
+        expect(typeof fileId).toBe('string');
+        expect(getGeneratedImage(String(imageId))).toBeNull();
+        expect(getGeneratedFile(String(fileId))).toBeNull();
+        expect(sendAgentMessage).not.toHaveBeenCalled();
+        bridge.close();
+    });
 });
 
 describe('OMP host URI bridge', () => {
@@ -247,6 +293,38 @@ describe('OMP host URI bridge', () => {
         expect(fake.frames.some((frame) => frame.type === 'host_uri_result' && frame.id === 'cancel')).toBe(false);
         expect(onFatal).not.toHaveBeenCalled();
         bridge.close();
+    });
+
+    it('reports a failed timeout result write through the fatal transport path', async () => {
+        vi.useFakeTimers();
+        try {
+            const fake = createFakeClient({
+                sendControlFrame: async (frame) => {
+                    if (frame.type === 'host_uri_result') throw new Error('host URI result write failed');
+                }
+            });
+            const provider: OmpHostUriProvider = {
+                definition: { scheme: 'hapi' },
+                read: async (_url, signal) => await new Promise((_resolve, reject) => {
+                    signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+                })
+            };
+            const onFatal = vi.fn();
+            const bridge = new OmpHostUriBridge(fake.client, [provider], onFatal);
+            await bridge.register();
+            bridge.handleRequest({
+                type: 'host_uri_request', id: 'timeout-write-failure', operation: 'read', url: 'hapi://docs/slow'
+            });
+
+            await vi.advanceTimersByTimeAsync(120_000);
+
+            expect(onFatal).toHaveBeenCalledWith(expect.objectContaining({
+                message: 'host URI result write failed'
+            }));
+            bridge.close();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
 
@@ -308,6 +386,27 @@ describe('OMP extension UI bridge', () => {
             expect(harness.getState().requests).toEqual({});
             expect(harness.getState().completedRequests?.cancelled.reason).toBe('Cancelled by OMP');
             expect(harness.getState().completedRequests?.timeout.reason).toBe('Timed out');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('accepts an immediate zero-millisecond timeout', async () => {
+        vi.useFakeTimers();
+        try {
+            const fake = createFakeClient();
+            const harness = createExtensionBridge(fake.client);
+            harness.bridge.handle({
+                type: 'extension_ui_request', id: 'immediate-timeout', method: 'input', title: 'Immediate', timeout: 0
+            });
+
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(fake.frames).toContainEqual({
+                type: 'extension_ui_response', id: 'immediate-timeout', cancelled: true, timedOut: true
+            });
+            expect(harness.getState().requests).toEqual({});
+            expect(harness.onFatal).not.toHaveBeenCalled();
         } finally {
             vi.useRealTimers();
         }
@@ -413,10 +512,12 @@ describe('OMP login integration', () => {
             onFatal: vi.fn()
         });
         await integration.initialize();
+        expect(fake.requests).toContainEqual({ type: 'set_host_uri_schemes', schemes: [] });
 
         const startLogin = rpcHandlers.get(RPC_METHODS.StartOmpLogin)!;
         const listProviders = rpcHandlers.get(RPC_METHODS.ListOmpLoginProviders)!;
         const answerUi = rpcHandlers.get(RPC_METHODS.Permission)!;
+        const getPendingUi = rpcHandlers.get(RPC_METHODS.GetOmpExtensionUiRequest)!;
         const login = startLogin({ providerId: 'example' });
         await vi.waitFor(() => {
             expect(fake.requests.some((request) => request.type === 'login')).toBe(true);
@@ -455,9 +556,22 @@ describe('OMP login integration', () => {
             type: 'extension_ui_response', id: 'secret-input', value: 'credential-must-not-persist'
         });
         expect(state.completedRequests?.['secret-input'].answers).toBeUndefined();
-        expect(state.requests?.['secret-url'].arguments).toMatchObject({
-            url: 'https://provider.example/device?user_code=provider-secret'
+        expect(state.requests?.['secret-url'].arguments).toEqual({ ompTransientRequest: true });
+        await expect(getPendingUi({ requestId: 'secret-url' })).resolves.toEqual({
+            success: true,
+            input: {
+                url: 'https://provider.example/device?user_code=provider-secret',
+                questions: [expect.objectContaining({
+                    question: 'Enter provider-secret',
+                    options: [{
+                        label: 'Open login page',
+                        description: 'https://provider.example/device?user_code=provider-secret'
+                    }]
+                })]
+            }
         });
+        expect(JSON.stringify(state)).not.toContain('provider-secret');
+        expect(JSON.stringify(state)).not.toContain('credential-must-not-persist');
         await answerUi({
             id: 'secret-url',
             approved: true,
@@ -478,6 +592,25 @@ describe('OMP login integration', () => {
             })
         ]));
 
+        integration.handle({
+            type: 'extension_ui_request',
+            raw: {
+                type: 'extension_ui_request',
+                id: 'secret-before-close',
+                method: 'editor',
+                title: 'Paste another secret',
+                prefill: 'crash-only-secret'
+            }
+        });
+        expect(state.requests?.['secret-before-close'].arguments).toEqual({ ompTransientRequest: true });
+        await integration.close('simulated crash');
+        expect(state.requests).toEqual({});
+        expect(JSON.stringify(state)).not.toContain('crash-only-secret');
+        expect(JSON.stringify(messages)).not.toContain('crash-only-secret');
+        await expect(getPendingUi({ requestId: 'secret-before-close' })).resolves.toMatchObject({
+            success: false
+        });
+
         loginGate.resolve();
         await expect(login).resolves.toMatchObject({
             success: true,
@@ -491,6 +624,65 @@ describe('OMP login integration', () => {
             expect.objectContaining({ method: 'login_status', status: 'started' }),
             expect.objectContaining({ method: 'login_status', status: 'authenticated' })
         ]));
+    });
+
+    it('claims the login slot before asynchronous provider discovery', async () => {
+        const providerDiscoveryGate = Promise.withResolvers<{
+            providers: Array<{ id: string; name: string; available: boolean; authenticated: boolean }>;
+        }>();
+        let providerDiscoveryCount = 0;
+        const fake = createFakeClient({
+            request: async (command) => {
+                switch (command.type) {
+                    case 'set_host_tools':
+                        return { toolNames: command.tools.map((tool) => tool.name) };
+                    case 'set_host_uri_schemes':
+                        return { schemes: command.schemes.map((scheme) => scheme.scheme) };
+                    case 'get_login_providers':
+                        providerDiscoveryCount += 1;
+                        if (providerDiscoveryCount === 2) return await providerDiscoveryGate.promise;
+                        return {
+                            providers: [{ id: 'example', name: 'Example', available: true, authenticated: false }]
+                        };
+                    case 'login':
+                        return { providerId: command.providerId };
+                    default:
+                        throw new Error(`Unexpected command in concurrent login test: ${command.type}`);
+                }
+            }
+        });
+        const rpcHandlers = new Map<string, (request: unknown) => Promise<unknown>>();
+        const integration = new OmpHostIntegration({
+            client: fake.client,
+            cwd: '/workspace',
+            sessionClient: {
+                sendAgentMessage: vi.fn(),
+                sendClaudeSessionMessage: vi.fn(),
+                updateAgentState: vi.fn(),
+                rpcHandlerManager: {
+                    registerHandler: (method: string, handler: (request: unknown) => Promise<unknown>) => {
+                        rpcHandlers.set(method, handler);
+                    }
+                }
+            } as never,
+            onFatal: vi.fn()
+        });
+        await integration.initialize();
+        const startLogin = rpcHandlers.get(RPC_METHODS.StartOmpLogin)!;
+
+        const first = startLogin({ providerId: 'example' });
+        await vi.waitFor(() => expect(providerDiscoveryCount).toBe(2));
+        await expect(startLogin({ providerId: 'example' })).resolves.toEqual({
+            success: false,
+            error: 'An OMP provider login is already in progress'
+        });
+        expect(providerDiscoveryCount).toBe(2);
+
+        providerDiscoveryGate.resolve({
+            providers: [{ id: 'example', name: 'Example', available: true, authenticated: false }]
+        });
+        await expect(first).resolves.toMatchObject({ success: true });
+        expect(fake.requests.filter((request) => request.type === 'login')).toHaveLength(1);
         await integration.close('test complete');
     });
 });

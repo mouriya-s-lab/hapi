@@ -17,6 +17,14 @@ describe('MCP URL request user input', () => {
             .toBeNull()
     })
 
+    it('recognizes opaque OMP transient request markers without inventing form data', () => {
+        expect(parseRequestUserInputInput({ ompTransientRequest: true })).toEqual({
+            questions: [],
+            url: null,
+            transientRequest: true
+        })
+    })
+
     it('reports popup failures instead of treating the URL as opened', () => {
         const open = vi.spyOn(window, 'open').mockReturnValue(null)
         expect(openRequestUserInputUrl('https://example.com/login')).toBe(false)

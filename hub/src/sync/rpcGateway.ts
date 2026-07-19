@@ -28,6 +28,7 @@ import type {
     OmpThinkingOptionsResponse,
     OmpLoginProvidersResponse,
     StartOmpLoginResponse,
+    GetOmpExtensionUiResponse,
     PathExistsResponse,
     SlashCommandsResponse,
     UploadFileResponse,
@@ -89,6 +90,7 @@ export type RpcListOmpModelsResponse = OmpModelsResponse
 export type RpcListOmpThinkingOptionsResponse = OmpThinkingOptionsResponse
 export type RpcListOmpLoginProvidersResponse = OmpLoginProvidersResponse
 export type RpcStartOmpLoginResponse = StartOmpLoginResponse
+export type RpcGetOmpExtensionUiResponse = GetOmpExtensionUiResponse
 
 export class RpcGateway {
     constructor(
@@ -395,6 +397,17 @@ export class RpcGateway {
             { providerId },
             OMP_LOGIN_RPC_TIMEOUT_MS
         ) as RpcStartOmpLoginResponse
+    }
+
+    async getOmpExtensionUiRequestForSession(
+        sessionId: string,
+        requestId: string
+    ): Promise<RpcGetOmpExtensionUiResponse> {
+        return await this.sessionRpc(
+            sessionId,
+            RPC_METHODS.GetOmpExtensionUiRequest,
+            { requestId }
+        ) as RpcGetOmpExtensionUiResponse
     }
 
     async listOpencodeModelsForCwd(machineId: string, cwd: string): Promise<RpcListOpencodeModelsResponse> {

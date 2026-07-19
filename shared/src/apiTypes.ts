@@ -495,6 +495,37 @@ export type StartOmpLoginResponse =
         error: string
     }
 
+export type OmpExtensionUiInput = {
+    url?: string
+    questions: Array<{
+        id: string
+        question: string
+        required: boolean
+        multiple: boolean
+        options: Array<{
+            label: string
+            description: string | null
+        }>
+        placeholder?: string | null
+        initialValue?: string
+        multiline?: boolean
+    }>
+}
+
+export type GetOmpExtensionUiRequest = {
+    requestId: string
+}
+
+export type GetOmpExtensionUiResponse =
+    | {
+        success: true
+        input: OmpExtensionUiInput
+    }
+    | {
+        success: false
+        error: string
+    }
+
 export type GrokModelSummary = {
     modelId: string
     name?: string

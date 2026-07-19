@@ -962,6 +962,36 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
     })
 
+    app.get('/sessions/:id/omp-extension-ui/:requestId', async (c) => {
+        c.header('Cache-Control', 'no-store')
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) return sessionResult
+        if (sessionResult.session.metadata?.flavor !== 'omp') {
+            return c.json({ success: false, error: 'OMP extension UI is only available for OMP sessions' }, 400)
+        }
+        if (sessionResult.session.agentState?.controlledByUser === true) {
+            return c.json({ success: false, error: 'OMP extension UI is only available for remote sessions' }, 409)
+        }
+        const requestId = c.req.param('requestId')
+        if (!requestId) {
+            return c.json({ success: false, error: 'Invalid OMP extension UI request' }, 400)
+        }
+        try {
+            const result = await engine.getOmpExtensionUiRequestForSession(
+                sessionResult.sessionId,
+                requestId
+            )
+            return c.json(result, result.success ? 200 : 404)
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to load OMP extension UI request'
+            }, 500)
+        }
+    })
+
     app.post('/sessions/:id/omp-model-cycle', async (c) => {
         const engine = requireSyncEngine(c, getSyncEngine)
         if (engine instanceof Response) return engine

@@ -5,7 +5,7 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import { RpcHandlerManager } from '../../api/rpc/RpcHandlerManager'
 import { registerFileHandlers } from './handlers/files'
-import { clearGeneratedFiles, detectFileMimeType, getGeneratedFile, MAX_GENERATED_FILE_BYTES, registerGeneratedFile } from './generatedFiles'
+import { clearGeneratedFiles, detectFileMimeType, getGeneratedFile, MAX_GENERATED_FILE_BYTES, registerGeneratedFile, unregisterGeneratedFile } from './generatedFiles'
 
 async function createTempDir(prefix: string): Promise<string> {
     const path = join(tmpdir(), `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`)
@@ -152,6 +152,17 @@ describe('generated files registry', () => {
         clearGeneratedFiles()
 
         expect(getGeneratedFile('file-5')).toBeNull()
+        expect(existsSync(file.snapshotPath)).toBe(false)
+    })
+
+    it('unregisters one snapshot without disturbing the registry lifecycle', async () => {
+        const sourcePath = join(sourceDir, 'discarded.txt')
+        await writeFile(sourcePath, 'discard me')
+        const file = await registerGeneratedFile({ id: 'file-discard', path: sourcePath })
+
+        await unregisterGeneratedFile(file.id)
+
+        expect(getGeneratedFile(file.id)).toBeNull()
         expect(existsSync(file.snapshotPath)).toBe(false)
     })
 })

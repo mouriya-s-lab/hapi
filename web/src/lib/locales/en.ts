@@ -389,6 +389,7 @@ export default {
   'tool.requestUserInput.noteLabel': 'Additional note (optional)',
   'tool.requestUserInput.notePlaceholder': 'Add a note…',
   'tool.requestUserInput.popupBlocked': 'Could not open the sign-in page. Allow popups and try again.',
+  'tool.requestUserInput.loading': 'Loading secure sign-in request…',
   'toolGroup.title': 'Tool activity',
   'toolGroup.primary.fileTargets': '{target} +{n}',
   'toolGroup.primary.commandTargets': '{target} +{n}',

@@ -68,9 +68,11 @@ function createApp(session: Session, opts?: {
     getCursorChatStoreStatus?: SyncEngine['getCursorChatStoreStatus']
     listOmpLoginProvidersForSession?: SyncEngine['listOmpLoginProvidersForSession']
     startOmpLoginForSession?: SyncEngine['startOmpLoginForSession']
+    getOmpExtensionUiRequestForSession?: SyncEngine['getOmpExtensionUiRequestForSession']
 }) {
     const applySessionConfigCalls: Array<[string, Record<string, unknown>]> = []
     const startOmpLoginCalls: Array<[string, string]> = []
+    const getOmpExtensionUiRequestCalls: Array<[string, string]> = []
     const applySessionConfig = async (sessionId: string, config: Record<string, unknown>) => {
         applySessionConfigCalls.push([sessionId, config])
     }
@@ -140,6 +142,23 @@ function createApp(session: Session, opts?: {
             }]
         }
     })
+    const getOmpExtensionUiRequestForSession = opts?.getOmpExtensionUiRequestForSession
+        ?? (async (sessionId: string, requestId: string) => {
+            getOmpExtensionUiRequestCalls.push([sessionId, requestId])
+            return {
+                success: true as const,
+                input: {
+                    url: 'https://provider.example/device?user_code=transient',
+                    questions: [{
+                        id: '__mcp_url_confirmation',
+                        question: 'Open provider login',
+                        required: true,
+                        multiple: false,
+                        options: [{ label: 'Open login page', description: null }]
+                    }]
+                }
+            }
+        })
     const listCursorModelsForSession = async () => ({
         success: true,
         availableModels: [
@@ -168,6 +187,7 @@ function createApp(session: Session, opts?: {
         listOmpThinkingOptionsForSession,
         listOmpLoginProvidersForSession,
         startOmpLoginForSession,
+        getOmpExtensionUiRequestForSession,
         cycleOmpModelForSession,
         resumeSession,
         reopenSession,
@@ -199,7 +219,7 @@ function createApp(session: Session, opts?: {
     })
     app.route('/api', createSessionsRoutes(() => engine as SyncEngine))
 
-    return { app, applySessionConfigCalls, startOmpLoginCalls }
+    return { app, applySessionConfigCalls, startOmpLoginCalls, getOmpExtensionUiRequestCalls }
 }
 
 describe('sessions routes', () => {
@@ -997,6 +1017,74 @@ describe('sessions routes', () => {
             provider: { id: 'example', authenticated: true }
         })
         expect(startOmpLoginCalls).toEqual([['session-1', 'example']])
+    })
+
+    it('retrieves transient OMP extension UI input without allowing response caching', async () => {
+        const session = createSession({
+            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'omp' }
+        })
+        const { app, getOmpExtensionUiRequestCalls } = createApp(session)
+
+        const response = await app.request('/api/sessions/session-1/omp-extension-ui/request-1')
+
+        expect(response.status).toBe(200)
+        expect(response.headers.get('cache-control')).toBe('no-store')
+        expect(await response.json()).toEqual({
+            success: true,
+            input: {
+                url: 'https://provider.example/device?user_code=transient',
+                questions: [{
+                    id: '__mcp_url_confirmation',
+                    question: 'Open provider login',
+                    required: true,
+                    multiple: false,
+                    options: [{ label: 'Open login page', description: null }]
+                }]
+            }
+        })
+        expect(getOmpExtensionUiRequestCalls).toEqual([['session-1', 'request-1']])
+    })
+
+    it('validates transient OMP extension UI session ownership and failure states', async () => {
+        const wrongFlavor = createApp(createSession())
+        const localOmp = createApp(createSession({
+            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'omp' },
+            agentState: { controlledByUser: true, requests: {}, completedRequests: {} }
+        }))
+        const missingOmp = createApp(createSession({
+            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'omp' }
+        }), {
+            getOmpExtensionUiRequestForSession: async () => ({
+                success: false,
+                error: 'OMP extension UI request is no longer pending: missing'
+            })
+        })
+        const failedOmp = createApp(createSession({
+            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'omp' }
+        }), {
+            getOmpExtensionUiRequestForSession: async () => {
+                throw new Error('CLI RPC disconnected')
+            }
+        })
+
+        const responses = await Promise.all([
+            wrongFlavor.app.request('/api/sessions/session-1/omp-extension-ui/request-1'),
+            localOmp.app.request('/api/sessions/session-1/omp-extension-ui/request-1'),
+            missingOmp.app.request('/api/sessions/session-1/omp-extension-ui/missing'),
+            failedOmp.app.request('/api/sessions/session-1/omp-extension-ui/request-1')
+        ])
+
+        expect(responses.map((response) => response.status)).toEqual([400, 409, 404, 500])
+        expect(await responses[2]!.json()).toEqual({
+            success: false,
+            error: 'OMP extension UI request is no longer pending: missing'
+        })
+        expect(await responses[3]!.json()).toEqual({
+            success: false,
+            error: 'CLI RPC disconnected'
+        })
+        expect(wrongFlavor.getOmpExtensionUiRequestCalls).toEqual([])
+        expect(localOmp.getOmpExtensionUiRequestCalls).toEqual([])
     })
 
     it('validates the OMP login session boundary and request body', async () => {

@@ -239,6 +239,14 @@ export function getGeneratedFile(id: string): GeneratedFileMetadata | null {
     return generatedFiles.get(id) ?? null
 }
 
+export async function unregisterGeneratedFile(id: string): Promise<void> {
+    const file = generatedFiles.get(id)
+    if (!file) return
+    generatedFiles.delete(id)
+    generatedFileBytes -= file.size
+    await rm(file.snapshotPath, { force: true })
+}
+
 export function clearGeneratedFiles(): void {
     cleanupSentFilesSync()
 }

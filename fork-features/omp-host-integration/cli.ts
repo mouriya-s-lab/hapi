@@ -3,8 +3,14 @@ import { z } from 'zod';
 import type { AgentState } from '../../cli/src/api/types';
 import type { ApiSessionClient } from '../../cli/src/api/apiSession';
 import type { RawJSONLines } from '../../cli/src/claude/types';
-import { registerGeneratedFile } from '../../cli/src/modules/common/generatedFiles';
-import { registerGeneratedMediaFromPath } from '../../cli/src/modules/common/generatedImages';
+import {
+    registerGeneratedFile,
+    unregisterGeneratedFile
+} from '../../cli/src/modules/common/generatedFiles';
+import {
+    registerGeneratedMediaFromPath,
+    unregisterGeneratedImage
+} from '../../cli/src/modules/common/generatedImages';
 import { resolveSkill } from '../../cli/src/modules/common/skills';
 import type { OmpRpcClient } from '../../cli/src/omp/rpc/OmpRpcClient';
 import type {
@@ -22,6 +28,9 @@ import type {
 import { logger } from '../../cli/src/ui/logger';
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 import type {
+    GetOmpExtensionUiRequest,
+    GetOmpExtensionUiResponse,
+    OmpExtensionUiInput,
     OmpLoginProvidersResponse,
     StartOmpLoginRequest,
     StartOmpLoginResponse
@@ -38,9 +47,9 @@ const JsonValueSchema: z.ZodType<unknown> = z.lazy(() => z.union([
 const JsonObjectSchema = z.record(z.string(), JsonValueSchema) as z.ZodType<JsonObject>;
 
 const ExtensionUiRequestSchema = z.discriminatedUnion('method', [
-    z.object({ type: z.literal('extension_ui_request'), id: z.string(), method: z.literal('select'), title: z.string(), options: z.array(z.string()), timeout: z.number().positive().optional() }),
-    z.object({ type: z.literal('extension_ui_request'), id: z.string(), method: z.literal('confirm'), title: z.string(), message: z.string(), timeout: z.number().positive().optional() }),
-    z.object({ type: z.literal('extension_ui_request'), id: z.string(), method: z.literal('input'), title: z.string(), placeholder: z.string().optional(), timeout: z.number().positive().optional() }),
+    z.object({ type: z.literal('extension_ui_request'), id: z.string(), method: z.literal('select'), title: z.string(), options: z.array(z.string()), timeout: z.number().nonnegative().optional() }),
+    z.object({ type: z.literal('extension_ui_request'), id: z.string(), method: z.literal('confirm'), title: z.string(), message: z.string(), timeout: z.number().nonnegative().optional() }),
+    z.object({ type: z.literal('extension_ui_request'), id: z.string(), method: z.literal('input'), title: z.string(), placeholder: z.string().optional(), timeout: z.number().nonnegative().optional() }),
     z.object({ type: z.literal('extension_ui_request'), id: z.string(), method: z.literal('editor'), title: z.string(), prefill: z.string().optional(), promptStyle: z.boolean().optional() }),
     z.object({ type: z.literal('extension_ui_request'), id: z.string(), method: z.literal('cancel'), targetId: z.string() }),
     z.object({ type: z.literal('extension_ui_request'), id: z.string(), method: z.literal('notify'), message: z.string(), notifyType: z.enum(['info', 'warning', 'error']).optional() }),
@@ -198,6 +207,7 @@ type PendingHostTool = {
 type HostToolExecution = {
     result: OmpAgentToolResult;
     publish?: () => void;
+    discard?: () => void | Promise<void>;
 };
 
 export type OmpExtensionUiPresentationEvent =
@@ -292,18 +302,20 @@ export class OmpHostToolBridge {
     }
 
     private async execute(pending: PendingHostTool): Promise<void> {
+        await this.options.client.sendControlFrame({
+            type: 'host_tool_update',
+            id: pending.request.id,
+            partialResult: textResult(`HAPI is running ${pending.request.toolName}`)
+        });
+        let execution: HostToolExecution;
         try {
-            await this.options.client.sendControlFrame({
-                type: 'host_tool_update',
-                id: pending.request.id,
-                partialResult: textResult(`HAPI is running ${pending.request.toolName}`)
-            });
-            const execution = await this.executeTool(pending.request, pending.controller.signal);
-            await this.finishSuccess(pending, execution);
+            execution = await this.executeTool(pending.request, pending.controller.signal);
         } catch (error) {
             if (pending.cancelled || pending.timedOut) return;
             await this.finishError(pending, error);
+            return;
         }
+        await this.finishSuccess(pending, execution);
     }
 
     private async executeTool(
@@ -331,7 +343,10 @@ export class OmpHostToolBridge {
                     path: args.path,
                     fileName: args.title
                 });
-                throwIfAborted(signal, request.toolName);
+                if (signal.aborted) {
+                    await unregisterGeneratedFile(file.id);
+                    throw abortError(request.toolName);
+                }
                 return {
                     result: textResult(`Sent file: ${file.fileName} (${file.size} bytes)`, {
                         toolCallId: request.toolCallId,
@@ -348,7 +363,8 @@ export class OmpHostToolBridge {
                         size: file.size,
                         id: request.toolCallId,
                         toolCallId: request.toolCallId
-                    })
+                    }),
+                    discard: async () => await unregisterGeneratedFile(file.id)
                 };
             }
             case 'skill_lookup': {
@@ -380,7 +396,10 @@ export class OmpHostToolBridge {
             fileName: args.title
         });
         if (!result.ok) throw new Error(result.error.message);
-        throwIfAborted(signal, request.toolName);
+        if (signal.aborted) {
+            unregisterGeneratedImage(result.media.id);
+            throw abortError(request.toolName);
+        }
         return {
             result: textResult(`Displayed ${kind}: ${result.media.fileName}`, {
                 toolCallId: request.toolCallId,
@@ -395,18 +414,27 @@ export class OmpHostToolBridge {
                 mimeType: result.media.mimeType,
                 id: request.toolCallId,
                 toolCallId: request.toolCallId
-            })
+            }),
+            discard: () => unregisterGeneratedImage(result.media.id)
         };
     }
 
     private async finishSuccess(pending: PendingHostTool, execution: HostToolExecution): Promise<void> {
-        if (!this.takePending(pending)) return;
-        execution.publish?.();
-        await this.options.client.sendControlFrame({
-            type: 'host_tool_result',
-            id: pending.request.id,
-            result: execution.result
-        });
+        if (!this.takePending(pending)) {
+            await execution.discard?.();
+            return;
+        }
+        try {
+            await this.options.client.sendControlFrame({
+                type: 'host_tool_result',
+                id: pending.request.id,
+                result: execution.result
+            });
+            execution.publish?.();
+        } catch (error) {
+            await execution.discard?.();
+            throw error;
+        }
     }
 
     private async finishError(pending: PendingHostTool, error: unknown): Promise<void> {
@@ -502,7 +530,9 @@ export class OmpHostUriBridge {
                     id: request.id,
                     isError: true,
                     error: `HAPI host URI ${request.operation} timed out after ${HOST_OPERATION_TIMEOUT_MS}ms`
-                });
+                }).catch((error) => this.onFatal(
+                    error instanceof Error ? error : new Error(String(error))
+                ));
             }, HOST_OPERATION_TIMEOUT_MS)
         };
         pending.timer.unref();
@@ -599,7 +629,7 @@ type PendingExtensionRequest =
     | {
         kind: 'waited';
         request: WaitedExtensionRequest;
-        arguments: JsonObject;
+        arguments: OmpExtensionUiInput;
         createdAt: number;
         sensitive: boolean;
         timer?: ReturnType<typeof setTimeout>;
@@ -607,7 +637,7 @@ type PendingExtensionRequest =
     | {
         kind: 'open-url';
         request: Extract<OmpExtensionUiRequest, { method: 'open_url' }>;
-        arguments: JsonObject;
+        arguments: OmpExtensionUiInput;
         createdAt: number;
         sensitive: boolean;
         timer: ReturnType<typeof setTimeout>;
@@ -659,7 +689,9 @@ export class OmpExtensionUiBridge {
                     type: 'omp-extension-ui',
                     method: 'setStatus',
                     key: request.statusKey,
-                    text: request.statusText ?? null
+                    text: this.options.isLoginActive()
+                        ? 'OMP provider login status updated'
+                        : request.statusText ?? null
                 } satisfies OmpExtensionUiPresentationEvent);
                 return;
             case 'setWidget':
@@ -667,23 +699,32 @@ export class OmpExtensionUiBridge {
                     type: 'omp-extension-ui',
                     method: 'setWidget',
                     key: request.widgetKey,
-                    lines: request.widgetLines ?? [],
+                    lines: this.options.isLoginActive()
+                        ? ['OMP provider login status updated']
+                        : request.widgetLines ?? [],
                     placement: request.widgetPlacement
                 } satisfies OmpExtensionUiPresentationEvent);
                 return;
-            case 'setTitle':
-                this.options.sendSummary(request.title);
+            case 'setTitle': {
+                const title = this.options.isLoginActive() ? 'OMP provider login' : request.title;
+                this.options.sendSummary(title);
                 this.options.sendAgentMessage({
                     type: 'omp-extension-ui',
                     method: 'setTitle',
-                    title: request.title
+                    title
                 } satisfies OmpExtensionUiPresentationEvent);
                 return;
+            }
             case 'set_editor_text':
                 this.options.sendAgentMessage({
                     type: 'omp-extension-ui',
-                    method: 'set_editor_text',
-                    text: request.text
+                    ...(this.options.isLoginActive()
+                        ? {
+                            method: 'notify' as const,
+                            message: 'OMP provider login editor text updated',
+                            level: 'info' as const
+                        }
+                        : { method: 'set_editor_text' as const, text: request.text })
                 } satisfies OmpExtensionUiPresentationEvent);
                 return;
             case 'open_url':
@@ -727,6 +768,15 @@ export class OmpExtensionUiBridge {
         const frame = this.responseFrame(pending.request, response.answers);
         if (!this.complete(pending, 'approved', decision, persistedAnswers)) return;
         await this.options.client.sendControlFrame(frame);
+    }
+
+    getPendingInput(raw: GetOmpExtensionUiRequest): GetOmpExtensionUiResponse {
+        const requestId = z.string().min(1).parse(raw.requestId);
+        const pending = this.pending.get(requestId);
+        if (!pending) {
+            return { success: false, error: `OMP extension UI request is no longer pending: ${requestId}` };
+        }
+        return { success: true, input: pending.arguments };
     }
 
     async close(reason: string): Promise<void> {
@@ -788,7 +838,7 @@ export class OmpExtensionUiBridge {
             return;
         }
         const sensitive = this.options.isLoginActive();
-        const argumentsValue: JsonObject = {
+        const argumentsValue: OmpExtensionUiInput = {
             url: target,
             questions: [{
                 id: '__mcp_url_confirmation',
@@ -819,7 +869,7 @@ export class OmpExtensionUiBridge {
         } satisfies OmpExtensionUiPresentationEvent);
     }
 
-    private toRequestUserInput(request: WaitedExtensionRequest): JsonObject {
+    private toRequestUserInput(request: WaitedExtensionRequest): OmpExtensionUiInput {
         switch (request.method) {
             case 'select':
                 return {
@@ -950,7 +1000,9 @@ export class OmpExtensionUiBridge {
                 ...(state.requests ?? {}),
                 [entry.request.id]: {
                     tool: 'request_user_input',
-                    arguments: entry.arguments,
+                    arguments: entry.sensitive
+                        ? { ompTransientRequest: true }
+                        : entry.arguments,
                     createdAt: entry.createdAt
                 }
             }
@@ -995,15 +1047,26 @@ export class OmpExtensionUiBridge {
     }
 
     private completedArguments(entry: PendingExtensionRequest): JsonObject {
-        if (entry.kind !== 'open-url' || !entry.sensitive) return entry.arguments;
+        if (!entry.sensitive) return entry.arguments;
+        if (entry.kind === 'open-url') {
+            return {
+                url: this.redactLoginUrl(entry.request.url),
+                questions: [{
+                    id: '__mcp_url_confirmation',
+                    question: 'Open the provider login page in a new tab?',
+                    required: true,
+                    multiple: false,
+                    options: [{ label: 'Open login page', description: null }]
+                }]
+            };
+        }
         return {
-            url: this.redactLoginUrl(entry.request.url),
             questions: [{
-                id: '__mcp_url_confirmation',
-                question: 'Open the provider login page in a new tab?',
-                required: true,
+                id: 'value',
+                question: 'OMP provider login input',
+                required: false,
                 multiple: false,
-                options: [{ label: 'Open login page', description: null }]
+                options: []
             }]
         };
     }
@@ -1081,6 +1144,10 @@ export class OmpHostIntegration {
             RPC_METHODS.StartOmpLogin,
             async (request) => await this.startLogin(request)
         );
+        options.sessionClient.rpcHandlerManager.registerHandler<GetOmpExtensionUiRequest, GetOmpExtensionUiResponse>(
+            RPC_METHODS.GetOmpExtensionUiRequest,
+            async (request) => this.extensionUi.getPendingInput(request)
+        );
     }
 
     async initialize(): Promise<{ hostToolNames: string[] }> {
@@ -1154,46 +1221,48 @@ export class OmpHostIntegration {
         if (this.loginActive) {
             return { success: false, error: 'An OMP provider login is already in progress' };
         }
-        const catalog = await this.listLoginProvidersFromClient();
-        if (!catalog.success) return catalog;
-        const provider = catalog.providers.find((candidate) => candidate.id === request.providerId);
-        if (!provider?.available) {
-            return { success: false, error: `OMP login provider is unavailable: ${request.providerId}` };
-        }
-        if (provider.authenticated) {
-            return { success: true, provider, providers: catalog.providers };
-        }
-
         this.loginActive = true;
-        this.sessionClient.sendAgentMessage({
-            type: 'omp-extension-ui',
-            method: 'login_status',
-            providerId: provider.id,
-            status: 'started',
-            message: `OMP login started for ${provider.name}`
-        } satisfies OmpExtensionUiPresentationEvent);
+        let provider: OmpLoginProvider | undefined;
         try {
-            await this.client.request({ type: 'login', providerId: provider.id }, { timeoutMs: LOGIN_TIMEOUT_MS });
+            const catalog = await this.listLoginProvidersFromClient();
+            if (!catalog.success) return catalog;
+            provider = catalog.providers.find((candidate) => candidate.id === request.providerId);
+            if (!provider?.available) {
+                return { success: false, error: `OMP login provider is unavailable: ${request.providerId}` };
+            }
+            if (provider.authenticated) {
+                return { success: true, provider, providers: catalog.providers };
+            }
+            const loginProvider = provider;
+
+            this.sessionClient.sendAgentMessage({
+                type: 'omp-extension-ui',
+                method: 'login_status',
+                providerId: loginProvider.id,
+                status: 'started',
+                message: `OMP login started for ${loginProvider.name}`
+            } satisfies OmpExtensionUiPresentationEvent);
+            await this.client.request({ type: 'login', providerId: loginProvider.id }, { timeoutMs: LOGIN_TIMEOUT_MS });
             // OMP may store an alternate login flow under another provider id
             // (for example openai-codex-device -> openai-codex) while its RPC
             // catalog still checks the login-flow id. A successful login command
             // is the authoritative completion signal for this live session.
-            this.authenticatedProviderIds.add(provider.id);
+            this.authenticatedProviderIds.add(loginProvider.id);
             const refreshed = await this.listLoginProvidersFromClient();
             const providers = refreshed.success
                 ? refreshed.providers
                 : catalog.providers.map((candidate) => (
-                    candidate.id === provider.id ? { ...candidate, authenticated: true } : candidate
+                    candidate.id === loginProvider.id ? { ...candidate, authenticated: true } : candidate
                 ));
             this.loginProviders = providers;
-            const authenticated = providers.find((candidate) => candidate.id === provider.id)
-                ?? { ...provider, authenticated: true };
+            const authenticated = providers.find((candidate) => candidate.id === loginProvider.id)
+                ?? { ...loginProvider, authenticated: true };
             this.sessionClient.sendAgentMessage({
                 type: 'omp-extension-ui',
                 method: 'login_status',
-                providerId: provider.id,
+                providerId: loginProvider.id,
                 status: 'authenticated',
-                message: `OMP login completed for ${provider.name}`
+                message: `OMP login completed for ${loginProvider.name}`
             } satisfies OmpExtensionUiPresentationEvent);
             return {
                 success: true,
@@ -1202,13 +1271,15 @@ export class OmpHostIntegration {
             };
         } catch (error) {
             const message = errorText(error);
-            this.sessionClient.sendAgentMessage({
-                type: 'omp-extension-ui',
-                method: 'login_status',
-                providerId: provider.id,
-                status: 'failed',
-                message: `OMP login failed for ${provider.name}`
-            } satisfies OmpExtensionUiPresentationEvent);
+            if (provider) {
+                this.sessionClient.sendAgentMessage({
+                    type: 'omp-extension-ui',
+                    method: 'login_status',
+                    providerId: provider.id,
+                    status: 'failed',
+                    message: `OMP login failed for ${provider.name}`
+                } satisfies OmpExtensionUiPresentationEvent);
+            }
             return { success: false, error: message };
         } finally {
             this.loginActive = false;

@@ -41,6 +41,7 @@ import type {
     OmpThinkingOptionsResponse,
     OmpLoginProvidersResponse,
     StartOmpLoginResponse,
+    GetOmpExtensionUiResponse,
     ReopenSessionResponse,
     UploadFileResponse
 } from '@hapi/protocol/apiTypes'
@@ -761,6 +762,16 @@ export class ApiClient {
                 method: 'POST',
                 body: JSON.stringify({ providerId })
             }
+        )
+    }
+
+    async getSessionOmpExtensionUiRequest(
+        sessionId: string,
+        requestId: string
+    ): Promise<GetOmpExtensionUiResponse> {
+        return await this.request<GetOmpExtensionUiResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/omp-extension-ui/${encodeURIComponent(requestId)}`,
+            { cache: 'no-store' }
         )
     }
 
