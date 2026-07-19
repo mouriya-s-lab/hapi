@@ -44,6 +44,8 @@ function createHarness() {
         message: AgentMessage;
     }> = [];
     const structuredEvents: OmpStructuredEvent[] = [];
+    const hostEvents: Parameters<OmpRpcEventAdapterCallbacks['onHostEvent']>[0][] = [];
+    const availableCommands: Parameters<OmpRpcEventAdapterCallbacks['onAvailableCommandsChanged']>[0][] = [];
     const diagnostics: string[] = [];
     const callbacks: OmpRpcEventAdapterCallbacks = {
         onAgentMessage: (message) => agentMessages.push(message),
@@ -57,8 +59,10 @@ function createHarness() {
         onTurnFinished: vi.fn(),
         onPromptResult: vi.fn(),
         onSessionInfoUpdate: vi.fn(),
+        onAvailableCommandsChanged: (commands) => availableCommands.push(commands),
         onThinkingStateChanged: vi.fn(),
-        onDiagnostic: (message) => diagnostics.push(message)
+        onDiagnostic: (message) => diagnostics.push(message),
+        onHostEvent: (event) => hostEvents.push(event)
     };
     return {
         adapter: new OmpRpcEventAdapter(callbacks),
@@ -68,11 +72,40 @@ function createHarness() {
         agentRunEvents,
         traces,
         structuredEvents,
+        hostEvents,
+        availableCommands,
         diagnostics
     };
 }
 
 describe('OmpRpcEventAdapter', () => {
+    it('forwards the complete dynamic command catalog through a typed callback', () => {
+        const harness = createHarness();
+        harness.adapter.handle(rpcEvent({
+            type: 'available_commands_update',
+            commands: [{
+                name: 'review',
+                aliases: ['rv'],
+                description: 'Review changes',
+                input: { hint: 'path' },
+                subcommands: [{ name: 'staged', usage: '/review staged' }],
+                source: 'extension'
+            }]
+        }));
+
+        expect(harness.availableCommands).toEqual([[
+            {
+                name: 'review',
+                aliases: ['rv'],
+                description: 'Review changes',
+                input: { hint: 'path' },
+                subcommands: [{ name: 'staged', usage: '/review staged' }],
+                source: 'extension'
+            }
+        ]]);
+        expect(harness.callbacks.onSessionInfoUpdate).not.toHaveBeenCalled();
+    });
+
     it('commits one canonical assistant snapshot with separate display/provider IDs and native usage', () => {
         const harness = createHarness();
         const initial = assistantMessage('initial', 'provider-response-1');

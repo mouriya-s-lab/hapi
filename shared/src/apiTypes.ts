@@ -461,6 +461,71 @@ export type OmpThinkingOptionsResponse = {
 
 export type ListOmpThinkingOptionsResponse = OmpThinkingOptionsResponse
 
+export type OmpLoginProviderSummary = {
+    id: string
+    name: string
+    available: boolean
+    authenticated: boolean
+}
+
+export type OmpLoginProvidersResponse =
+    | {
+        success: true
+        providers: OmpLoginProviderSummary[]
+        loginInProgress: boolean
+    }
+    | {
+        success: false
+        error: string
+        loginInProgress?: boolean
+    }
+
+export type StartOmpLoginRequest = {
+    providerId: string
+}
+
+export type StartOmpLoginResponse =
+    | {
+        success: true
+        provider: OmpLoginProviderSummary
+        providers: OmpLoginProviderSummary[]
+    }
+    | {
+        success: false
+        error: string
+    }
+
+export type OmpExtensionUiInput = {
+    url?: string
+    questions: Array<{
+        id: string
+        question: string
+        required: boolean
+        multiple: boolean
+        options: Array<{
+            label: string
+            description: string | null
+        }>
+        placeholder?: string | null
+        initialValue?: string
+        multiline?: boolean
+    }>
+}
+
+export type GetOmpExtensionUiRequest = {
+    requestId: string
+}
+
+export type GetOmpExtensionUiResponse =
+    | {
+        success: true
+        input: OmpExtensionUiInput
+    }
+    | {
+        success: false
+        error: string
+    }
+
 export type GrokModelSummary = {
     modelId: string
     name?: string

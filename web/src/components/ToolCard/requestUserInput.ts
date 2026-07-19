@@ -11,6 +11,8 @@ export type RequestUserInputQuestion = {
     required: boolean
     multiple: boolean
     options: RequestUserInputOption[]
+    placeholder: string | null
+    initialValue: string
 }
 
 export type RequestUserInputQuestionAnswer = {
@@ -21,6 +23,7 @@ export type RequestUserInputQuestionAnswer = {
 export type ParsedRequestUserInput = {
     questions: RequestUserInputQuestion[]
     url: string | null
+    transientRequest: boolean
 }
 
 export type RequestUserInputQuestionInfo = {
@@ -49,7 +52,9 @@ export function openRequestUserInputUrl(url: string): boolean {
 }
 
 export function parseRequestUserInputInput(input: unknown): ParsedRequestUserInput {
-    if (!isObject(input)) return { questions: [], url: null }
+    if (!isObject(input)) return { questions: [], url: null, transientRequest: false }
+
+    const transientRequest = input.ompTransientRequest === true
 
     let url: string | null = null
     if (typeof input.url === 'string') {
@@ -62,7 +67,7 @@ export function parseRequestUserInputInput(input: unknown): ParsedRequestUserInp
     }
 
     const rawQuestions = input.questions
-    if (!Array.isArray(rawQuestions)) return { questions: [], url }
+    if (!Array.isArray(rawQuestions)) return { questions: [], url, transientRequest }
 
     const questions: RequestUserInputQuestion[] = []
     for (const raw of rawQuestions) {
@@ -89,11 +94,13 @@ export function parseRequestUserInputInput(input: unknown): ParsedRequestUserInp
             question,
             required: raw.required !== false,
             multiple: raw.multiple === true,
-            options
+            options,
+            placeholder: typeof raw.placeholder === 'string' ? raw.placeholder : null,
+            initialValue: typeof raw.initialValue === 'string' ? raw.initialValue : ''
         })
     }
 
-    return { questions, url }
+    return { questions, url, transientRequest }
 }
 
 export function isRequestUserInputUrlConfirmed(

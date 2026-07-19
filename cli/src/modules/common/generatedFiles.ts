@@ -1,8 +1,9 @@
 import { basename, extname, join } from 'path'
-import { copyFile, mkdir, stat } from 'fs/promises'
+import { copyFile, lstat, mkdir, open, rm } from 'fs/promises'
 import { rmSync } from 'node:fs'
 import { tmpdir } from 'os'
 import { MAX_SOCKET_RPC_BINARY_BYTES } from '@hapi/protocol/socketLimits'
+import { detectImageMimeType, detectVideoMimeType } from './generatedImages'
 
 export type GeneratedFileMetadata = {
     id: string
@@ -68,9 +69,75 @@ const MIME_BY_EXTENSION: Record<string, string> = {
     '.epub': 'application/epub+zip'
 }
 
-export function detectFileMimeType(fileName: string): string {
+function ascii(bytes: Uint8Array, start: number, end: number): string {
+    return String.fromCharCode(...bytes.subarray(start, end))
+}
+
+function isUtf8Text(bytes: Uint8Array): boolean {
+    if (bytes.includes(0)) return false
+    try {
+        new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+        return true
+    } catch {
+        return false
+    }
+}
+
+export function detectFileMimeType(fileName: string, bytes?: Uint8Array): string {
     const ext = extname(fileName).toLowerCase()
+    if (bytes !== undefined) {
+        if (bytes.length === 0) return 'text/plain'
+        const image = detectImageMimeType(bytes)
+        if (image) return image
+        const video = detectVideoMimeType(bytes)
+        if (video) return video
+
+        if (bytes.length >= 5 && ascii(bytes, 0, 5) === '%PDF-') return 'application/pdf'
+        if (bytes.length >= 4 && ascii(bytes, 0, 4) === 'PK\x03\x04') {
+            if (ext === '.docx') return MIME_BY_EXTENSION['.docx']
+            if (ext === '.xlsx') return MIME_BY_EXTENSION['.xlsx']
+            if (ext === '.pptx') return MIME_BY_EXTENSION['.pptx']
+            if (ext === '.epub') return MIME_BY_EXTENSION['.epub']
+            return 'application/zip'
+        }
+        if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) return 'application/gzip'
+        if (bytes.length >= 6 && ascii(bytes, 0, 6) === '7z\xbc\xaf\x27\x1c') return 'application/x-7z-compressed'
+        if (bytes.length >= 7 && (ascii(bytes, 0, 7) === 'Rar!\x1a\x07\x00' || ascii(bytes, 0, 7) === 'Rar!\x1a\x07\x01')) return 'application/vnd.rar'
+        if (bytes.length >= 8
+            && bytes[0] === 0xd0 && bytes[1] === 0xcf && bytes[2] === 0x11 && bytes[3] === 0xe0
+            && bytes[4] === 0xa1 && bytes[5] === 0xb1 && bytes[6] === 0x1a && bytes[7] === 0xe1) {
+            if (ext === '.doc' || ext === '.xls' || ext === '.ppt') return MIME_BY_EXTENSION[ext]
+            return 'application/x-ole-storage'
+        }
+        if (bytes.length >= 262 && ascii(bytes, 257, 262) === 'ustar') return 'application/x-tar'
+        if (bytes.length >= 4 && ascii(bytes, 0, 4) === 'RIFF') {
+            if (bytes.length >= 12 && ascii(bytes, 8, 12) === 'WAVE') return 'audio/wav'
+        }
+        if (bytes.length >= 3 && ascii(bytes, 0, 3) === 'ID3') return 'audio/mpeg'
+
+        if (isUtf8Text(bytes)) {
+            const text = new TextDecoder().decode(bytes).trimStart().toLowerCase()
+            if (text.startsWith('<!doctype html') || text.startsWith('<html')) return 'text/html'
+            if (text.startsWith('<?xml')) return ext === '.svg' ? 'image/svg+xml' : 'application/xml'
+            if (ext === '.json' && (text.startsWith('{') || text.startsWith('['))) return 'application/json'
+            const textMime = MIME_BY_EXTENSION[ext]
+            return textMime?.startsWith('text/') ? textMime : 'text/plain'
+        }
+
+        return 'application/octet-stream'
+    }
     return MIME_BY_EXTENSION[ext] ?? 'application/octet-stream'
+}
+
+async function readFileHeader(path: string, size: number): Promise<Buffer> {
+    const handle = await open(path, 'r')
+    try {
+        const header = Buffer.alloc(Math.min(size, 8192))
+        const { bytesRead } = await handle.read(header, 0, header.length, 0)
+        return header.subarray(0, bytesRead)
+    } finally {
+        await handle.close()
+    }
 }
 
 function getSentFilesDir(): string {
@@ -97,7 +164,7 @@ function cleanupSentFilesSync(): void {
 }
 
 export async function registerGeneratedFile(args: { id: string; path: string; fileName?: string | null }): Promise<GeneratedFileMetadata> {
-    const info = await stat(args.path)
+    const info = await lstat(args.path)
     if (!info.isFile()) {
         throw new Error('Path is not a regular file')
     }
@@ -120,22 +187,35 @@ export async function registerGeneratedFile(args: { id: string; path: string; fi
     const dir = getSentFilesDir()
     await mkdir(dir, { recursive: true })
     const snapshotPath = join(dir, `${args.id}-${fileName}`)
-    await copyFile(args.path, snapshotPath)
+    try {
+        await copyFile(args.path, snapshotPath)
+        const snapshotInfo = await lstat(snapshotPath)
+        if (!snapshotInfo.isFile()) {
+            throw new Error('Snapshot path is not a regular file')
+        }
+        if (snapshotInfo.size > MAX_GENERATED_FILE_BYTES) {
+            throw new Error(`File is too large to send (max ${MAX_GENERATED_FILE_BYTES} bytes)`)
+        }
+        const header = await readFileHeader(snapshotPath, snapshotInfo.size)
 
-    const metadata: GeneratedFileMetadata = {
-        id: args.id,
-        fileName,
-        snapshotPath,
-        mimeType: detectFileMimeType(fileName),
-        size: info.size,
-        createdAt: Date.now()
+        const metadata: GeneratedFileMetadata = {
+            id: args.id,
+            fileName,
+            snapshotPath,
+            mimeType: detectFileMimeType(fileName, header),
+            size: snapshotInfo.size,
+            createdAt: Date.now()
+        }
+        generatedFiles.set(args.id, metadata)
+        generatedFileBytes += snapshotInfo.size
+
+        evictOldGeneratedFiles()
+
+        return metadata
+    } catch (error) {
+        await rm(snapshotPath, { force: true })
+        throw error
     }
-    generatedFiles.set(args.id, metadata)
-    generatedFileBytes += info.size
-
-    evictOldGeneratedFiles()
-
-    return metadata
 }
 
 function evictOldGeneratedFiles(): void {
@@ -157,6 +237,14 @@ function evictOldGeneratedFiles(): void {
 
 export function getGeneratedFile(id: string): GeneratedFileMetadata | null {
     return generatedFiles.get(id) ?? null
+}
+
+export async function unregisterGeneratedFile(id: string): Promise<void> {
+    const file = generatedFiles.get(id)
+    if (!file) return
+    generatedFiles.delete(id)
+    generatedFileBytes -= file.size
+    await rm(file.snapshotPath, { force: true })
 }
 
 export function clearGeneratedFiles(): void {

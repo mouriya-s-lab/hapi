@@ -5,7 +5,7 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import { RpcHandlerManager } from '../../api/rpc/RpcHandlerManager'
 import { registerFileHandlers } from './handlers/files'
-import { clearGeneratedFiles, detectFileMimeType, getGeneratedFile, MAX_GENERATED_FILE_BYTES, registerGeneratedFile } from './generatedFiles'
+import { clearGeneratedFiles, detectFileMimeType, getGeneratedFile, MAX_GENERATED_FILE_BYTES, registerGeneratedFile, unregisterGeneratedFile } from './generatedFiles'
 
 async function createTempDir(prefix: string): Promise<string> {
     const path = join(tmpdir(), `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`)
@@ -46,7 +46,7 @@ describe('generated files registry', () => {
         const file = await registerGeneratedFile({ id: 'file-2', path: sourcePath, fileName: 'final report.pdf' })
 
         expect(file.fileName).toBe('final_report.pdf')
-        expect(file.mimeType).toBe('application/pdf')
+        expect(file.mimeType).toBe('text/plain')
     })
 
     it('keeps the source extension when the title omits it', async () => {
@@ -64,6 +64,37 @@ describe('generated files registry', () => {
         expect(detectFileMimeType('a.zip')).toBe('application/zip')
         expect(detectFileMimeType('a.csv')).toBe('text/csv')
         expect(detectFileMimeType('a.unknownext')).toBe('application/octet-stream')
+    })
+
+    it('sniffs actual bytes instead of trusting a misleading extension', async () => {
+        const textNamedPdf = join(sourceDir, 'notes.pdf')
+        const pdfNamedBin = join(sourceDir, 'document.bin')
+        await writeFile(textNamedPdf, 'plain text')
+        await writeFile(pdfNamedBin, '%PDF-1.7\n')
+
+        const textFile = await registerGeneratedFile({ id: 'sniff-text', path: textNamedPdf })
+        const pdfFile = await registerGeneratedFile({ id: 'sniff-pdf', path: pdfNamedBin })
+
+        expect(textFile.mimeType).toBe('text/plain')
+        expect(pdfFile.mimeType).toBe('application/pdf')
+    })
+
+    it('does not infer an empty snapshot MIME from a misleading extension', async () => {
+        const emptyPdf = join(sourceDir, 'empty.pdf')
+        await writeFile(emptyPdf, '')
+
+        const file = await registerGeneratedFile({ id: 'sniff-empty', path: emptyPdf })
+
+        expect(file.mimeType).toBe('text/plain')
+    })
+
+    it('rejects symbolic links even when their target is a regular file', async () => {
+        const sourcePath = join(sourceDir, 'target.txt')
+        const linkPath = join(sourceDir, 'link.txt')
+        await writeFile(sourcePath, 'target')
+        await import('fs/promises').then((fs) => fs.symlink(sourcePath, linkPath))
+
+        await expect(registerGeneratedFile({ id: 'file-link', path: linkPath })).rejects.toThrow('not a regular file')
     })
 
     it('rejects directories', async () => {
@@ -121,6 +152,17 @@ describe('generated files registry', () => {
         clearGeneratedFiles()
 
         expect(getGeneratedFile('file-5')).toBeNull()
+        expect(existsSync(file.snapshotPath)).toBe(false)
+    })
+
+    it('unregisters one snapshot without disturbing the registry lifecycle', async () => {
+        const sourcePath = join(sourceDir, 'discarded.txt')
+        await writeFile(sourcePath, 'discard me')
+        const file = await registerGeneratedFile({ id: 'file-discard', path: sourcePath })
+
+        await unregisterGeneratedFile(file.id)
+
+        expect(getGeneratedFile(file.id)).toBeNull()
         expect(existsSync(file.snapshotPath)).toBe(false)
     })
 })

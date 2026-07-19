@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { clearGeneratedImages, detectImageMimeType, detectVideoMimeType, getGeneratedImage, registerGeneratedImage, registerGeneratedImageFromAcpBlock, registerGeneratedMediaFromPath } from './generatedImages'
+import { clearGeneratedImages, detectImageMimeType, detectVideoMimeType, getGeneratedImage, registerGeneratedImage, registerGeneratedImageFromAcpBlock, registerGeneratedMediaFromPath, unregisterGeneratedImage } from './generatedImages'
 
 describe('generatedImages', () => {
     it('detects supported image MIME types from file bytes', () => {
@@ -74,6 +74,20 @@ describe('generatedImages', () => {
         expect(getGeneratedImage('image-0')).toBeNull()
         expect(getGeneratedImage('image-1')).not.toBeNull()
         expect(getGeneratedImage('image-100')).not.toBeNull()
+        clearGeneratedImages()
+    })
+
+    it('unregisters one media snapshot and releases its registry entry', () => {
+        registerGeneratedImage({
+            id: 'discarded-image',
+            path: '/tmp/discarded.png',
+            mimeType: 'image/png',
+            bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        })
+
+        unregisterGeneratedImage('discarded-image')
+
+        expect(getGeneratedImage('discarded-image')).toBeNull()
         clearGeneratedImages()
     })
 

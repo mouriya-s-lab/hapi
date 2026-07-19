@@ -7,6 +7,8 @@ import type {
     JsonValue,
     OmpInboundEvent,
     OmpKnownEvent,
+    OmpHostIntegrationEvent,
+    OmpAvailableCommand,
     OmpSubagentSnapshot
 } from './types';
 
@@ -143,6 +145,22 @@ const SubagentEventSchema = z.object({
     })
 });
 
+const AvailableCommandsUpdateSchema = z.object({
+    type: z.literal('available_commands_update'),
+    commands: z.array(z.object({
+        name: z.string(),
+        aliases: z.array(z.string()).optional(),
+        description: z.string().optional(),
+        input: z.object({ hint: z.string().optional() }).optional(),
+        subcommands: z.array(z.object({
+            name: z.string(),
+            description: z.string().optional(),
+            usage: z.string().optional()
+        })).optional(),
+        source: z.string()
+    }))
+});
+
 const RetryStateSchema = z.object({
     attempt: z.number(),
     maxAttempts: z.number(),
@@ -259,12 +277,17 @@ export type OmpRpcEventAdapterCallbacks = {
     onTurnFinished: () => void;
     onPromptResult: (agentInvoked: boolean) => void;
     onSessionInfoUpdate: () => void;
+    onAvailableCommandsChanged: (commands: OmpAvailableCommand[]) => void;
     onThinkingStateChanged: (state: {
         thinkingLevel?: import('./types').OmpThinkingLevel;
         configured?: import('./types').OmpConfiguredThinkingLevel;
         resolved?: import('./types').OmpEffort;
     }) => void;
     onDiagnostic: (message: string) => void;
+    onHostEvent: (event: {
+        type: OmpHostIntegrationEvent['type'];
+        raw: JsonObject;
+    }) => void;
 };
 
 export class OmpRpcEventAdapter {
@@ -388,8 +411,16 @@ export class OmpRpcEventAdapter {
             case 'thinking_level_changed':
                 this.handleThinkingLevelChanged(event.raw);
                 return;
+            case 'available_commands_update': {
+                const parsed = AvailableCommandsUpdateSchema.safeParse(event.raw);
+                if (!parsed.success) {
+                    this.invalidEvent('available_commands_update', parsed.error);
+                    return;
+                }
+                this.callbacks.onAvailableCommandsChanged(parsed.data.commands);
+                return;
+            }
             case 'session_info_update':
-            case 'available_commands_update':
             case 'config_update':
                 this.callbacks.onSessionInfoUpdate();
                 return;
@@ -425,7 +456,7 @@ export class OmpRpcEventAdapter {
             case 'host_tool_cancel':
             case 'host_uri_request':
             case 'host_uri_cancel':
-                this.callbacks.onDiagnostic(`OMP RPC event ${event.type} is owned by issue #210`);
+                this.callbacks.onHostEvent({ type: event.type, raw: event.raw });
                 return;
         }
         const exhaustive: never = event.type;

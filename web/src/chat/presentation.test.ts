@@ -13,6 +13,23 @@ describe('getEventPresentation — agent errors', () => {
     })
 })
 
+describe('getEventPresentation — OMP extension UI', () => {
+    it('presents login URLs and terminal authentication state', () => {
+        expect(getEventPresentation({
+            type: 'omp-extension-ui',
+            method: 'open_url',
+            url: 'https://example.com/oauth'
+        })).toEqual({ icon: '↗', text: 'OMP requested URL: https://example.com/oauth' })
+
+        expect(getEventPresentation({
+            type: 'omp-extension-ui',
+            method: 'login_status',
+            status: 'authenticated',
+            message: 'OMP login completed for Example'
+        })).toEqual({ icon: '✓', text: 'OMP login completed for Example' })
+    })
+})
+
 describe('getEventPresentation — limit-warning', () => {
     it('formats five_hour warning', () => {
         const result = getEventPresentation({

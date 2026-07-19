@@ -46,6 +46,7 @@ import {
 import { resolveOmpSessionPath } from './utils/ompSessionScanner';
 import type { OmpQueuedInput } from './OmpInputQueue';
 import { describeIgnoredOmpAttachments, prepareOmpInput } from './ompInputContent';
+import { OmpHostIntegration } from '../../../fork-features/omp-host-integration/cli';
 
 type PromptLifecycle = {
     phase: 'awaiting-agent' | 'streaming';
@@ -76,6 +77,10 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
     private confirmedConfiguredThinking: OmpConfiguredThinkingLevel | null = null;
     private lastPersistedThinkingKey: string | null = null;
     private readonly eventTasks = new Set<Promise<void>>();
+    private hostIntegration: OmpHostIntegration | null = null;
+    private registeredHostToolNames: string[] = [];
+    private lastPersistedToolsKey: string | null = null;
+    private lastPersistedCommandsKey: string | null = null;
     private readonly subagentTranscriptCursors = new Map<string, number>();
     private sessionReconciler: OmpSessionStateReconciler | null = null;
     private removeQueueChangeListener: (() => void) | null = null;
@@ -103,7 +108,10 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         const requestedSpawnModel = session.getModel();
         const spawnBase = {
             cwd: session.path,
-            env: buildOmpEnv(),
+            env: {
+                ...buildOmpEnv(),
+                PI_RPC_EMIT_TITLE: '1'
+            },
             model: typeof requestedSpawnModel === 'string' ? requestedSpawnModel : undefined
         };
         const spawnConfig: OmpRpcSpawnConfig = session.sessionId
@@ -136,6 +144,13 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
             session.applyNativeSessionSnapshot
         );
         this.sessionReconciler = sessionReconciler;
+        const hostIntegration = new OmpHostIntegration({
+            client,
+            cwd: session.path,
+            sessionClient: session.client,
+            onFatal: (error) => this.handleTransportFailure(error)
+        });
+        this.hostIntegration = hostIntegration;
 
         const eventAdapter = new OmpRpcEventAdapter({
             onAgentMessage: (message) => {
@@ -204,8 +219,14 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
                 });
                 this.trackEventTask(this.refreshRuntimeState());
             },
+            onAvailableCommandsChanged: (commands) => {
+                this.persistDiscoveredCapabilities({
+                    slashCommands: commands.map((command) => command.name)
+                });
+            },
             onThinkingStateChanged: (state) => this.handleThinkingStateChanged(state),
-            onDiagnostic: (message) => logger.warn(`[omp-remote] ${message}`)
+            onDiagnostic: (message) => logger.warn(`[omp-remote] ${message}`),
+            onHostEvent: (event) => hostIntegration.handle(event)
         });
         const bufferedEvents: OmpInboundEvent[] = [];
         let subagentSnapshotApplied = false;
@@ -225,6 +246,15 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         });
         this.removeQueueChangeListener = session.queue.onChange(() => this.signalChange());
 
+        const { hostToolNames } = await hostIntegration.initialize();
+        this.registeredHostToolNames = hostToolNames;
+        this.persistDiscoveredCapabilities({
+            tools: [
+                ...(client.discovery.state.dumpTools?.map((tool) => tool.name) ?? []),
+                ...hostToolNames
+            ],
+            slashCommands: client.discovery.commands.map((command) => command.name)
+        });
         await client.request({ type: 'set_subagent_subscription', level: 'events' });
         const { subagents } = await client.request({ type: 'get_subagents' });
         eventAdapter.seedSubagents(subagents);
@@ -317,6 +347,14 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         await this.sessionReconciler?.drain();
         this.sessionReconciler = null;
         this.subagentTranscriptCursors.clear();
+        this.registeredHostToolNames = [];
+        this.lastPersistedToolsKey = null;
+        this.lastPersistedCommandsKey = null;
+        const hostIntegration = this.hostIntegration;
+        this.hostIntegration = null;
+        if (hostIntegration) {
+            await hostIntegration.close('OMP remote launcher stopped');
+        }
         await Promise.allSettled(this.eventTasks);
         const client = this.client;
         this.client = null;
@@ -610,6 +648,40 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         if (thinkingKey !== this.lastPersistedThinkingKey) {
             this.lastPersistedThinkingKey = thinkingKey;
             this.session.updateThinkingState(this.thinkingState);
+        }
+        if (state.dumpTools) {
+            this.persistDiscoveredCapabilities({
+                tools: [
+                    ...state.dumpTools.map((tool) => tool.name),
+                    ...this.registeredHostToolNames
+                ]
+            });
+        }
+    }
+
+    private persistDiscoveredCapabilities(capabilities: {
+        tools?: string[];
+        slashCommands?: string[];
+    }): void {
+        const update: { tools?: string[]; slashCommands?: string[] } = {};
+        if (capabilities.tools) {
+            const tools = Array.from(new Set(capabilities.tools));
+            const key = JSON.stringify(tools);
+            if (key !== this.lastPersistedToolsKey) {
+                this.lastPersistedToolsKey = key;
+                update.tools = tools;
+            }
+        }
+        if (capabilities.slashCommands) {
+            const slashCommands = Array.from(new Set(capabilities.slashCommands));
+            const key = JSON.stringify(slashCommands);
+            if (key !== this.lastPersistedCommandsKey) {
+                this.lastPersistedCommandsKey = key;
+                update.slashCommands = slashCommands;
+            }
+        }
+        if (update.tools || update.slashCommands) {
+            this.session.updateDiscoveredCapabilities(update);
         }
     }
 

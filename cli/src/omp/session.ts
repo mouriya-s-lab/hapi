@@ -118,6 +118,17 @@ export class OmpSession extends AgentSessionBase<OmpMode, OmpInputQueue> {
         }));
     };
 
+    updateDiscoveredCapabilities = (capabilities: {
+        tools?: string[];
+        slashCommands?: string[];
+    }): void => {
+        this.client.updateMetadata((metadata) => ({
+            ...metadata,
+            ...(capabilities.tools ? { tools: capabilities.tools } : {}),
+            ...(capabilities.slashCommands ? { slashCommands: capabilities.slashCommands } : {})
+        }));
+    };
+
     applyNativeSessionSnapshot = (snapshot: OmpNativeSession): void => {
         this.nativeSession = snapshot;
         this.onSessionFound(snapshot.id, { ompSession: snapshot });

@@ -201,6 +201,27 @@ queue-provider, message-metadata, metadata-variant, resume-projection,
 model/thinking-provider, session-route, and chat-render registration. Move the
 corresponding hook into the fork-owned OMP module as soon as such a seam exists.
 
+### OMP host integration (#210, 2026-07-19)
+
+The three independent host bridges and login orchestration live in
+`fork-features/omp-host-integration/cli.ts`; the provider banner lives in
+`web/src/fork-features/omp-host-integration/OmpLoginBanner.tsx`. OMP RPC,
+session, Hub, and Web surfaces below are closed boundaries without external
+registries.
+
+| Files | Missing upstream seam | Why it cannot move out | Runtime path | Sync verification |
+|---|---|---|---|---|
+| `cli/src/omp/rpc/types.ts`, `OmpRpcTransport.ts`, `OmpRpcClient.ts`, `OmpRpcEventAdapter.ts` and tests | No RPC control-frame writer or host-event callback registry | Host tool/URI/UI frames share the ordered JSONL stream but are deliberately uncorrelated with ordinary request/response IDs | OMP stdout host event → typed fork bridge → ordered stdin control frame | Run host update/result, URI result, waited UI response, cancellation, and transport backpressure tests against OMP 17.0.4 |
+| `cli/src/omp/ompRemoteLauncher.ts`, `session.ts` and tests | No remote-launch lifecycle or dynamic capability registration API | Host bridges must register after RPC readiness, close before transport shutdown, opt into RPC title events, and synchronize OMP tools/commands into the existing metadata product | remote launch → host registration/login discovery → event dispatch/capability metadata → ordered shutdown | Start a real remote OMP session, inspect registered tools/commands, invoke every host surface, then stop it with no pending frame or process |
+| `cli/src/modules/common/generatedFiles.ts` and test | No artifact snapshot/MIME-sniffer provider | OMP and existing flavor share tools must serve one bounded snapshot registry; a parallel OMP-only file store would split authenticated file reads | host `send_file` → regular-file snapshot → content sniff → generated-file card/read RPC | Send misleading-extension text/PDF plus a binary file; compare downloaded bytes and reject symlink/missing paths |
+| `shared/src/apiTypes.ts`, `rpcMethods.ts`, `hub/src/sync/rpcGateway.ts`, `syncEngine.ts`, `hub/src/web/routes/sessions.ts` and tests | No session-RPC product or route registration API | Provider discovery and long-lived native login must traverse the authenticated active-session boundary and its existing CLI RPC registry | Web provider query/login POST → Hub session RPC → OMP `get_login_providers`/`login` | List providers, start login, reject wrong flavor/local/invalid input, and observe authenticated refresh |
+| `web/src/api/client.ts`, `SessionChat.tsx`, `chat/presentation.ts`, `ToolCard/requestUserInput.ts`, `RequestUserInputFooter.tsx`, `query-keys.ts`, locale files, and tests | No session-banner, event-presentation, or question-field extension registry | OMP waited UI reuses the existing permission transport/card; provider status, open-URL confirmation, placeholder, and editor prefill must enter its closed renderer lifecycle | OMP UI/login event → session state/SSE → Web card or event/banner → permission response | In a real browser answer select/confirm/input/editor, open OAuth URL, inspect all fire-and-forget events, and verify login input is absent from completed transcript state |
+
+Each upstream sync must re-check for native RPC host-frame hooks, capability
+metadata providers, authenticated session route registration, and Web banner /
+question-card slots. Remove a trunk hook when upstream exposes an equivalent
+typed seam.
+
 ## multi-user gateway (2026-07-16)
 
 Account, API-token, ownership, grant, authorization, cross-namespace routing,
