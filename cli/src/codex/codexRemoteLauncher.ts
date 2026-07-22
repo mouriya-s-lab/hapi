@@ -22,7 +22,7 @@ import { shouldIgnoreTerminalEvent } from './utils/terminalEventGuard';
 import { parseCodexSpecialCommand } from './codexSpecialCommands';
 import { createCodexSessionScanner, type CodexSessionScanner } from './utils/codexSessionScanner';
 import { createCodexTranscriptLocator, type CodexTranscriptLocator } from './utils/codexTranscriptLocator';
-import { convertCodexEvent } from './utils/codexEventConverter';
+import { convertCodexEvent, isCodexEventFromCurrentProcess } from './utils/codexEventConverter';
 import {
     RemoteLauncherBase,
     type RemoteLauncherDisplayContext,
@@ -361,9 +361,11 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             }
             this.transcriptScanner = await createCodexSessionScanner({
                 transcriptPath,
+                replayExistingHistory: true,
                 onEvent: (event) => {
+                    if (!isCodexEventFromCurrentProcess(event, startupTimestampMs)) return;
                     const converted = convertCodexEvent(event);
-                    if (converted?.message?.type === 'compact_summary') {
+                    if (converted?.message?.type === 'summary') {
                         session.sendAgentMessage(converted.message);
                         compactSummarySequence += 1;
                         for (const waiter of [...compactSummaryWaiters]) waiter();

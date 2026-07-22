@@ -10,12 +10,18 @@ const CodexSessionEventSchema = z.object({
 
 export type CodexSessionEvent = z.infer<typeof CodexSessionEventSchema>;
 
+export function isCodexEventFromCurrentProcess(event: CodexSessionEvent, startupTimestampMs: number): boolean {
+    if (!event.timestamp) return false;
+    const eventTimestampMs = Date.parse(event.timestamp);
+    return Number.isFinite(eventTimestampMs) && eventTimestampMs >= startupTimestampMs;
+}
+
 export type CodexMessage = {
     type: 'message';
     message: string;
     id: string;
 } | {
-    type: 'compact_summary';
+    type: 'summary';
     summary: string;
     id: string;
 } | {
@@ -126,7 +132,7 @@ export function convertCodexEvent(rawEvent: unknown): CodexConversionResult | nu
         }
         return {
             message: {
-                type: 'compact_summary',
+                type: 'summary',
                 summary,
                 id: randomUUID()
             }

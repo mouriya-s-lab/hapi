@@ -952,18 +952,18 @@ describe('normalizeDecryptedMessage', () => {
         })
     })
 
-    it('normalizes Codex compact summary as an expandable compact-summary event', () => {
+    it('normalizes Codex compact summary through the shared Claude summary path', () => {
         const message = makeMessage({
             role: 'agent',
             content: {
                 type: 'codex',
-                data: { type: 'compact_summary', summary: '  ## Summary\n\n- Continue.  ' }
+                data: { type: 'summary', summary: '  ## Summary\n\n- Continue.  ' }
             }
         })
 
         expect(normalizeDecryptedMessage(message)).toMatchObject({
-            role: 'event',
-            content: { type: 'compact-summary', summary: '## Summary\n\n- Continue.' }
+            role: 'agent',
+            content: [{ type: 'summary', summary: '## Summary\n\n- Continue.' }]
         })
     })
 
