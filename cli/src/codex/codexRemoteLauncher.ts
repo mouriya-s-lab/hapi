@@ -22,7 +22,7 @@ import { shouldIgnoreTerminalEvent } from './utils/terminalEventGuard';
 import { parseCodexSpecialCommand } from './codexSpecialCommands';
 import { createCodexSessionScanner, type CodexSessionScanner } from './utils/codexSessionScanner';
 import { createCodexTranscriptLocator, type CodexTranscriptLocator } from './utils/codexTranscriptLocator';
-import { convertCodexEvent } from './utils/codexEventConverter';
+import { convertCodexEvent, isCodexEventFromCurrentProcess } from './utils/codexEventConverter';
 import {
     RemoteLauncherBase,
     type RemoteLauncherDisplayContext,
@@ -363,8 +363,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 transcriptPath,
                 replayExistingHistory: true,
                 onEvent: (event) => {
-                    const eventTimestampMs = event.timestamp ? Date.parse(event.timestamp) : Number.NaN;
-                    if (!Number.isFinite(eventTimestampMs) || eventTimestampMs < startupTimestampMs) return;
+                    if (!isCodexEventFromCurrentProcess(event, startupTimestampMs)) return;
                     const converted = convertCodexEvent(event);
                     if (converted?.message?.type === 'summary') {
                         session.sendAgentMessage(converted.message);

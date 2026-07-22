@@ -1,8 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { convertCodexEvent } from './codexEventConverter';
+import { convertCodexEvent, isCodexEventFromCurrentProcess } from './codexEventConverter';
 
 describe('convertCodexEvent', () => {
-    it('converts compacted transcript records into expandable compact summaries', () => {
+    it('accepts current-process transcript events and rejects old or invalid timestamps', () => {
+        const startupTimestampMs = Date.parse('2026-07-22T01:00:00.000Z');
+
+        expect(isCodexEventFromCurrentProcess({
+            timestamp: '2026-07-22T01:00:00.000Z',
+            type: 'compacted'
+        }, startupTimestampMs)).toBe(true);
+        expect(isCodexEventFromCurrentProcess({
+            timestamp: '2026-07-22T00:59:59.999Z',
+            type: 'compacted'
+        }, startupTimestampMs)).toBe(false);
+        expect(isCodexEventFromCurrentProcess({ timestamp: 'invalid', type: 'compacted' }, startupTimestampMs)).toBe(false);
+        expect(isCodexEventFromCurrentProcess({ type: 'compacted' }, startupTimestampMs)).toBe(false);
+    });
+
+    it('converts compacted transcript records into shared summary messages', () => {
         const result = convertCodexEvent({
             type: 'compacted',
             payload: { message: '  ## Handoff Summary\n\n- Continue here.  ' }
