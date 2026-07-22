@@ -361,7 +361,7 @@ describe('codexLocalLauncher', () => {
         });
     });
 
-    it('falls back to fresh transcript activity when SessionStart does not arrive', async () => {
+    it('falls back to the top-level review transcript when a review subagent is active', async () => {
         const originalCodexHome = process.env.CODEX_HOME;
         process.env.CODEX_HOME = tempDir;
         const now = new Date();
@@ -373,8 +373,9 @@ describe('codexLocalLauncher', () => {
             String(now.getUTCDate()).padStart(2, '0')
         );
         await mkdir(sessionDirectory, { recursive: true });
-        const transcriptPath = join(sessionDirectory, 'rollout-fallback-thread.jsonl');
-        const { session, userMessages } = createSessionStub(
+        const transcriptPath = join(sessionDirectory, 'rollout-review-primary.jsonl');
+        const reviewSubagentPath = join(sessionDirectory, 'rollout-review-subagent.jsonl');
+        const { session, userMessages, agentMessages } = createSessionStub(
             'default',
             ['--cd', '/tmp/effective-codex-cwd'],
             '/tmp/worktree',
@@ -392,27 +393,66 @@ describe('codexLocalLauncher', () => {
             await vi.waitFor(() => expect(harness.launches).toHaveLength(1));
             expect(session.sessionId).toBeNull();
 
-            await writeFile(transcriptPath, [
-                JSON.stringify({
-                    type: 'session_meta',
-                    payload: { id: 'fallback-thread', cwd: '/tmp/effective-codex-cwd' }
-                }),
-                JSON.stringify({
-                    timestamp: new Date().toISOString(),
-                    type: 'event_msg',
-                    payload: { type: 'user_message', message: 'fallback prompt' }
-                })
-            ].join('\n') + '\n');
+            await Promise.all([
+                writeFile(transcriptPath, [
+                    JSON.stringify({
+                        type: 'session_meta',
+                        payload: {
+                            id: 'review-primary',
+                            cwd: '/tmp/effective-codex-cwd',
+                            source: 'cli'
+                        }
+                    }),
+                    JSON.stringify({
+                        timestamp: new Date().toISOString(),
+                        type: 'event_msg',
+                        payload: { type: 'user_message', message: '/review' }
+                    }),
+                    JSON.stringify({
+                        timestamp: new Date().toISOString(),
+                        type: 'event_msg',
+                        payload: { type: 'agent_message', message: 'final review result' }
+                    })
+                ].join('\n') + '\n'),
+                writeFile(reviewSubagentPath, [
+                    JSON.stringify({
+                        type: 'session_meta',
+                        payload: {
+                            id: 'review-subagent',
+                            cwd: '/tmp/effective-codex-cwd',
+                            source: { subagent: 'review' }
+                        }
+                    }),
+                    JSON.stringify({
+                        timestamp: new Date().toISOString(),
+                        type: 'event_msg',
+                        payload: { type: 'user_message', message: 'review instructions' }
+                    }),
+                    JSON.stringify({
+                        timestamp: new Date().toISOString(),
+                        type: 'event_msg',
+                        payload: { type: 'agent_message', message: 'internal review work' }
+                    })
+                ].join('\n') + '\n')
+            ]);
 
             await vi.waitFor(
-                () => expect(session.sessionId).toBe('fallback-thread'),
+                () => expect(session.sessionId).toBe('review-primary'),
                 { timeout: 3_000, interval: 50 }
             );
             if (releaseRunBarrier) releaseRunBarrier();
             await launcherPromise;
 
             expect(session.transcriptPath).toBe(transcriptPath);
-            expect(userMessages).toContain('fallback prompt');
+            expect(userMessages).toContain('/review');
+            expect(agentMessages).toContainEqual(expect.objectContaining({
+                type: 'message',
+                message: 'final review result'
+            }));
+            expect(agentMessages).not.toContainEqual(expect.objectContaining({
+                type: 'message',
+                message: 'internal review work'
+            }));
         } finally {
             if (releaseRunBarrier) releaseRunBarrier();
             if (originalCodexHome === undefined) {
