@@ -61,6 +61,7 @@ import SettingsVoiceVoicesPage from '@/routes/settings/voice-voices'
 import SettingsVoiceAdvancedPage from '@/routes/settings/voice-advanced'
 import SettingsAboutPage from '@/routes/settings/about'
 import ForkSettingsPage from '@/fork-features/settings/ForkSettingsPage'
+import { ResourceGrantsSettingsPage } from '@/fork-features/multi-user/ResourceGrantsSettingsSection'
 import SharePage from '@/routes/share'
 import { setSharePendingTransfer } from '@/lib/sharePendingState'
 import { deleteShareTransfer } from '@/lib/shareTransfer'
@@ -1418,6 +1419,12 @@ const settingsForkRoute = createRoute({
     component: ForkSettingsPage,
 })
 
+const settingsForkGrantsRoute = createRoute({
+    getParentRoute: () => settingsRoute,
+    path: 'fork/grants',
+    component: ResourceGrantsSettingsPage,
+})
+
 const settingsAccountRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'account', component: AccountSettingsPage })
 const settingsUsersRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'users', component: UsersSettingsPage })
 const settingsUserRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'users/$accountId', component: UserSettingsPage })
@@ -1463,6 +1470,7 @@ export const routeTree = rootRoute.addChildren([
         settingsVoiceAdvancedRoute,
         settingsAboutRoute,
         settingsForkRoute,
+        settingsForkGrantsRoute,
         settingsAccountRoute,
         settingsUsersRoute,
         settingsUserRoute,

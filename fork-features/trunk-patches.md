@@ -258,7 +258,7 @@ because the hub and web app do not expose registration APIs for these seams.
 | `hub/src/socket/server.ts`, `hub/src/socket/socketTypes.ts` | Accept namespace resolvers for gateway-authenticated CLI and terminal sockets. |
 | `hub/src/socket/handlers/terminal.ts` | Replace the authenticated account namespace with the dispatcher's authorized resource namespace. |
 | `hub/tsconfig.json` | Include the fork-owned hub modules in the strict TypeScript program. |
-| `web/src/App.tsx`, `web/src/router.tsx`, `web/src/routes/settings/categories.ts`, `web/src/components/settings/SettingsNav.tsx` | Mount the fork-owned login/admin/settings screens and routes; expose the fork settings category because upstream has no settings registration API. |
+| `web/src/App.tsx`, `web/src/router.tsx`, `web/src/routes/settings/categories.ts`, `web/src/routes/settings/layout.tsx`, `web/src/components/settings/SettingsNav.tsx` | Mount the fork-owned login/admin/settings screens and routes; expose fork settings categories and child-page mobile titles because upstream has no settings registration API. |
 | `web/src/components/LoginPrompt.tsx` | Re-export the fork-owned login component at the existing upstream import seam. |
 | `web/src/api/client.ts` | Send the gateway login shape and expose gateway administration requests. |
 | `web/src/hooks/useAuth.ts`, `web/src/hooks/useAuthSource.ts`, `web/src/lib/app-context.tsx` | Preserve gateway account identity and refresh it through the existing auth context. |
