@@ -10,14 +10,3 @@ HAPI Hub starting...
 [Web] public URL: http://192.168.1.220:9999
 
 [Web] Hub listening on :9999
-[Web] Local:  http://localhost:9999
-
-HAPI Hub is ready!
-<-- GET /api/events?token=eyJhbGciOiJIUzI1NiJ9.eyJ1aWQiOjEsIm5zIjoiZGVmYXVsdCIsImdhaWQiOjEsInJvbGUiOiJhZG1pbiIsInNvdXJjZSI6InBhc3N3b3JkIiwiaWF0IjoxNzg0Nzk1OTA5LCJleHAiOjE3ODQ4MTAzMDl9.WBEHo-SYmpLrYE3ebQ9Qt63Nrpi3jpnUmbbPfzUl2Tk&visibility=visible&all=true
---> GET /api/events?token=eyJhbGciOiJIUzI1NiJ9.eyJ1aWQiOjEsIm5zIjoiZGVmYXVsdCIsImdhaWQiOjEsInJvbGUiOiJhZG1pbiIsInNvdXJjZSI6InBhc3N3b3JkIiwiaWF0IjoxNzg0Nzk1OTA5LCJleHAiOjE3ODQ4MTAzMDl9.WBEHo-SYmpLrYE3ebQ9Qt63Nrpi3jpnUmbbPfzUl2Tk&visibility=visible&all=true [32m200[0m 8ms
-<-- GET /api/sessions
-<-- POST /api/visibility
---> GET /api/sessions [32m200[0m 2ms
---> POST /api/visibility [32m200[0m 2ms
-
-Shutting down...
