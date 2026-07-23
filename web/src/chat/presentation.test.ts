@@ -151,6 +151,17 @@ describe('getEventPresentation — thread goals', () => {
     })
 })
 
+describe('getEventPresentation — recap (away_summary)', () => {
+    it('formats the recap with a recap: prefix', () => {
+        const result = getEventPresentation({
+            type: 'recap',
+            text: 'Building the login flow, next: wire up the submit handler.'
+        })
+
+        expect(result.icon).toBe('💭')
+        expect(result.text).toBe('recap: Building the login flow, next: wire up the submit handler.')
+    })
+})
 
 describe('getEventPresentation — model refusal fallback', () => {
     it('formats the original model switch warning', () => {

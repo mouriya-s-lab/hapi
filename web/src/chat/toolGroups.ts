@@ -30,6 +30,7 @@ export type ToolGroupBlock = {
     defaultOpen: boolean
     historyState: 'complete' | 'needs-older-history'
     needsOlderHistory: boolean
+    activityTitle?: string | null
     summary: ToolGroupSummary
 }
 
@@ -258,6 +259,11 @@ export function buildVisibleChatBlocks(
 
         const startsAtOldestVisibleBoundary = visibleBlocks.length === 0
         const needsOlderHistory = options.hasMoreMessages && startsAtOldestVisibleBoundary
+        const previousBlock = visibleBlocks.at(-1)
+        const activityTitle = previousBlock?.kind === 'tool-call'
+            && previousBlock.tool.name === 'CodexReasoning'
+            ? getInputStringAny(previousBlock.tool.input, ['title'])
+            : null
         visibleBlocks.push({
             kind: 'tool-group',
             id: createToolGroupId(tools, needsOlderHistory, previousGroups),
@@ -269,6 +275,7 @@ export function buildVisibleChatBlocks(
             defaultOpen: false,
             historyState: needsOlderHistory ? 'needs-older-history' : 'complete',
             needsOlderHistory,
+            activityTitle,
             summary: summarizeToolGroup(tools)
         })
         index = cursor - 1

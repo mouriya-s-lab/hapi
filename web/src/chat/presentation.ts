@@ -247,6 +247,11 @@ export function getEventPresentation(event: AgentEvent): EventPresentation {
     if (event.type === 'compact') {
         return { icon: '📦', text: 'Conversation compacted' }
     }
+    if (event.type === 'recap') {
+        // Lowercase `recap:` intentionally mirrors Claude Code's own TUI recap label.
+        const text = typeof event.text === 'string' ? event.text : ''
+        return { icon: '💭', text: `recap: ${text}` }
+    }
     if (event.type === 'model-refusal-fallback') {
         return { icon: '⚠️', text: `Model automatically switched from ${event.originalModel}` }
     }

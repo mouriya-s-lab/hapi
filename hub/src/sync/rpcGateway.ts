@@ -1,6 +1,10 @@
 import type { AgentFlavor, ClaudeLaunch, CodexCollaborationMode, PermissionMode } from '@hapi/protocol/types'
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
-import { CursorChatStoreStatusSchema } from '@hapi/protocol/apiTypes'
+import {
+    ArchiveCodexSessionRpcResponseSchema,
+    CursorChatStoreStatusSchema,
+    ListCodexSessionsRpcResponseSchema
+} from '@hapi/protocol/apiTypes'
 import type {
     CodexModelSummary,
     CodexModelsResponse,
@@ -21,6 +25,8 @@ import type {
     ListCcSwitchProvidersResponse,
     ValidateCcSwitchProviderResponse,
     ListDirectoryResponse,
+    ListCodexSessionsRpcResponse,
+    ArchiveCodexSessionRpcResponse,
     OpencodeModelsResponse,
     OpencodeModelSummary,
     OpencodeReasoningEffortResponse,
@@ -78,6 +84,8 @@ export type RpcListDirectoryResponse = ListDirectoryResponse
 export type RpcPathExistsResponse = PathExistsResponse
 export type RpcCodexModel = CodexModelSummary
 export type RpcListCodexModelsResponse = CodexModelsResponse
+export type RpcListCodexSessionsResponse = ListCodexSessionsRpcResponse
+export type RpcArchiveCodexSessionResponse = ArchiveCodexSessionRpcResponse
 export type RpcCursorModel = CursorModelSummary
 export type RpcListCursorModelsResponse = CursorModelsResponse
 export type RpcCursorChatStoreStatus = CursorChatStoreStatus
@@ -176,13 +184,14 @@ export class RpcGateway {
         permissionMode?: PermissionMode,
         serviceTier?: string,
         claudeLaunch?: ClaudeLaunch,
-        ccSwitchProviderId?: string
+        ccSwitchProviderId?: string,
+        existingSessionId?: string
     ): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }> {
         try {
             const result = await this.machineRpc(
                 machineId,
                 RPC_METHODS.SpawnHappySession,
-                { type: 'spawn-in-directory', directory, agent, model, modelReasoningEffort, yolo, sessionType, worktreeName, resumeSessionId, effort, permissionMode, serviceTier, claudeLaunch, ccSwitchProviderId }
+                { type: 'spawn-in-directory', directory, agent, model, modelReasoningEffort, yolo, sessionType, worktreeName, resumeSessionId, effort, permissionMode, serviceTier, existingSessionId, sessionId: existingSessionId, claudeLaunch, ccSwitchProviderId }
             )
             if (result && typeof result === 'object') {
                 const obj = result as Record<string, unknown>
@@ -344,6 +353,16 @@ export class RpcGateway {
 
     async listCodexModelsForMachine(machineId: string): Promise<RpcListCodexModelsResponse> {
         return await this.machineRpc(machineId, RPC_METHODS.ListCodexModels, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListCodexModelsResponse
+    }
+
+    async listCodexSessionsForMachine(machineId: string, cwd?: string | null, sessionIds?: string[]): Promise<RpcListCodexSessionsResponse> {
+        const result = await this.machineRpc(machineId, RPC_METHODS.ListCodexSessions, { cwd: cwd ?? null, sessionIds }, MODEL_LIST_RPC_TIMEOUT_MS)
+        return ListCodexSessionsRpcResponseSchema.parse(result)
+    }
+
+    async archiveCodexSessionForMachine(machineId: string, sessionId: string): Promise<RpcArchiveCodexSessionResponse> {
+        const result = await this.machineRpc(machineId, RPC_METHODS.ArchiveCodexSession, { sessionId }, MODEL_LIST_RPC_TIMEOUT_MS)
+        return ArchiveCodexSessionRpcResponseSchema.parse(result)
     }
 
     async listCursorModelsForSession(sessionId: string): Promise<RpcListCursorModelsResponse> {

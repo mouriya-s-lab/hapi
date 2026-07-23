@@ -62,8 +62,8 @@ async function replayCodexHistory(path: string, send: {
             } else if (converted?.userActivity) {
                 send.activity()
             }
-            if (converted?.message) {
-                send.agent(converted.message)
+            for (const message of converted?.messages ?? []) {
+                send.agent(message)
                 messageCount += 1
             }
         }

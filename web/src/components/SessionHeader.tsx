@@ -347,7 +347,7 @@ export function SessionHeader(props: {
             <SessionExportDialog
                 isOpen={exportOpen}
                 onClose={() => setExportOpen(false)}
-                session={session}
+                sessionId={session.id}
                 api={api}
             />
 

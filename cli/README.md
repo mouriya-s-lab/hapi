@@ -8,7 +8,6 @@ Run Claude Code, Codex, Cursor Agent, Grok Build, or OpenCode sessions from your
 - Starts Codex mode for OpenAI-based sessions.
 - Starts Cursor Agent mode for Cursor CLI sessions.
 - Starts Grok Build locally or via ACP for remote sessions.
-- Starts Gemini mode via ACP (Anthropic Code Plugins).
 - Starts OpenCode mode via ACP and its plugin hook system.
 - Provides an MCP stdio bridge for external tools.
 - Manages a background runner for long-running sessions.
@@ -32,8 +31,6 @@ Run Claude Code, Codex, Cursor Agent, Grok Build, or OpenCode sessions from your
   Supports `hapi cursor resume <chatId>`, `hapi cursor --continue`, `--mode plan|ask`, `--yolo`, `--model`.
   Local and remote modes supported; remote uses `agent -p` with stream-json.
 - `hapi grok` - Start Grok Build mode. See `src/grok/runGrok.ts`.
-- `hapi gemini` - Start Gemini mode via ACP. See `src/agent/runners/runAgentSession.ts`.
-  Note: Gemini runs in remote mode only; it waits for messages from the hub UI/Telegram.
 - `hapi opencode` - Start OpenCode mode via ACP. See `src/opencode/runOpencode.ts`.
   Note: OpenCode supports local and remote modes; local mode streams via OpenCode plugins.
 - `hapi resume [sessionId]` - List resumable sessions for this machine or resume one locally.
@@ -156,7 +153,7 @@ bun run build:single-exe
 - `src/codex/` - Codex mode integration.
 - `src/cursor/` - Cursor Agent integration.
 - `src/grok/` - Grok Build native TUI + ACP integration.
-- `src/agent/` - Multi-agent support (Gemini via ACP).
+- `src/agent/` - Shared support for ACP-compatible agents.
 - `src/opencode/` - OpenCode ACP + hook integration.
 - `src/runner/` - Background service.
 - `src/commands/` - CLI command handlers.

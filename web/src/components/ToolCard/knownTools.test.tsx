@@ -216,6 +216,22 @@ describe('getToolPresentation — Codex agent tools', () => {
     })
 })
 
+describe('getToolPresentation — native titles', () => {
+    it('uses a preserved native title for unknown lowercase tools', () => {
+        const presentation = getToolPresentation({
+            toolName: 'bash',
+            input: { command: 'bun test' },
+            result: null,
+            childrenCount: 0,
+            description: 'Run project tests',
+            metadata: null,
+        })
+
+        expect(presentation.title).toBe('Run project tests')
+        expect(presentation.subtitle).toBe('bun test')
+    })
+})
+
 describe('getToolPresentation — request_user_input', () => {
     it('uses the question header instead of exposing its protocol id', () => {
         const presentation = getToolPresentation({

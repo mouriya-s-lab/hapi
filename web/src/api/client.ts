@@ -1,6 +1,13 @@
 import type {
     AttachmentMetadata,
     AuthResponse,
+    CodexLocalSessionsResponse,
+    CodexDuplicateSessionsResponse,
+    CodexMergeDuplicateSessionsResponse,
+    CodexDesktopScriptResponse,
+    CodexDesktopSyncRequest,
+    CodexDesktopStatusResponse,
+    CodexArchiveSessionResponse,
     CodexCollaborationMode,
     FileSearchResponse,
     MachinesResponse,
@@ -37,6 +44,7 @@ import type {
     MachinePathsExistsResponse,
     OpencodeModelsResponse,
     OpencodeReasoningEffortResponse,
+    QueuedStateResponse,
     OmpModelsResponse,
     OmpThinkingOptionsResponse,
     OmpLoginProvidersResponse,
@@ -207,6 +215,55 @@ export class ApiClient {
         await this.request('/api/push/subscribe', {
             method: 'POST',
             body: JSON.stringify(payload)
+        })
+    }
+
+    async syncCodexSession(payload?: CodexDesktopSyncRequest): Promise<CodexDesktopScriptResponse> {
+        // 中文注释：当前按钮语义已改为“从 Codex 导入到 Hapi”；这里提交的是本地 transcript 对应的 Codex thread ID 列表。
+        return await this.request<CodexDesktopScriptResponse>('/api/codex/sync-session', {
+            method: 'POST',
+            ...(payload ? { body: JSON.stringify(payload) } : {})
+        })
+    }
+
+    async getCodexSessions(cwd?: string | null, machineId?: string | null): Promise<CodexLocalSessionsResponse> {
+        const params = new URLSearchParams()
+        if (cwd?.trim()) params.set('cwd', cwd.trim())
+        if (machineId?.trim()) params.set('machineId', machineId.trim())
+        const query = params.size ? `?${params.toString()}` : ''
+        return await this.request<CodexLocalSessionsResponse>(`/api/codex/sessions${query}`)
+    }
+
+    async archiveCodexSession(sessionId: string, machineId?: string | null): Promise<CodexArchiveSessionResponse> {
+        return await this.request<CodexArchiveSessionResponse>('/api/codex/archive-session', {
+            method: 'POST',
+            body: JSON.stringify({ sessionId, machineId: machineId ?? undefined })
+        })
+    }
+
+    async getCodexDesktopStatus(): Promise<CodexDesktopStatusResponse> {
+        return await this.request<CodexDesktopStatusResponse>('/api/codex/status')
+    }
+
+    async getCodexDuplicateSessions(payload: CodexDesktopSyncRequest): Promise<CodexDuplicateSessionsResponse> {
+        // 中文注释：重复会话检测只传本次用户勾选导入的 codexSessionId，避免把未选中的历史会话也纳入提示。
+        return await this.request<CodexDuplicateSessionsResponse>('/api/codex/duplicate-sessions', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        })
+    }
+
+    async mergeCodexDuplicateSessions(payload: CodexDesktopSyncRequest): Promise<CodexMergeDuplicateSessionsResponse> {
+        // 中文注释：真正执行合并时沿用同一批选中 codexSessionId，保证检测范围与执行范围一致。
+        return await this.request<CodexMergeDuplicateSessionsResponse>('/api/codex/merge-duplicate-sessions', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        })
+    }
+
+    async restartCodexDesktop(): Promise<CodexDesktopScriptResponse> {
+        return await this.request<CodexDesktopScriptResponse>('/api/codex/restart-desktop', {
+            method: 'POST'
         })
     }
 
@@ -419,6 +476,16 @@ export class ApiClient {
                 ompInputMode: ompInputMode ?? undefined
             })
         })
+    }
+
+    async getQueuedState(sessionId: string, localIds: string[]): Promise<QueuedStateResponse> {
+        return await this.request<QueuedStateResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/messages/queued-state`,
+            {
+                method: 'POST',
+                body: JSON.stringify({ localIds })
+            }
+        )
     }
 
     async cancelMessage(sessionId: string, messageId: string): Promise<CancelMessageResponse> {

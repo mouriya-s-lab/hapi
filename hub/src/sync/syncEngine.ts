@@ -8,7 +8,7 @@
  */
 
 import { isKnownFlavor, type LocalResumeTarget, type ResumableSession } from '@hapi/protocol'
-import type { CursorChatStoreStatus, CursorMigrateOutcome, CursorMigrateToAcpRequest, ImportableSessionProvider, ImportProviderSessionResponse, ListCcSwitchProvidersResponse, ListImportableSessionsResponse, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
+import type { CursorChatStoreStatus, CursorMigrateOutcome, CursorMigrateToAcpRequest, ImportableSessionProvider, ImportProviderSessionResponse, ListCcSwitchProvidersResponse, ListImportableSessionsResponse, QueuedStateResponse, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor, ClaudeLaunch, CodexCollaborationMode, DecryptedMessage, PermissionMode, Session, SyncEvent } from '@hapi/protocol/types'
 import { unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
 import type { Server } from 'socket.io'
@@ -31,6 +31,7 @@ import {
     type RpcGeneratedImageResponse,
     type RpcListDirectoryResponse,
     type RpcListCodexModelsResponse,
+    type RpcArchiveCodexSessionResponse,
     type RpcListCursorModelsResponse,
     type RpcListOpencodeModelsResponse,
     type RpcListOmpModelsResponse,
@@ -346,6 +347,10 @@ export class SyncEngine {
         }
     } {
         return this.messageService.getMessagesPage(sessionId, options)
+    }
+
+    getQueuedState(sessionId: string, localIds: string[]): QueuedStateResponse {
+        return this.messageService.getQueuedState(sessionId, localIds)
     }
 
     getSessionExport(sessionId: string, session: Session): HapiSessionExportResult {
@@ -909,7 +914,8 @@ export class SyncEngine {
         permissionMode?: PermissionMode,
         serviceTier?: string,
         claudeLaunch?: ClaudeLaunch,
-        ccSwitchProviderId?: string
+        ccSwitchProviderId?: string,
+        existingSessionId?: string
     ): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }> {
         return await this.rpcGateway.spawnSession(
             machineId,
@@ -925,7 +931,8 @@ export class SyncEngine {
             permissionMode,
             serviceTier,
             claudeLaunch,
-            ccSwitchProviderId
+            ccSwitchProviderId,
+            existingSessionId
         )
     }
 
@@ -1400,10 +1407,13 @@ export class SyncEngine {
             }
         }
 
+        const metadataPermissionMode = session.metadata?.preferredPermissionMode
+        const preferredPermissionMode = metadataPermissionMode === 'yolo' && opts?.permissionMode === 'default'
+            ? metadataPermissionMode
+            : opts?.permissionMode
+                ?? session.permissionMode
+                ?? metadataPermissionMode
         const includeStoredModelParameters = flavor !== 'claude' || session.resumeWithSessionModel
-        const preferredPermissionMode = opts?.permissionMode
-            ?? session.permissionMode
-            ?? session.metadata?.preferredPermissionMode
         const spawnResult = await this.rpcGateway.spawnSession(
             targetMachine.id,
             directory,
@@ -1418,7 +1428,8 @@ export class SyncEngine {
             preferredPermissionMode,
             includeStoredModelParameters ? session.serviceTier ?? undefined : undefined,
             claudeLaunch,
-            opts?.ccSwitchProviderId ?? metadata.ccSwitchProviderId
+            opts?.ccSwitchProviderId ?? metadata.ccSwitchProviderId,
+            access.sessionId
         )
 
         if (spawnResult.type !== 'success') {
@@ -1461,6 +1472,7 @@ export class SyncEngine {
             }
         }
 
+        this.sessionCache.markSessionActive(spawnResult.sessionId)
         return { type: 'success', sessionId: spawnResult.sessionId }
     }
 
@@ -1825,6 +1837,14 @@ export class SyncEngine {
 
     async listCodexModelsForMachine(machineId: string): Promise<RpcListCodexModelsResponse> {
         return await this.rpcGateway.listCodexModelsForMachine(machineId)
+    }
+
+    async listCodexSessionsForMachine(machineId: string, cwd?: string | null, sessionIds?: string[]) {
+        return await this.rpcGateway.listCodexSessionsForMachine(machineId, cwd, sessionIds)
+    }
+
+    async archiveCodexSessionForMachine(machineId: string, sessionId: string): Promise<RpcArchiveCodexSessionResponse> {
+        return await this.rpcGateway.archiveCodexSessionForMachine(machineId, sessionId)
     }
 
     async listImportableSessionsForMachine(machineId: string, request: { provider: ImportableSessionProvider; cursor?: string; cwd?: string; query?: string }): Promise<ListImportableSessionsResponse> {

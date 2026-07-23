@@ -42,6 +42,8 @@ export type CodexMessage =
         callId: string;
         input: unknown;
         status?: 'pending' | 'in_progress' | 'completed' | 'failed';
+        nativeTitle?: string;
+        nativeKind?: string;
         model?: string;
         usage?: CodexUsageInfo;
     }
@@ -93,6 +95,8 @@ export function convertAgentMessage(message: AgentMessage): CodexMessage | null 
                 callId: message.id,
                 input: message.input,
                 status: message.status,
+                ...(message.title ? { nativeTitle: message.title } : {}),
+                ...(message.kind ? { nativeKind: message.kind } : {}),
                 model: message.model,
                 usage: message.usage ? convertAgentUsage(message.usage) : undefined
             };

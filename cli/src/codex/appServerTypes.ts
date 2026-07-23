@@ -127,6 +127,7 @@ export interface ThreadResumeParams {
 export interface ThreadResumeResponse {
     thread: {
         id: string;
+        turns?: Array<{ items?: ResponseItem[] }>;
     };
     model: string;
     [key: string]: unknown;
@@ -137,8 +138,7 @@ export interface ThreadResumeResponse {
  * Used by fork-features/session-fork to clone a codex session into a new thread
  * that hapi can then resume independently.
  */
-export interface ThreadForkParams {
-    threadId: string;
+export interface ThreadForkParams extends Omit<ThreadResumeParams, 'history' | 'path'> {
     lastTurnId?: string;
 }
 
@@ -182,7 +182,9 @@ export interface ThreadListResponse {
 export interface ThreadForkResponse {
     thread: {
         id: string;
+        turns?: Array<{ items?: ResponseItem[] }>;
     };
+    model?: string;
     [key: string]: unknown;
 }
 

@@ -74,7 +74,7 @@ function RowLabel(props: { block: ToolCallBlock; metadata: SessionMetadataSummar
         input: props.block.tool.input,
         result: props.block.tool.result,
         childrenCount: props.block.children.length,
-        description: props.block.tool.description,
+        description: props.block.tool.nativeTitle ?? props.block.tool.description,
         metadata: props.metadata
     }, t), [props.block, props.metadata, t])
 
@@ -123,7 +123,7 @@ export function ToolGroupCard(props: {
             input: selectedTool.tool.input,
             result: selectedTool.tool.result,
             childrenCount: selectedTool.children.length,
-            description: selectedTool.tool.description,
+            description: selectedTool.tool.nativeTitle ?? selectedTool.tool.description,
             metadata: props.metadata
         }, t)
     }, [selectedTool, props.metadata, t])

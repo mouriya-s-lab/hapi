@@ -11,6 +11,12 @@ const VISIBLE_CLAUDE_SYSTEM_SUBTYPES = new Set([
     'turn_duration',
     'microcompact_boundary',
     'compact_boundary',
+    // Auto-generated recap Claude Code's local TUI writes to the transcript on
+    // window blur/focus (5min+ idle). Only observed via the local launcher's
+    // transcript scan — SDK/remote mode never emits it. Chat-visible here also
+    // means CLI-forwarded, web-rendered, and included in session export
+    // (parity with turn_duration / compact_boundary).
+    'away_summary',
     'model_refusal_fallback'
 ])
 
