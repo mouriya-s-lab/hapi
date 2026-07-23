@@ -10,6 +10,8 @@ export type {
     MachineMetadata,
     MachinePatch,
     MachineUpdatedData,
+    OmpNativeSession,
+    OmpInputMode,
     RunnerState,
     Session,
     SessionPatch,
@@ -25,6 +27,8 @@ export type {
     WorktreeMetadata
 } from './schemas'
 
+export type { OmpThinkingState } from './omp'
+
 export type { SessionSummary, SessionSummaryMetadata, PendingRequest, PendingRequestKind } from './sessionSummary'
 export { PENDING_REQUEST_SUMMARY_CAP } from './sessionSummary'
 export { AGENT_MESSAGE_PAYLOAD_TYPE } from './modes'
@@ -39,6 +43,7 @@ export type {
     GeminiPermissionMode,
     GrokPermissionMode,
     KimiPermissionMode,
+    OmpPermissionMode,
     OpencodePermissionMode,
     PermissionMode,
     PermissionModeOption,
@@ -46,3 +51,7 @@ export type {
 } from './modes'
 
 export type { ClaudeModelPreset, GeminiModelPreset } from './models'
+
+export type ClaudeLaunch =
+    | { type: 'fresh' }
+    | { type: 'resume-at'; sourceSessionId: string; providerMessageId: string }

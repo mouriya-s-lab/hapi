@@ -26,6 +26,34 @@ afterEach(() => {
     vi.restoreAllMocks()
 })
 
+describe('useSessionActions - forkSession', () => {
+    it('invokes api.forkSession with sessionId and returns the server result', async () => {
+        const forkSpy = vi.fn(async (_sessionId: string) => ({ type: 'success' as const, newSessionId: 'forked-id' }))
+        const api = { forkSession: forkSpy } as unknown as ApiClient
+
+        const { result } = renderHook(
+            () => useSessionActions(api, 'src-session', 'claude'),
+            { wrapper: createWrapper() }
+        )
+
+        let response: { type: 'success'; newSessionId: string } | { type: 'blocked' } | undefined
+        await act(async () => {
+            response = await result.current.forkSession()
+        })
+
+        expect(forkSpy).toHaveBeenCalledWith('src-session')
+        expect(response).toEqual({ type: 'success', newSessionId: 'forked-id' })
+    })
+
+    it('throws when api or sessionId is missing', async () => {
+        const { result } = renderHook(
+            () => useSessionActions(null, null, null),
+            { wrapper: createWrapper() }
+        )
+        await expect(result.current.forkSession()).rejects.toThrow('Session unavailable')
+    })
+})
+
 describe('useSessionActions - reopenSession', () => {
     it('invokes api.reopenSession with the session id and forwards the response', async () => {
         const reopen = vi.fn(async (_sessionId: string) => ({

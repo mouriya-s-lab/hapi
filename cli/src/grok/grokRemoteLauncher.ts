@@ -319,6 +319,7 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
                 this.messageBuffer.addMessage('Turn complete', 'status')
                 break
             case 'usage':
+            case 'generated_image':
                 break
             default: {
                 const exhaustive: never = message

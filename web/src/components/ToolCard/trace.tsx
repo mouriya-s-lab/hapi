@@ -12,6 +12,7 @@ import { formatTaskChildLabel, TaskStateIcon } from '@/components/ToolCard/helpe
 import { CodeBlock } from '@/components/CodeBlock'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import { getEventPresentation } from '@/chat/presentation'
+import { isEventVisibleForFlavor } from '@/fork-features/omp-product/eventVisibility'
 import { useTranslation } from '@/lib/use-translation'
 import { isSubagentToolName } from '@/chat/subagentTool'
 
@@ -284,6 +285,7 @@ function TraceChildRow({ child, metadata, expanded, onToggle, mode }: TraceChild
     }
 
     if (child.kind === 'agent-event') {
+        if (!isEventVisibleForFlavor(child.event, metadata?.flavor)) return null
         const presentation = getEventPresentation(child.event)
         return (
             <div className={isSessionMode

@@ -1,7 +1,25 @@
 import { getClaudeModelLabel } from '@hapi/protocol'
+import type { UsageSnapshot } from '@hapi/protocol/schemas'
 
 type SessionModelSource = {
     model?: string | null
+}
+
+export function formatUsageSnapshotLabel(
+    snapshot: UsageSnapshot | null | undefined,
+    remainingPrefix: string
+): string | null {
+    if (!snapshot) return null
+    const progress = snapshot.metrics.find((metric) => metric.type === 'progress')
+    if (progress?.type === 'progress') {
+        const remaining = Math.max(0, progress.limit - progress.used)
+        const value = progress.unit === 'percent' ? `${remaining}%` : remaining.toLocaleString('en-US')
+        return `${snapshot.displayName} · ${progress.label} ${remainingPrefix}${value}`
+    }
+    const text = snapshot.metrics.find((metric) => metric.type === 'text')
+    return text?.type === 'text'
+        ? `${snapshot.displayName} · ${text.label} ${text.value}`
+        : snapshot.displayName
 }
 
 export type SessionModelLabel = {

@@ -39,6 +39,8 @@
         "mermaid": "^11.12.0",
         "react": "^19.2.3",
         "react-dom": "^19.2.3",
+        "react-markdown": "^10.1.0",
+        "react-zoom-pan-pinch": "^4.0.3",
         "rehype-katex": "^7.0.1",
         "remark-breaks": "^4.0.0",
         "remark-gfm": "^4.0.1",
@@ -50,7 +52,8 @@
         "workbox-precaching": "^7.4.0",
         "workbox-routing": "^7.4.0",
         "workbox-strategies": "^7.4.0",
-        "workbox-window": "^7.4.0"
+        "workbox-window": "^7.4.0",
+        "zod": "^4.2.1"
     },
     "devDependencies": {
         "@testing-library/jest-dom": "^6.6.3",

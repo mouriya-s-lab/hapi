@@ -38,15 +38,45 @@ describe('remarkFilePathLinks', () => {
     })
 
 
-    it('does not link paths that are outside the session workspace', () => {
-        const nodes = transform('Skip /Users/dev/project/a.png, ~/a.png, ../a.png and C:\\tmp\\a.png')
+    it('links absolute POSIX and home-relative paths', () => {
+        const nodes = transform('Open /Users/dev/project/a.png and ~/notes.md')
+        const links = nodes.filter((node) => node.type === 'link')
+        expect(links.map(linkedPath)).toEqual(['/Users/dev/project/a.png', '~/notes.md'])
+    })
 
+    it('links Windows drive-absolute paths (both slash flavors)', () => {
+        const nodes = transform('See C:\\tmp\\report.pdf or D:/logs/build.log')
+        const links = nodes.filter((node) => node.type === 'link')
+        expect(links.map(linkedPath)).toEqual(['C:\\tmp\\report.pdf', 'D:/logs/build.log'])
+    })
+
+    it('still refuses parent-traversal paths', () => {
+        const nodes = transform('bad ../a.png and worse foo/../a.png')
         expect(nodes.some((node) => node.type === 'link')).toBe(false)
+    })
+
+    it('recognizes doc/pdf/office/archive/log extensions', () => {
+        const nodes = transform('deck.pptx report.pdf sheet.xlsx trace.log bundle.tar.gz')
+        const links = nodes.filter((node) => node.type === 'link')
+        // Note: "bundle.tar.gz" matches only the trailing ".gz" segment; that's
+        // acceptable — the file page reads the same underlying path either way.
+        const targets = links.map(linkedPath)
+        expect(targets).toContain('deck.pptx')
+        expect(targets).toContain('report.pdf')
+        expect(targets).toContain('sheet.xlsx')
+        expect(targets).toContain('trace.log')
     })
 
     it('does not rewrite ordinary urls', () => {
         const nodes = transform('Visit https://example.com/web/src/router.tsx')
 
+        expect(nodes.some((node) => node.type === 'link')).toBe(false)
+    })
+
+    it('does not rewrite path-like fragments inside a URL', () => {
+        // Even though "example.com/foo.png" superficially matches the pattern,
+        // the surrounding "https://" token prefix disqualifies it as a link.
+        const nodes = transform('Docs at https://example.com/assets/logo.png please')
         expect(nodes.some((node) => node.type === 'link')).toBe(false)
     })
 })

@@ -78,6 +78,7 @@ function createSession(): Session {
         modelReasoningEffort: null,
         effort: null,
         serviceTier: null,
+        resumeWithSessionModel: false,
         permissionMode: undefined,
         collaborationMode: undefined
     }
@@ -139,6 +140,11 @@ describe('bootstrapExistingSession', () => {
             grokSessionId: 'grok-thread-1',
             cursorSessionId: 'cursor-thread-1',
             cursorSessionProtocol: 'acp',
+            ompSession: {
+                id: 'omp-thread-1',
+                file: '/sessions/omp-thread-1.jsonl',
+                name: 'OMP thread'
+            },
             summary: {
                 text: 'resume me',
                 updatedAt: 100
@@ -168,6 +174,11 @@ describe('bootstrapExistingSession', () => {
             grokSessionId: 'grok-thread-1',
             cursorSessionId: 'cursor-thread-1',
             cursorSessionProtocol: 'acp',
+            ompSession: {
+                id: 'omp-thread-1',
+                file: '/sessions/omp-thread-1.jsonl',
+                name: 'OMP thread'
+            },
             summary: {
                 text: 'resume me',
                 updatedAt: 100

@@ -1,0 +1,53 @@
+path	disposition	reference	rationale
+.github/workflows/release.yml	fork-specific	#179	fork release/build metadata; fork release publishing policy
+cli/src/claude/claudeLocalLauncher.test.ts	upstream-issue	https://github.com/tiann/hapi/issues/1077	general fix reported against latest upstream main
+cli/src/claude/utils/chatVisibility.test.ts	upstream-issue	https://github.com/tiann/hapi/issues/1077	general fix reported against latest upstream main
+cli/src/codex/codexRemoteLauncher.test.ts	upstream-issue	https://github.com/tiann/hapi/issues/1069	general fix reported against latest upstream main
+cli/src/codex/codexRemoteLauncher.ts	fork-specific	#179,https://github.com/tiann/hapi/issues/1069,https://github.com/tiann/hapi/issues/1070	Codex compact summary feature; shared path also carries separately reported upstream fix
+cli/src/codex/utils/codexEventConverter.test.ts	fork-specific	#179	Codex compact summary feature
+cli/src/codex/utils/codexEventConverter.ts	fork-specific	#179	Codex compact summary feature
+cli/src/codex/utils/terminalEventGuard.test.ts	upstream-issue	https://github.com/tiann/hapi/issues/1070	general fix reported against latest upstream main
+cli/src/codex/utils/terminalEventGuard.ts	upstream-issue	https://github.com/tiann/hapi/issues/1070	general fix reported against latest upstream main
+cli/src/grok/grokRemoteLauncher.ts	fork-specific	#179	fork Grok launcher merge resolution
+shared/src/messages.ts	upstream-issue	https://github.com/tiann/hapi/issues/1077	general fix reported against latest upstream main
+shared/src/sessionSummary.ts	fork-specific	#179	bob fork customization import; archive visibility and session attention feature
+web/src/chat/normalize.test.ts	fork-specific	#179,https://github.com/tiann/hapi/issues/1077	Codex compact summary feature; shared path also carries separately reported upstream fix
+web/src/chat/presentation.test.ts	upstream-issue	https://github.com/tiann/hapi/issues/1077	general fix reported against latest upstream main
+web/src/chat/presentation.ts	fork-specific	#179,https://github.com/tiann/hapi/issues/1077	Codex compact summary feature; shared path also carries separately reported upstream fix
+web/src/chat/reducer.test.ts	upstream-issue	https://github.com/tiann/hapi/issues/1073	general fix reported against latest upstream main
+web/src/chat/reducer.ts	upstream-issue	https://github.com/tiann/hapi/issues/1073	general fix reported against latest upstream main
+web/src/components/AssistantChat/HappyThread.tsx	upstream-issue	https://github.com/tiann/hapi/issues/1067	general fix reported against latest upstream main
+web/src/components/AssistantChat/messages/SystemMessage.tsx	fork-specific	#179	Codex compact summary feature
+web/src/components/ImagePreview.tsx	upstream-issue	https://github.com/tiann/hapi/issues/1066	general fix reported against latest upstream main
+web/src/components/OfflineBanner.tsx	upstream-issue	https://github.com/tiann/hapi/issues/1066	general fix reported against latest upstream main
+web/src/components/PwaUpdateBanner.test.tsx	fork-specific	#179,https://github.com/tiann/hapi/issues/1066	fork PWA changelog feature; shared path also carries separately reported upstream fix
+web/src/components/PwaUpdateBanner.tsx	fork-specific	#179,https://github.com/tiann/hapi/issues/1066	fork PWA changelog feature; shared path also carries separately reported upstream fix
+web/src/components/ReconnectingBanner.tsx	upstream-issue	https://github.com/tiann/hapi/issues/1066	general fix reported against latest upstream main
+web/src/components/SessionAttentionIndicator.tsx	fork-specific	#179	archive visibility and session attention feature
+web/src/components/SessionList.directory-action.test.tsx	upstream-issue	https://github.com/tiann/hapi/issues/1068	general fix reported against latest upstream main
+web/src/components/SyncingBanner.tsx	upstream-issue	https://github.com/tiann/hapi/issues/1066	general fix reported against latest upstream main
+web/src/components/ToastContainer.tsx	upstream-issue	https://github.com/tiann/hapi/issues/1077	general fix reported against latest upstream main
+web/src/components/VoiceErrorBanner.tsx	upstream-issue	https://github.com/tiann/hapi/issues/1066	general fix reported against latest upstream main
+web/src/components/assistant-ui/markdown-text.tsx	fork-specific	#179,https://github.com/tiann/hapi/issues/1078	bob fork customization import; shared path also carries separately reported upstream fix
+web/src/components/assistant-ui/mermaid-diagram.live.test.tsx	fork-specific	#179	fork Mermaid behavior merge resolution
+web/src/components/assistant-ui/mermaid-diagram.test.tsx	fork-specific	#179	fork Mermaid behavior merge resolution
+web/src/components/assistant-ui/reasoning.tsx	fork-specific	#179	reasoning collapse feature
+web/src/components/assistant-ui/shiki-highlighter.tsx	upstream-issue	https://github.com/tiann/hapi/issues/1074	general fix reported against latest upstream main
+web/src/components/icons.tsx	fork-specific	#179,https://github.com/tiann/hapi/issues/1076	Qwen summary speech feature; shared path also carries separately reported upstream fix
+web/src/components/ui/Toast.tsx	upstream-issue	https://github.com/tiann/hapi/issues/1077	general fix reported against latest upstream main
+web/src/hooks/queries/useCodexModels.ts	upstream-issue	https://github.com/tiann/hapi/issues/1072	general fix reported against latest upstream main
+web/src/hooks/useLongPress.ts	upstream-issue	https://github.com/tiann/hapi/issues/1065	general fix reported against latest upstream main
+web/src/hooks/useThemeColors.test.ts	upstream-issue	https://github.com/tiann/hapi/issues/1075	general fix reported against latest upstream main
+web/src/index.css	upstream-issue	https://github.com/tiann/hapi/issues/1074	general fix reported against latest upstream main
+web/src/lib/message-window-store.test.ts	upstream-issue	https://github.com/tiann/hapi/issues/1071	general fix reported against latest upstream main
+web/src/lib/message-window-store.ts	upstream-issue	https://github.com/tiann/hapi/issues/1071	general fix reported against latest upstream main
+web/src/lib/remark-file-path-links.test.ts	fork-specific	#179	bob fork customization import
+web/src/lib/remark-file-path-links.ts	fork-specific	#179	bob fork customization import
+web/src/lib/sessionAttention.test.ts	fork-specific	#179	archive visibility and session attention feature
+web/src/lib/sessionAttention.ts	fork-specific	#179	archive visibility and session attention feature
+web/src/lib/sessionResume.test.ts	fork-specific	#179	session ID feature
+web/src/lib/sessionResume.ts	fork-specific	#179	session ID feature
+web/src/lib/toast-context.tsx	upstream-issue	https://github.com/tiann/hapi/issues/1077	general fix reported against latest upstream main
+web/src/routes/sessions/file.test.tsx	fork-specific	#179	fork file viewer behavior merge resolution
+web/src/types/global.d.ts	fork-specific	#179	fork PWA changelog feature
+web/vite.config.ts	fork-specific	#179	fork PWA changelog feature; fork release/build metadata

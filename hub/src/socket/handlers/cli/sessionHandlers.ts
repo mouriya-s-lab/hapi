@@ -5,7 +5,8 @@ import type { CodexCollaborationMode, PermissionMode } from '@hapi/protocol/type
 import { isRedundantGoalStatusEventContent } from '@hapi/protocol/messages'
 import type { Store, StoredSession } from '../../../store'
 import type { SyncEvent } from '../../../sync/syncEngine'
-import { extractTodoWriteTodosFromMessageContent } from '../../../sync/todos'
+import { TodosSchema } from '../../../sync/todos'
+import { applyTodoMessageContent } from '../../../fork-features/task-panel/taskProjection'
 import { extractTeamStateFromMessageContent, applyTeamStateDelta } from '../../../sync/teams'
 import { extractBackgroundTaskDelta } from '../../../sync/backgroundTasks'
 import { shouldRecordSessionActivity } from '../../../sync/sessionActivity'
@@ -117,9 +118,11 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
             onSessionActivity?.(sid, msg.createdAt)
         }
 
-        const todos = extractTodoWriteTodosFromMessageContent(content)
-        if (todos) {
-            const updated = store.sessions.setSessionTodos(sid, todos, msg.createdAt, session.namespace)
+        const storedTodos = store.sessions.getSession(sid)?.todos
+        const parsedTodos = TodosSchema.safeParse(storedTodos)
+        const nextTodos = applyTodoMessageContent(parsedTodos.success ? parsedTodos.data : null, content)
+        if (nextTodos) {
+            const updated = store.sessions.setSessionTodos(sid, nextTodos, msg.createdAt, session.namespace)
             if (updated) {
                 onWebappEvent?.({ type: 'session-updated', sessionId: sid })
             }

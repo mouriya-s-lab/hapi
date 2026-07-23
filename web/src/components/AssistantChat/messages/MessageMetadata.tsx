@@ -40,6 +40,12 @@ export function buildMessageMetadataLabels({ durationMs, usage, model, turnCount
         const total = usage.input_tokens + usage.output_tokens
         const formatToken = (n: number) => n.toLocaleString()
         parts.push(`Tokens: ${formatToken(total)} total (${formatToken(usage.input_tokens)} in / ${formatToken(usage.output_tokens)} out)`)
+        if (typeof usage.reasoning_output_tokens === 'number' && usage.reasoning_output_tokens > 0) {
+            parts.push(`Reasoning: ${formatToken(usage.reasoning_output_tokens)} tokens`)
+        }
+        if (typeof usage.cost_usd === 'number') {
+            parts.push(`Cost: $${usage.cost_usd.toFixed(4)}`)
+        }
     }
 
     if (isAggregated) {

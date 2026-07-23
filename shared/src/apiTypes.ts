@@ -4,6 +4,7 @@ import {
     CodexCollaborationModeSchema,
     DecryptedMessageSchema,
     MachineSchema,
+    OmpInputModeSchema,
     PermissionModeSchema,
     SessionSchema
 } from './schemas'
@@ -14,6 +15,7 @@ import type {
     Session
 } from './schemas'
 import type { SessionSummary } from './sessionSummary'
+import type { OmpConfiguredThinkingLevel, OmpEffort, OmpThinkingState } from './omp'
 
 export const CreateOrLoadMachineRequestSchema = z.object({
     id: z.string().min(1),
@@ -196,6 +198,12 @@ export const SessionModelRequestSchema = z.object({
 
 export type SessionModelRequest = z.infer<typeof SessionModelRequestSchema>
 
+export const SessionResumeModelRequestSchema = z.object({
+    resumeWithSessionModel: z.boolean()
+})
+
+export type SessionResumeModelRequest = z.infer<typeof SessionResumeModelRequestSchema>
+
 export const SessionModelReasoningEffortRequestSchema = z.object({
     modelReasoningEffort: z.string().trim().min(1).nullable()
 })
@@ -289,6 +297,7 @@ export const SendMessageRequestSchema = z.object({
     text: z.string(),
     localId: z.string().min(1).optional(),
     attachments: z.array(AttachmentMetadataSchema).optional(),
+    ompInputMode: OmpInputModeSchema.optional(),
     scheduledAt: z.number().int().positive().nullable().optional()
 }).refine(
     (data) => data.scheduledAt == null || typeof data.localId === 'string',
@@ -337,6 +346,13 @@ export const MachineListDirectoryRequestSchema = z.object({
 
 export type MachineListDirectoryRequest = z.infer<typeof MachineListDirectoryRequestSchema>
 
+export const MachineCreateDirectoryRequestSchema = z.object({
+    parentPath: z.string().min(1),
+    name: z.string().min(1)
+})
+
+export type MachineCreateDirectoryRequest = z.infer<typeof MachineCreateDirectoryRequestSchema>
+
 export const MachinePathsExistsRequestSchema = z.object({
     paths: z.array(z.string().min(1)).max(1000)
 })
@@ -363,6 +379,13 @@ export type GitCommandResponse = CommandResponse
 export type FileReadResponse = {
     success: boolean
     content?: string
+    hash?: string
+    error?: string
+}
+
+export type FileWriteResponse = {
+    success: boolean
+    hash?: string
     error?: string
 }
 
@@ -371,6 +394,15 @@ export type GeneratedImageResponse = {
     content?: string
     mimeType?: string
     fileName?: string
+    error?: string
+}
+
+export type GeneratedFileResponse = {
+    success: boolean
+    content?: string
+    mimeType?: string
+    fileName?: string
+    size?: number
     error?: string
 }
 
@@ -407,6 +439,12 @@ export type MachineDirectoryEntry = DirectoryEntry & {
 export type MachineListDirectoryResponse = {
     success: boolean
     entries?: MachineDirectoryEntry[]
+    error?: string
+}
+
+export type MachineCreateDirectoryResponse = {
+    success: boolean
+    path?: string
     error?: string
 }
 
@@ -449,6 +487,110 @@ export type OpencodeModelsResponse = {
 }
 
 export type ListOpencodeModelsResponse = OpencodeModelsResponse
+
+export type OmpModelSummary = {
+    provider: string
+    modelId: string
+    name: string
+    reasoning: boolean
+    contextWindow: number | null
+    maxTokens: number | null
+    thinkingLevels: OmpEffort[]
+}
+
+export type OmpModelsResponse = {
+    success: boolean
+    availableModels?: OmpModelSummary[]
+    currentModel?: { provider: string; modelId: string } | null
+    error?: string
+}
+
+export type ListOmpModelsResponse = OmpModelsResponse
+
+export type CycleOmpModelResponse = {
+    success: boolean
+    currentModel?: { provider: string; modelId: string } | null
+    error?: string
+}
+
+export type OmpThinkingOption = {
+    value: OmpConfiguredThinkingLevel
+    name: string
+}
+
+export type OmpThinkingOptionsResponse = {
+    success: boolean
+    options?: OmpThinkingOption[]
+    state?: OmpThinkingState
+    error?: string
+}
+
+export type ListOmpThinkingOptionsResponse = OmpThinkingOptionsResponse
+
+export type OmpLoginProviderSummary = {
+    id: string
+    name: string
+    available: boolean
+    authenticated: boolean
+}
+
+export type OmpLoginProvidersResponse =
+    | {
+        success: true
+        providers: OmpLoginProviderSummary[]
+        loginInProgress: boolean
+    }
+    | {
+        success: false
+        error: string
+        loginInProgress?: boolean
+    }
+
+export type StartOmpLoginRequest = {
+    providerId: string
+}
+
+export type StartOmpLoginResponse =
+    | {
+        success: true
+        provider: OmpLoginProviderSummary
+        providers: OmpLoginProviderSummary[]
+    }
+    | {
+        success: false
+        error: string
+    }
+
+export type OmpExtensionUiInput = {
+    url?: string
+    questions: Array<{
+        id: string
+        question: string
+        required: boolean
+        multiple: boolean
+        options: Array<{
+            label: string
+            description: string | null
+        }>
+        placeholder?: string | null
+        initialValue?: string
+        multiline?: boolean
+    }>
+}
+
+export type GetOmpExtensionUiRequest = {
+    requestId: string
+}
+
+export type GetOmpExtensionUiResponse =
+    | {
+        success: true
+        input: OmpExtensionUiInput
+    }
+    | {
+        success: false
+        error: string
+    }
 
 export type GrokModelSummary = {
     modelId: string
@@ -495,6 +637,23 @@ export type CursorModelSummary = OpencodeModelSummary
 export type CursorModelsResponse = OpencodeModelsResponse
 
 export type ListCursorModelsResponse = CursorModelsResponse
+
+export type CcSwitchProviderSummary = {
+    id: string
+    name: string
+    category: string | null
+    websiteUrl: string | null
+    isCurrent: boolean
+}
+
+export type ListCcSwitchProvidersResponse = {
+    success: boolean
+    providers?: CcSwitchProviderSummary[]
+    available?: boolean
+    error?: string
+}
+
+export type ValidateCcSwitchProviderResponse = { success: boolean; error?: string }
 
 /** Maps thinking levels to provider-specific values. null = unsupported. */
 export type PiThinkingLevelMap = Partial<Record<string, string | null>>
@@ -544,3 +703,45 @@ export type SlashCommandsResponse = {
     commands?: SlashCommand[]
     error?: string
 }
+
+export type ImportableSessionProvider = 'claude' | 'codex'
+
+export type ImportableSessionSummary = {
+    provider: ImportableSessionProvider
+    externalSessionId: string
+    cwd: string
+    title: string
+    preview: string | null
+    updatedAt: number
+}
+
+export type ListImportableSessionsRequest = {
+    provider: ImportableSessionProvider
+    cursor?: string
+    cwd?: string
+    query?: string
+}
+
+export type ListImportableSessionsResponse = {
+    sessions: ImportableSessionSummary[]
+    nextCursor: string | null
+}
+
+export type ImportProviderSessionRequest = {
+    provider: ImportableSessionProvider
+    externalSessionId: string
+}
+
+export type ImportProviderSessionResponse =
+    | { type: 'success'; sessionId: string; messageCount: number }
+    | { type: 'not-found' }
+    | { type: 'error'; error: string; sessionId?: string }
+
+export type ImportableSessionsPage = {
+    sessions: Array<ImportableSessionSummary & { importedHapiSessionId: string | null }>
+    nextCursor: string | null
+}
+
+export type ImportExistingSessionResponse =
+    | { type: 'success'; sessionId: string; alreadyImported: boolean }
+    | { type: 'error'; error: string }

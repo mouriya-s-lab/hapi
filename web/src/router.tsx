@@ -13,6 +13,7 @@ import {
     useSearch,
 } from '@tanstack/react-router'
 import { getScrollRestorationKey } from '@/lib/scrollRestorationKey'
+import { usePreserveSidebarScroll } from '@/hooks/usePreserveSidebarScroll'
 import { App } from '@/App'
 import { SessionChat } from '@/components/SessionChat'
 import { SessionList } from '@/components/SessionList'
@@ -25,6 +26,8 @@ import { useAppContext } from '@/lib/app-context'
 import { useAppGoBack } from '@/hooks/useAppGoBack'
 import { isTelegramApp } from '@/hooks/useTelegram'
 import { useSidebarResize } from '@/hooks/useSidebarResize'
+import { useHideArchivedSessions } from '@/hooks/useHideArchivedSessions'
+import { filterVisibleSessions } from '@/lib/sessionListFilters'
 import { useMessages } from '@/hooks/queries/useMessages'
 import { useMachines } from '@/hooks/queries/useMachines'
 import { useSession } from '@/hooks/queries/useSession'
@@ -57,9 +60,13 @@ import SettingsVoicePage from '@/routes/settings/voice'
 import SettingsVoiceVoicesPage from '@/routes/settings/voice-voices'
 import SettingsVoiceAdvancedPage from '@/routes/settings/voice-advanced'
 import SettingsAboutPage from '@/routes/settings/about'
+import ForkSettingsPage from '@/fork-features/settings/ForkSettingsPage'
 import SharePage from '@/routes/share'
 import { setSharePendingTransfer } from '@/lib/sharePendingState'
 import { deleteShareTransfer } from '@/lib/shareTransfer'
+import UsersSettingsPage from '@/fork-features/multi-user/UsersSettingsPage'
+import UserSettingsPage from '@/fork-features/multi-user/UserSettingsPage'
+import AccountSettingsPage from '@/fork-features/multi-user/AccountSettingsPage'
 
 
 function BackIcon(props: { className?: string }) {
@@ -192,10 +199,22 @@ function SessionsPage() {
     const navigate = useNavigate()
     const queryClient = useQueryClient()
     const pathname = useLocation({ select: location => location.pathname })
+    const sidebarScrollRef = useRef<HTMLDivElement>(null)
+    // Keep the persistent sidebar from jumping when Router's per-route scroll
+    // restoration fires on navigation (issue #31).
+    usePreserveSidebarScroll(sidebarScrollRef, pathname)
     const matchRoute = useMatchRoute()
     const { t } = useTranslation()
     const { addToast } = useToast()
     const { sessions, isLoading, error, refetch } = useSessions(api)
+    const { hideArchivedSessions } = useHideArchivedSessions()
+    // Hide user-archived sessions from the list when the preference is on.
+    // `sessions` (unfiltered) is still used for selected-session resolution so an
+    // archived-but-currently-open session keeps resolving.
+    const visibleSessions = useMemo(
+        () => filterVisibleSessions(sessions, hideArchivedSessions),
+        [sessions, hideArchivedSessions]
+    )
     const { machines } = useMachines(api, true)
     const [isSyncingCodexSession, setIsSyncingCodexSession] = useState(false)
     const [codexSessions, setCodexSessions] = useState<CodexLocalSessionSummary[]>([])
@@ -231,9 +250,9 @@ function SessionsPage() {
         })()
     }, [addToast, refetch, t])
 
-    const projectCount = useMemo(() => new Set(sessions.map(s =>
+    const projectCount = useMemo(() => new Set(visibleSessions.map(s =>
         s.metadata?.worktree?.basePath ?? s.metadata?.path ?? 'Other'
-    )).size, [sessions])
+    )).size, [visibleSessions])
     const machineLabelsById = useMemo(() => {
         const labels: Record<string, string> = {}
         for (const machine of machines) {
@@ -551,7 +570,7 @@ function SessionsPage() {
                 <div className="bg-[var(--app-bg)] pt-[env(safe-area-inset-top)]">
                     <div className="mx-auto w-full max-w-content flex items-center justify-between px-3 py-2">
                         <div className="text-xs text-[var(--app-hint)]">
-                            {t('sessions.count', { n: sessions.length, m: projectCount })}
+                            {t('sessions.count', { n: visibleSessions.length, m: projectCount })}
                         </div>
                         <div className="flex items-center gap-2">
                             <button
@@ -604,14 +623,14 @@ function SessionsPage() {
                     </div>
                 </div>
 
-                <div className="app-scroll-y flex-1 min-h-0 desktop-scrollbar-left">
+                <div ref={sidebarScrollRef} className="app-scroll-y flex-1 min-h-0 desktop-scrollbar-left">
                     {error ? (
                         <div className="mx-auto w-full max-w-content px-3 py-2">
                             <div className="text-sm text-red-600">{error}</div>
                         </div>
                     ) : null}
                     <SessionList
-                        sessions={sessions}
+                        sessions={visibleSessions}
                         selectedSessionId={selectedSessionId}
                         onSelect={(sessionId) => navigate({
                             to: '/sessions/$sessionId',
@@ -852,8 +871,6 @@ function SessionPage() {
         isSessionThinking: session?.thinking ?? false,
         onSuccess: (sentSessionId) => {
             clearDraftsAfterSend(sentSessionId, sessionId)
-            // 中文注释：一旦用户已经在 Hapi 内继续这个 Codex 会话，就清除"刚从 Codex 导入"的标记。
-            clearCodexImportedSession(session?.metadata?.codexSessionId)
             // A successful send supersedes any previously-rendered error
             // for that session.  Other sessions' errors stay put.
             setSendErrors((prev) => {
@@ -1395,6 +1412,16 @@ const settingsAboutRoute = createRoute({
     component: SettingsAboutPage,
 })
 
+const settingsForkRoute = createRoute({
+    getParentRoute: () => settingsRoute,
+    path: 'fork',
+    component: ForkSettingsPage,
+})
+
+const settingsAccountRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'account', component: AccountSettingsPage })
+const settingsUsersRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'users', component: UsersSettingsPage })
+const settingsUserRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'users/$accountId', component: UserSettingsPage })
+
 // Web Share Target landing route. Service worker (`web/src/sw.ts`)
 // intercepts the manifest's `POST /share` and 303-redirects here with an
 // IDB transfer id. `error=ingest` is set when the SW failed to write IDB.
@@ -1435,6 +1462,10 @@ export const routeTree = rootRoute.addChildren([
         settingsVoiceVoicesRoute,
         settingsVoiceAdvancedRoute,
         settingsAboutRoute,
+        settingsForkRoute,
+        settingsAccountRoute,
+        settingsUsersRoute,
+        settingsUserRoute,
     ]),
     shareRoute,
 ])

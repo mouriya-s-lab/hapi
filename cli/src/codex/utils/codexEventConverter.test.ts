@@ -1,7 +1,39 @@
 import { describe, expect, it } from 'vitest';
-import { convertCodexEvent } from './codexEventConverter';
+import { convertCodexEvent, isCodexEventFromCurrentProcess } from './codexEventConverter';
 
 describe('convertCodexEvent', () => {
+    it('accepts current-process transcript events and rejects old or invalid timestamps', () => {
+        const startupTimestampMs = Date.parse('2026-07-22T01:00:00.000Z');
+
+        expect(isCodexEventFromCurrentProcess({
+            timestamp: '2026-07-22T01:00:00.000Z',
+            type: 'compacted'
+        }, startupTimestampMs)).toBe(true);
+        expect(isCodexEventFromCurrentProcess({
+            timestamp: '2026-07-22T00:59:59.999Z',
+            type: 'compacted'
+        }, startupTimestampMs)).toBe(false);
+        expect(isCodexEventFromCurrentProcess({ timestamp: 'invalid', type: 'compacted' }, startupTimestampMs)).toBe(false);
+        expect(isCodexEventFromCurrentProcess({ type: 'compacted' }, startupTimestampMs)).toBe(false);
+    });
+
+    it('converts compacted transcript records into shared summary messages', () => {
+        const result = convertCodexEvent({
+            type: 'compacted',
+            payload: { message: '  ## Handoff Summary\n\n- Continue here.  ' }
+        });
+
+        expect(result?.messages?.[0]).toMatchObject({
+            type: 'summary',
+            summary: '## Handoff Summary\n\n- Continue here.'
+        });
+    });
+
+    it.each([{ message: '' }, { message: '   ' }, { message: 42 }, {}])(
+        'ignores compacted records without summary text: %j',
+        (payload) => expect(convertCodexEvent({ type: 'compacted', payload })).toBeNull()
+    );
+
     it('extracts session_meta id', () => {
         const result = convertCodexEvent({
             type: 'session_meta',

@@ -1478,6 +1478,12 @@ describe('codexRemoteLauncher', () => {
         expect(harness.resumeThreadIds).toEqual([]);
         expect(harness.startTurnThreadIds).toEqual(['thread-1', 'thread-1', 'thread-1', 'thread-1']);
         expect(harness.startTurnMessages).toEqual(['first message', 'first message', 'first message', 'first message']);
+        expect(harness.rollbackCalls).toEqual([
+            { threadId: 'thread-1', numTurns: 1 },
+            { threadId: 'thread-1', numTurns: 1 },
+            { threadId: 'thread-1', numTurns: 1 }
+        ]);
+        expect(sessionEvents.filter((event) => String(event.message ?? '').startsWith('Attempt failed:'))).toHaveLength(3);
         expect(sessionEvents).toContainEqual({
             type: 'message',
             message: 'Task failed: Codex thread entered systemError'
@@ -1497,10 +1503,51 @@ describe('codexRemoteLauncher', () => {
         expect(harness.resumeThreadIds).toEqual([]);
         expect(harness.startTurnThreadIds).toEqual(['thread-1', 'thread-1']);
         expect(harness.startTurnMessages).toEqual(['first message', 'first message']);
+        expect(harness.rollbackCalls).toEqual([{ threadId: 'thread-1', numTurns: 1 }]);
         expect(session.sessionId).toBe('thread-1');
         expect(sessionEvents).not.toContainEqual({
             type: 'message',
             message: 'Task failed: Codex thread entered systemError'
+        });
+        expect(session.thinking).toBe(false);
+    });
+
+    it('keeps three failed attempts traceable without leaving a final failure after recovery', async () => {
+        harness.remainingThreadSystemErrors = 3;
+        const { session, sessionEvents } = createSessionStub(['first message']);
+
+        const exitReason = await codexRemoteLauncher(session as never);
+
+        expect(exitReason).toBe('exit');
+        expect(harness.startTurnMessages).toEqual([
+            'first message',
+            'first message',
+            'first message',
+            'first message'
+        ]);
+        expect(harness.rollbackCalls).toEqual([
+            { threadId: 'thread-1', numTurns: 1 },
+            { threadId: 'thread-1', numTurns: 1 },
+            { threadId: 'thread-1', numTurns: 1 }
+        ]);
+        expect(sessionEvents.filter((event) => String(event.message ?? '').startsWith('Attempt failed:'))).toHaveLength(3);
+        expect(sessionEvents.some((event) => String(event.message ?? '').startsWith('Task failed'))).toBe(false);
+        expect(session.thinking).toBe(false);
+    });
+
+    it('stops retrying when the failed turn cannot be removed from the conversation', async () => {
+        harness.remainingThreadSystemErrors = 1;
+        harness.rollbackErrors.push(new Error('rollback unsupported'));
+        const { session, sessionEvents } = createSessionStub(['first message']);
+
+        const exitReason = await codexRemoteLauncher(session as never);
+
+        expect(exitReason).toBe('exit');
+        expect(harness.startTurnMessages).toEqual(['first message']);
+        expect(harness.rollbackCalls).toEqual([{ threadId: 'thread-1', numTurns: 1 }]);
+        expect(sessionEvents).toContainEqual({
+            type: 'message',
+            message: 'Task failed: Codex thread entered systemError; same-conversation retry could not remove the failed attempt: rollback unsupported'
         });
         expect(session.thinking).toBe(false);
     });
@@ -1516,7 +1563,7 @@ describe('codexRemoteLauncher', () => {
         expect(harness.startTurnMessages).toEqual(['first message', 'first message']);
         expect(sessionEvents).toContainEqual({
             type: 'message',
-            message: 'Task failed: Codex thread entered systemError; retrying same conversation (1/3)'
+            message: 'Attempt failed: Codex thread entered systemError; retrying same conversation (1/3)'
         });
         expect(session.thinking).toBe(false);
     });
@@ -2056,7 +2103,8 @@ describe('codexRemoteLauncher', () => {
             agentId: 'child-thread',
             message: expect.objectContaining({
                 type: 'message',
-                message: 'child output should stay hidden'
+                message: 'child output should stay hidden',
+                model: 'gpt-5.4'
             })
         }));
         expect(codexMessages).toContainEqual(expect.objectContaining({
@@ -2703,7 +2751,7 @@ describe('codexRemoteLauncher', () => {
         });
         expect(sessionEvents).toContainEqual({
             type: 'message',
-            message: 'Compaction completed'
+            message: 'Compaction completed, but the summary was unavailable'
         });
     });
 
@@ -2742,7 +2790,7 @@ describe('codexRemoteLauncher', () => {
         expect(harness.startTurnMessages).toEqual(['first message', 'after compact']);
         expect(sessionEvents).toContainEqual({
             type: 'message',
-            message: 'Compaction completed'
+            message: 'Compaction completed, but the summary was unavailable'
         });
     });
 
@@ -2759,7 +2807,7 @@ describe('codexRemoteLauncher', () => {
         expect(harness.compactThreadIds).toEqual(['thread-1']);
         expect(sessionEvents).toContainEqual({
             type: 'message',
-            message: 'Compaction completed'
+            message: 'Compaction completed, but the summary was unavailable'
         });
         expect(session.thinking).toBe(false);
     });

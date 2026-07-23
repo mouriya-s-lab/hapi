@@ -3,7 +3,9 @@ import type { CodexCollaborationMode, PermissionMode, Session, SessionPatch } fr
 import type { Store } from '../store'
 import { clampAliveTime } from './aliveTime'
 import { EventPublisher } from './eventPublisher'
-import { extractTodoWriteTodosFromMessageContent, TodosSchema } from './todos'
+import { TodosSchema } from './todos'
+import type { TodoItem } from './todos'
+import { applyTodoMessageContent } from '../fork-features/task-panel/taskProjection'
 import { extractBackgroundTaskDelta } from './backgroundTasks'
 
 const QUEUED_MESSAGE_THINKING_GRACE_MS = 15_000
@@ -108,16 +110,18 @@ export class SessionCache {
         if (stored.todos === null && !this.todoBackfillAttemptedSessionIds.has(sessionId)) {
             this.todoBackfillAttemptedSessionIds.add(sessionId)
             const messages = this.store.messages.getMessages(sessionId, 200)
-            for (let i = messages.length - 1; i >= 0; i -= 1) {
-                const message = messages[i]
-                const todos = extractTodoWriteTodosFromMessageContent(message.content)
-                if (todos) {
-                    const updated = this.store.sessions.setSessionTodos(sessionId, todos, message.createdAt, stored.namespace)
-                    if (updated) {
-                        stored = this.store.sessions.getSession(sessionId) ?? stored
-                    }
-                    break
+            let accumulated: TodoItem[] | null = null
+            let accumulatedAt: number | null = null
+            for (const message of messages) {
+                const nextTodos = applyTodoMessageContent(accumulated, message.content)
+                if (nextTodos) {
+                    accumulated = nextTodos
+                    accumulatedAt = message.createdAt
                 }
+            }
+            if (accumulated && accumulatedAt !== null) {
+                const updated = this.store.sessions.setSessionTodos(sessionId, accumulated, accumulatedAt, stored.namespace)
+                if (updated) stored = this.store.sessions.getSession(sessionId) ?? stored
             }
         }
 
@@ -170,6 +174,7 @@ export class SessionCache {
             modelReasoningEffort: stored.modelReasoningEffort,
             effort: stored.effort,
             serviceTier: stored.serviceTier,
+            resumeWithSessionModel: stored.resumeWithSessionModel,
             permissionMode: existing?.permissionMode ?? metadata?.preferredPermissionMode,
             collaborationMode: existing?.collaborationMode
         }
@@ -470,6 +475,7 @@ export class SessionCache {
             modelReasoningEffort?: string | null
             effort?: string | null
             serviceTier?: string | null
+            resumeWithSessionModel?: boolean
             collaborationMode?: CodexCollaborationMode
         }
     ): void {
@@ -543,6 +549,20 @@ export class SessionCache {
             }
             session.serviceTier = config.serviceTier
             this.markRuntimeConfigUpdated(sessionId, 'serviceTier', appliedAt)
+        }
+        if (config.resumeWithSessionModel !== undefined) {
+            if (config.resumeWithSessionModel !== session.resumeWithSessionModel) {
+                const updated = this.store.sessions.setSessionResumeWithSessionModel(
+                    sessionId,
+                    config.resumeWithSessionModel,
+                    session.namespace,
+                    { touchUpdatedAt: false }
+                )
+                if (!updated) {
+                    throw new Error('Failed to update session resume model setting')
+                }
+            }
+            session.resumeWithSessionModel = config.resumeWithSessionModel
         }
         if (config.collaborationMode !== undefined) {
             session.collaborationMode = config.collaborationMode
@@ -936,6 +956,15 @@ export class SessionCache {
             }
         }
 
+        if (!newStored.resumeWithSessionModel && oldStored.resumeWithSessionModel) {
+            const updated = this.store.sessions.setSessionResumeWithSessionModel(newSessionId, true, namespace, {
+                touchUpdatedAt: false
+            })
+            if (!updated) {
+                throw new Error('Failed to preserve session resume model setting during merge')
+            }
+        }
+
         if (oldStored.todos !== null && oldStored.todosUpdatedAt !== null) {
             this.store.sessions.setSessionTodos(
                 newSessionId,
@@ -1041,6 +1070,10 @@ export class SessionCache {
             merged.preferredPermissionMode = oldObj.preferredPermissionMode
             changed = true
         }
+        if (typeof oldObj.ccSwitchProviderId === 'string' && typeof newObj.ccSwitchProviderId !== 'string') {
+            merged.ccSwitchProviderId = oldObj.ccSwitchProviderId
+            changed = true
+        }
 
         return changed ? merged : newMetadata
     }
@@ -1126,15 +1159,32 @@ export class SessionCache {
 
     private extractAgentSessionId(
         metadata: NonNullable<Session['metadata']>
-    ): { field: 'codexSessionId' | 'claudeSessionId' | 'geminiSessionId' | 'opencodeSessionId' | 'grokSessionId' | 'cursorSessionId' | 'piSessionId'; value: string } | null {
-        if (metadata.codexSessionId) return { field: 'codexSessionId', value: metadata.codexSessionId }
-        if (metadata.claudeSessionId) return { field: 'claudeSessionId', value: metadata.claudeSessionId }
-        if (metadata.geminiSessionId) return { field: 'geminiSessionId', value: metadata.geminiSessionId }
-        if (metadata.opencodeSessionId) return { field: 'opencodeSessionId', value: metadata.opencodeSessionId }
-        if (metadata.grokSessionId) return { field: 'grokSessionId', value: metadata.grokSessionId }
-        if (metadata.cursorSessionId) return { field: 'cursorSessionId', value: metadata.cursorSessionId }
-        if (metadata.piSessionId) return { field: 'piSessionId', value: metadata.piSessionId }
+    ):
+        | {
+            type: 'flat'
+            field: 'codexSessionId' | 'claudeSessionId' | 'geminiSessionId' | 'opencodeSessionId' | 'grokSessionId' | 'cursorSessionId' | 'piSessionId'
+            value: string
+        }
+        | { type: 'omp'; value: string }
+        | null {
+        if (metadata.codexSessionId) return { type: 'flat', field: 'codexSessionId', value: metadata.codexSessionId }
+        if (metadata.claudeSessionId) return { type: 'flat', field: 'claudeSessionId', value: metadata.claudeSessionId }
+        if (metadata.geminiSessionId) return { type: 'flat', field: 'geminiSessionId', value: metadata.geminiSessionId }
+        if (metadata.opencodeSessionId) return { type: 'flat', field: 'opencodeSessionId', value: metadata.opencodeSessionId }
+        if (metadata.grokSessionId) return { type: 'flat', field: 'grokSessionId', value: metadata.grokSessionId }
+        if (metadata.cursorSessionId) return { type: 'flat', field: 'cursorSessionId', value: metadata.cursorSessionId }
+        if (metadata.piSessionId) return { type: 'flat', field: 'piSessionId', value: metadata.piSessionId }
+        if (metadata.ompSession) return { type: 'omp', value: metadata.ompSession.id }
         return null
+    }
+
+    private metadataHasAgentSessionId(
+        metadata: NonNullable<Session['metadata']>,
+        identity: NonNullable<ReturnType<SessionCache['extractAgentSessionId']>>
+    ): boolean {
+        return identity.type === 'omp'
+            ? metadata.ompSession?.id === identity.value
+            : metadata[identity.field] === identity.value
     }
 
     async deduplicateByAgentSessionId(sessionId: string): Promise<void> {
@@ -1161,14 +1211,14 @@ export class SessionCache {
 
                 const currentSession = this.sessions.get(sessionId)
                 const candidates: { id: string; session: Session }[] = []
-                if (currentSession?.metadata && currentSession.metadata[agentId.field] === agentId.value) {
+                if (currentSession?.metadata && this.metadataHasAgentSessionId(currentSession.metadata, agentId)) {
                     candidates.push({ id: sessionId, session: currentSession })
                 }
                 for (const [existingId, existing] of this.sessions) {
                     if (existingId === sessionId) continue
                     if (existing.namespace !== session.namespace) continue
                     if (!existing.metadata) continue
-                    if (existing.metadata[agentId.field] !== agentId.value) continue
+                    if (!this.metadataHasAgentSessionId(existing.metadata, agentId)) continue
                     candidates.push({ id: existingId, session: existing })
                 }
 

@@ -59,7 +59,9 @@ describe('runHappyMcpStdioBridge tool forwarding', () => {
         expect([...harness.tools.keys()]).toEqual([
             'change_title',
             'display_image',
-            'skill_lookup'
+            'skill_lookup',
+            'display_video',
+            'send_file'
         ])
 
         const handler = harness.tools.get('skill_lookup')
@@ -82,6 +84,11 @@ describe('runHappyMcpStdioBridge tool forwarding', () => {
             'change_title,display_image'
         ])
 
-        expect([...harness.tools.keys()]).toEqual(['change_title', 'display_image'])
+        expect([...harness.tools.keys()]).toEqual([
+            'change_title',
+            'display_image',
+            'display_video',
+            'send_file'
+        ])
     })
 })

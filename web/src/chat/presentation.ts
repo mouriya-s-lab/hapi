@@ -141,6 +141,53 @@ export type EventPresentation = {
 }
 
 export function getEventPresentation(event: AgentEvent): EventPresentation {
+    if (event.type === 'omp-rpc-warning') {
+        const warning = typeof event.warning === 'string' ? event.warning : 'Unknown OMP RPC event'
+        return { icon: '⚠️', text: warning }
+    }
+    if (event.type === 'omp-retry') {
+        const phase = typeof event.phase === 'string' ? event.phase : 'updated'
+        return { icon: phase === 'finished' || phase === 'fallback-succeeded' ? '✓' : '⏳', text: `OMP retry ${phase}` }
+    }
+    if (event.type === 'omp-notice') {
+        const message = typeof event.message === 'string' ? event.message : 'OMP notice'
+        return { icon: event.level === 'error' ? '⚠️' : null, text: message }
+    }
+    if (event.type === 'omp-extension-error') {
+        const message = typeof event.message === 'string' ? event.message : 'OMP extension error'
+        return { icon: '⚠️', text: message }
+    }
+    if (event.type === 'omp-extension-ui') {
+        const method = typeof event.method === 'string' ? event.method : 'unknown'
+        if (method === 'notify') {
+            const message = typeof event.message === 'string' ? event.message : 'OMP notification'
+            return { icon: event.level === 'error' ? '⚠️' : event.level === 'warning' ? '⚠️' : 'ℹ️', text: message }
+        }
+        if (method === 'setStatus') {
+            const key = typeof event.key === 'string' ? event.key : 'status'
+            const text = typeof event.text === 'string' ? event.text : 'cleared'
+            return { icon: 'ℹ️', text: `OMP ${key}: ${text}` }
+        }
+        if (method === 'setWidget') {
+            const key = typeof event.key === 'string' ? event.key : 'widget'
+            const lines = Array.isArray(event.lines) ? event.lines.filter((line): line is string => typeof line === 'string') : []
+            return { icon: '▦', text: lines.length > 0 ? `${key}: ${lines.join(' · ')}` : `${key}: cleared` }
+        }
+        if (method === 'setTitle') {
+            return { icon: null, text: `OMP title: ${typeof event.title === 'string' ? event.title : ''}` }
+        }
+        if (method === 'set_editor_text') {
+            return { icon: '✎', text: `OMP editor text: ${typeof event.text === 'string' ? event.text : ''}` }
+        }
+        if (method === 'open_url') {
+            return { icon: '↗', text: `OMP requested URL: ${typeof event.url === 'string' ? event.url : ''}` }
+        }
+        if (method === 'login_status') {
+            const message = typeof event.message === 'string' ? event.message : 'OMP login status updated'
+            return { icon: event.status === 'failed' ? '⚠️' : event.status === 'authenticated' ? '✓' : '↗', text: message }
+        }
+        return { icon: 'ℹ️', text: `OMP extension UI: ${method}` }
+    }
     if (event.type === 'api-error') {
         const { retryAttempt, maxRetries } = event as { retryAttempt: number; maxRetries: number }
         if (maxRetries > 0 && retryAttempt >= maxRetries) {
@@ -204,6 +251,9 @@ export function getEventPresentation(event: AgentEvent): EventPresentation {
         // Lowercase `recap:` intentionally mirrors Claude Code's own TUI recap label.
         const text = typeof event.text === 'string' ? event.text : ''
         return { icon: '💭', text: `recap: ${text}` }
+    }
+    if (event.type === 'model-refusal-fallback') {
+        return { icon: '⚠️', text: `Model automatically switched from ${event.originalModel}` }
     }
     if (event.type === 'thread-goal-updated') {
         return formatThreadGoalEvent(event)

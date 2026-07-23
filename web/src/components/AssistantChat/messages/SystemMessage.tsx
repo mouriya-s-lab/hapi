@@ -17,7 +17,6 @@ export function HappySystemMessage() {
         const event = custom?.kind === 'event' ? custom.event : undefined
         return event ? getEventPresentation(event).icon : null
     })
-
     if (role !== 'system') return null
 
     return (

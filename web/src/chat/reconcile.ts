@@ -4,6 +4,7 @@ import type {
     AgentReasoningBlock,
     AgentTextBlock,
     ChatBlock,
+    GeneratedFileBlock,
     GeneratedImageBlock,
     CliOutputBlock,
     CodexReviewBlock,
@@ -146,6 +147,16 @@ function areGeneratedImageBlocksEqual(left: GeneratedImageBlock, right: Generate
         && left.meta === right.meta
 }
 
+function areGeneratedFileBlocksEqual(left: GeneratedFileBlock, right: GeneratedFileBlock): boolean {
+    return left.localId === right.localId
+        && left.createdAt === right.createdAt
+        && left.fileId === right.fileId
+        && left.fileName === right.fileName
+        && left.mimeType === right.mimeType
+        && left.size === right.size
+        && left.meta === right.meta
+}
+
 function areCodexReviewBlocksEqual(left: CodexReviewBlock, right: CodexReviewBlock): boolean {
     return left.review === right.review
         && left.localId === right.localId
@@ -236,6 +247,11 @@ function reconcileBlock(block: ChatBlock, prevById: ChatBlocksById): ChatBlock {
     if (block.kind === 'generated-image') {
         const prevBlock = prev as GeneratedImageBlock
         return areGeneratedImageBlocksEqual(prevBlock, block) ? prevBlock : block
+    }
+
+    if (block.kind === 'generated-file') {
+        const prevBlock = prev as GeneratedFileBlock
+        return areGeneratedFileBlocksEqual(prevBlock, block) ? prevBlock : block
     }
 
     if (block.kind === 'codex-review') {

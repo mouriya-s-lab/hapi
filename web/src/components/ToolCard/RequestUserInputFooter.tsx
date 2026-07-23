@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import type { ApiClient } from '@/api/client'
 import type { ChatToolCall } from '@/chat/types'
 import { Badge } from '@/components/ui/badge'
@@ -17,6 +18,7 @@ import { cn } from '@/lib/utils'
 import { usePlatform } from '@/hooks/usePlatform'
 import { Spinner } from '@/components/Spinner'
 import { useTranslation } from '@/lib/use-translation'
+import { queryKeys } from '@/lib/query-keys'
 
 function SelectionMark(props: { checked: boolean }) {
     const mark = props.checked ? '●' : '○'
@@ -74,7 +76,32 @@ export function RequestUserInputFooter(props: {
     const { t } = useTranslation()
     const { haptic } = usePlatform()
     const permission = props.tool.permission
-    const parsed = useMemo(() => parseRequestUserInputInput(props.tool.input), [props.tool.input])
+    const persistedInput = useMemo(
+        () => parseRequestUserInputInput(props.tool.input),
+        [props.tool.input]
+    )
+    const transientQuery = useQuery({
+        queryKey: queryKeys.sessionOmpExtensionUiRequest(
+            props.sessionId,
+            permission?.id ?? props.tool.id
+        ),
+        queryFn: async () => {
+            if (!permission) throw new Error('Missing OMP extension UI request id')
+            const response = await props.api.getSessionOmpExtensionUiRequest(
+                props.sessionId,
+                permission.id
+            )
+            if (!response.success) throw new Error(response.error)
+            return response.input
+        },
+        enabled: permission?.status === 'pending' && persistedInput.transientRequest,
+        staleTime: Infinity,
+        retry: false
+    })
+    const parsed = useMemo(
+        () => parseRequestUserInputInput(transientQuery.data ?? props.tool.input),
+        [props.tool.input, transientQuery.data]
+    )
     const questions = parsed.questions
 
     const [step, setStep] = useState(0)
@@ -87,15 +114,33 @@ export function RequestUserInputFooter(props: {
         setStep(0)
         const initial: Record<string, QuestionState> = {}
         for (const q of questions) {
-            initial[q.id] = { selected: [], userNote: '' }
+            initial[q.id] = { selected: [], userNote: q.initialValue }
         }
         setStateByQuestion(initial)
         setLoading(false)
         setError(null)
-    }, [props.tool.id])
+    }, [props.tool.id, parsed])
 
     if (!permission || permission.status !== 'pending') return null
     if (!isRequestUserInputToolName(props.tool.name)) return null
+
+    if (persistedInput.transientRequest && transientQuery.isPending) {
+        return (
+            <div className="mt-3 rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-3">
+                <Spinner size="sm" label={t('tool.requestUserInput.loading')} />
+            </div>
+        )
+    }
+
+    if (persistedInput.transientRequest && transientQuery.error) {
+        return (
+            <div className="mt-3 rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-3 text-xs text-red-600">
+                {transientQuery.error instanceof Error
+                    ? transientQuery.error.message
+                    : t('dialog.error.default')}
+            </div>
+        )
+    }
 
     const run = async (action: () => Promise<void>, hapticType: 'success' | 'error') => {
         if (props.disabled) return
@@ -229,7 +274,7 @@ export function RequestUserInputFooter(props: {
                             value={currentState?.userNote ?? ''}
                             onChange={(e) => updateUserNote(currentQuestion.id, e.target.value)}
                             disabled={props.disabled || loading}
-                            placeholder={t('tool.requestUserInput.textPlaceholder')}
+                            placeholder={currentQuestion.placeholder ?? t('tool.requestUserInput.textPlaceholder')}
                             className="mt-3 w-full min-h-[88px] resize-y rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-sm text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"
                         />
                     ) : (

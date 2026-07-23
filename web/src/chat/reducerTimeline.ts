@@ -63,6 +63,7 @@ function mapAgentRunStatusToToolState(status: string | null): ToolCallBlock['too
         || status === 'error'
         || status === 'canceled'
         || status === 'cancelled'
+        || status === 'aborted'
         || status === 'notFound'
         || status === 'not_found'
     ) return 'error'
@@ -121,6 +122,16 @@ function getAgentRunDisplayPatch(event: Record<string, unknown>): Record<string,
     if (summary) patch.summary = summary
     if (activity) patch.activity = activity
     if (activityKind) patch.activityKind = activityKind
+    for (const key of ['parentToolCallId', 'progress'] as const) {
+        if (event[key] !== undefined) patch[key] = event[key]
+    }
+    if (event.progress !== undefined) {
+        patch.retryState = event.retryState ?? null
+        patch.retryFailure = event.retryFailure ?? null
+    } else {
+        if (event.retryState !== undefined) patch.retryState = event.retryState
+        if (event.retryFailure !== undefined) patch.retryFailure = event.retryFailure
+    }
 
     return patch
 }
@@ -208,6 +219,7 @@ function normalizeTraceMessage(
         return [{
             ...base,
             id: traceId,
+            model: asString(data.model),
             role: 'agent',
             content: [{ type: 'text', text: data.message, uuid: traceId, parentUUID: null }]
         } as TracedMessage]
@@ -785,6 +797,22 @@ export function reduceTimeline(
                         imageId: c.imageId,
                         fileName: c.fileName,
                         mimeType: c.mimeType,
+                        meta: msg.meta
+                    })
+                    continue
+                }
+
+                if (c.type === 'generated-file') {
+                    blocks.push({
+                        kind: 'generated-file',
+                        id: `${msg.id}:${idx}`,
+                        localId: msg.localId,
+                        createdAt: msg.createdAt,
+                        invokedAt: msg.invokedAt,
+                        fileId: c.fileId,
+                        fileName: c.fileName,
+                        mimeType: c.mimeType,
+                        size: c.size,
                         meta: msg.meta
                     })
                     continue

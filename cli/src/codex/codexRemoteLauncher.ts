@@ -21,6 +21,9 @@ import type { ThreadGoal, ThreadGoalStatus } from './appServerTypes';
 import { shouldIgnoreTerminalEvent } from './utils/terminalEventGuard';
 import { parseCodexSpecialCommand } from './codexSpecialCommands';
 import { extractErrorInfo } from '@/utils/errorUtils';
+import { createCodexSessionScanner, type CodexSessionScanner } from './utils/codexSessionScanner';
+import { createCodexTranscriptLocator, type CodexTranscriptLocator } from './utils/codexTranscriptLocator';
+import { convertCodexEvent, isCodexEventFromCurrentProcess } from './utils/codexEventConverter';
 import {
     RemoteLauncherBase,
     type RemoteLauncherDisplayContext,
@@ -226,6 +229,9 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
     private currentThreadId: string | null = null;
     private currentTurnId: string | null = null;
     private readonly activeChildTurns = new Map<string, string>();
+    private transcriptLocator: CodexTranscriptLocator | null = null;
+    private transcriptScanner: CodexSessionScanner | null = null;
+    private transcriptScannerSetup: Promise<void> | null = null;
 
     constructor(session: CodexSession) {
         super(process.env.DEBUG ? session.logPath : undefined);
@@ -338,6 +344,74 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
         const messageBuffer = this.messageBuffer;
         const appServerClient = this.appServerClient;
         const appServerEventConverter = new AppServerEventConverter();
+        const startupTimestampMs = Date.now();
+        let transcriptLocatorThreadId = session.sessionId ?? null;
+        let compactSummarySequence = 0;
+        const compactSummaryWaiters = new Set<() => void>();
+
+        const waitForCompactSummary = async (afterSequence: number, timeoutMs: number): Promise<boolean> => {
+            if (compactSummarySequence > afterSequence) return true;
+            return await new Promise<boolean>((resolve) => {
+                const complete = () => {
+                    clearTimeout(timeout);
+                    compactSummaryWaiters.delete(complete);
+                    resolve(true);
+                };
+                const timeout = setTimeout(() => {
+                    compactSummaryWaiters.delete(complete);
+                    resolve(false);
+                }, timeoutMs);
+                timeout.unref?.();
+                compactSummaryWaiters.add(complete);
+            });
+        };
+
+        const attachTranscriptScanner = async (transcriptPath: string): Promise<void> => {
+            if (this.transcriptScanner) {
+                await this.transcriptScanner.setTranscriptPath(transcriptPath);
+                return;
+            }
+            this.transcriptScanner = await createCodexSessionScanner({
+                transcriptPath,
+                replayExistingHistory: true,
+                onEvent: (event) => {
+                    if (!isCodexEventFromCurrentProcess(event, startupTimestampMs)) return;
+                    const converted = convertCodexEvent(event);
+                    const summary = converted?.messages?.find((message) => message.type === 'summary');
+                    if (summary) {
+                        session.sendAgentMessage(summary);
+                        compactSummarySequence += 1;
+                        for (const waiter of [...compactSummaryWaiters]) waiter();
+                    }
+                }
+            });
+        };
+
+        const createTranscriptLocator = (resumeSessionId?: string | null): CodexTranscriptLocator =>
+            createCodexTranscriptLocator({
+                cwd: session.path,
+                startupTimestampMs,
+                resumeSessionId,
+                onLocated: ({ transcriptPath }) => {
+                    this.transcriptScannerSetup = attachTranscriptScanner(transcriptPath).catch((error) => {
+                        logger.warn('[codex-remote]: Failed to attach compact-summary transcript scanner', error);
+                    });
+                }
+            });
+
+        const bindTranscriptLocatorToThread = async (threadId: string): Promise<void> => {
+            if (transcriptLocatorThreadId === threadId) return;
+            transcriptLocatorThreadId = threadId;
+
+            const previousLocator = this.transcriptLocator;
+            const exactLocator = createTranscriptLocator(threadId);
+            this.transcriptLocator = exactLocator;
+            await previousLocator?.cleanup();
+            await exactLocator.ready;
+        };
+
+        this.transcriptLocator = createTranscriptLocator(session.sessionId);
+        await this.transcriptLocator.ready;
 
         const normalizeCommand = (value: unknown): string | undefined => {
             if (typeof value === 'string') {
@@ -657,6 +731,8 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
         const pendingAgentTracesByAgentId = new Map<string, unknown[]>();
         const pendingAgentToolInputByCallId = new Map<string, { name: string; input: unknown }>();
         const childAgentRuntimeById = new Map<string, ChildAgentRuntime>();
+        const childAgentModelByCardId = new Map<string, string>();
+        const childAgentModelByAgentId = new Map<string, string>();
         const lastAgentRunUpdateAtByAgentId = new Map<string, number>();
         const lastAgentRunUpdateSignatureByAgentId = new Map<string, string>();
         const pendingThrottledAgentUpdateByAgentId = new Map<string, {
@@ -779,6 +855,10 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             const startedAt = Date.now();
             agentStartedAtByCardId.set(cardId, startedAt);
             const summary = summarizeAgentInput(input);
+            const requestedModel = asString(asRecord(input)?.model) ?? session.getModel();
+            if (requestedModel) {
+                childAgentModelByCardId.set(cardId, requestedModel);
+            }
             if (summary) {
                 agentSummaryByCardId.set(cardId, summary);
             }
@@ -822,6 +902,10 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
 
         const linkAgentToCard = (agentId: string, cardId: string): void => {
             agentCardByAgentId.set(agentId, cardId);
+            const model = childAgentModelByCardId.get(cardId) ?? session.getModel();
+            if (model) {
+                childAgentModelByAgentId.set(agentId, model);
+            }
             clearPendingAgentStart(cardId);
             const startedAt = agentStartedAtByCardId.get(cardId) ?? agentStartedAtByAgentId.get(agentId);
             if (startedAt) {
@@ -1512,6 +1596,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     emitAgentRunTraceMessage(agentId, {
                         type: 'message',
                         message,
+                        model: childAgentModelByAgentId.get(agentId) ?? session.getModel(),
                         id: randomUUID()
                     });
                 }
@@ -1953,6 +2038,36 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 });
         };
 
+        const beginSameThreadRetry = (
+            threadId: string,
+            messageToRetry: QueuedMessage,
+            error: string | null
+        ) => {
+            sameThreadRetryAttempt += 1;
+            recoveryInFlight = true;
+            logger.debug(
+                `[Codex] Retrying retryable failure on same thread ` +
+                `(attempt ${sameThreadRetryAttempt}/${SAME_THREAD_MAX_RETRIES}): ${error ?? 'unknown error'}`
+            );
+            void appServerClient.rollbackThread({ threadId, numTurns: 1 }).then(() => {
+                if (!this.shouldExit && this.currentThreadId === threadId) {
+                    pending = messageToRetry;
+                }
+            }).catch((rollbackError) => {
+                const detail = errorMessage(rollbackError);
+                logger.warn(`[Codex] Failed to roll back failed turn before retry: ${detail}`);
+                const message = error
+                    ? `Task failed: ${error}; same-conversation retry could not remove the failed attempt: ${detail}`
+                    : `Task failed: same-conversation retry could not remove the failed attempt: ${detail}`;
+                messageBuffer.addMessage(message, 'status');
+                session.sendSessionEvent({ type: 'message', message });
+                activeMessage = null;
+            }).finally(() => {
+                recoveryInFlight = false;
+                wakeLoop();
+            });
+        };
+
         const clearManualCompact = (compact: typeof manualCompact) => {
             if (!compact) {
                 return;
@@ -2346,6 +2461,9 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     if (!this.currentThreadId || this.currentThreadId === threadId) {
                         this.currentThreadId = threadId;
                         session.onSessionFound(threadId);
+                        void bindTranscriptLocatorToThread(threadId).catch((error) => {
+                            logger.warn(`[codex-remote]: Failed to bind compact-summary transcript for ${threadId}`, error);
+                        });
                     } else {
                         logger.debug(
                             `[Codex] Ignoring thread_started for non-active thread; ` +
@@ -2604,6 +2722,9 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 && Boolean(activeMessage)
                 && Boolean(this.currentThreadId)
                 && sameThreadRetryAttempt < SAME_THREAD_MAX_RETRIES;
+            const allowSameThreadTerminalRecovery = msg.terminal_source === 'thread_status'
+                || sameThreadRetryAttempt > 0
+                || sameThreadCompactAttempt > 0;
 
             const suppressReadyForThisTerminalEvent = isTerminalEvent
                 ? consumeInterruptedTurnReadySuppression(eventTurnId)
@@ -2617,7 +2738,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     allowAnonymousTerminalEvent,
                     eventThreadId,
                     currentThreadId: this.currentThreadId,
-                    allowMatchingThreadIdTerminalEvent: msg.terminal_source === 'thread_status'
+                    allowMatchingThreadIdTerminalEvent: allowSameThreadTerminalRecovery
                 })) {
                     logger.debug(
                         `[Codex] Ignoring terminal event ${msgType} without matching turn context; ` +
@@ -2648,12 +2769,11 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                         beginCompactRecovery(threadId, messageToRetry, error);
                     }
                 } else if (shouldRetrySameThread) {
-                    sameThreadRetryAttempt += 1;
-                    pending = activeMessage;
-                    logger.debug(
-                        `[Codex] Retrying retryable failure on same thread ` +
-                        `(attempt ${sameThreadRetryAttempt}/${SAME_THREAD_MAX_RETRIES}): ${error ?? 'unknown error'}`
-                    );
+                    const threadId = this.currentThreadId;
+                    const messageToRetry = activeMessage;
+                    if (threadId && messageToRetry) {
+                        beginSameThreadRetry(threadId, messageToRetry, error);
+                    }
                 }
                 this.currentTurnId = null;
                 allowAnonymousTerminalEvent = false;
@@ -2698,8 +2818,8 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     session.sendSessionEvent({ type: 'message', message: retryMessage });
                 } else if (shouldRetrySameThread) {
                     const retryMessage = error
-                        ? `Task failed: ${error}; retrying same conversation (${sameThreadRetryAttempt}/${SAME_THREAD_MAX_RETRIES})`
-                        : `Task failed; retrying same conversation (${sameThreadRetryAttempt}/${SAME_THREAD_MAX_RETRIES})`;
+                        ? `Attempt failed: ${error}; retrying same conversation (${sameThreadRetryAttempt}/${SAME_THREAD_MAX_RETRIES})`
+                        : `Attempt failed; retrying same conversation (${sameThreadRetryAttempt}/${SAME_THREAD_MAX_RETRIES})`;
                     messageBuffer.addMessage(retryMessage, 'status');
                     session.sendSessionEvent({ type: 'message', message: retryMessage });
                 } else {
@@ -2782,6 +2902,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     session.sendAgentMessage({
                         type: 'message',
                         message,
+                        model: session.getModel(),
                         id: randomUUID()
                     });
                 }
@@ -3504,12 +3625,18 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             sendVisibleStatus('Compaction started');
             const compactCompletion = beginManualCompact(threadId);
             void compactCompletion.catch(() => {});
+            const summarySequenceBeforeCompact = compactSummarySequence;
             try {
                 await appServerClient.compactThread({ threadId }, {
                     signal: this.abortController.signal
                 });
                 await compactCompletion;
-                sendVisibleStatus('Compaction completed');
+                const summaryReceived = this.transcriptScanner
+                    ? await waitForCompactSummary(summarySequenceBeforeCompact, 10_000)
+                    : false;
+                sendVisibleStatus(summaryReceived
+                    ? 'Compaction completed'
+                    : 'Compaction completed, but the summary was unavailable');
             } catch (error) {
                 const detail = error instanceof Error ? error.message : String(error);
                 sendVisibleStatus(`Compaction failed: ${detail}`);
@@ -3780,6 +3907,12 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
     protected async cleanup(): Promise<void> {
         logger.debug('[codex-remote]: cleanup start');
         this.appServerClient.setStderrHandler(null);
+        await this.transcriptLocator?.cleanup();
+        this.transcriptLocator = null;
+        await this.transcriptScannerSetup;
+        this.transcriptScannerSetup = null;
+        await this.transcriptScanner?.cleanup();
+        this.transcriptScanner = null;
         try {
             await this.appServerClient.disconnect();
         } catch (error) {

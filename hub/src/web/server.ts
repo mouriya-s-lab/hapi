@@ -20,9 +20,11 @@ import { createPermissionsRoutes } from './routes/permissions'
 import { createMachinesRoutes } from './routes/machines'
 import { createGitRoutes } from './routes/git'
 import { createCliRoutes } from './routes/cli'
-import { createCodexDesktopRoutes } from './routes/codexDesktop'
 import { createPushRoutes } from './routes/push'
 import { createVoiceRoutes } from './routes/voice'
+import { createImportableSessionsRoutes } from '../../../fork-features/history-import/hub/routes'
+import { mountForkRoutes } from '../../../fork-features/session-fork/hubMount'
+import { buildForkDeps } from '../../../fork-features/session-fork/hubSyncEngineAdapter'
 import type { SSEManager } from '../sse/sseManager'
 import type { VisibilityTracker } from '../visibility/visibilityTracker'
 import type { Server as BunServer, ServerWebSocket } from 'bun'
@@ -32,6 +34,10 @@ import type { WebSocketData } from '@socket.io/bun-engine'
 import { loadEmbeddedAssetMap, type EmbeddedWebAsset } from './embeddedAssets'
 import { isBunCompiled } from '../utils/bunCompiled'
 import type { Store } from '../store'
+import { mountMultiUserGateway } from '../../../fork-features/multi-user/hubMount'
+import type { MultiUserGatewayStore } from '../../../fork-features/multi-user/gatewayStore'
+import { createExecutionMiddleware, mountExecutionRoutes } from '../../../fork-features/multi-user/executionMount'
+import { resolveGatewayCliNamespace } from '../../../fork-features/multi-user/cliAdapter'
 
 // Normalise upstream close codes before forwarding to the browser client.
 // Codes 1005/1006/1015 are reserved and cannot be sent in a close frame;
@@ -217,6 +223,7 @@ function createWebApp(options: {
     embeddedAssetMap: Map<string, EmbeddedWebAsset> | null
     relayMode?: boolean
     officialWebUrl?: string
+    multiUser: { store: MultiUserGatewayStore; coreUserId: number }
 }): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
 
@@ -236,25 +243,43 @@ function createWebApp(options: {
     app.use('/api/*', corsMiddleware)
     app.use('/cli/*', corsMiddleware)
 
-    app.route('/cli', createCliRoutes(options.getSyncEngine))
+    mountMultiUserGateway(app, {
+        ...options.multiUser,
+        jwtSecret: options.jwtSecret
+    })
+    const multiUserStore = options.multiUser.store
+
+    app.route('/cli', createCliRoutes(options.getSyncEngine, token => resolveGatewayCliNamespace(multiUserStore, token)))
 
     app.route('/api', createAuthRoutes(options.jwtSecret, options.store))
     app.route('/api', createBindRoutes(options.jwtSecret, options.store))
 
     app.use('/api/*', createAuthMiddleware(options.jwtSecret))
+    mountExecutionRoutes(app, {
+        store: multiUserStore,
+        jwtSecret: options.jwtSecret,
+        getSyncEngine: options.getSyncEngine,
+        getSseManager: options.getSseManager
+    })
+    app.use('/api/*', createExecutionMiddleware({ store: multiUserStore, jwtSecret: options.jwtSecret }))
     app.route('/api', createEventsRoutes(options.getSseManager, options.getSyncEngine, options.getVisibilityTracker))
     app.route('/api', createSessionsRoutes(options.getSyncEngine))
     app.route('/api', createMessagesRoutes(options.getSyncEngine))
     app.route('/api', createPermissionsRoutes(options.getSyncEngine))
     app.route('/api', createMachinesRoutes(options.getSyncEngine))
+    app.route('/api', createImportableSessionsRoutes(options.getSyncEngine))
     app.route('/api', createGitRoutes(options.getSyncEngine))
-    // 中文注释：这里提供两类 Codex 辅助能力：扫描本地 transcript 以导入到 Hapi，以及按需重启 Codex Desktop 客户端。
-    app.route('/api', createCodexDesktopRoutes({
-        store: options.store,
-        getSyncEngine: options.getSyncEngine
-    }))
     app.route('/api', createPushRoutes(options.store, options.vapidPublicKey))
     app.route('/api', createVoiceRoutes())
+
+    // fork-features/session-fork: POST /api/sessions/:id/fork +
+    // GET /api/flavors/capabilities. Trunk patch — full handler lives
+    // in fork-features/session-fork/hubMount.ts.
+    mountForkRoutes(app, (namespace) => {
+        const engine = options.getSyncEngine()
+        if (!engine) return null
+        return buildForkDeps({ store: options.store, syncEngine: engine, namespace })
+    }, options.getSseManager)
 
     // Skip static serving in relay mode, show helpful message on root
     if (options.relayMode) {
@@ -370,6 +395,7 @@ export async function startWebServer(options: {
     corsOrigins?: string[]
     relayMode?: boolean
     officialWebUrl?: string
+    multiUser: { store: MultiUserGatewayStore; coreUserId: number }
 }): Promise<BunServer<WebSocketData>> {
     const isCompiled = isBunCompiled()
     const embeddedAssetMap = isCompiled ? await loadEmbeddedAssetMap() : null
@@ -383,7 +409,8 @@ export async function startWebServer(options: {
         corsOrigins: options.corsOrigins,
         embeddedAssetMap,
         relayMode: options.relayMode,
-        officialWebUrl: options.officialWebUrl
+        officialWebUrl: options.officialWebUrl,
+        multiUser: options.multiUser
     })
 
     const configuration = getConfiguration()

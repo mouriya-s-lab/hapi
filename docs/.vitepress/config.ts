@@ -24,6 +24,7 @@ export default defineConfig({
       { text: 'How it Works', link: '/guide/how-it-works' },
       { text: 'Cursor Agent', link: '/guide/cursor' },
       { text: 'Grok Build', link: '/guide/grok' },
+      { text: 'Oh My Pi', link: '/guide/omp' },
       { text: 'Voice Assistant', link: '/guide/voice-assistant' },
       { text: 'Why HAPI', link: '/guide/why-hapi' },
       { text: 'FAQ', link: '/guide/faq' }

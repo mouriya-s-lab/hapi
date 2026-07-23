@@ -73,9 +73,10 @@ export async function buildHapiMcpBridge(
         happyServer.toolNames.join(',')
     ]);
     const tools: Record<string, McpServerToolConfig> = {
-        change_title: {
-            approval_mode: 'approve'
-        }
+        change_title: { approval_mode: 'approve' },
+        display_image: { approval_mode: 'approve' },
+        display_video: { approval_mode: 'approve' },
+        send_file: { approval_mode: 'approve' }
     };
     if (options.skillLookup) {
         tools.skill_lookup = {

@@ -16,7 +16,8 @@ const VISIBLE_CLAUDE_SYSTEM_SUBTYPES = new Set([
     // transcript scan — SDK/remote mode never emits it. Chat-visible here also
     // means CLI-forwarded, web-rendered, and included in session export
     // (parity with turn_duration / compact_boundary).
-    'away_summary'
+    'away_summary',
+    'model_refusal_fallback'
 ])
 
 export function isRoleWrappedRecord(value: unknown): value is RoleWrappedRecord {

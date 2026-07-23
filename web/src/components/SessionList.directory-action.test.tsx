@@ -7,7 +7,10 @@ import { I18nProvider } from '@/lib/i18n-context'
 import { ToastProvider } from '@/lib/toast-context'
 import { SessionList } from './SessionList'
 
-afterEach(() => cleanup())
+afterEach(() => {
+    cleanup()
+    localStorage.removeItem('hapi-session-preview-limit')
+})
 
 function makeSession(overrides: Partial<SessionSummary> & { id: string }): SessionSummary {
     return {
@@ -220,7 +223,7 @@ describe('SessionList action menu parity', () => {
 })
 
 describe('SessionList collapse behavior', () => {
-    function renderSessionList(sessions: SessionSummary[], selectedSessionId = 'session-running') {
+    function renderSessionList(sessions: SessionSummary[], selectedSessionId: string | null = 'session-running') {
         return (
             <QueryClientProvider client={new QueryClient({
                 defaultOptions: {
@@ -315,5 +318,33 @@ describe('SessionList collapse behavior', () => {
         await waitFor(() => {
             expect(getProjectPanel().getAttribute('data-open')).toBe('true')
         })
+    })
+
+    it('keeps the configured session preview fold while searching', () => {
+        localStorage.setItem('hapi-session-preview-limit', '2')
+        const sessions = Array.from({ length: 4 }, (_, index) => makeSession({
+            id: `matching-${index + 1}`,
+            updatedAt: 100 - index,
+            metadata: {
+                path: '/work/hapi',
+                name: `Matching task ${index + 1}`,
+                flavor: 'codex',
+            },
+        }))
+
+        render(renderSessionList(sessions, null))
+        fireEvent.change(screen.getByPlaceholderText('Search sessions…'), {
+            target: { value: 'Matching task' },
+        })
+
+        expect(screen.getByText('Matching task 1')).toBeTruthy()
+        expect(screen.getByText('Matching task 2')).toBeTruthy()
+        expect(screen.queryByText('Matching task 3')).toBeNull()
+        expect(screen.queryByText('Matching task 4')).toBeNull()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Show 2 more' }))
+
+        expect(screen.getByText('Matching task 3')).toBeTruthy()
+        expect(screen.getByText('Matching task 4')).toBeTruthy()
     })
 })

@@ -104,6 +104,8 @@ function pickExistingSessionMetadata(metadata: Metadata | null | undefined): Par
     if (metadata.kimiSessionId !== undefined) preserved.kimiSessionId = metadata.kimiSessionId
     if (metadata.piSessionId !== undefined) preserved.piSessionId = metadata.piSessionId
     if (metadata.preferredPermissionMode !== undefined) preserved.preferredPermissionMode = metadata.preferredPermissionMode
+    if (metadata.ompSession !== undefined) preserved.ompSession = metadata.ompSession
+    if (metadata.ompThinking !== undefined) preserved.ompThinking = metadata.ompThinking
     if (metadata.tools !== undefined) preserved.tools = metadata.tools
     if (metadata.slashCommands !== undefined) preserved.slashCommands = metadata.slashCommands
     if (metadata.worktree !== undefined) preserved.worktree = metadata.worktree
@@ -227,6 +229,7 @@ export async function bootstrapLazySession(options: SessionBootstrapOptions): Pr
         modelReasoningEffort: options.modelReasoningEffort ?? null,
         effort: options.effort ?? null,
         serviceTier: null,
+        resumeWithSessionModel: false,
         permissionMode: undefined,
         collaborationMode: undefined
     }

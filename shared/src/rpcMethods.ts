@@ -6,9 +6,11 @@ export const RPC_METHODS = {
     KillSession: 'killSession',
     HandoffLocal: 'handoff-local',
     SpawnHappySession: 'spawn-happy-session',
+    ForkSpawnSession: 'fork-spawn-session',
     StopSession: 'stop-session',
     StopRunner: 'stop-runner',
     ListMachineDirectory: 'list-directory',
+    CreateMachineDirectory: 'create-directory',
     PathExists: 'path-exists',
     CursorChatStoreStatus: 'cursor-chat-store-status',
     GitStatus: 'git-status',
@@ -16,6 +18,7 @@ export const RPC_METHODS = {
     GitDiffFile: 'git-diff-file',
     ReadFile: 'readFile',
     ReadGeneratedImage: 'readGeneratedImage',
+    ReadGeneratedFile: 'readGeneratedFile',
     WriteFile: 'writeFile',
     ListDirectory: 'listDirectory',
     GetDirectoryTree: 'getDirectoryTree',
@@ -31,12 +34,22 @@ export const RPC_METHODS = {
     ArchiveCodexSession: 'archiveCodexSession',
     ListCursorModels: 'listCursorModels',
     ListPiModels: 'listPiModels',
+    ListOmpModels: 'listOmpModels',
+    ListOmpThinkingOptions: 'listOmpThinkingOptions',
+    CycleOmpModel: 'cycleOmpModel',
+    ListOmpLoginProviders: 'listOmpLoginProviders',
+    StartOmpLogin: 'startOmpLogin',
+    GetOmpExtensionUiRequest: 'getOmpExtensionUiRequest',
     ListOpencodeModels: 'listOpencodeModels',
     ListOpencodeModelsForCwd: 'listOpencodeModelsForCwd',
     ListGrokModelsForCwd: 'listGrokModelsForCwd',
     ListGrokModels: 'listGrokModels',
     ListGrokReasoningEffortOptions: 'listGrokReasoningEffortOptions',
-    ListOpencodeReasoningEffortOptions: 'listOpencodeReasoningEffortOptions'
+    ListOpencodeReasoningEffortOptions: 'listOpencodeReasoningEffortOptions',
+    ListCcSwitchProviders: 'listCcSwitchProviders',
+    ValidateCcSwitchProvider: 'validateCcSwitchProvider',
+    ListImportableSessions: 'listImportableSessions',
+    ImportProviderSession: 'importProviderSession'
 } as const
 
 export type RpcMethod = typeof RPC_METHODS[keyof typeof RPC_METHODS]

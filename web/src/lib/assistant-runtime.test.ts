@@ -1,12 +1,25 @@
-import { describe, expect, it } from 'vitest'
+import { renderHook } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
     type BlockWithThreadMessageId,
     aggregateResponseGroups,
     assignThreadMessageIds,
-    assignThreadMessageIdsWithStableWrappers
+    assignThreadMessageIdsWithStableWrappers,
+    useHappyRuntime
 } from './assistant-runtime'
 import type { AgentEventBlock, AgentTextBlock, CliOutputBlock, ToolCallBlock, UserTextBlock } from '@/chat/types'
 import type { ToolGroupBlock, VisibleChatBlock } from '@/chat/toolGroups'
+import type { Session } from '@/types/api'
+
+const assistantUiMocks = vi.hoisted(() => ({
+    useExternalMessageConverter: vi.fn((input: {
+        callback: (entry: { block: VisibleChatBlock; threadMessageId: string }) => unknown
+        messages: { block: VisibleChatBlock; threadMessageId: string }[]
+    }) => input.messages.map(input.callback)),
+    useExternalStoreRuntime: vi.fn((adapter: unknown) => adapter)
+}))
+
+vi.mock('@assistant-ui/react', () => assistantUiMocks)
 
 // Minimal builders for VisibleChatBlock fixtures. Tests focus on metadata
 // aggregation behavior across response groups; non-metadata fields default to
@@ -106,6 +119,71 @@ function toolGroup(id: string, tools: ToolCallBlock[], overrides: Partial<ToolGr
     }
 }
 
+function session(flavor: string): Session {
+    return {
+        id: 'session-1',
+        namespace: 'default',
+        seq: 1,
+        createdAt: 0,
+        updatedAt: 0,
+        active: true,
+        activeAt: 0,
+        metadata: { path: 'repo', host: 'local', flavor },
+        metadataVersion: 1,
+        agentState: null,
+        agentStateVersion: 1,
+        thinking: false,
+        thinkingAt: 0,
+        model: null,
+        modelReasoningEffort: null,
+        effort: null,
+        serviceTier: null,
+        resumeWithSessionModel: false
+    }
+}
+
+describe('useHappyRuntime event visibility', () => {
+    afterEach(() => vi.clearAllMocks())
+
+    it('filters OMP quota events before the assistant-ui converter without changing Claude', () => {
+        const blocks: VisibleChatBlock[] = [
+            agentEvent('quota', {
+                type: 'limit-warning',
+                utilization: 0.9,
+                endsAt: 1,
+                limitType: 'five_hour'
+            }),
+            agentEvent('retry', { type: 'omp-retry', phase: 'started' }),
+            agentText('answer')
+        ]
+        const runtimeProps = {
+            blocks,
+            isSending: false,
+            onSendMessage: () => undefined,
+            onAbort: async () => undefined
+        }
+
+        const omp = renderHook(() => useHappyRuntime({
+            ...runtimeProps,
+            session: session('omp')
+        }))
+        const ompInput = assistantUiMocks.useExternalMessageConverter.mock.calls.at(-1)?.[0]
+        expect(ompInput?.messages.map(({ block }) => block.id)).toEqual(['retry', 'answer'])
+        omp.unmount()
+
+        renderHook(() => useHappyRuntime({
+            ...runtimeProps,
+            session: session('claude')
+        }))
+        const claudeInput = assistantUiMocks.useExternalMessageConverter.mock.calls.at(-1)?.[0]
+        expect(claudeInput?.messages.map(({ block }) => block.id)).toEqual([
+            'quota',
+            'retry',
+            'answer'
+        ])
+    })
+})
+
 describe('assignThreadMessageIds', () => {
     it('suffixes duplicate kind+id pairs so assistant-ui never sees repeated thread ids', () => {
         const blocks: VisibleChatBlock[] = [
@@ -144,21 +222,21 @@ describe('aggregateResponseGroups', () => {
                 invokedAt: 100,
                 durationMs: 1234,
                 model: 'claude-sonnet-4-6',
-                usage: { input_tokens: 10, output_tokens: 20, service_tier: 'standard' }
+                usage: { input_tokens: 10, output_tokens: 20, reasoning_output_tokens: 4, service_tier: 'standard', cost_usd: 0.01 }
             }),
             toolCall('t1', { localId: 'L1' }),
             toolCall('t2', {
                 localId: 'L2',
                 invokedAt: 200,
                 model: 'claude-sonnet-4-6',
-                usage: { input_tokens: 5, output_tokens: 7, service_tier: 'standard' }
+                usage: { input_tokens: 5, output_tokens: 7, reasoning_output_tokens: 3, service_tier: 'standard', cost_usd: 0.02 }
             }),
             agentText('a3', {
                 localId: 'L3',
                 invokedAt: 300,
                 durationMs: 5678,
                 model: 'claude-haiku-4-5-20251001',
-                usage: { input_tokens: 3, output_tokens: 11, service_tier: 'standard' }
+                usage: { input_tokens: 3, output_tokens: 11, reasoning_output_tokens: 2, service_tier: 'standard', cost_usd: 0.03 }
             })
         ]
 
@@ -169,6 +247,8 @@ describe('aggregateResponseGroups', () => {
         // input/output sums across the three distinct localIds.
         expect(meta?.usage?.input_tokens).toBe(10 + 5 + 3)
         expect(meta?.usage?.output_tokens).toBe(20 + 7 + 11)
+        expect(meta?.usage?.reasoning_output_tokens).toBe(4 + 3 + 2)
+        expect(meta?.usage?.cost_usd).toBeCloseTo(0.06)
         // Model dedup preserves first-seen order. "claude-sonnet-4-6" appears
         // twice (L1, L2) and must not be duplicated.
         expect(meta?.model).toBe('claude-sonnet-4-6, claude-haiku-4-5-20251001')

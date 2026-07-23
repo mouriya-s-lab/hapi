@@ -5,14 +5,14 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createServer, type IncomingMessage } from "node:http";
-import { lstat, readFile } from "node:fs/promises";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { AddressInfo } from "node:net";
 import { z } from "zod";
 import { logger } from "@/ui/logger";
 import { ApiSessionClient } from "@/api/apiSession";
 import { randomUUID } from "node:crypto";
-import { detectImageMimeType, registerGeneratedImage } from "@/modules/common/generatedImages";
+import { registerGeneratedMediaFromPath } from "@/modules/common/generatedImages";
+import { registerGeneratedFile } from "@/modules/common/generatedFiles";
 import { resolveSkill } from "@/modules/common/skills";
 
 type StartHappyServerOptions = {
@@ -59,12 +59,45 @@ function createHapiMcpServer(
         title: z.string().optional().describe('Optional display title or filename for the image'),
     });
 
+    const displayVideoInputSchema: z.ZodTypeAny = z.object({
+        path: z.string().describe('Local filesystem path of the video to display inline (mp4 or webm)'),
+        title: z.string().optional().describe('Optional display title or filename for the video'),
+    });
+
+    const sendFileInputSchema: z.ZodTypeAny = z.object({
+        path: z.string().describe('Local filesystem path of the file to send to the user'),
+        title: z.string().optional().describe('Optional display filename for the file'),
+    });
+
+    async function displayInlineMedia(
+        args: { path: string; title?: string },
+        mediaKind: 'image' | 'video'
+    ) {
+        const result = await registerGeneratedMediaFromPath({
+            path: args.path,
+            kind: mediaKind,
+            fileName: args.title,
+        });
+        if (!result.ok) throw new Error(result.error.message);
+        const media = result.media;
+
+        client.sendAgentMessage({
+            type: 'generated-image',
+            imageId: media.id,
+            fileName: media.fileName,
+            mimeType: media.mimeType,
+            id: randomUUID(),
+        });
+
+        return media;
+    }
+
     const skillLookupInputSchema: z.ZodTypeAny = z.object({
         name: z.string().trim().min(1).max(128).describe('Exact skill name shown by HAPI skill autocomplete'),
     });
 
     mcp.registerTool<any, any>('change_title', {
-        description: 'Change the title of the current chat session',
+        description: 'Change the title of the current HAPI chat session. Call once when the user\'s primary objective is clear; use a concise task title.',
         title: 'Change Chat Title',
         inputSchema: changeTitleInputSchema,
     }, async (args: { title: string }) => {
@@ -95,44 +128,14 @@ function createHapiMcpServer(
     });
 
     mcp.registerTool<any, any>('display_image', {
-        description: 'Display a local image file inline in the current HAPI chat session',
+        description: 'Display a local image file inline in the current HAPI chat session. Call with the absolute filesystem path when the user should see a screenshot, diagram, or generated image.',
         title: 'Display Image',
         inputSchema: displayImageInputSchema,
     }, async (args: { path: string; title?: string }) => {
         logger.debug('[hapiMCP] Display image:', args.path);
 
         try {
-            const info = await lstat(args.path);
-            if (!info.isFile()) {
-                throw new Error('Path is not a regular file');
-            }
-
-            const maxImageBytes = 25 * 1024 * 1024;
-            if (info.size > maxImageBytes) {
-                throw new Error('Image is too large to display inline');
-            }
-
-            const bytes = await readFile(args.path);
-            const mimeType = detectImageMimeType(bytes);
-            if (!mimeType) {
-                throw new Error('Unsupported image content');
-            }
-
-            const image = registerGeneratedImage({
-                id: randomUUID(),
-                path: args.path,
-                fileName: args.title,
-                mimeType,
-                bytes
-            });
-
-            client.sendAgentMessage({
-                type: 'generated-image',
-                imageId: image.id,
-                fileName: image.fileName,
-                mimeType: image.mimeType,
-                id: randomUUID()
-            });
+            const image = await displayInlineMedia(args, 'image');
 
             return {
                 content: [
@@ -151,6 +154,87 @@ function createHapiMcpServer(
                     {
                         type: 'text' as const,
                         text: `Failed to display image: ${message}`,
+                    },
+                ],
+                isError: true,
+            };
+        }
+    });
+
+    mcp.registerTool<any, any>('display_video', {
+        description: 'Display a local mp4 or webm file inline in the current HAPI chat session. Call with the absolute filesystem path when the user should see a screen recording or video artifact.',
+        title: 'Display Video',
+        inputSchema: displayVideoInputSchema,
+    }, async (args: { path: string; title?: string }) => {
+        logger.debug('[hapiMCP] Display video:', args.path);
+
+        try {
+            const video = await displayInlineMedia(args, 'video');
+
+            return {
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: `Displayed video: ${video.fileName}`,
+                    },
+                ],
+                isError: false,
+            };
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            logger.debug('[hapiMCP] Failed to display video:', message);
+            return {
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: `Failed to display video: ${message}`,
+                    },
+                ],
+                isError: true,
+            };
+        }
+    });
+
+    mcp.registerTool<any, any>('send_file', {
+        description: 'Send a local file to the current HAPI chat session so the user can download it, like sending a file in an IM app',
+        title: 'Send File',
+        inputSchema: sendFileInputSchema,
+    }, async (args: { path: string; title?: string }) => {
+        logger.debug('[hapiMCP] Send file:', args.path);
+
+        try {
+            const file = await registerGeneratedFile({
+                id: randomUUID(),
+                path: args.path,
+                fileName: args.title
+            });
+
+            client.sendAgentMessage({
+                type: 'generated-file',
+                fileId: file.id,
+                fileName: file.fileName,
+                mimeType: file.mimeType,
+                size: file.size,
+                id: randomUUID()
+            });
+
+            return {
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: `Sent file: ${file.fileName} (${file.size} bytes)`,
+                    },
+                ],
+                isError: false,
+            };
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            logger.debug('[hapiMCP] Failed to send file:', message);
+            return {
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: `Failed to send file: ${message}`,
                     },
                 ],
                 isError: true,
@@ -276,7 +360,7 @@ export async function startHappyServer(client: ApiSessionClient, options: StartH
         hapiMcpUrl: mcpUrl,
     }));
 
-    const toolNames = ['change_title', 'display_image'];
+    const toolNames = ['change_title', 'display_image', 'display_video', 'send_file'];
     if (options.skillLookup) {
         toolNames.push('skill_lookup');
     }

@@ -1,0 +1,175 @@
+/*
+ * Standalone Vite-served fixture for the tool-card file-preview Playwright spec
+ * (follow-up to issue #3: bring the markdown-preview + word-wrap toggles to the
+ * "click a file in chat → popup preview" surface).
+ *
+ * The popup is the tool detail dialog; its file content is produced by the Read
+ * tool's result view at `surface="dialog"`, which routes into the fork's
+ * FileContentToggleView. This fixture mounts that REAL result view (the exact
+ * component the dialog renders) for a synthetic Read tool call, behind the same
+ * minimal provider set as the file-viewer fixture. No hub / auth / socket.
+ *
+ * The target file is chosen via `?file=<path>`:
+ *   - a .md path  → markdown sample (heading + mermaid + table) so the spec can
+ *                   verify the preview/raw toggle and rendered markdown.
+ *   - any other   → a single very long line so the spec can verify the
+ *                   word-wrap toggle and its persistence.
+ */
+
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import '../src/index.css'
+import { I18nProvider } from '../src/lib/i18n-context'
+import { AppContextProvider } from '../src/lib/app-context'
+import type { ApiClient } from '../src/api/client'
+import type { ToolCallBlock } from '../src/chat/types'
+import { getToolResultViewComponent } from '../src/components/ToolCard/views/_results'
+import { getToolFullViewComponent } from '../src/components/ToolCard/views/_all'
+
+const MARKDOWN_SAMPLE = `# Markdown preview heading
+
+A paragraph with **bold** and \`inline code\` to confirm rendering.
+
+\`\`\`mermaid
+graph TD
+  A[Start] --> B{Choice}
+  B -->|yes| C[Do thing]
+  B -->|no| D[Stop]
+\`\`\`
+
+| Col A | Col B |
+| ----- | ----- |
+| one   | two   |
+`
+
+const LONG_LINE_SAMPLE =
+    'this_is_a_single_very_long_line_without_spaces_' +
+    'x'.repeat(400) +
+    '_end_of_line'
+
+function contentForPath(path: string): string {
+    return /\.(md|markdown|mdown|mkd|mkdn|mdwn)$/i.test(path) ? MARKDOWN_SAMPLE : LONG_LINE_SAMPLE
+}
+
+function getTargetFile(): string {
+    const url = new URL(window.location.href)
+    return url.searchParams.get('file') ?? 'README.md'
+}
+
+// `?tool=read` (default) exercises the Read result view; `?tool=write` exercises
+// the Write input/DRAFT view. Both render at surface="dialog" and must offer the
+// same FileContentToggleView, since both Read and Write produce a file-preview
+// popup in chat ("对话中输出的文件").
+function getTool(): 'read' | 'write' {
+    const url = new URL(window.location.href)
+    return url.searchParams.get('tool') === 'write' ? 'write' : 'read'
+}
+
+// Real Claude Code Read results arrive as a plain string with every line
+// prefixed "<lineNumber>\t" (cat -n style). `?readFormat=lineNumbers` exercises
+// that shape (routes through extractTextFromResult) so the spec can confirm the
+// markdown preview strips the prefix and the raw tab keeps it.
+// Default 'structured' keeps the existing shape `{ file: { filePath, content } }`
+// (routes through extractReadFileContent, content already clean).
+type ReadFormat = 'structured' | 'lineNumbers'
+
+function getReadFormat(): ReadFormat {
+    const url = new URL(window.location.href)
+    return url.searchParams.get('readFormat') === 'lineNumbers' ? 'lineNumbers' : 'structured'
+}
+
+function withCatNLineNumbers(text: string): string {
+    return text
+        .split('\n')
+        .map((line, index) => `${index + 1}\t${line}`)
+        .join('\n')
+}
+
+function buildBlock(targetFile: string, tool: 'read' | 'write', readFormat: ReadFormat): ToolCallBlock {
+    const content = contentForPath(targetFile)
+    if (tool === 'write') {
+        return {
+            id: 'tool-write',
+            localId: null,
+            createdAt: 0,
+            kind: 'tool-call',
+            children: [],
+            tool: {
+                id: 'tool-write',
+                name: 'Write',
+                state: 'completed',
+                input: { file_path: targetFile, content },
+                result: { ok: true },
+                createdAt: 0,
+                startedAt: null,
+                completedAt: 0,
+                description: null,
+            },
+        }
+    }
+    const result = readFormat === 'lineNumbers'
+        ? withCatNLineNumbers(content)
+        : { file: { filePath: targetFile, content } }
+    return {
+        id: 'tool-read',
+        localId: null,
+        createdAt: 0,
+        kind: 'tool-call',
+        children: [],
+        tool: {
+            id: 'tool-read',
+            name: 'Read',
+            state: 'completed',
+            input: { file_path: targetFile },
+            result,
+            createdAt: 0,
+            startedAt: null,
+            completedAt: 0,
+            description: null,
+        },
+    }
+}
+
+const api = {} as unknown as ApiClient
+
+const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+})
+
+function App() {
+    const targetFile = React.useMemo(() => getTargetFile(), [])
+    const tool = React.useMemo(() => getTool(), [])
+    const readFormat = React.useMemo(() => getReadFormat(), [])
+    const block = React.useMemo(
+        () => buildBlock(targetFile, tool, readFormat),
+        [targetFile, tool, readFormat]
+    )
+    const ResultView = getToolResultViewComponent('Read')
+    const WriteView = getToolFullViewComponent('Write')
+
+    return (
+        <QueryClientProvider client={queryClient}>
+            <I18nProvider>
+                <AppContextProvider value={{ api, token: 'e2e', baseUrl: 'http://localhost' }}>
+                    <div data-testid="tool-file-preview-host" style={{ padding: 16 }}>
+                        {tool === 'write' && WriteView ? (
+                            <WriteView block={block} metadata={null} surface="dialog" />
+                        ) : (
+                            <ResultView block={block} metadata={null} surface="dialog" />
+                        )}
+                    </div>
+                </AppContextProvider>
+            </I18nProvider>
+        </QueryClientProvider>
+    )
+}
+
+const rootEl = document.getElementById('root')
+if (rootEl) {
+    ReactDOM.createRoot(rootEl).render(
+        <React.StrictMode>
+            <App />
+        </React.StrictMode>
+    )
+}
