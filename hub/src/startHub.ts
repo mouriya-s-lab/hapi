@@ -19,16 +19,11 @@ import QRCode from 'qrcode'
 import type { Server as BunServer } from 'bun'
 import type { WebSocketData } from '@socket.io/bun-engine'
 import { getOrCreateOwnerId } from './config/ownerId'
-import { join } from 'node:path'
-import { createMultiUserGatewayStore } from '../../fork-features/multi-user/hubMount'
+import { bootstrapForkMultiUser } from '../../fork-features/multi-user/hubMount'
 import { resolveTerminalNamespace } from '../../fork-features/multi-user/socketAdapter'
 import { MultiUserNotificationAdapter } from '../../fork-features/multi-user/notificationAdapter'
 import { resolveGatewayCliNamespace } from '../../fork-features/multi-user/cliAdapter'
 import { createGatewayMemoryDelivery } from '../../fork-features/multi-user/memoryAdapter'
-import {
-    assertNoLegacyForkArtifactsRemaining,
-    migrateLegacyForkArtifacts
-} from '../../fork-features/multi-user/legacyDbCompat'
 
 /** Format config source for logging */
 function formatSource(source: ConfigSource | 'generated'): string {
@@ -175,29 +170,7 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
         console.log(`[Hub] Tunnel: disabled (${relayFlag.source})`)
     }
 
-    // Compat pass for PR #102-era hapi-data.sqlite: migrate fork-only
-    // accounts / api_tokens / resource_grants and sessions/machines.owner_account_id
-    // into multi-user-gateway.sqlite, then remove those artifacts from
-    // hapi-data.sqlite so upstream Store's assertRequiredTablesPresent stops
-    // silently passing them through. See fork-features/multi-user/legacyDbCompat.
-    const gatewayDataPath = join(config.dataDir, 'multi-user-gateway.sqlite')
-    const legacyMigration = migrateLegacyForkArtifacts({
-        hapiDataPath: config.dbPath,
-        gatewayDataPath
-    })
-    if (legacyMigration.kind === 'migrated') {
-        console.log(
-            `[Hub] Migrated PR #102 legacy multi-user artifacts: ` +
-            `accounts=${legacyMigration.accountsCopied}, tokens=${legacyMigration.tokensCopied}, ` +
-            `resources=${legacyMigration.resourcesCopied}, grants=${legacyMigration.grantsCopied}` +
-            (legacyMigration.orphanedOwnerRows > 0 ? `, orphaned-owners=${legacyMigration.orphanedOwnerRows}` : '') +
-            (legacyMigration.orphanedGrants > 0 ? `, orphaned-grants=${legacyMigration.orphanedGrants}` : '')
-        )
-    }
-
-    const store = new Store(config.dbPath)
-    const multiUserGatewayStore = createMultiUserGatewayStore(config.dataDir, config.cliApiToken)
-    assertNoLegacyForkArtifactsRemaining(config.dbPath)
+    const { store, multiUserGatewayStore } = bootstrapForkMultiUser(config)
     const gatewayMemoryDelivery = createGatewayMemoryDelivery(multiUserGatewayStore)
     const jwtSecret = await getOrCreateJwtSecret()
     const vapidKeys = await getOrCreateVapidKeys(config.dataDir)
