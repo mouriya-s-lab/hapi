@@ -112,7 +112,7 @@ describe('ToolGroupCard', () => {
     it('renders a collapsed target-first header', () => {
         const view = renderCard(makeGroup())
 
-        expect(screen.getByRole('button', { name: /inspect pixel\.png/i })).toHaveAttribute('aria-expanded', 'false')
+        expect(screen.getByRole('button', { name: /inspect a\.ts/i })).toHaveAttribute('aria-expanded', 'false')
         expect(screen.getByText('Run 1 · Read 1')).toBeInTheDocument()
         expect(screen.getByText('2 actions')).toBeInTheDocument()
         expect(screen.queryByText('src/a.ts')).not.toBeInTheDocument()
@@ -139,7 +139,7 @@ describe('ToolGroupCard', () => {
             }
         }))
 
-        expect(screen.getByRole('button', { name: /inspect a\.ts/i })).toHaveAttribute('aria-expanded', 'false')
+        expect(screen.getByRole('button', { name: /inspect pixel\.png/i })).toHaveAttribute('aria-expanded', 'false')
         expect(view.container.querySelector('img')).toHaveAttribute('alt', 'pixel.png')
     })
 
