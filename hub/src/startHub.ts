@@ -19,7 +19,7 @@ import QRCode from 'qrcode'
 import type { Server as BunServer } from 'bun'
 import type { WebSocketData } from '@socket.io/bun-engine'
 import { getOrCreateOwnerId } from './config/ownerId'
-import { createMultiUserGatewayStore } from '../../fork-features/multi-user/hubMount'
+import { bootstrapForkMultiUser } from '../../fork-features/multi-user/hubMount'
 import { resolveTerminalNamespace } from '../../fork-features/multi-user/socketAdapter'
 import { MultiUserNotificationAdapter } from '../../fork-features/multi-user/notificationAdapter'
 import { resolveGatewayCliNamespace } from '../../fork-features/multi-user/cliAdapter'
@@ -170,8 +170,7 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
         console.log(`[Hub] Tunnel: disabled (${relayFlag.source})`)
     }
 
-    const store = new Store(config.dbPath)
-    const multiUserGatewayStore = createMultiUserGatewayStore(config.dataDir, config.cliApiToken)
+    const { store, multiUserGatewayStore } = bootstrapForkMultiUser(config)
     const gatewayMemoryDelivery = createGatewayMemoryDelivery(multiUserGatewayStore)
     const jwtSecret = await getOrCreateJwtSecret()
     const vapidKeys = await getOrCreateVapidKeys(config.dataDir)

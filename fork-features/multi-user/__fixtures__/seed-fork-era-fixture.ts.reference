@@ -1,0 +1,71 @@
+// Runs against fork commit 2ca4a1979's own hub/src/store/*, produces a
+// hapi-data.sqlite matching the shape a real fork user's DB would have
+// after login / creating a token / creating a session / creating a machine
+// while multi-user was live.
+import { Store } from './hub/src/store'
+import { hashPassword } from './hub/src/utils/password'
+import { hashApiToken } from './hub/src/utils/apiToken'
+import { rmSync, existsSync } from 'node:fs'
+
+const fixturePath = process.env.FIXTURE_PATH ?? '/tmp/hapi-fork-fixture-checkout/fork-era-hapi-data.sqlite'
+if (existsSync(fixturePath)) rmSync(fixturePath)
+
+const store = new Store(fixturePath)
+
+const admin = store.accounts.create({
+    username: 'admin',
+    passwordHash: hashPassword('admin-pw-forever'),
+    role: 'admin',
+    defaultNamespace: 'default'
+})
+const alice = store.accounts.create({
+    username: 'alice',
+    passwordHash: hashPassword('alice-pw-forever'),
+    role: 'user',
+    defaultNamespace: 'default'
+})
+
+const sharedToken = 'fixture-shared-token-plaintext-do-not-hash-me-elsewhere'
+store.apiTokens.create({
+    accountId: admin.id,
+    name: 'Legacy shared token',
+    tokenHash: hashApiToken(sharedToken),
+    namespace: 'default'
+})
+const aliceToken = 'fixture-alice-token-plaintext'
+store.apiTokens.create({
+    accountId: alice.id,
+    name: 'alice phone',
+    tokenHash: hashApiToken(aliceToken),
+    namespace: 'default'
+})
+
+const machine = store.machines.getOrCreateMachine('machine-fixture-1', { name: 'primary-mac' }, undefined, 'default', admin.id)
+// getOrCreateSession(tag, metadata, agentState, namespace, model?, effort?, modelReasoningEffort?, ownerAccountId?)
+const session = store.sessions.getOrCreateSession('session-fixture-1', undefined, undefined, 'default', undefined, undefined, undefined, admin.id)
+const session2 = store.sessions.getOrCreateSession('session-fixture-2', undefined, undefined, 'default', undefined, undefined, undefined, admin.id)
+
+store.messages.addMessage(session.id, JSON.stringify('hello from fork era'), null, undefined)
+store.messages.addMessage(session.id, JSON.stringify('second message'), null, undefined)
+store.messages.addMessage(session2.id, JSON.stringify('another session message'), null, undefined)
+
+store.grants.upsert({ resourceType: 'session', resourceId: session.id, granteeAccountId: alice.id, role: 'operator' })
+store.grants.upsert({ resourceType: 'machine', resourceId: machine.id, granteeAccountId: alice.id, role: 'viewer' })
+
+// Sanity summary
+const dbInspect = (store as unknown as { db: { prepare: (sql: string) => { all: () => unknown[] } } }).db
+console.log('accounts:', dbInspect.prepare('SELECT id, username, role FROM accounts').all())
+console.log('api_tokens:', dbInspect.prepare('SELECT id, account_id, name FROM api_tokens').all())
+console.log('sessions:', dbInspect.prepare('SELECT id, owner_account_id FROM sessions').all())
+console.log('machines:', dbInspect.prepare('SELECT id, owner_account_id FROM machines').all())
+console.log('resource_grants:', dbInspect.prepare('SELECT resource_type, resource_id, grantee_account_id, role FROM resource_grants').all())
+console.log('user_version:', dbInspect.prepare('PRAGMA user_version').all())
+
+// Collapse WAL into the main file so consumers only need one file.
+;(dbInspect as unknown as { exec: (sql: string) => void }).exec('PRAGMA wal_checkpoint(TRUNCATE)')
+;(dbInspect as unknown as { exec: (sql: string) => void }).exec('PRAGMA journal_mode = DELETE')
+
+store.close()
+console.log(`\nFixture written: ${fixturePath}`)
+console.log(`Shared admin token plaintext: ${sharedToken}`)
+console.log(`Alice token plaintext: ${aliceToken}`)

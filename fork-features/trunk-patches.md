@@ -251,7 +251,8 @@ because the hub and web app do not expose registration APIs for these seams.
 
 | File | Necessary hook |
 |---|---|
-| `hub/src/startHub.ts` | Construct the gateway store and inject fork-owned adapters into generic Hub seams. |
+| `hub/src/startHub.ts` | Construct the gateway store and inject fork-owned adapters into generic Hub seams; the single `bootstrapForkMultiUser` entry runs the PR #102 legacy DB compat migration before `new Store(dbPath)` and asserts no fork-era artifacts remain after gateway construction. |
+| `hub/package.json` | Broaden the hub test glob to include `../fork-features/multi-user` so `bun test` from the hub workspace discovers fork-owned test modules without a barrel test file sitting under `hub/src/store/`. |
 | `hub/src/web/server.ts`, `hub/src/web/routes/messages.ts` | Mount gateway routes and pass opaque delivery metadata from authenticated web requests. |
 | `hub/src/sync/syncEngine.ts`, `hub/src/sync/messageService.ts` | Provide a generic CLI-delivery transform while leaving stored and SSE message content unchanged. |
 | `hub/src/web/routes/cli.ts` | Resolve gateway API tokens to a core namespace for runner HTTP registration. |
