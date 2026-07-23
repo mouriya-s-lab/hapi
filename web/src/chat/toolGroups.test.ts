@@ -141,6 +141,33 @@ describe('isEligibleForToolGrouping', () => {
     })
 })
 
+describe('Codex activity headings', () => {
+    it('associates only an immediately preceding reasoning heading', () => {
+        const reasoning = makeToolBlock('reasoning-1', 'CodexReasoning', { title: 'Inspecting authentication' })
+        const visible = buildVisibleChatBlocks([
+            reasoning,
+            makeToolBlock('read-1', 'Read', { file_path: 'auth.ts' }),
+            makeToolBlock('read-2', 'Read', { file_path: 'session.ts' }),
+        ], { hasMoreMessages: false })
+
+        expect(visible).toHaveLength(2)
+        expect(isToolGroupBlock(visible[1])).toBe(true)
+        expect(isToolGroupBlock(visible[1]) ? visible[1].activityTitle : null).toBe('Inspecting authentication')
+    })
+
+    it('does not carry a heading across a text boundary', () => {
+        const visible = buildVisibleChatBlocks([
+            makeToolBlock('reasoning-1', 'CodexReasoning', { title: 'Inspecting authentication' }),
+            makeTextBlock('text-boundary'),
+            makeToolBlock('read-1', 'Read', { file_path: 'auth.ts' }),
+            makeToolBlock('read-2', 'Read', { file_path: 'session.ts' }),
+        ], { hasMoreMessages: false })
+
+        const group = visible.find(isToolGroupBlock)
+        expect(group?.activityTitle).toBeNull()
+    })
+})
+
 describe('buildVisibleChatBlocks', () => {
     it('groups contiguous eligible root tool cards', () => {
         const visible = buildVisibleChatBlocks([

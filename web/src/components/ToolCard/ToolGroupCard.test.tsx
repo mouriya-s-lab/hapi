@@ -100,7 +100,7 @@ describe('ToolGroupCard', () => {
     it('renders a collapsed target-first header', () => {
         const view = renderCard(makeGroup())
 
-        expect(screen.getByRole('button', { name: /inspect project files/i })).toHaveAttribute('aria-expanded', 'false')
+        expect(screen.getByRole('button', { name: /inspect a\.ts/i })).toHaveAttribute('aria-expanded', 'false')
         expect(screen.getByText('Run 1 · Read 1')).toBeInTheDocument()
         expect(screen.getByText('2 actions')).toBeInTheDocument()
         expect(screen.queryByText('src/a.ts')).not.toBeInTheDocument()
@@ -111,7 +111,7 @@ describe('ToolGroupCard', () => {
 
     it('expands to show compact rows and opens a detail dialog per row', async () => {
         const view = renderCard(makeGroup())
-        const groupToggle = within(view.container).getByRole('button', { name: /inspect project files/i })
+        const groupToggle = within(view.container).getByRole('button', { name: /inspect a\.ts/i })
 
         expect(view.container.querySelector('svg[data-state="closed"]')).toBeInTheDocument()
         fireEvent.click(groupToggle)
@@ -212,7 +212,7 @@ describe('ToolGroupCard', () => {
         }
 
         const view = render(<Harness />)
-        const groupToggle = within(view.container).getByRole('button', { name: /inspect project files/i })
+        const groupToggle = within(view.container).getByRole('button', { name: /inspect a\.ts/i })
 
         fireEvent.click(groupToggle)
 
@@ -272,7 +272,7 @@ describe('ToolGroupCard', () => {
         }
 
         const view = render(<Harness />)
-        const groupToggle = within(view.container).getByRole('button', { name: /inspect project files/i })
+        const groupToggle = within(view.container).getByRole('button', { name: /inspect a\.ts/i })
 
         fireEvent.click(groupToggle)
 
@@ -327,7 +327,7 @@ describe('ToolGroupCard', () => {
         }
 
         const view = render(<Harness />)
-        const groupToggle = within(view.container).getByRole('button', { name: /inspect project files/i })
+        const groupToggle = within(view.container).getByRole('button', { name: /inspect a\.ts/i })
 
         fireEvent.click(groupToggle)
 
