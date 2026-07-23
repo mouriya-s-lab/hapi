@@ -31,48 +31,52 @@ const toToken = (row: TokenRow): ApiToken => ({
     revokedAt: row.revoked_at
 })
 
+export function applyGatewaySchema(db: Database): void {
+    db.exec('PRAGMA foreign_keys = ON')
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS gateway_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT,
+            role TEXT NOT NULL CHECK(role IN ('admin', 'user')),
+            default_namespace TEXT NOT NULL,
+            disabled_at INTEGER,
+            memory TEXT
+        );
+        CREATE TABLE IF NOT EXISTS gateway_resources (
+            resource_type TEXT NOT NULL CHECK(resource_type IN ('session', 'machine')),
+            resource_id TEXT NOT NULL,
+            owner_account_id INTEGER NOT NULL REFERENCES gateway_accounts(id),
+            core_namespace TEXT NOT NULL,
+            PRIMARY KEY(resource_type, resource_id)
+        );
+        CREATE TABLE IF NOT EXISTS gateway_api_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER NOT NULL REFERENCES gateway_accounts(id) ON DELETE CASCADE,
+            name TEXT,
+            token_hash TEXT NOT NULL UNIQUE,
+            created_at INTEGER NOT NULL,
+            revoked_at INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS gateway_grants (
+            resource_type TEXT NOT NULL,
+            resource_id TEXT NOT NULL,
+            grantee_account_id INTEGER NOT NULL REFERENCES gateway_accounts(id) ON DELETE CASCADE,
+            role TEXT NOT NULL CHECK(role IN ('viewer', 'operator')),
+            PRIMARY KEY(resource_type, resource_id, grantee_account_id),
+            FOREIGN KEY(resource_type, resource_id) REFERENCES gateway_resources(resource_type, resource_id) ON DELETE CASCADE
+        );
+    `)
+    const accountColumns = db.prepare('PRAGMA table_info(gateway_accounts)').all() as Array<{ name: string }>
+    if (!accountColumns.some(column => column.name === 'memory')) db.exec('ALTER TABLE gateway_accounts ADD COLUMN memory TEXT')
+}
+
 export class MultiUserGatewayStore {
     private readonly db: Database
 
     constructor(path: string) {
         this.db = new Database(path, { create: true })
-        this.db.exec('PRAGMA foreign_keys = ON')
-        this.db.exec(`
-            CREATE TABLE IF NOT EXISTS gateway_accounts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL UNIQUE,
-                password_hash TEXT,
-                role TEXT NOT NULL CHECK(role IN ('admin', 'user')),
-                default_namespace TEXT NOT NULL,
-                disabled_at INTEGER,
-                memory TEXT
-            );
-            CREATE TABLE IF NOT EXISTS gateway_resources (
-                resource_type TEXT NOT NULL CHECK(resource_type IN ('session', 'machine')),
-                resource_id TEXT NOT NULL,
-                owner_account_id INTEGER NOT NULL REFERENCES gateway_accounts(id),
-                core_namespace TEXT NOT NULL,
-                PRIMARY KEY(resource_type, resource_id)
-            );
-            CREATE TABLE IF NOT EXISTS gateway_api_tokens (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                account_id INTEGER NOT NULL REFERENCES gateway_accounts(id) ON DELETE CASCADE,
-                name TEXT,
-                token_hash TEXT NOT NULL UNIQUE,
-                created_at INTEGER NOT NULL,
-                revoked_at INTEGER
-            );
-            CREATE TABLE IF NOT EXISTS gateway_grants (
-                resource_type TEXT NOT NULL,
-                resource_id TEXT NOT NULL,
-                grantee_account_id INTEGER NOT NULL REFERENCES gateway_accounts(id) ON DELETE CASCADE,
-                role TEXT NOT NULL CHECK(role IN ('viewer', 'operator')),
-                PRIMARY KEY(resource_type, resource_id, grantee_account_id),
-                FOREIGN KEY(resource_type, resource_id) REFERENCES gateway_resources(resource_type, resource_id) ON DELETE CASCADE
-            );
-        `)
-        const accountColumns = this.db.prepare('PRAGMA table_info(gateway_accounts)').all() as Array<{ name: string }>
-        if (!accountColumns.some(column => column.name === 'memory')) this.db.exec('ALTER TABLE gateway_accounts ADD COLUMN memory TEXT')
+        applyGatewaySchema(this.db)
     }
 
     close(): void { this.db.close() }
