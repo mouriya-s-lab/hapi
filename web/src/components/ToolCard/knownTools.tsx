@@ -574,7 +574,7 @@ export function getToolPresentation(
     // become the subtitle, so the card reads like a sentence instead of
     // showing the same string twice. Labels are translated when a Translator
     // is supplied; tests and call sites without i18n fall back to English.
-    let title = opts.toolName
+    let title = opts.description ?? opts.toolName
     if (subtitle && subtitle === title) {
         if (filePath) title = t ? t('tool.semanticTitle.readFile') : 'Read file'
         else if (command) title = t ? t('tool.semanticTitle.runShell') : 'Run shell'
