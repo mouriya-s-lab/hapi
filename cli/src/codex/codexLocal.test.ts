@@ -112,6 +112,8 @@ describe('codexLocal', () => {
         const hookArg = args.find((arg) => arg.startsWith('hooks.SessionStart='));
         expect(hookArg).toBeDefined();
         expect(hookArg).toContain('{ hooks = [{ type = "command", command = "');
+        expect(args.some((arg) => arg.startsWith('hooks.PreToolUse='))).toBe(true);
+        expect(args.some((arg) => arg.startsWith('hooks.PostToolUse='))).toBe(true);
         expect(args).toContain("mcp_servers.hapi.args=['mcp','--url','http://127.0.0.1:63995/']");
         expect(args).toContain('mcp_servers.hapi.tools.change_title.approval_mode="approve"');
     });
