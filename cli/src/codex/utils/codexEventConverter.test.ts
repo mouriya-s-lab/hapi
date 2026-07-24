@@ -255,6 +255,23 @@ describe('convertCodexEvent', () => {
         });
     });
 
+    it('preserves the turn id for custom exec wrapper correlation', () => {
+        const result = convertCodexEvent({
+            type: 'response_item',
+            payload: {
+                type: 'custom_tool_call',
+                name: 'exec',
+                call_id: 'call-exec-turn',
+                input: 'await tools.exec_command({ cmd: "pwd" });',
+                internal_chat_message_metadata_passthrough: {
+                    turn_id: 'turn-1'
+                }
+            }
+        });
+
+        expect(result?.turnId).toBe('turn-1');
+    });
+
     it('converts tool_search_call items', () => {
         const result = convertCodexEvent({
             type: 'response_item',

@@ -361,6 +361,125 @@ describe('codexLocalLauncher', () => {
         });
     });
 
+    it('renders nested Code Mode plans and commands without their covered exec wrapper', async () => {
+        const transcriptPath = join(tempDir, 'codex-hook-transcript.jsonl');
+        const { session, agentMessages } = createSessionStub('default');
+        let releaseRunBarrier: (() => void) | undefined;
+        harness.runBarrier = new Promise((resolve) => {
+            releaseRunBarrier = resolve;
+        });
+
+        await writeFile(
+            transcriptPath,
+            JSON.stringify({ type: 'session_meta', payload: { id: 'codex-thread-hook' } }) + '\n'
+        );
+
+        const launcherPromise = codexLocalLauncher(session as never);
+        await wait(50);
+        harness.sessionHookHandlers[0]?.('codex-thread-hook', {
+            hook_event_name: 'SessionStart',
+            transcript_path: transcriptPath
+        });
+        await wait(100);
+
+        await appendFile(transcriptPath, JSON.stringify({
+            type: 'response_item',
+            payload: {
+                type: 'custom_tool_call',
+                name: 'exec',
+                call_id: 'call-wrapper',
+                input: [
+                    'await tools.update_plan({ plan: [{ step: "Inspect", status: "completed" }] });',
+                    'const r = await tools.exec_command({ cmd: "pwd" });',
+                    'text(r.output);'
+                ].join('\n'),
+                internal_chat_message_metadata_passthrough: { turn_id: 'turn-hook' }
+            }
+        }) + '\n');
+        await wait(700);
+
+        harness.sessionHookHandlers[0]?.('codex-thread-hook', {
+            hook_event_name: 'PreToolUse',
+            turn_id: 'turn-hook',
+            cwd: '/tmp/worktree',
+            tool_name: 'update_plan',
+            tool_input: { plan: [{ step: 'Inspect', status: 'completed' }] },
+            tool_use_id: 'exec-plan-1'
+        });
+        harness.sessionHookHandlers[0]?.('codex-thread-hook', {
+            hook_event_name: 'PostToolUse',
+            turn_id: 'turn-hook',
+            cwd: '/tmp/worktree',
+            tool_name: 'update_plan',
+            tool_input: { plan: [{ step: 'Inspect', status: 'completed' }] },
+            tool_response: 'Plan updated',
+            tool_use_id: 'exec-plan-1'
+        });
+        harness.sessionHookHandlers[0]?.('codex-thread-hook', {
+            hook_event_name: 'PreToolUse',
+            turn_id: 'turn-hook',
+            cwd: '/tmp/worktree',
+            tool_name: 'Bash',
+            tool_input: { command: 'pwd' },
+            tool_use_id: 'exec-command-1'
+        });
+        harness.sessionHookHandlers[0]?.('codex-thread-hook', {
+            hook_event_name: 'PostToolUse',
+            turn_id: 'turn-hook',
+            cwd: '/tmp/worktree',
+            tool_name: 'Bash',
+            tool_input: { command: 'pwd' },
+            tool_response: '/tmp/worktree\n',
+            tool_use_id: 'exec-command-1'
+        });
+
+        await appendFile(transcriptPath, JSON.stringify({
+            type: 'response_item',
+            payload: {
+                type: 'custom_tool_call_output',
+                call_id: 'call-wrapper',
+                output: [{ type: 'input_text', text: '/tmp/worktree\n' }],
+                internal_chat_message_metadata_passthrough: { turn_id: 'turn-hook' }
+            }
+        }) + '\n');
+        await wait(700);
+
+        releaseRunBarrier?.();
+        await launcherPromise;
+
+        expect(agentMessages).toEqual([{
+            type: 'tool-call',
+            name: 'update_plan',
+            callId: 'exec-plan-1',
+            input: { plan: [{ step: 'Inspect', status: 'completed' }] },
+            id: expect.any(String)
+        }, {
+            type: 'tool-call-result',
+            callId: 'exec-plan-1',
+            output: 'Plan updated',
+            id: expect.any(String)
+        }, {
+            type: 'tool-call',
+            name: 'CodexBash',
+            callId: 'exec-command-1',
+            input: {
+                command: 'pwd',
+                cwd: '/tmp/worktree',
+                source: 'codex-hook'
+            },
+            id: expect.any(String)
+        }, {
+            type: 'tool-call-result',
+            callId: 'exec-command-1',
+            output: {
+                stdout: '/tmp/worktree\n',
+                stderr: '',
+                status: 'completed'
+            },
+            id: expect.any(String)
+        }]);
+    });
+
     it('falls back to the top-level review transcript when a review subagent is active', async () => {
         const originalCodexHome = process.env.CODEX_HOME;
         process.env.CODEX_HOME = tempDir;

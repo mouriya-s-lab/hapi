@@ -59,9 +59,13 @@ const MILESTONE_TOOL_NAMES = new Set([
     'Skill',
     'spawn_agent',
     'send_input',
+    'send_message',
     'resume_agent',
+    'followup_task',
     'wait_agent',
-    'close_agent'
+    'close_agent',
+    'interrupt_agent',
+    'list_agents'
 ])
 
 const INTERACTIVE_TOOL_NAMES = new Set([
