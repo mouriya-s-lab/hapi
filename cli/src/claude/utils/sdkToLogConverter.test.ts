@@ -924,6 +924,47 @@ describe('SDKToLogConverter', () => {
             )
         })
 
+        it('should drop tool_progress heartbeats instead of passing them through as raw payloads', () => {
+            const sdkMessage = {
+                type: 'tool_progress',
+                tool_use_id: 'toolu_01BhnmFeXow25Dmb7D1vhiGV-heartbeat-0',
+                parent_tool_use_id: 'toolu_01BhnmFeXow25Dmb7D1vhiGV',
+                tool_name: 'Bash',
+                elapsed_time_seconds: 30,
+                heartbeat: true,
+                session_id: 'session-1'
+            } as unknown as SDKMessage
+
+            expect(converter.convert(sdkMessage)).toBeNull()
+        })
+
+        it('should drop SDK control frames and logs', () => {
+            expect(converter.convert({ type: 'control_response', response: { request_id: 'r1', subtype: 'success' } } as unknown as SDKMessage)).toBeNull()
+            expect(converter.convert({ type: 'control_request', request_id: 'r2', request: { subtype: 'interrupt' } } as unknown as SDKMessage)).toBeNull()
+            expect(converter.convert({ type: 'log', log: { level: 'debug', message: 'noise' } } as unknown as SDKMessage)).toBeNull()
+        })
+
+        it('should not break parent chain when a tool_progress heartbeat is suppressed', () => {
+            const user = converter.convert({
+                type: 'user',
+                message: { role: 'user', content: 'hi' }
+            } as SDKUserMessage)
+
+            converter.convert({
+                type: 'tool_progress',
+                tool_use_id: 'toolu_1-heartbeat-0',
+                elapsed_time_seconds: 30,
+                heartbeat: true
+            } as unknown as SDKMessage)
+
+            const assistant = converter.convert({
+                type: 'assistant',
+                message: { role: 'assistant', content: [{ type: 'text', text: 'hello' }] }
+            } as SDKAssistantMessage)
+
+            expect(assistant!.parentUuid).toBe(user!.uuid)
+        })
+
         it('should not break parent chain when rate_limit_event is suppressed', () => {
             const user = converter.convert({
                 type: 'user',

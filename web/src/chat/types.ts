@@ -15,6 +15,16 @@ export type UsageData = {
     cost_usd?: number
 }
 
+/**
+ * normalizer 不认识的 agent payload。会话流里只显示一行折叠提示（可展开看 `payload`
+ * 里的原始 JSON），避免新版 CLI 加了新消息类型时糊一整屏 JSON 出来。
+ */
+export type UnsupportedPayloadEvent = {
+    type: 'unsupported-payload'
+    payloadType: string | null
+    payload: string
+}
+
 export type ModelRefusalFallbackEvent = {
     type: 'model-refusal-fallback'
     originalModel: string
@@ -38,6 +48,7 @@ export type AgentEvent =
     // Claude Code's automatic away-summary recap (TUI window blur 5min+, then focus).
     | { type: 'recap'; text: string }
     | ModelRefusalFallbackEvent
+    | UnsupportedPayloadEvent
     | { type: 'thread-goal-updated'; goal: ThreadGoal; threadId?: string; turnId?: string }
     | { type: 'thread-goal-cleared'; threadId?: string }
     | ({ type: string } & Record<string, unknown>)

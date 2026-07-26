@@ -179,7 +179,7 @@ describe('normalizeDecryptedMessage', () => {
         })
     })
 
-    it('keeps the stringify fallback for unknown non-system agent payloads', () => {
+    it('folds unknown non-system agent payloads into a collapsed unsupported-payload event', () => {
         const message = makeMessage({
             role: 'agent',
             content: {
@@ -195,22 +195,48 @@ describe('normalizeDecryptedMessage', () => {
 
         expect(normalized).toMatchObject({
             id: 'msg-1',
-            role: 'agent',
-            isSidechain: false
+            role: 'event',
+            isSidechain: false,
+            content: {
+                type: 'unsupported-payload',
+                payloadType: 'output/assistant'
+            }
         })
 
-        expect(normalized?.role).toBe('agent')
-        if (!normalized || normalized.role !== 'agent') {
-            throw new Error('Expected agent message')
+        if (!normalized || normalized.role !== 'event') {
+            throw new Error('Expected event message')
         }
-        const firstBlock = normalized.content[0]
-        expect(firstBlock).toMatchObject({
-            type: 'text',
+        // 原始 payload 不丢:折叠起来,展开仍能看到
+        expect(String((normalized.content as { payload?: unknown }).payload)).toContain('"foo": "bar"')
+    })
+
+    it('keeps plain-string agent content as ordinary assistant text', () => {
+        const message = makeMessage({ role: 'agent', content: 'Hi there' })
+
+        expect(normalizeDecryptedMessage(message)).toMatchObject({
+            id: 'msg-1',
+            role: 'agent',
+            content: [{ type: 'text', text: 'Hi there' }]
         })
-        if (firstBlock.type !== 'text') {
-            throw new Error('Expected fallback text block')
-        }
-        expect(firstBlock.text).toContain('"foo": "bar"')
+    })
+
+    it('drops Claude tool_progress heartbeats instead of dumping them as raw JSON', () => {
+        const message = makeMessage({
+            role: 'agent',
+            content: {
+                type: 'output',
+                data: {
+                    type: 'tool_progress',
+                    uuid: 'tool-progress-1',
+                    tool_use_id: 'toolu_01-heartbeat-0',
+                    tool_name: 'Bash',
+                    elapsed_time_seconds: 30,
+                    heartbeat: true
+                }
+            }
+        })
+
+        expect(normalizeDecryptedMessage(message)).toBeNull()
     })
 
     it('normalizes <task-notification> user output as sidechain (event extracted by reducer)', () => {

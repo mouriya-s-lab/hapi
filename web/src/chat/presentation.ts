@@ -167,6 +167,32 @@ function formatTokenCountEvent(event: AgentEvent): EventPresentation {
 export type EventPresentation = {
     icon: string | null
     text: string
+    /**
+     * 折叠在提示行下面的原始内容（目前只有「不认识的 payload / 事件」会用到）。
+     * 有值时渲染成可展开的 JSON，平时一行都不占。
+     */
+    details?: string
+}
+
+function formatPayloadJson(value: unknown): string {
+    try {
+        return JSON.stringify(value, null, 2) ?? String(value)
+    } catch {
+        return String(value)
+    }
+}
+
+// 不认识的 payload:一行灰字 + 可展开的原始 JSON。宁可显示一条「这里有东西没被识别」,
+// 也不要静默丢弃(可能是新版 CLI 真带了内容),更不要把整坨 JSON 摊在会话流里。
+function formatUnsupportedPayloadEvent(event: AgentEvent): EventPresentation {
+    const record = asRecord(event)
+    const payloadType = typeof record?.payloadType === 'string' ? record.payloadType : null
+    const payload = typeof record?.payload === 'string' ? record.payload : null
+    return {
+        icon: '⋯',
+        text: payloadType ? `Unsupported message · ${payloadType}` : 'Unsupported message',
+        details: payload ?? undefined
+    }
 }
 
 export function getEventPresentation(event: AgentEvent): EventPresentation {
@@ -291,10 +317,14 @@ export function getEventPresentation(event: AgentEvent): EventPresentation {
     if (event.type === 'token-count') {
         return formatTokenCountEvent(event)
     }
-    try {
-        return { icon: null, text: JSON.stringify(event) }
-    } catch {
-        return { icon: null, text: String(event.type) }
+    if (event.type === 'unsupported-payload') {
+        return formatUnsupportedPayloadEvent(event)
+    }
+    // 兜底同理:标题只留事件类型,整坨 JSON 收进可展开的 details。
+    return {
+        icon: '⋯',
+        text: `Unsupported event · ${String(event.type)}`,
+        details: formatPayloadJson(event)
     }
 }
 

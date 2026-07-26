@@ -11,6 +11,7 @@ import { ToolGroupCard } from '@/components/ToolCard/ToolGroupCard'
 import { getEventPresentation } from '@/chat/presentation'
 import { isEventVisibleForFlavor } from '@/fork-features/omp-product/eventVisibility'
 import { CodeBlock } from '@/components/CodeBlock'
+import { EventNotice } from '@/components/AssistantChat/messages/EventNotice'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import { MessageStatusIndicator } from '@/components/AssistantChat/messages/MessageStatusIndicator'
 import { ToolCard } from '@/components/ToolCard/ToolCard'
@@ -334,12 +335,11 @@ function HappyNestedBlockList(props: {
                     const presentation = getEventPresentation(block.event)
                     return (
                         <div key={`event:${block.id}`} className="py-1">
-                            <div className="mx-auto w-fit max-w-[92%] px-2 text-center text-xs text-[var(--app-hint)] opacity-80">
-                                <span className="inline-flex items-center gap-1">
-                                    {presentation.icon ? <span aria-hidden="true">{presentation.icon}</span> : null}
-                                    <span>{presentation.text}</span>
-                                </span>
-                            </div>
+                            <EventNotice
+                                icon={presentation.icon}
+                                text={presentation.text}
+                                details={presentation.details}
+                            />
                         </div>
                     )
                 }
