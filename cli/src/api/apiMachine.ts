@@ -120,14 +120,15 @@ export class ApiMachineClient {
     private keepAliveStartTimeout: ReturnType<typeof setTimeout> | null = null
     private rpcHandlerManager: RpcHandlerManager
     private readonly usageMonitor = new RunnerUsageMonitor()
-    private readonly ompMachineIntegration: OmpMachineIntegration
+    private readonly ompMachineIntegration: OmpMachineIntegration | null
 
     private readonly normalizedWorkspaceRoots: string[] | undefined
 
     constructor(
         private readonly token: string,
         private readonly machine: Machine,
-        private readonly workspaceRoots?: string[]
+        private readonly workspaceRoots?: string[],
+        private readonly ompAvailable: boolean = false
     ) {
         // Realpath roots once so all subsequent comparisons are against
         // canonical, symlink-resolved locations. Falls back to lexical
@@ -140,20 +141,22 @@ export class ApiMachineClient {
         })
 
         registerCommonHandlers(this.rpcHandlerManager, getInvokedCwd())
-        this.ompMachineIntegration = registerOmpMachineHandlers(this.rpcHandlerManager, {
-            defaultCwd: getInvokedCwd(),
-            resolveModelCwd: async (cwd) => {
-                const resolvedCwd = await this.resolveForWorkspaceCheck(cwd)
-                if (!this.isWithinWorkspaceRoots(resolvedCwd)) {
-                    throw new Error('Path is outside workspace roots')
+        this.ompMachineIntegration = this.ompAvailable
+            ? registerOmpMachineHandlers(this.rpcHandlerManager, {
+                defaultCwd: getInvokedCwd(),
+                resolveModelCwd: async (cwd) => {
+                    const resolvedCwd = await this.resolveForWorkspaceCheck(cwd)
+                    if (!this.isWithinWorkspaceRoots(resolvedCwd)) {
+                        throw new Error('Path is outside workspace roots')
+                    }
+                    const stats = await stat(resolvedCwd)
+                    if (!stats.isDirectory()) {
+                        throw new Error('Path is not a directory')
+                    }
+                    return resolvedCwd
                 }
-                const stats = await stat(resolvedCwd)
-                if (!stats.isDirectory()) {
-                    throw new Error('Path is not a directory')
-                }
-                return resolvedCwd
-            }
-        })
+            })
+            : null
 
         this.rpcHandlerManager.registerHandler<PathExistsRequest, PathExistsResponse>(RPC_METHODS.PathExists, async (params) => {
             const rawPaths = Array.isArray(params?.paths) ? params.paths : []
@@ -604,6 +607,23 @@ export class ApiMachineClient {
                 console.log(`[HAPI] Workspace roots already up to date on hub: ${formatWorkspaceRoots(desiredWorkspaceRoots)}`)
             }
 
+            const hubOmpAvailable = this.machine.metadata?.capabilities?.omp === true
+            if (hubOmpAvailable !== this.ompAvailable) {
+                this.updateMachineMetadata((current) => {
+                    const base = current ?? this.machine.metadata
+                    if (!base) throw new Error('Machine metadata unavailable for capability sync')
+                    return {
+                        ...base,
+                        capabilities: {
+                            ...base.capabilities,
+                            omp: this.ompAvailable
+                        }
+                    }
+                }).catch((error) => {
+                    logger.debug('[API MACHINE] Failed to sync runner capabilities', error)
+                })
+            }
+
             this.startKeepAlive()
             void this.usageMonitor.connect(async (usage) => {
                 await this.updateMachineMetadata((current) => {
@@ -703,7 +723,7 @@ export class ApiMachineClient {
 
     shutdown(): void {
         this.stopKeepAlive()
-        void this.ompMachineIntegration.shutdown()
+        void this.ompMachineIntegration?.shutdown()
         if (this.socket) {
             this.socket.close()
         }

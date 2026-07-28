@@ -786,6 +786,7 @@ export default {
   'settings.fork.omp.description': '按 runner 管理提供商登录；凭据只保存在 OMP 中。',
   'settings.fork.omp.machine': 'Runner',
   'settings.fork.omp.machineRequired': '选择 Runner',
+  'settings.fork.omp.noRunners': '当前没有安装受支持 OMP 的在线 Runner。',
   'settings.fork.omp.loading': '正在加载…',
   'settings.fork.omp.signedInCount': '已登录 {count} 个',
   'settings.fork.omp.signedIn': '已登录',

@@ -337,6 +337,10 @@ export type UsageMetric = z.infer<typeof UsageMetricSchema>
 export type UsageSnapshot = z.infer<typeof UsageSnapshotSchema>
 export type MachineUsageState = z.infer<typeof MachineUsageStateSchema>
 
+const MachineCapabilitiesSchema = z.object({
+    omp: z.boolean().optional()
+})
+
 export const MachineMetadataSchema = z.object({
     host: z.string(),
     platform: z.string(),
@@ -346,6 +350,7 @@ export const MachineMetadataSchema = z.object({
     happyHomeDir: z.string().optional(),
     happyLibDir: z.string().optional(),
     workspaceRoots: z.array(z.string()).optional(),
+    capabilities: MachineCapabilitiesSchema.optional(),
     usage: MachineUsageStateSchema.optional()
 })
 

@@ -24,6 +24,10 @@ export function OmpProviderSettingsRow() {
     const { api } = useAppContext();
     const { machines } = useMachines(api, true);
     const { t } = useTranslation();
+    const ompMachines = useMemo(
+        () => machines.filter((machine) => machine.metadata?.capabilities?.omp === true),
+        [machines]
+    );
     const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
     const [machineId, setMachineId] = useState('');
@@ -31,9 +35,9 @@ export function OmpProviderSettingsRow() {
     const [inputValue, setInputValue] = useState('');
 
     useEffect(() => {
-        if (machines.some((machine) => machine.id === machineId)) return;
-        setMachineId(machines.find((machine) => machine.active)?.id ?? machines[0]?.id ?? '');
-    }, [machineId, machines]);
+        if (ompMachines.some((machine) => machine.id === machineId)) return;
+        setMachineId(ompMachines.find((machine) => machine.active)?.id ?? ompMachines[0]?.id ?? '');
+    }, [machineId, ompMachines]);
 
     const query = useQuery({
         queryKey: machineId
@@ -63,6 +67,13 @@ export function OmpProviderSettingsRow() {
     const queryError = query.data?.success === false
         ? query.data.error
         : query.error instanceof Error ? query.error.message : null;
+
+    let summary = t('settings.fork.omp.signedInCount', { count: authenticatedCount });
+    if (ompMachines.length === 0) {
+        summary = t('settings.fork.omp.noRunners');
+    } else if (machineId && query.isLoading) {
+        summary = t('settings.fork.omp.loading');
+    }
 
     useEffect(() => {
         if (query.data?.success !== true) return;
@@ -113,9 +124,7 @@ export function OmpProviderSettingsRow() {
             <SettingsLinkRow
                 label={t('settings.fork.omp.title')}
                 description={t('settings.fork.omp.description')}
-                value={machineId && query.isLoading
-                    ? t('settings.fork.omp.loading')
-                    : t('settings.fork.omp.signedInCount', { count: authenticatedCount })}
+                value={summary}
                 onClick={() => setOpen(true)}
             />
             <Dialog open={open} onOpenChange={setOpen}>
@@ -136,7 +145,7 @@ export function OmpProviderSettingsRow() {
                                 className="h-9 rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 text-sm text-[var(--app-fg)]"
                             >
                                 <option value="">{t('settings.fork.omp.machineRequired')}</option>
-                                {machines.map((machine) => (
+                                {ompMachines.map((machine) => (
                                     <option key={machine.id} value={machine.id}>
                                         {machine.metadata?.host ?? machine.id}
                                     </option>
@@ -199,6 +208,12 @@ export function OmpProviderSettingsRow() {
                             <div className="text-sm text-red-600" role="alert">{loginError ?? queryError}</div>
                         ) : null}
 
+                        {ompMachines.length === 0 ? (
+                            <div className="rounded-xl border border-[var(--app-border)] px-3 py-6 text-center text-sm text-[var(--app-hint)]">
+                                {t('settings.fork.omp.noRunners')}
+                            </div>
+                        ) : null}
+
                         <div className="divide-y divide-[var(--app-divider)] overflow-hidden rounded-xl border border-[var(--app-border)]">
                             {providers.map((provider) => (
                                 <div key={provider.id} className="flex items-center justify-between gap-3 px-3 py-3">
@@ -222,7 +237,7 @@ export function OmpProviderSettingsRow() {
                                     )}
                                 </div>
                             ))}
-                            {!query.isLoading && providers.length === 0 ? (
+                            {machineId && !query.isLoading && providers.length === 0 ? (
                                 <div className="px-3 py-6 text-center text-sm text-[var(--app-hint)]">
                                     {t('settings.fork.omp.noProviders')}
                                 </div>

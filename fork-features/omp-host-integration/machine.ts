@@ -1,7 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { RpcHandlerManager } from '../../cli/src/api/rpc/RpcHandlerManager';
-import { OmpRpcClient } from '../../cli/src/omp/rpc/OmpRpcClient';
+import {
+    assertSupportedOmpVersion,
+    OmpRpcClient,
+    probeOmpVersion,
+    type OmpVersion
+} from '../../cli/src/omp/rpc/OmpRpcClient';
 import type {
     JsonObject,
     OmpInboundEvent,
@@ -93,6 +98,22 @@ function toModelSummary(model: OmpMachineClient['discovery']['models'][number]):
         maxTokens: model.maxTokens,
         thinkingLevels: model.thinking?.efforts ?? []
     };
+}
+
+export type OmpMachineAvailability =
+    | { available: true; version: OmpVersion }
+    | { available: false; error: string };
+
+export async function detectOmpMachineAvailability(
+    probe: () => Promise<OmpVersion> = () => probeOmpVersion('omp', buildOmpEnv())
+): Promise<OmpMachineAvailability> {
+    try {
+        const version = await probe();
+        assertSupportedOmpVersion(version);
+        return { available: true, version };
+    } catch (error) {
+        return { available: false, error: errorText(error) };
+    }
 }
 
 export class OmpMachineIntegration {
