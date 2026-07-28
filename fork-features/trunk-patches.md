@@ -414,6 +414,29 @@ Each upstream sync must remove these hooks if native registration or extension
 surfaces appear. Do not move parser, replay, route, or dialog implementation
 back into upstream-owned directories.
 
+## usage stats page (2026-07-28)
+
+Per-model token usage aggregation lives in `fork-features/usage/usageAggregate.ts`
+(SQL + response assembly + ISO param parsing) and the authenticated route is
+registered inside the fork-owned `fork-features/multi-user/executionMount.ts`
+(`GET /api/usage/summary`) so its visibility stays isomorphic with `/api/sessions`
+(admin = whole namespace; user = owned + granted; no bind-on-view side effect).
+The page is `web/src/fork-features/usage/UsagePage.tsx` (self-contained fetch,
+presets + calendar custom range via the exported `SessionDateRangePicker` + host
+filter).
+
+| Files | Missing upstream seam | Why it cannot move out | Runtime path | Sync verification |
+|---|---|---|---|---|
+| `hub/src/store/messageStore.ts` | `Store`/`MessageStore` keep the SQLite handle private | The fork aggregation needs one narrow method delegating to `fork-features/usage/usageAggregate.ts`; the SQL itself stays in fork space | `/api/usage/summary` → MessageStore seam → fork SQL | `bun test ../fork-features/usage/` from `hub/` |
+| `hub/src/web/server.ts` | `mountExecutionRoutes` deps are assembled inline | One `getStore` dep line hands the hub store to the fork-owned route | hub startup → executionMount → usage route | Cold-start hub and GET `/api/usage/summary` with a real JWT |
+| `hub/tsconfig.json` | No external compile-root registration | `../fork-features/usage/**/*.ts` must compile with hub | `bun run typecheck:hub` | typecheck clean |
+| `web/src/router.tsx` | No route/nav registration API | `/usage` route + one distinct header icon (bar chart) must mount in the upstream-owned tree; the redundant second gear stays deleted (admin lives under Settings categories) | session list header → `/usage` → UsagePage | Open `/usage` from the header in a real browser |
+| `web/src/components/SessionList.tsx` | Date-range picker is module-private | Two `export` keywords reuse `SessionDateRangePicker`/`CalendarIcon` for the usage page instead of duplicating them | usage page custom range → shared picker | Pick a custom range on `/usage` and verify `since`/`until` hit the API |
+| `web/src/lib/locales/en.ts`, `web/src/lib/locales/zh-CN.ts` | Locale dictionaries have no feature-bundle registration API | `usage.*` keys ride the existing typed dictionaries | UsagePage render → locale lookup | Render `/usage` in English and Chinese |
+
+Remove the seams if upstream ever ships its own usage analytics or a route/nav
+registration API; compare shapes before keeping both.
+
 ## Verification record
 
 | Date | Operation | Result |

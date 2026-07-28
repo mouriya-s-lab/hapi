@@ -31,12 +31,25 @@ import {
     type LocalMessageState,
     type MessagePosition,
 } from './messages'
+import {
+    aggregateUsageForSessions,
+    type UsageAggregateRow,
+} from '../../../fork-features/usage/usageAggregate'
 
 export class MessageStore {
     private readonly db: Database
 
     constructor(db: Database) {
         this.db = db
+    }
+
+    // fork-features/usage: token 用量统计的唯一存储接缝。SQL 与口径都在
+    // fork-features/usage/usageAggregate.ts，这里只暴露私有 db 句柄。
+    aggregateUsageForSessions(
+        sessionIds: string[],
+        opts?: { sinceIso?: string | null; untilIso?: string | null }
+    ): UsageAggregateRow[] {
+        return aggregateUsageForSessions(this.db, sessionIds, opts)
     }
 
     addMessage(sessionId: string, content: unknown, localId?: string, scheduledAt?: number | null): StoredMessage {

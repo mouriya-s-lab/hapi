@@ -3,10 +3,12 @@ import { jwtVerify } from 'jose'
 import { toSessionSummary } from '../../shared/src/sessionSummary'
 import type { SyncEngine } from '../../hub/src/sync/syncEngine'
 import type { SSEManager } from '../../hub/src/sse/sseManager'
+import type { Store } from '../../hub/src/store'
 import type { WebAppEnv } from '../../hub/src/web/middleware/auth'
 import type { MultiUserGatewayStore } from './gatewayStore'
 import { ExecutionDispatcher } from './executionDispatcher'
 import type { Capability, ResourceType } from './domain'
+import { buildUsageSummaryResponse, parseIsoParam } from '../usage/usageAggregate'
 import { streamSSE } from 'hono/streaming'
 import { randomUUID } from 'node:crypto'
 
@@ -77,6 +79,7 @@ export function mountExecutionRoutes(app: Hono<WebAppEnv>, deps: {
     jwtSecret: Uint8Array
     getSyncEngine: () => SyncEngine | null
     getSseManager: () => SSEManager | null
+    getStore: () => Store | null
 }): void {
     app.get('/api/events', async (c) => {
         const accountId = await gatewayAccountId(c.req.raw, deps.jwtSecret)
@@ -137,6 +140,41 @@ export function mountExecutionRoutes(app: Hono<WebAppEnv>, deps: {
             .filter(session => session != null)
             .map(session => toSessionSummary(session!))
         return c.json({ sessions })
+    })
+
+    // fork-features/usage：token 用量统计。数据本就随实时同步/导入写进了
+    // messages.content，这里只做“读取+聚合”，不新增采集逻辑。
+    // 可见集与上面 GET /api/sessions 完全同构：admin 看整个 namespace，普通
+    // 用户只统计自己拥有的 + 被授权的会话 —— 不泄漏他人用量。与列表不同的是
+    // 这里**不做** bind-on-view 副作用（只读端点不该改写资源归属）。
+    app.get('/api/usage/summary', async (c) => {
+        const accountId = await gatewayAccountId(c.req.raw, deps.jwtSecret)
+        const account = accountId === null ? null : deps.store.getAccount(accountId)
+        const engine = deps.getSyncEngine()
+        const store = deps.getStore()
+        if (!account || !engine || !store) return c.json({ error: 'Not connected' }, account ? 503 : 401)
+
+        const namespaceSessions = engine.getSessionsByNamespace(account.defaultNamespace)
+        const visible = account.role === 'admin'
+            ? namespaceSessions
+            : accessibleRecords(deps.store, 'session', account.id, id => engine.getSession(id))
+
+        // 机器下拉列表基于鉴权后的会话集合，不会泄漏用户无权访问的机器。
+        const hosts = Array.from(new Set(
+            visible
+                .map(session => session.metadata?.host)
+                .filter((host): host is string => typeof host === 'string' && host.length > 0)
+        )).sort()
+
+        const hostParam = c.req.query('host')?.trim() || null
+        const scoped = hostParam ? visible.filter(session => session.metadata?.host === hostParam) : visible
+        const sinceIso = parseIsoParam(c.req.query('since'))
+        const untilIso = parseIsoParam(c.req.query('until'))
+        const rows = store.messages.aggregateUsageForSessions(
+            scoped.map(session => session.id),
+            { sinceIso, untilIso }
+        )
+        return c.json(buildUsageSummaryResponse(rows, hosts, { since: sinceIso, until: untilIso, host: hostParam }, Date.now()))
     })
 
     app.get('/api/machines', async (c) => {

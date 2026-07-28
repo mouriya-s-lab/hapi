@@ -548,7 +548,7 @@ export function getVisibleSessionPreview(
     return visible
 }
 
-function CalendarIcon(props: { className?: string }) {
+export function CalendarIcon(props: { className?: string }) {
     return (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}>
             <rect x="3" y="5" width="18" height="16" rx="2" />
@@ -564,7 +564,8 @@ function formatDateValue(date: Date): string {
     return `${year}-${month}-${day}`
 }
 
-function SessionDateRangePicker(props: {
+// fork-features/usage 的 UsagePage 复用该组件做自定义时间范围，所以导出。
+export function SessionDateRangePicker(props: {
     start: string
     end: string
     sessionActivityDates: ReadonlySet<string>
