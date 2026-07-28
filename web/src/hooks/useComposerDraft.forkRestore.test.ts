@@ -49,7 +49,7 @@ describe('useComposerDraft — fork-restore path (#63 c6)', () => {
         mockGetDraft.mockReturnValue('should-not-be-used')
         const setText = vi.fn()
 
-        renderHook(() => useComposerDraft('sess-new-forked', '', setText))
+        renderHook(() => useComposerDraft('sess-new-forked', '', [], true, setText, vi.fn()))
         act(() => flushRAF())
 
         expect(mockConsumeForked).toHaveBeenCalledWith('sess-new-forked')
@@ -64,7 +64,7 @@ describe('useComposerDraft — fork-restore path (#63 c6)', () => {
         mockGetDraft.mockReturnValue('a preserved draft')
         const setText = vi.fn()
 
-        renderHook(() => useComposerDraft('sess-normal', '', setText))
+        renderHook(() => useComposerDraft('sess-normal', '', [], true, setText, vi.fn()))
         act(() => flushRAF())
 
         expect(mockConsumeForked).toHaveBeenCalledWith('sess-normal')
@@ -78,7 +78,7 @@ describe('useComposerDraft — fork-restore path (#63 c6)', () => {
         const setText = vi.fn()
 
         renderHook(() =>
-            useComposerDraft('sess-typing', 'user is already typing', setText)
+            useComposerDraft('sess-typing', 'user is already typing', [], true, setText, vi.fn())
         )
         act(() => flushRAF())
 
@@ -94,7 +94,7 @@ describe('useComposerDraft — fork-restore path (#63 c6)', () => {
         const setText = vi.fn()
 
         const { unmount, rerender } = renderHook(
-            ({ text }: { text: string }) => useComposerDraft('sess-x', text, setText),
+            ({ text }: { text: string }) => useComposerDraft('sess-x', text, [], true, setText, vi.fn()),
             { initialProps: { text: '' } }
         )
 
@@ -116,7 +116,7 @@ describe('useComposerDraft — fork-restore path (#63 c6)', () => {
         const setText = vi.fn()
 
         const { unmount } = renderHook(() =>
-            useComposerDraft(undefined, '', setText)
+            useComposerDraft(undefined, '', [], true, setText, vi.fn())
         )
         act(() => flushRAF())
         unmount()

@@ -1041,11 +1041,6 @@ function SessionChatInner(props: SessionChatProps) {
         [reconciled.blocks]
     )
 
-    const outlineTitle = useMemo(
-        () => getOutlineTitle(props.session),
-        [props.session]
-    )
-
     // Permission mode change handler
     const handlePermissionModeChange = useCallback(async (mode: PermissionMode) => {
         try {
@@ -1415,7 +1410,6 @@ function SessionChatInner(props: SessionChatProps) {
                         messagesVersion={props.messagesVersion}
                         forceScrollToken={forceScrollToken}
                         outlineOpen={outlineOpen}
-                        outlineTitle={outlineTitle}
                         outlineItems={outlineItems}
                         onOutlineOpenChange={setOutlineOpen}
                     />

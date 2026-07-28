@@ -566,7 +566,7 @@ function SessionsPage() {
         <>
             <div className="flex h-full min-h-0">
             <div
-                className={`${isSessionsIndex ? 'flex' : 'hidden lg:flex'} w-full shrink-0 flex-col bg-[var(--app-bg)]`}
+                className={`${isSessionsIndex ? 'flex' : 'hidden split:flex'} w-full shrink-0 flex-col bg-[var(--app-bg)]`}
                 style={{ '--sidebar-w': `${sidebar.width}px` } as React.CSSProperties}
             >
                 <div className="bg-[var(--app-bg)] pt-[env(safe-area-inset-top)]">
@@ -653,12 +653,12 @@ function SessionsPage() {
 
             {/* Resize handle - desktop only */}
             <div
-                className="sidebar-resize-handle hidden lg:block shrink-0"
+                className="sidebar-resize-handle hidden split:block shrink-0"
                 data-dragging={sidebar.isDragging || undefined}
                 onPointerDown={sidebar.onPointerDown}
             />
 
-            <div className={`${isSessionsIndex ? 'hidden lg:flex' : 'flex'} min-w-0 flex-1 flex-col bg-[var(--app-bg)]`}>
+            <div className={`${isSessionsIndex ? 'hidden split:flex' : 'flex'} min-w-0 flex-1 flex-col bg-[var(--app-bg)]`}>
                 <div className="flex-1 min-h-0">
                     <Outlet />
                 </div>
@@ -989,11 +989,26 @@ function SessionPage() {
     } = useSkills(api, sessionId)
 
     const getAutocompleteSuggestions = useCallback(async (query: string) => {
+        if (query.startsWith('@')) {
+            if (agentType !== 'codex' || !api || !sessionId) return []
+            const search = query.slice(1)
+            const response = await api.searchSessionFiles(sessionId, search, 50)
+            if (!response.success || !response.files) return []
+            return response.files.map((file) => {
+                const mentionText = `@"${file.fullPath.replace(/(["\\])/g, '\\$1')}"`
+                return {
+                    key: mentionText,
+                    text: mentionText,
+                    label: `@${file.fileName}`,
+                    description: file.filePath || file.fullPath
+                }
+            })
+        }
         if (query.startsWith('$')) {
             return await getSkillSuggestions(query)
         }
         return await getSlashSuggestions(query)
-    }, [getSkillSuggestions, getSlashSuggestions])
+    }, [agentType, api, sessionId, getSkillSuggestions, getSlashSuggestions])
 
     const refreshSelectedSession = useCallback(() => {
         void refetchSession()

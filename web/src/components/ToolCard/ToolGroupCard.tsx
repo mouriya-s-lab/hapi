@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ToolGroupBlock } from '@/chat/toolGroups'
 import type { ToolCallBlock } from '@/chat/types'
+import { getCodexCommandActions, type CodexCommandAction } from '@/chat/codexCommandPresentation'
 import type { SessionMetadataSummary } from '@/types/api'
 import { ToolDetailDialogContent, ToolStatusIcon, toolStatusColorClass } from '@/components/ToolCard/ToolCard'
 import { extractImagesFromResult, ToolResultImages } from '@/components/ToolCard/views/_results'
 import { getToolPresentation } from '@/components/ToolCard/knownTools'
-import { formatGroupedHeaderSubtitle, formatGroupedHeaderTitle } from '@/components/ToolCard/groupedPresentation'
+import { formatGroupedHeaderSubtitle, formatGroupedHeaderTitle, safeGroupedLabelValue } from '@/components/ToolCard/groupedPresentation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
@@ -99,6 +100,64 @@ function RowLabel(props: { block: ToolCallBlock; metadata: SessionMetadataSummar
     )
 }
 
+function basename(value: string): string {
+    return value.replace(/\\/g, '/').split('/').filter(Boolean).at(-1) ?? value
+}
+
+function codexActionLabel(
+    action: CodexCommandAction,
+    t: (key: string, params?: Record<string, string | number>) => string
+): { title: string; detail: string | null } {
+    if (action.type === 'read') {
+        const detail = safeGroupedLabelValue(action.name) ?? safeGroupedLabelValue(action.path)
+        return { title: t('toolGroup.codex.read'), detail: detail ? basename(detail) : null }
+    }
+    if (action.type === 'listFiles') {
+        return { title: t('toolGroup.codex.list'), detail: safeGroupedLabelValue(action.path) }
+    }
+    if (action.type === 'search') {
+        const query = safeGroupedLabelValue(action.query)
+        const path = safeGroupedLabelValue(action.path)
+        return {
+            title: t('toolGroup.codex.search'),
+            detail: query && path
+                ? t('toolGroup.codex.searchIn', { query, path })
+                : query ?? path
+        }
+    }
+    return { title: t('toolGroup.friendly.genericCommand'), detail: null }
+}
+
+function CodexExplorationRows(props: {
+    tools: ToolCallBlock[]
+    onSelect: (toolId: string) => void
+}) {
+    const { t } = useTranslation()
+    return props.tools.flatMap((tool) => (
+        getCodexCommandActions(tool).map((action, index) => {
+            const label = codexActionLabel(action, t)
+            return (
+                <button
+                    key={`${tool.id}:${index}`}
+                    type="button"
+                    className="flex min-w-0 items-start gap-2 rounded-lg px-2 py-1 text-left hover:bg-[var(--app-subtle-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]"
+                    onClick={() => props.onSelect(tool.id)}
+                >
+                    <span className="mt-1 text-xs text-[var(--app-hint)]">└</span>
+                    <span className="shrink-0 text-sm font-medium text-[var(--app-tool-card-accent)]">
+                        {label.title}
+                    </span>
+                    {label.detail ? (
+                        <span className="min-w-0 truncate text-sm text-[var(--app-fg)]">
+                            {label.detail}
+                        </span>
+                    ) : null}
+                </button>
+            )
+        })
+    ))
+}
+
 export function ToolGroupCard(props: {
     block: ToolGroupBlock
     metadata: SessionMetadataSummary | null
@@ -129,7 +188,9 @@ export function ToolGroupCard(props: {
     }, [selectedTool, props.metadata, t])
 
     const primaryTitle = formatGroupedHeaderTitle(props.block, t)
-    const subtitle = formatGroupedHeaderSubtitle(props.block, t) ?? formatActionSummary(props.block, t)
+    const subtitle = props.block.presentationMode === 'codex-exploration'
+        ? null
+        : formatGroupedHeaderSubtitle(props.block, t) ?? formatActionSummary(props.block, t)
     const fileCount = props.block.summary.fileTargets.length
     const toolsWithImages = useMemo(
         () => props.block.tools.filter((tool) => extractImagesFromResult(tool.tool.result).length > 0),
@@ -163,10 +224,12 @@ export function ToolGroupCard(props: {
                         </div>
 
                         <div className="flex shrink-0 items-center gap-2 self-center text-[var(--app-hint)]">
-                            <SummaryBadge
-                                className="bg-[var(--app-subtle-bg)] text-[var(--app-hint)]"
-                                text={t('toolGroup.toolCount', { n: props.block.tools.length })}
-                            />
+                            {props.block.presentationMode !== 'codex-exploration' ? (
+                                <SummaryBadge
+                                    className="bg-[var(--app-subtle-bg)] text-[var(--app-hint)]"
+                                    text={t('toolGroup.toolCount', { n: props.block.tools.length })}
+                                />
+                            ) : null}
                             {props.block.summary.runningCount > 0 ? (
                                 <SummaryBadge
                                     className="bg-sky-500/10 text-sky-600"
@@ -200,7 +263,9 @@ export function ToolGroupCard(props: {
                 <CardContent className="px-3 pb-3 pt-1">
                     {open ? (
                         <div className="flex flex-col gap-2">
-                            {props.block.tools.map((tool) => {
+                            {props.block.presentationMode === 'codex-exploration' ? (
+                                <CodexExplorationRows tools={props.block.tools} onSelect={setSelectedToolId} />
+                            ) : props.block.tools.map((tool) => {
                                 return (
                                     <button
                                         key={tool.id}

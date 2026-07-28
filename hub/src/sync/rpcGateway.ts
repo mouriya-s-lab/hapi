@@ -25,6 +25,7 @@ import type {
     ListCcSwitchProvidersResponse,
     ValidateCcSwitchProviderResponse,
     ListDirectoryResponse,
+    StatFilesResponse,
     ListCodexSessionsRpcResponse,
     ArchiveCodexSessionRpcResponse,
     OpencodeModelsResponse,
@@ -81,6 +82,7 @@ export type RpcUploadFileResponse = UploadFileResponse
 export type RpcDeleteUploadResponse = DeleteUploadResponse
 export type RpcDirectoryEntry = DirectoryEntry
 export type RpcListDirectoryResponse = ListDirectoryResponse
+export type RpcStatFilesResponse = StatFilesResponse
 export type RpcPathExistsResponse = PathExistsResponse
 export type RpcCodexModel = CodexModelSummary
 export type RpcListCodexModelsResponse = CodexModelsResponse
@@ -323,6 +325,10 @@ export class RpcGateway {
         return await this.sessionRpc(sessionId, RPC_METHODS.ListDirectory, { path }) as RpcListDirectoryResponse
     }
 
+    async statFiles(sessionId: string, paths: string[]): Promise<RpcStatFilesResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.StatFiles, { paths }) as RpcStatFilesResponse
+    }
+
     async uploadFile(sessionId: string, filename: string, content: string, mimeType: string): Promise<RpcUploadFileResponse> {
         return await this.sessionRpc(sessionId, RPC_METHODS.UploadFile, { sessionId, filename, content, mimeType }) as RpcUploadFileResponse
     }
@@ -353,6 +359,10 @@ export class RpcGateway {
 
     async listCodexModelsForMachine(machineId: string): Promise<RpcListCodexModelsResponse> {
         return await this.machineRpc(machineId, RPC_METHODS.ListCodexModels, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListCodexModelsResponse
+    }
+
+    async listCodexModelsForSession(sessionId: string): Promise<RpcListCodexModelsResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.ListCodexModels, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListCodexModelsResponse
     }
 
     async listCodexSessionsForMachine(machineId: string, cwd?: string | null, sessionIds?: string[]): Promise<RpcListCodexSessionsResponse> {

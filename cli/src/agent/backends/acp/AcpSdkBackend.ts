@@ -25,10 +25,6 @@ type AcpUsageUpdate = {
     contextWindow: number | undefined;
 };
 
-export type AcpSessionInfoUpdate = {
-    title?: string | null;
-};
-
 export type AcpModelDescriptor = {
     modelId: string;
     name?: string;
@@ -38,6 +34,11 @@ export type AcpModelDescriptor = {
 export type AcpSessionModelsMetadata = {
     availableModels: AcpModelDescriptor[];
     currentModelId: string | null;
+};
+
+export type AcpSessionInfoUpdate = {
+    sessionId: string | null;
+    title: string | null;
 };
 
 export type AcpConfigOptionDescriptor = {
@@ -64,6 +65,7 @@ export class AcpSdkBackend implements AgentBackend {
     private readonly pendingPermissions = new Map<string, PendingPermission>();
     private readonly sessionModelsMetadata = new Map<string, AcpSessionModelsMetadata>();
     private readonly sessionConfigOptions = new Map<string, AcpConfigOptionDescriptor[]>();
+    private readonly sessionInfoRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private readonly initialAvailableCommands = new Set<string>();
     private readonly sessionAvailableCommands = new Map<string, Set<string>>();
     private autoPermissionModeEnabled: boolean | null = null;
@@ -79,8 +81,6 @@ export class AcpSdkBackend implements AgentBackend {
     private usageUpdateListener: ((msg: AgentMessage) => void) | null = null;
     private sessionInfoUpdateListener: ((update: AcpSessionInfoUpdate) => void) | null = null;
     private lastForwardedUsageUpdate: AcpUsageUpdate | null = null;
-    private sessionUpdateQueue: Promise<void> = Promise.resolve();
-    private sessionUpdateFailure: unknown = null;
 
     /** Retry configuration for ACP initialization */
     private static readonly INIT_RETRY_OPTIONS = {
@@ -92,6 +92,7 @@ export class AcpSdkBackend implements AgentBackend {
     private static readonly UPDATE_DRAIN_TIMEOUT_MS = 2000;
     private static readonly PRE_PROMPT_UPDATE_QUIET_PERIOD_MS = 200;
     private static readonly PRE_PROMPT_UPDATE_DRAIN_TIMEOUT_MS = 1200;
+    private static readonly SESSION_TITLE_REFRESH_DELAYS_MS = [1000, 3000];
     // After the initial post-prompt drain, slow-tailing models (DeepSeek,
     // GPT-5.5, etc.) can keep sending agentMessageChunk notifications. We poll
     // drainBuffers() on a short interval so the UI keeps streaming smoothly,
@@ -413,9 +414,60 @@ export class AcpSdkBackend implements AgentBackend {
         this.usageUpdateListener = listener;
     }
 
-    /** Forwards ACP `session_info_update` metadata independently of prompt turns. */
+    /** Forwards stable ACP session metadata updates independently of prompt streaming. */
     setSessionInfoUpdateListener(listener: ((update: AcpSessionInfoUpdate) => void) | null): void {
         this.sessionInfoUpdateListener = listener;
+    }
+
+    /** Reads the agent's persisted native title through stable ACP session/list. */
+    async refreshSessionInfo(sessionId: string, cwd: string): Promise<void> {
+        const existingTimer = this.sessionInfoRefreshTimers.get(sessionId);
+        if (existingTimer) {
+            clearTimeout(existingTimer);
+            this.sessionInfoRefreshTimers.delete(sessionId);
+        }
+        await this.refreshSessionInfoAttempt(sessionId, cwd, 0);
+    }
+
+    private async refreshSessionInfoAttempt(sessionId: string, cwd: string, retryIndex: number): Promise<void> {
+        if (!this.transport) {
+            return;
+        }
+        try {
+            const response = await this.transport.sendRequest('session/list', { cwd }, { timeoutMs: 5000 });
+            if (!isObject(response) || !Array.isArray(response.sessions)) {
+                return;
+            }
+            const match = response.sessions.find((entry) =>
+                isObject(entry) && asString(entry.sessionId) === sessionId
+            );
+            if (!isObject(match) || (typeof match.title !== 'string' && match.title !== null)) {
+                return;
+            }
+            this.sessionInfoUpdateListener?.({ sessionId, title: match.title });
+            if (match.title === null || !this.isPlaceholderSessionTitle(match.title)) {
+                return;
+            }
+            const delayMs = AcpSdkBackend.SESSION_TITLE_REFRESH_DELAYS_MS[retryIndex];
+            if (delayMs === undefined) {
+                return;
+            }
+            const timer = setTimeout(() => {
+                this.sessionInfoRefreshTimers.delete(sessionId);
+                void this.refreshSessionInfoAttempt(sessionId, cwd, retryIndex + 1);
+            }, delayMs);
+            timer.unref();
+            this.sessionInfoRefreshTimers.set(sessionId, timer);
+        } catch (error) {
+            logger.debug('[ACP] session/list title refresh unavailable', error);
+        }
+    }
+
+    private isPlaceholderSessionTitle(title: string): boolean {
+        const normalizedTitle = title.trim();
+        return normalizedTitle.length === 0
+            || normalizedTitle === 'Untitled'
+            || /^(?:New|Child) session - \d{4}-\d{2}-\d{2}T/.test(normalizedTitle);
     }
 
     async prompt(
@@ -438,7 +490,6 @@ export class AcpSdkBackend implements AgentBackend {
             AcpSdkBackend.PRE_PROMPT_UPDATE_QUIET_PERIOD_MS,
             AcpSdkBackend.PRE_PROMPT_UPDATE_DRAIN_TIMEOUT_MS
         );
-        await this.drainSessionUpdateQueue();
         this.messageHandler?.drainBuffers();
         this.messageHandler = new AcpMessageHandler(onUpdate, { textChunkMode: this.options.textChunkMode });
         this.isProcessingMessage = true;
@@ -464,17 +515,12 @@ export class AcpSdkBackend implements AgentBackend {
                 AcpSdkBackend.UPDATE_QUIET_PERIOD_MS,
                 AcpSdkBackend.UPDATE_DRAIN_TIMEOUT_MS
             );
-            await this.drainSessionUpdateQueue();
             this.messageHandler?.drainBuffers();
             // Block here until the model truly stops streaming straggler
             // chunks (or LATE_FLUSH_WINDOW_MS elapses), so turn_complete and
             // the launcher's ready signal only fire once every chunk has been
             // emitted to this turn's onUpdate.
             await this.drainLateBuffers();
-            // Late window can enqueue async image registration; drain again
-            // before turn_complete so generated_image precedes turn boundary.
-            await this.drainSessionUpdateQueue();
-            this.messageHandler?.drainBuffers();
             try {
                 const latestUsageUpdate = this.readLatestUsageUpdate();
                 if (promptUsage) {
@@ -587,7 +633,10 @@ export class AcpSdkBackend implements AgentBackend {
 
     async disconnect(): Promise<void> {
         if (!this.transport) return;
-        await this.drainSessionUpdateQueue();
+        for (const timer of this.sessionInfoRefreshTimers.values()) {
+            clearTimeout(timer);
+        }
+        this.sessionInfoRefreshTimers.clear();
         this.messageHandler?.drainBuffers();
         this.messageHandler = null;
         this.activeSessionId = null;
@@ -612,33 +661,19 @@ export class AcpSdkBackend implements AgentBackend {
         if (sessionId) {
             this.captureAvailableCommands(sessionId, update);
         }
-        this.captureSessionInfoUpdate(update);
-        this.sessionUpdateQueue = this.sessionUpdateQueue
-            .then(async () => {
-                this.captureUsageUpdate(update);
-                await this.messageHandler?.handleUpdate(update);
-            })
-            .catch((error) => {
-                this.sessionUpdateFailure = error;
-            });
+        this.forwardSessionInfoUpdate(sessionId, update);
+        this.captureUsageUpdate(update);
+        this.messageHandler?.handleUpdate(update);
     }
 
-    private async drainSessionUpdateQueue(): Promise<void> {
-        await this.sessionUpdateQueue;
-        if (this.sessionUpdateFailure === null) return;
-        const failure = this.sessionUpdateFailure;
-        this.sessionUpdateFailure = null;
-        throw failure;
-    }
-
-    private captureSessionInfoUpdate(update: unknown): void {
-        if (!isObject(update)) return;
-        if (asString(update.sessionUpdate) !== ACP_SESSION_UPDATE_TYPES.sessionInfoUpdate) return;
-        if (!Object.prototype.hasOwnProperty.call(update, 'title')) return;
-
-        const title = update.title;
-        if (typeof title !== 'string' && title !== null) return;
-        this.sessionInfoUpdateListener?.({ title });
+    private forwardSessionInfoUpdate(sessionId: string | null, update: unknown): void {
+        if (!isObject(update) || update.sessionUpdate !== ACP_SESSION_UPDATE_TYPES.sessionInfoUpdate) {
+            return;
+        }
+        if (typeof update.title !== 'string' && update.title !== null) {
+            return;
+        }
+        this.sessionInfoUpdateListener?.({ sessionId, title: update.title });
     }
 
     private captureUsageUpdate(update: unknown): void {

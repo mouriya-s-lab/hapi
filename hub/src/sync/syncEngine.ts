@@ -30,6 +30,7 @@ import {
     type RpcGeneratedFileResponse,
     type RpcGeneratedImageResponse,
     type RpcListDirectoryResponse,
+    type RpcStatFilesResponse,
     type RpcListCodexModelsResponse,
     type RpcArchiveCodexSessionResponse,
     type RpcListCursorModelsResponse,
@@ -62,6 +63,7 @@ export type {
     RpcGeneratedFileResponse,
     RpcGeneratedImageResponse,
     RpcListDirectoryResponse,
+    RpcStatFilesResponse,
     RpcListCodexModelsResponse,
     RpcListCursorModelsResponse,
     RpcListOpencodeModelsResponse,
@@ -1809,6 +1811,10 @@ export class SyncEngine {
 
     async listDirectory(sessionId: string, path: string): Promise<RpcListDirectoryResponse> {
         return await this.rpcGateway.listDirectory(sessionId, path)
+    }
+
+    async statFiles(sessionId: string, paths: string[]): Promise<RpcStatFilesResponse> {
+        return await this.rpcGateway.statFiles(sessionId, paths)
     }
 
     async uploadFile(sessionId: string, filename: string, content: string, mimeType: string): Promise<RpcUploadFileResponse> {

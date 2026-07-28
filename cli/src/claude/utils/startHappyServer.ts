@@ -17,6 +17,7 @@ import { resolveSkill } from "@/modules/common/skills";
 
 type StartHappyServerOptions = {
     emitTitleSummary?: boolean;
+    enableChangeTitle?: boolean;
     skillLookup?: {
         workingDirectory: string;
         flavor: string;
@@ -26,6 +27,7 @@ type StartHappyServerOptions = {
 function createHapiMcpServer(
     client: ApiSessionClient,
     emitTitleSummary: boolean,
+    enableChangeTitle: boolean,
     skillLookup: StartHappyServerOptions['skillLookup']
 ): McpServer {
     const handler = async (title: string) => {
@@ -96,7 +98,8 @@ function createHapiMcpServer(
         name: z.string().trim().min(1).max(128).describe('Exact skill name shown by HAPI skill autocomplete'),
     });
 
-    mcp.registerTool<any, any>('change_title', {
+    if (enableChangeTitle) {
+        mcp.registerTool<any, any>('change_title', {
         description: 'Change the title of the current HAPI chat session. Call once when the user\'s primary objective is clear; use a concise task title.',
         title: 'Change Chat Title',
         inputSchema: changeTitleInputSchema,
@@ -125,7 +128,8 @@ function createHapiMcpServer(
             ],
             isError: true,
         };
-    });
+        });
+    }
 
     mcp.registerTool<any, any>('display_image', {
         description: 'Display a local image file inline in the current HAPI chat session. Call with the absolute filesystem path when the user should see a screenshot, diagram, or generated image.',
@@ -302,11 +306,12 @@ function readMcpSessionId(req: IncomingMessage): string | undefined {
 
 export async function startHappyServer(client: ApiSessionClient, options: StartHappyServerOptions = {}) {
     const emitTitleSummary = options.emitTitleSummary ?? true;
+    const enableChangeTitle = options.enableChangeTitle ?? true;
     const transports = new Map<string, StreamableHTTPServerTransport>();
     const mcps = new Map<string, McpServer>();
 
     const createMcpTransport = () => {
-        const mcp = createHapiMcpServer(client, emitTitleSummary, options.skillLookup);
+        const mcp = createHapiMcpServer(client, emitTitleSummary, enableChangeTitle, options.skillLookup);
         const transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
             onsessioninitialized: (sessionId) => {
@@ -360,7 +365,9 @@ export async function startHappyServer(client: ApiSessionClient, options: StartH
         hapiMcpUrl: mcpUrl,
     }));
 
-    const toolNames = ['change_title', 'display_image', 'display_video', 'send_file'];
+    const toolNames = enableChangeTitle
+        ? ['change_title', 'display_image', 'display_video', 'send_file']
+        : ['display_image', 'display_video', 'send_file'];
     if (options.skillLookup) {
         toolNames.push('skill_lookup');
     }

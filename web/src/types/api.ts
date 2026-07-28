@@ -106,6 +106,8 @@ export type FileSearchItem = {
     filePath: string
     fullPath: string
     fileType: 'file' | 'folder'
+    size?: number
+    modified?: number
 }
 
 export type FileSearchResponse = {

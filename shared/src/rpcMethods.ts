@@ -21,6 +21,7 @@ export const RPC_METHODS = {
     ReadGeneratedFile: 'readGeneratedFile',
     WriteFile: 'writeFile',
     ListDirectory: 'listDirectory',
+    StatFiles: 'statFiles',
     GetDirectoryTree: 'getDirectoryTree',
     UploadFile: 'uploadFile',
     DeleteUpload: 'deleteUpload',
