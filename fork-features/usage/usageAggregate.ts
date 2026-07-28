@@ -70,7 +70,10 @@ export function buildUsageSummaryResponse(
  *  Time filtering uses `content.data.timestamp` (the moment the turn actually
  *  happened, present on 100% of usage rows) rather than the `created_at` column,
  *  which for imported sessions records the import time instead. The values are
- *  UTC ISO-8601 strings, so lexicographic comparison is chronological. */
+ *  UTC ISO-8601 strings, so lexicographic comparison is chronological.
+ *
+ *  `<synthetic>` is Claude Code's locally fabricated placeholder assistant
+ *  message (no real API turn, no token counts) — excluded outright. */
 export function aggregateUsageForSessions(
     db: Database,
     sessionIds: string[],
@@ -116,6 +119,7 @@ export function aggregateUsageForSessions(
               AND json_extract(content, '$.content.data.type') = 'assistant'
               AND json_extract(content, '$.content.data.message.id') IS NOT NULL
               AND json_extract(content, '$.content.data.message.model') IS NOT NULL
+              AND json_extract(content, '$.content.data.message.model') != '<synthetic>'
               ${timeClause}
         )
         GROUP BY model

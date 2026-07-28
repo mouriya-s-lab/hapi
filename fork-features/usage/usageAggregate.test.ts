@@ -82,6 +82,10 @@ describe('aggregateUsageForSessions', () => {
             role: 'agent',
             content: { type: 'output', data: { type: 'assistant', timestamp: '2026-07-20T12:00:00.000Z', message: { model: 'x', usage: { input_tokens: 999 } } } }
         })
+        // Claude Code 本地合成的占位消息（model = '<synthetic>'）不计入
+        store.messages.addMessage(session.id, assistantEnvelope({
+            messageId: 'msg_synthetic', model: '<synthetic>', timestamp: '2026-07-20T13:00:00.000Z', usage: { input: 777 }
+        }))
 
         const rows = store.messages.aggregateUsageForSessions([session.id])
         const models = rows.map(r => r.model).sort()
