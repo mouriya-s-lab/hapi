@@ -49,6 +49,7 @@ import type {
     OmpThinkingOptionsResponse,
     OmpLoginProvidersResponse,
     StartOmpLoginResponse,
+    RespondOmpLoginInputResponse,
     GetOmpExtensionUiResponse,
     ReopenSessionResponse,
     UploadFileResponse
@@ -816,18 +817,32 @@ export class ApiClient {
         )
     }
 
-    async getSessionOmpLoginProviders(sessionId: string): Promise<OmpLoginProvidersResponse> {
+    async getMachineOmpLoginProviders(machineId: string): Promise<OmpLoginProvidersResponse> {
         return await this.request<OmpLoginProvidersResponse>(
-            `/api/sessions/${encodeURIComponent(sessionId)}/omp-login-providers`
+            `/api/machines/${encodeURIComponent(machineId)}/omp-login-providers`
         )
     }
 
-    async startSessionOmpLogin(sessionId: string, providerId: string): Promise<StartOmpLoginResponse> {
+    async startMachineOmpLogin(machineId: string, providerId: string): Promise<StartOmpLoginResponse> {
         return await this.request<StartOmpLoginResponse>(
-            `/api/sessions/${encodeURIComponent(sessionId)}/omp-login`,
+            `/api/machines/${encodeURIComponent(machineId)}/omp-login`,
             {
                 method: 'POST',
                 body: JSON.stringify({ providerId })
+            }
+        )
+    }
+
+    async respondMachineOmpLoginInput(
+        machineId: string,
+        flowId: string,
+        value: string
+    ): Promise<RespondOmpLoginInputResponse> {
+        return await this.request<RespondOmpLoginInputResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/omp-login-input`,
+            {
+                method: 'POST',
+                body: JSON.stringify({ flowId, value })
             }
         )
     }
@@ -877,6 +892,12 @@ export class ApiClient {
     async getMachineGrokModelsForCwd(machineId: string, cwd: string): Promise<GrokModelsResponse> {
         return await this.request<GrokModelsResponse>(
             `/api/machines/${encodeURIComponent(machineId)}/grok-models?cwd=${encodeURIComponent(cwd)}`
+        )
+    }
+
+    async getMachineOmpModelsForCwd(machineId: string, cwd: string): Promise<OmpModelsResponse> {
+        return await this.request<OmpModelsResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/omp-models?cwd=${encodeURIComponent(cwd)}`
         )
     }
 

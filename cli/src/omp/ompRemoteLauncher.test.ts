@@ -550,7 +550,6 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         expect(harness.requests.map((request) => request.type)).toEqual([
             'set_host_tools',
             'set_host_uri_schemes',
-            'get_login_providers',
             'set_subagent_subscription',
             'get_subagents',
             'prompt',

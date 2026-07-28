@@ -66,12 +66,9 @@ function createApp(session: Session, opts?: {
     sessionExists?: boolean
     archiveSession?: (sessionId: string) => Promise<void>
     getCursorChatStoreStatus?: SyncEngine['getCursorChatStoreStatus']
-    listOmpLoginProvidersForSession?: SyncEngine['listOmpLoginProvidersForSession']
-    startOmpLoginForSession?: SyncEngine['startOmpLoginForSession']
     getOmpExtensionUiRequestForSession?: SyncEngine['getOmpExtensionUiRequestForSession']
 }) {
     const applySessionConfigCalls: Array<[string, Record<string, unknown>]> = []
-    const startOmpLoginCalls: Array<[string, string]> = []
     const getOmpExtensionUiRequestCalls: Array<[string, string]> = []
     const applySessionConfig = async (sessionId: string, config: Record<string, unknown>) => {
         applySessionConfigCalls.push([sessionId, config])
@@ -113,34 +110,6 @@ function createApp(session: Session, opts?: {
     const cycleOmpModelForSession = async () => ({
         success: true,
         currentModel: { provider: 'mlx', modelId: 'qwen3' }
-    })
-    const listOmpLoginProvidersForSession = opts?.listOmpLoginProvidersForSession ?? (async () => ({
-        success: true as const,
-        providers: [{
-            id: 'example',
-            name: 'Example OAuth',
-            available: true,
-            authenticated: false
-        }],
-        loginInProgress: false
-    }))
-    const startOmpLoginForSession = opts?.startOmpLoginForSession ?? (async (sessionId: string, providerId: string) => {
-        startOmpLoginCalls.push([sessionId, providerId])
-        return {
-            success: true as const,
-            provider: {
-                id: providerId,
-                name: 'Example OAuth',
-                available: true,
-                authenticated: true
-            },
-            providers: [{
-                id: providerId,
-                name: 'Example OAuth',
-                available: true,
-                authenticated: true
-            }]
-        }
     })
     const getOmpExtensionUiRequestForSession = opts?.getOmpExtensionUiRequestForSession
         ?? (async (sessionId: string, requestId: string) => {
@@ -185,8 +154,6 @@ function createApp(session: Session, opts?: {
         listOpencodeReasoningEffortOptionsForSession,
         listOmpModelsForSession,
         listOmpThinkingOptionsForSession,
-        listOmpLoginProvidersForSession,
-        startOmpLoginForSession,
         getOmpExtensionUiRequestForSession,
         cycleOmpModelForSession,
         resumeSession,
@@ -219,7 +186,7 @@ function createApp(session: Session, opts?: {
     })
     app.route('/api', createSessionsRoutes(() => engine as SyncEngine))
 
-    return { app, applySessionConfigCalls, startOmpLoginCalls, getOmpExtensionUiRequestCalls }
+    return { app, applySessionConfigCalls, getOmpExtensionUiRequestCalls }
 }
 
 describe('sessions routes', () => {
@@ -987,37 +954,6 @@ describe('sessions routes', () => {
         ])
     })
 
-    it('lists OMP login providers and starts the selected remote login', async () => {
-        const session = createSession({
-            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'omp' }
-        })
-        const { app, startOmpLoginCalls } = createApp(session)
-
-        const providers = await app.request('/api/sessions/session-1/omp-login-providers')
-        expect(providers.status).toBe(200)
-        expect(await providers.json()).toEqual({
-            success: true,
-            providers: [{
-                id: 'example',
-                name: 'Example OAuth',
-                available: true,
-                authenticated: false
-            }],
-            loginInProgress: false
-        })
-
-        const login = await app.request('/api/sessions/session-1/omp-login', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ providerId: 'example' })
-        })
-        expect(login.status).toBe(200)
-        expect(await login.json()).toMatchObject({
-            success: true,
-            provider: { id: 'example', authenticated: true }
-        })
-        expect(startOmpLoginCalls).toEqual([['session-1', 'example']])
-    })
 
     it('retrieves transient OMP extension UI input without allowing response caching', async () => {
         const session = createSession({
@@ -1087,29 +1023,6 @@ describe('sessions routes', () => {
         expect(localOmp.getOmpExtensionUiRequestCalls).toEqual([])
     })
 
-    it('validates the OMP login session boundary and request body', async () => {
-        const remoteCodex = createApp(createSession())
-        const localOmp = createApp(createSession({
-            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'omp' },
-            agentState: { controlledByUser: true, requests: {}, completedRequests: {} }
-        }))
-        const remoteOmp = createApp(createSession({
-            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'omp' }
-        }))
-
-        const wrongFlavor = await remoteCodex.app.request('/api/sessions/session-1/omp-login-providers')
-        const local = await localOmp.app.request('/api/sessions/session-1/omp-login-providers')
-        const invalid = await remoteOmp.app.request('/api/sessions/session-1/omp-login', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ providerId: '' })
-        })
-
-        expect(wrongFlavor.status).toBe(400)
-        expect(local.status).toBe(409)
-        expect(invalid.status).toBe(400)
-        expect(remoteOmp.startOmpLoginCalls).toEqual([])
-    })
 
     it('rejects OMP catalogs and mutation controls while locally controlled', async () => {
         const session = createSession({

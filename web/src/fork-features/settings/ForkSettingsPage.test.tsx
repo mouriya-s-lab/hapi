@@ -8,6 +8,7 @@ let role: 'admin' | 'user' = 'user'
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => navigate }))
 vi.mock('@/lib/app-context', () => ({ useAppContext: () => ({ user: { id: 1, role, defaultNamespace: 'ns' }, baseUrl: '', token: 't' }) }))
 vi.mock('../history-import/HistoryImportSettingsRow', () => ({ HistoryImportSettingsRow: () => <button type="button">Import agent sessions</button> }))
+vi.mock('../omp-host-integration/OmpProviderSettingsRow', () => ({ OmpProviderSettingsRow: () => <button type="button">Oh My Pi providers</button> }))
 
 function renderPage() {
     return render(<I18nProvider><ForkSettingsPage /></I18nProvider>)
@@ -40,5 +41,10 @@ describe('ForkSettingsPage', () => {
         renderPage()
         fireEvent.click(screen.getByRole('button', { name: /Resource grants/ }))
         expect(navigate).toHaveBeenCalledWith({ to: '/settings/fork/grants' })
+    })
+
+    it('keeps OMP provider sign-in in fork settings', () => {
+        renderPage()
+        expect(screen.getByRole('button', { name: 'Oh My Pi providers' })).toBeInTheDocument()
     })
 })

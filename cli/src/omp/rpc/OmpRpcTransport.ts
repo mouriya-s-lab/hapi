@@ -80,6 +80,9 @@ export function buildOmpRpcArgs(config: OmpRpcSpawnConfig): string[] {
     if (config.profile) {
         args.push(`--profile=${config.profile}`);
     }
+    if (config.noSession) {
+        args.push('--no-session');
+    }
     if (config.provider) {
         args.push('--provider', config.provider);
     }

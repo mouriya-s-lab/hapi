@@ -437,6 +437,7 @@ type OmpRpcSpawnBaseConfig = {
     provider?: string;
     model?: string;
     profile?: string;
+    noSession?: boolean;
 };
 
 export type OmpRpcSpawnConfig = OmpRpcSpawnBaseConfig & (

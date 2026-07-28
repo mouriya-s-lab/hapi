@@ -276,4 +276,125 @@ describe('machines routes', () => {
             currentModelId: 'composer-2.5[fast=true]'
         })
     })
+
+    it('forwards OMP model discovery with the selected workspace', async () => {
+        const machine = createMachine()
+        const calls: Array<{ machineId: string; cwd: string }> = []
+        const result = {
+            success: true as const,
+            availableModels: [{
+                provider: 'openai-codex',
+                modelId: 'gpt-5.6-sol',
+                name: 'GPT-5.6-Sol',
+                reasoning: true,
+                contextWindow: 272_000,
+                maxTokens: 128_000,
+                thinkingLevels: ['high' as const]
+            }],
+            currentModel: null
+        }
+        const engine = {
+            getMachine: () => machine,
+            getMachineByNamespace: () => machine,
+            listOmpModelsForMachine: async (machineId: string, cwd: string) => {
+                calls.push({ machineId, cwd })
+                return result
+            }
+        } as Partial<SyncEngine>
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'default')
+            await next()
+        })
+        app.route('/api', createMachinesRoutes(() => engine as SyncEngine))
+
+        const response = await app.request(
+            '/api/machines/machine-1/omp-models?cwd=' + encodeURIComponent('/workspace/project')
+        )
+
+        expect(response.status).toBe(200)
+        expect(calls).toEqual([{ machineId: 'machine-1', cwd: '/workspace/project' }])
+        expect(await response.json()).toEqual(result)
+    })
+
+    it('keeps OMP provider login and required input on the machine RPC', async () => {
+        const machine = createMachine()
+        const flowId = '00000000-0000-4000-8000-000000000001'
+        const calls: Array<Record<string, string>> = []
+        const provider = {
+            id: 'openai-codex',
+            name: 'ChatGPT Plus/Pro',
+            available: true,
+            authenticated: false
+        }
+        const engine = {
+            getMachine: () => machine,
+            getMachineByNamespace: () => machine,
+            listOmpLoginProvidersForMachine: async (machineId: string) => {
+                calls.push({ action: 'list', machineId })
+                return { success: true as const, providers: [provider], flow: null }
+            },
+            startOmpLoginForMachine: async (machineId: string, providerId: string) => {
+                calls.push({ action: 'start', machineId, providerId })
+                return {
+                    success: true as const,
+                    flow: {
+                        flowId,
+                        providerId,
+                        providerName: provider.name,
+                        status: 'waiting_for_input' as const,
+                        title: 'Paste the authorization code'
+                    }
+                }
+            },
+            respondOmpLoginInputForMachine: async (machineId: string, submittedFlowId: string, value: string) => {
+                calls.push({ action: 'respond', machineId, flowId: submittedFlowId, value })
+                return {
+                    success: true as const,
+                    flow: {
+                        flowId: submittedFlowId,
+                        providerId: provider.id,
+                        providerName: provider.name,
+                        status: 'authenticated' as const
+                    }
+                }
+            }
+        } as Partial<SyncEngine>
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'default')
+            await next()
+        })
+        app.route('/api', createMachinesRoutes(() => engine as SyncEngine))
+
+        const providersResponse = await app.request('/api/machines/machine-1/omp-login-providers')
+        const startResponse = await app.request('/api/machines/machine-1/omp-login', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ providerId: provider.id })
+        })
+        const inputResponse = await app.request('/api/machines/machine-1/omp-login-input', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ flowId, value: 'authorization-code' })
+        })
+
+        expect(providersResponse.status).toBe(200)
+        expect(await providersResponse.json()).toEqual({ success: true, providers: [provider], flow: null })
+        expect(startResponse.status).toBe(200)
+        expect(await startResponse.json()).toMatchObject({
+            success: true,
+            flow: { flowId, status: 'waiting_for_input' }
+        })
+        expect(inputResponse.status).toBe(200)
+        expect(await inputResponse.json()).toMatchObject({
+            success: true,
+            flow: { flowId, status: 'authenticated' }
+        })
+        expect(calls).toEqual([
+            { action: 'list', machineId: 'machine-1' },
+            { action: 'start', machineId: 'machine-1', providerId: provider.id },
+            { action: 'respond', machineId: 'machine-1', flowId, value: 'authorization-code' }
+        ])
+    })
 })

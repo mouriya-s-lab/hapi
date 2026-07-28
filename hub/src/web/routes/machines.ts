@@ -8,6 +8,7 @@ import { Hono } from 'hono'
 import type { SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import { requireMachine } from './guards'
+import { registerOmpMachineRoutes } from '../../fork-features/omp-host-integration/routes'
 
 export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
@@ -254,6 +255,8 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({ success: false, error: error instanceof Error ? error.message : 'Failed to list cc-switch providers' }, 500)
         }
     })
+
+    registerOmpMachineRoutes(app, getSyncEngine)
 
     return app
 }

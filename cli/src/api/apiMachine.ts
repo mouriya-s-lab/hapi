@@ -47,6 +47,10 @@ import { inspectCursorChatStore } from '@/cursor/cursorChatStoreStatus'
 import { homedir } from 'node:os'
 import type { CursorChatStoreStatus } from '@hapi/protocol/apiTypes'
 
+import {
+    registerOmpMachineHandlers,
+    type OmpMachineIntegration
+} from '../../../fork-features/omp-host-integration/machine'
 type MachineRpcHandlers = {
     spawnSession: (options: SpawnSessionOptions) => Promise<SpawnSessionResult>
     stopSession: (sessionId: string) => Promise<boolean>
@@ -116,6 +120,7 @@ export class ApiMachineClient {
     private keepAliveStartTimeout: ReturnType<typeof setTimeout> | null = null
     private rpcHandlerManager: RpcHandlerManager
     private readonly usageMonitor = new RunnerUsageMonitor()
+    private readonly ompMachineIntegration: OmpMachineIntegration
 
     private readonly normalizedWorkspaceRoots: string[] | undefined
 
@@ -135,6 +140,20 @@ export class ApiMachineClient {
         })
 
         registerCommonHandlers(this.rpcHandlerManager, getInvokedCwd())
+        this.ompMachineIntegration = registerOmpMachineHandlers(this.rpcHandlerManager, {
+            defaultCwd: getInvokedCwd(),
+            resolveModelCwd: async (cwd) => {
+                const resolvedCwd = await this.resolveForWorkspaceCheck(cwd)
+                if (!this.isWithinWorkspaceRoots(resolvedCwd)) {
+                    throw new Error('Path is outside workspace roots')
+                }
+                const stats = await stat(resolvedCwd)
+                if (!stats.isDirectory()) {
+                    throw new Error('Path is not a directory')
+                }
+                return resolvedCwd
+            }
+        })
 
         this.rpcHandlerManager.registerHandler<PathExistsRequest, PathExistsResponse>(RPC_METHODS.PathExists, async (params) => {
             const rawPaths = Array.isArray(params?.paths) ? params.paths : []
@@ -684,6 +703,7 @@ export class ApiMachineClient {
 
     shutdown(): void {
         this.stopKeepAlive()
+        void this.ompMachineIntegration.shutdown()
         if (this.socket) {
             this.socket.close()
         }

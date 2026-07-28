@@ -546,16 +546,47 @@ export type OmpLoginProviderSummary = {
     authenticated: boolean
 }
 
+export type OmpLoginFlow =
+    | {
+        flowId: string
+        providerId: string
+        providerName: string
+        status: 'waiting_for_callback'
+        url: string
+        launchUrl?: string
+        instructions?: string
+    }
+    | {
+        flowId: string
+        providerId: string
+        providerName: string
+        status: 'waiting_for_input'
+        title: string
+        placeholder?: string
+    }
+    | {
+        flowId: string
+        providerId: string
+        providerName: string
+        status: 'authenticating' | 'authenticated'
+    }
+    | {
+        flowId: string
+        providerId: string
+        providerName: string
+        status: 'failed'
+        error: string
+    }
+
 export type OmpLoginProvidersResponse =
     | {
         success: true
         providers: OmpLoginProviderSummary[]
-        loginInProgress: boolean
+        flow: OmpLoginFlow | null
     }
     | {
         success: false
         error: string
-        loginInProgress?: boolean
     }
 
 export type StartOmpLoginRequest = {
@@ -565,8 +596,22 @@ export type StartOmpLoginRequest = {
 export type StartOmpLoginResponse =
     | {
         success: true
-        provider: OmpLoginProviderSummary
-        providers: OmpLoginProviderSummary[]
+        flow: OmpLoginFlow
+    }
+    | {
+        success: false
+        error: string
+    }
+
+export type RespondOmpLoginInputRequest = {
+    flowId: string
+    value: string
+}
+
+export type RespondOmpLoginInputResponse =
+    | {
+        success: true
+        flow: OmpLoginFlow
     }
     | {
         success: false

@@ -40,7 +40,7 @@ The native RPC path provides:
 - native session resume, rename, clear, branch, local/remote handoff, and history continuity;
 - tool, thinking, usage, retry, subagent, media, file, and extension UI events;
 - host tools for `display_image`, `display_video`, and `send_file`;
-- provider login through the authenticated Web UI without copying credentials into chat.
+- runner-scoped provider sign-in under **Settings → HAPI Extensions → Oh My Pi providers**, without copying credentials into chat.
 
 ## Permission labels
 
@@ -49,6 +49,8 @@ OMP 17.0.4 RPC does not expose a tool-permission or plan-mode protocol. HAPI the
 Use OMP only in a workspace where direct tool execution is acceptable.
 
 ## Web controls
+
+Provider sign-in is a runner setting, not a session action. Session chats never display sign-in controls. After a provider authenticates, the **New Session** model selector refreshes from OMP and lists that provider's qualified model IDs.
 
 In a remote OMP session, the composer exposes the native model and thinking selectors plus the OMP permission label. The chat and session menus also provide queued-message cancellation, current-turn abort, per-message rewind/fork, archive/kill, media and file cards, subagent timelines, and local/remote switching.
 
