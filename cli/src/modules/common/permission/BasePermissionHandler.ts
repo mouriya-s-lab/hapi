@@ -19,20 +19,24 @@ export type AutoApprovalRuleSet = {
 
 const AUTO_APPROVE_TOOL_NAME_HINTS = [
     'change_title',
+    'display_image',
+    'display_video',
     'happy__change_title',
     'hapi_change_title',  // OpenCode MCP tool pattern
+    'hapi_display_image',
+    'hapi_display_video',
     'geminireasoning',
     'codexreasoning',
     'think',
     'save_memory'
 ];
+const AUTO_APPROVE_TOOL_ID_HINTS = ['change_title', 'display_image', 'display_video', 'send_file', 'save_memory'];
 const AUTO_APPROVE_EXACT_TOOL_NAMES = new Set([
     'skill_lookup',
     'hapi_skill_lookup',
     'happy__skill_lookup',
     'mcp__hapi__skill_lookup'
 ]);
-const AUTO_APPROVE_TOOL_ID_HINTS = ['change_title', 'save_memory'];
 const AUTO_APPROVE_WRITE_TOOL_HINTS = ['write', 'edit', 'create', 'delete', 'patch', 'fs-edit'];
 
 export function resolveToolAutoApprovalDecision(

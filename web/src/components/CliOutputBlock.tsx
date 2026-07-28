@@ -117,11 +117,11 @@ export function CliOutputBlock(props: { text: string }) {
     const title = commandName ?? t('terminal.commandName')
 
     return (
-        <div className="overflow-hidden rounded-[20px] bg-[var(--app-tool-card-bg)] p-3 shadow-none">
+        <div className="overflow-clip rounded-[20px] bg-[var(--app-tool-card-bg)] p-3 shadow-none">
             <Dialog>
-                <DialogTrigger asChild>
-                    <button type="button" className="w-full text-left">
-                        <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-2">
+                    <DialogTrigger asChild>
+                        <button type="button" className="w-full text-left">
                             <div className="flex items-center justify-between gap-3">
                                 <div className="min-w-0 flex items-center gap-2">
                                     <div className="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--app-tool-card-accent)] leading-none">
@@ -135,17 +135,16 @@ export function CliOutputBlock(props: { text: string }) {
                                     <DetailsIcon />
                                 </span>
                             </div>
-                            <CodeBlock
-                                code={content}
-                                language="shellscript"
-                                title="Terminal output"
-                                showCopyButton={false}
-                                collapseLongContent={isCollapsedPreview}
-                                collapsedHeight={PREVIEW_MAX_HEIGHT}
-                            />
-                        </div>
-                    </button>
-                </DialogTrigger>
+                        </button>
+                    </DialogTrigger>
+                    <CodeBlock
+                        code={content}
+                        language="shellscript"
+                        title="Terminal output"
+                        collapseLongContent={isCollapsedPreview}
+                        collapsedHeight={PREVIEW_MAX_HEIGHT}
+                    />
+                </div>
                 <DialogContent className="max-w-3xl">
                     <DialogHeader>
                         <DialogTitle>{title}</DialogTitle>

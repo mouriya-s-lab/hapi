@@ -17,8 +17,18 @@ const filePathSchema = z.object({
     path: z.string().min(1)
 })
 
+const writeFileSchema = z.object({
+    path: z.string().min(1),
+    content: z.string(),
+    expectedHash: z.string().regex(/^[a-f0-9]{64}$/)
+})
+
 const generatedImageSchema = z.object({
     imageId: z.string().min(1)
+})
+
+const generatedFileSchema = z.object({
+    fileId: z.string().min(1)
 })
 
 function parseBooleanParam(value: string | undefined): boolean | undefined {
@@ -149,6 +159,27 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
         return c.json(result)
     })
 
+    app.put('/sessions/:id/file', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+
+        const sessionResult = requireSessionFromParam(c, engine)
+        if (sessionResult instanceof Response) return sessionResult
+
+        const parsed = writeFileSchema.safeParse(await c.req.json())
+        if (!parsed.success) {
+            return c.json({ error: 'Invalid file write request' }, 400)
+        }
+
+        const result = await runRpc(() => engine.writeSessionFile(
+            sessionResult.sessionId,
+            parsed.data.path,
+            parsed.data.content,
+            parsed.data.expectedHash
+        ))
+        return c.json(result)
+    })
+
     app.get('/sessions/:id/generated-images/:imageId', async (c) => {
         const engine = requireSyncEngine(c, getSyncEngine)
         if (engine instanceof Response) {
@@ -188,6 +219,46 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
         return c.body(bytes, 200, {
             'Content-Type': result.mimeType ?? 'application/octet-stream',
             'Content-Disposition': `inline; filename="${encodeURIComponent(result.fileName ?? 'generated-image')}"`,
+            'Cache-Control': GENERATED_IMAGE_CACHE_CONTROL,
+            ETag: etag
+        })
+    })
+
+    app.get('/sessions/:id/generated-files/:fileId', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) {
+            return engine
+        }
+
+        const sessionResult = requireSessionFromParam(c, engine)
+        if (sessionResult instanceof Response) {
+            return sessionResult
+        }
+
+        const parsed = generatedFileSchema.safeParse(c.req.param())
+        if (!parsed.success) {
+            return c.json({ error: 'Invalid generated file id' }, 400)
+        }
+
+        // Sent files are disk snapshots keyed by an immutable random id, so the same
+        // caching strategy as generated images applies (see the route above).
+        const etag = `"${parsed.data.fileId}"`
+        if (ifNoneMatchMatches(c.req.header('if-none-match'), etag)) {
+            return c.body(null, 304, {
+                'Cache-Control': GENERATED_IMAGE_CACHE_CONTROL,
+                ETag: etag
+            })
+        }
+
+        const result = await runRpc(() => engine.readGeneratedFile(sessionResult.sessionId, parsed.data.fileId))
+        if (!result.success || result.content === undefined) {
+            return c.json({ success: false, error: result.error ?? 'Sent file not found' }, 404)
+        }
+
+        const bytes = Uint8Array.from(Buffer.from(result.content, 'base64'))
+        return c.body(bytes, 200, {
+            'Content-Type': result.mimeType ?? 'application/octet-stream',
+            'Content-Disposition': `attachment; filename="${encodeURIComponent(result.fileName ?? 'file')}"`,
             'Cache-Control': GENERATED_IMAGE_CACHE_CONTROL,
             ETag: etag
         })

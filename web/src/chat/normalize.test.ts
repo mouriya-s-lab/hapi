@@ -13,6 +13,27 @@ function makeMessage(content: unknown): DecryptedMessage {
 }
 
 describe('normalizeDecryptedMessage', () => {
+    it('preserves the model on Codex response messages for the shared response info component', () => {
+        const message = makeMessage({
+            role: 'agent',
+            content: {
+                type: 'codex',
+                data: {
+                    type: 'message',
+                    message: 'Hello from Codex',
+                    model: 'gpt-5.5'
+                }
+            }
+        })
+
+        expect(normalizeDecryptedMessage(message)).toMatchObject({
+            id: 'msg-1',
+            role: 'agent',
+            model: 'gpt-5.5',
+            content: [{ type: 'text', text: 'Hello from Codex' }]
+        })
+    })
+
     it('drops unsupported Claude system output records', () => {
         const message = makeMessage({
             role: 'agent',
@@ -128,6 +149,34 @@ describe('normalizeDecryptedMessage', () => {
         })
 
         expect(normalizeDecryptedMessage(message)).toBeNull()
+    })
+
+    it('normalizes Claude model refusal fallback system events for warning toasts', () => {
+        const message = makeMessage({
+            role: 'agent',
+            content: {
+                type: 'output',
+                data: {
+                    type: 'system',
+                    subtype: 'model_refusal_fallback',
+                    uuid: 'sys-refusal-fallback',
+                    direction: 'retry',
+                    trigger: 'refusal',
+                    originalModel: 'claude-fable-5[1m]',
+                    content: 'Fable safety flagged this message. Switched to Opus 4.8 (1M context).'
+                }
+            }
+        })
+
+        expect(normalizeDecryptedMessage(message)).toMatchObject({
+            content: {
+                type: 'model-refusal-fallback',
+                originalModel: 'claude-fable-5[1m]',
+                message: 'Fable safety flagged this message. Switched to Opus 4.8 (1M context).',
+                direction: 'retry',
+                trigger: 'refusal'
+            }
+        })
     })
 
     it('keeps the stringify fallback for unknown non-system agent payloads', () => {
@@ -805,6 +854,137 @@ describe('normalizeDecryptedMessage', () => {
         })
     })
 
+    it('preserves OMP provider model labels and native cost on canonical Codex-shaped messages', () => {
+        const reasoning = makeMessage({
+            role: 'agent',
+            content: {
+                type: 'codex',
+                data: {
+                    type: 'reasoning',
+                    id: 'reasoning-1',
+                    message: 'native reasoning',
+                    model: 'ollama/qwen3',
+                    usage: {
+                        total: { inputTokens: 120, outputTokens: 30 },
+                        costUsd: 0.031
+                    }
+                }
+            }
+        })
+        expect(normalizeDecryptedMessage(reasoning)).toMatchObject({
+            role: 'agent',
+            model: 'ollama/qwen3',
+            usage: {
+                input_tokens: 120,
+                output_tokens: 30,
+                cost_usd: 0.031
+            },
+            content: [{ type: 'reasoning', text: 'native reasoning' }]
+        })
+
+        const usage = makeMessage({
+            role: 'agent',
+            content: {
+                type: 'codex',
+                data: {
+                    type: 'token_count',
+                    info: {
+                        total: { inputTokens: 120, outputTokens: 30 },
+                        contextTokens: 4096,
+                        modelContextWindow: 128000,
+                        costUsd: 0.031
+                    }
+                }
+            }
+        })
+        expect(normalizeDecryptedMessage(usage)).toMatchObject({
+            role: 'event',
+            usage: {
+                input_tokens: 120,
+                output_tokens: 30,
+                context_tokens: 4096,
+                context_window: 128000,
+                cost_usd: 0.031
+            }
+        })
+    })
+
+    it('uses the HAPI display UUID and preserves OMP reasoning usage on canonical output', () => {
+        const message = makeMessage({
+            role: 'agent',
+            content: {
+                type: 'output',
+                data: {
+                    type: 'assistant',
+                    uuid: 'display-uuid',
+                    providerMessageId: 'provider-response-id',
+                    parentUuid: 'display-parent',
+                    message: {
+                        role: 'assistant',
+                        model: 'openrouter/qwen3',
+                        content: [
+                            { type: 'thinking', thinking: 'native reasoning' },
+                            { type: 'text', text: 'native answer' }
+                        ],
+                        usage: {
+                            input_tokens: 120,
+                            output_tokens: 30,
+                            reasoning_output_tokens: 17,
+                            cost_usd: 0.031
+                        }
+                    }
+                }
+            }
+        })
+
+        const normalized = normalizeDecryptedMessage(message)
+        expect(normalized).toMatchObject({
+            role: 'agent',
+            model: 'openrouter/qwen3',
+            usage: {
+                input_tokens: 120,
+                output_tokens: 30,
+                reasoning_output_tokens: 17,
+                cost_usd: 0.031
+            },
+            content: [
+                { type: 'reasoning', text: 'native reasoning', uuid: 'display-uuid', parentUUID: 'display-parent' },
+                { type: 'text', text: 'native answer', uuid: 'display-uuid', parentUUID: 'display-parent' }
+            ]
+        })
+        expect(JSON.stringify(normalized)).not.toContain('provider-response-id')
+    })
+
+    it('routes unknown OMP warning frames through the generic event fallback without field loss', () => {
+        const frame = {
+            type: 'future_event',
+            nested: { added: true },
+            sequence: 42
+        }
+        const message = makeMessage({
+            role: 'agent',
+            content: {
+                type: 'codex',
+                data: {
+                    type: 'omp-rpc-warning',
+                    eventType: 'future_event',
+                    warning: 'Unknown OMP RPC event: future_event',
+                    frame
+                }
+            }
+        })
+
+        expect(normalizeDecryptedMessage(message)).toMatchObject({
+            role: 'event',
+            content: {
+                type: 'omp-rpc-warning',
+                eventType: 'future_event',
+                warning: 'Unknown OMP RPC event: future_event',
+                frame
+            }
+        })
+    })
+
     it('normalizes Codex context_compacted as a compact event', () => {
         const message = makeMessage({
             role: 'agent',
@@ -825,6 +1005,21 @@ describe('normalizeDecryptedMessage', () => {
                 trigger: 'auto',
                 preTokens: 1234
             }
+        })
+    })
+
+    it('normalizes Codex compact summary through the shared Claude summary path', () => {
+        const message = makeMessage({
+            role: 'agent',
+            content: {
+                type: 'codex',
+                data: { type: 'summary', summary: '  ## Summary\n\n- Continue.  ' }
+            }
+        })
+
+        expect(normalizeDecryptedMessage(message)).toMatchObject({
+            role: 'agent',
+            content: [{ type: 'summary', summary: '## Summary\n\n- Continue.' }]
         })
     })
 

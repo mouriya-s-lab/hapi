@@ -11,6 +11,9 @@ export const UsageSchema = z.object({
   cache_creation_input_tokens: z.number().int().nonnegative().optional(),
   cache_read_input_tokens: z.number().int().nonnegative().optional(),
   output_tokens: z.number().int().nonnegative(),
+  reasoning_output_tokens: z.number().int().nonnegative().optional(),
+  context_window: z.number().int().positive().optional(),
+  cost_usd: z.number().nonnegative().optional(),
   service_tier: z.string().optional(),
 });
 
@@ -37,6 +40,7 @@ const RawJSONLinesBaseSchema = z.object({
   version: z.string().optional(),
   gitBranch: z.string().optional(),
   timestamp: z.string().optional(),
+  providerMessageId: z.string().optional(),
 });
 
 // Main schema with validation for the fields used in the app

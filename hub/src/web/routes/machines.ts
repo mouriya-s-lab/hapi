@@ -1,4 +1,5 @@
 import {
+    MachineCreateDirectoryRequestSchema,
     MachineListDirectoryRequestSchema,
     MachinePathsExistsRequestSchema,
     SpawnSessionRequestSchema
@@ -79,6 +80,35 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json(result)
         } catch (error) {
             return c.json({ error: error instanceof Error ? error.message : 'Failed to list directory' }, 500)
+        }
+    })
+
+    app.post('/machines/:id/create-directory', async (c) => {
+        const engine = getSyncEngine()
+        if (!engine) {
+            return c.json({ error: 'Not connected' }, 503)
+        }
+
+        const machineId = c.req.param('id')
+        const machine = requireMachine(c, engine, machineId)
+        if (machine instanceof Response) {
+            return machine
+        }
+
+        const body = await c.req.json().catch(() => null)
+        const parsed = MachineCreateDirectoryRequestSchema.safeParse(body)
+        if (!parsed.success) {
+            return c.json({ error: 'Invalid body' }, 400)
+        }
+
+        try {
+            return c.json(await engine.createMachineDirectory(
+                machineId,
+                parsed.data.parentPath,
+                parsed.data.name
+            ))
+        } catch (error) {
+            return c.json({ error: error instanceof Error ? error.message : 'Failed to create directory' }, 500)
         }
     })
 
@@ -209,6 +239,19 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
                 success: false,
                 error: error instanceof Error ? error.message : 'Failed to list Cursor models'
             }, 500)
+        }
+    })
+
+    app.get('/machines/:id/cc-switch/providers', async (c) => {
+        const engine = getSyncEngine()
+        if (!engine) return c.json({ success: false, error: 'Not connected' }, 503)
+        const machineId = c.req.param('id')
+        const machine = requireMachine(c, engine, machineId)
+        if (machine instanceof Response) return machine
+        try {
+            return c.json(await engine.listCcSwitchProvidersForMachine(machineId))
+        } catch (error) {
+            return c.json({ success: false, error: error instanceof Error ? error.message : 'Failed to list cc-switch providers' }, 500)
         }
     })
 

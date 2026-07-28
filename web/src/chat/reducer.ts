@@ -3,7 +3,7 @@ import type { AgentEvent, ChatBlock, NormalizedMessage, UsageData } from '@/chat
 import type { ThreadGoal } from '@/types/api'
 import { traceMessages, type TracedMessage } from '@/chat/tracer'
 import { dedupeAgentEvents, foldApiErrorEvents } from '@/chat/reducerEvents'
-import { collectTitleChanges, collectToolIdsFromMessages, ensureToolBlock, getPermissions } from '@/chat/reducerTools'
+import { collectTitleChanges, ensureToolBlock, getPermissions } from '@/chat/reducerTools'
 import { reduceTimeline } from '@/chat/reducerTimeline'
 import { isRedundantGoalStatusMessageText } from '@hapi/protocol/messages'
 
@@ -89,13 +89,27 @@ function filterSilentGoalBlocks(blocks: ChatBlock[]): ChatBlock[] {
     return filtered
 }
 
+function collectRenderedToolIds(blocks: ChatBlock[]): Set<string> {
+    const ids = new Set<string>()
+
+    const visit = (items: ChatBlock[]): void => {
+        for (const block of items) {
+            if (block.kind !== 'tool-call') continue
+            ids.add(block.tool.id)
+            visit(block.children)
+        }
+    }
+
+    visit(blocks)
+    return ids
+}
+
 export function reduceChatBlocks(
     normalized: NormalizedMessage[],
     agentState: AgentState | null | undefined,
     options: ReduceChatBlocksOptions = {}
 ): { blocks: ChatBlock[]; hasReadyEvent: boolean; latestUsage: LatestUsage | null; latestGoal: ThreadGoal | null } {
     const permissionsById = getPermissions(agentState)
-    const toolIdsInMessages = collectToolIdsFromMessages(normalized)
     const titleChangesByToolUseId = collectTitleChanges(normalized)
 
     const traced = traceMessages(normalized)
@@ -117,6 +131,7 @@ export function reduceChatBlocks(
     const reducerContext = { permissionsById, groups, consumedGroupIds, titleChangesByToolUseId, emittedTitleChangeToolUseIds }
     const rootResult = reduceTimeline(root, reducerContext)
     let hasReadyEvent = rootResult.hasReadyEvent
+    const renderedToolIds = collectRenderedToolIds(rootResult.blocks)
 
     // Synthesize a tool card only for a *pending* permission that has no tool
     // call/result in the transcript — so the user can still answer it when its
@@ -135,8 +150,7 @@ export function reduceChatBlocks(
 
     for (const [id, entry] of permissionsById) {
         if (entry.permission.status !== 'pending') continue
-        if (toolIdsInMessages.has(id)) continue
-        if (rootResult.toolBlocksById.has(id)) continue
+        if (renderedToolIds.has(id)) continue
 
         const createdAt = entry.permission.createdAt ?? Date.now()
 

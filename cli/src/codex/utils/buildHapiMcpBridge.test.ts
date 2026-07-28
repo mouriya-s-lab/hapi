@@ -14,8 +14,8 @@ vi.mock('@/claude/utils/startHappyServer', () => ({
         return {
             url: 'http://127.0.0.1:43006/',
             toolNames: options.skillLookup
-                ? ['change_title', 'display_image', 'skill_lookup']
-                : ['change_title', 'display_image'],
+                ? ['change_title', 'display_image', 'display_video', 'send_file', 'skill_lookup']
+                : ['change_title', 'display_image', 'display_video', 'send_file'],
             stop: vi.fn()
         }
     })
@@ -71,10 +71,13 @@ describe('buildHapiMcpBridge skill lookup config', () => {
             '--url',
             'http://127.0.0.1:43006/',
             '--tools',
-            'change_title,display_image,skill_lookup'
+            'change_title,display_image,display_video,send_file,skill_lookup'
         ])
         expect(bridge.mcpServers.hapi.tools).toEqual({
             change_title: { approval_mode: 'approve' },
+            display_image: { approval_mode: 'approve' },
+            display_video: { approval_mode: 'approve' },
+            send_file: { approval_mode: 'approve' },
             skill_lookup: { approval_mode: 'approve' }
         })
     })
@@ -82,9 +85,12 @@ describe('buildHapiMcpBridge skill lookup config', () => {
     it('does not expose skill_lookup for native-skill bridge callers', async () => {
         const bridge = await buildHapiMcpBridge(createClient())
 
-        expect(harness.cliArgs.at(-1)).toBe('change_title,display_image')
+        expect(harness.cliArgs.at(-1)).toBe('change_title,display_image,display_video,send_file')
         expect(bridge.mcpServers.hapi.tools).toEqual({
-            change_title: { approval_mode: 'approve' }
+            change_title: { approval_mode: 'approve' },
+            display_image: { approval_mode: 'approve' },
+            display_video: { approval_mode: 'approve' },
+            send_file: { approval_mode: 'approve' }
         })
     })
 
