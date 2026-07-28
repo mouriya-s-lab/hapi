@@ -39,6 +39,7 @@ import {
     type RpcListOmpThinkingOptionsResponse,
     type RpcListOmpLoginProvidersResponse,
     type RpcStartOmpLoginResponse,
+    type RpcRespondOmpLoginInputResponse,
     type RpcGetOmpExtensionUiResponse,
     type RpcListGrokModelsResponse,
     type RpcListGrokReasoningEffortOptionsResponse,
@@ -71,6 +72,7 @@ export type {
     RpcListOmpThinkingOptionsResponse,
     RpcListOmpLoginProvidersResponse,
     RpcStartOmpLoginResponse,
+    RpcRespondOmpLoginInputResponse,
     RpcGetOmpExtensionUiResponse,
     RpcListGrokModelsResponse,
     RpcListGrokReasoningEffortOptionsResponse,
@@ -1880,17 +1882,29 @@ export class SyncEngine {
     async listOmpModelsForSession(sessionId: string): Promise<RpcListOmpModelsResponse> {
         return await this.rpcGateway.listOmpModelsForSession(sessionId)
     }
+    async listOmpModelsForMachine(machineId: string, cwd: string): Promise<RpcListOmpModelsResponse> {
+        return await this.rpcGateway.listOmpModelsForMachine(machineId, cwd)
+    }
+
 
     async listOmpThinkingOptionsForSession(sessionId: string): Promise<RpcListOmpThinkingOptionsResponse> {
         return await this.rpcGateway.listOmpThinkingOptionsForSession(sessionId)
     }
 
-    async listOmpLoginProvidersForSession(sessionId: string): Promise<RpcListOmpLoginProvidersResponse> {
-        return await this.rpcGateway.listOmpLoginProvidersForSession(sessionId)
+    async listOmpLoginProvidersForMachine(machineId: string): Promise<RpcListOmpLoginProvidersResponse> {
+        return await this.rpcGateway.listOmpLoginProvidersForMachine(machineId)
     }
 
-    async startOmpLoginForSession(sessionId: string, providerId: string): Promise<RpcStartOmpLoginResponse> {
-        return await this.rpcGateway.startOmpLoginForSession(sessionId, providerId)
+    async startOmpLoginForMachine(machineId: string, providerId: string): Promise<RpcStartOmpLoginResponse> {
+        return await this.rpcGateway.startOmpLoginForMachine(machineId, providerId)
+    }
+
+    async respondOmpLoginInputForMachine(
+        machineId: string,
+        flowId: string,
+        value: string
+    ): Promise<RpcRespondOmpLoginInputResponse> {
+        return await this.rpcGateway.respondOmpLoginInputForMachine(machineId, flowId, value)
     }
 
     async getOmpExtensionUiRequestForSession(

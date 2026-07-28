@@ -22,7 +22,6 @@ import type {
     OmpHostToolDefinition,
     OmpHostUriRequest,
     OmpHostUriSchemeDefinition,
-    OmpLoginProvider,
     OmpOutboundControlFrame
 } from '../../cli/src/omp/rpc/types';
 import { logger } from '../../cli/src/ui/logger';
@@ -30,10 +29,7 @@ import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 import type {
     GetOmpExtensionUiRequest,
     GetOmpExtensionUiResponse,
-    OmpExtensionUiInput,
-    OmpLoginProvidersResponse,
-    StartOmpLoginRequest,
-    StartOmpLoginResponse
+    OmpExtensionUiInput
 } from '@hapi/protocol/apiTypes';
 
 const JsonValueSchema: z.ZodType<unknown> = z.lazy(() => z.union([
@@ -98,13 +94,11 @@ const PermissionResponseSchema = z.object({
     ]).optional()
 });
 
-const StartLoginRequestSchema = z.object({ providerId: z.string().min(1) });
 const MediaToolArgsSchema = z.object({ path: z.string().min(1), title: z.string().optional() });
 const ChangeTitleArgsSchema = z.object({ title: z.string().trim().min(1).max(255) });
 const SkillLookupArgsSchema = z.object({ name: z.string().trim().min(1).max(128) });
 
 const HOST_OPERATION_TIMEOUT_MS = 120_000;
-const LOGIN_TIMEOUT_MS = 10 * 60_000;
 
 function textResult(text: string, details: JsonObject = {}): OmpAgentToolResult {
     return { content: [{ type: 'text', text }], details };
@@ -219,8 +213,7 @@ export type OmpExtensionUiPresentationEvent =
     | { type: 'omp-extension-ui'; method: 'setWidget'; key: string; lines: string[]; placement?: 'aboveEditor' | 'belowEditor' }
     | { type: 'omp-extension-ui'; method: 'setTitle'; title: string }
     | { type: 'omp-extension-ui'; method: 'set_editor_text'; text: string }
-    | { type: 'omp-extension-ui'; method: 'open_url'; url: string; instructions?: string }
-    | { type: 'omp-extension-ui'; method: 'login_status'; providerId: string; status: 'started' | 'authenticated' | 'failed'; message: string };
+    | { type: 'omp-extension-ui'; method: 'open_url'; url: string; instructions?: string };
 
 type OmpHostToolBridgeOptions = {
     client: OmpRpcClient;
@@ -693,7 +686,6 @@ type OmpExtensionUiBridgeOptions = {
     updateAgentState: (handler: (state: AgentState) => AgentState) => void;
     sendAgentMessage: (message: unknown) => void;
     sendSummary: (title: string) => void;
-    isLoginActive: () => boolean;
     onFatal: (error: Error) => void;
 };
 
@@ -723,9 +715,7 @@ export class OmpExtensionUiBridge {
                 this.options.sendAgentMessage({
                     type: 'omp-extension-ui',
                     method: 'notify',
-                    message: this.options.isLoginActive()
-                        ? 'OMP provider login status updated'
-                        : request.message,
+                    message: request.message,
                     level: request.notifyType ?? 'info'
                 } satisfies OmpExtensionUiPresentationEvent);
                 return;
@@ -734,9 +724,7 @@ export class OmpExtensionUiBridge {
                     type: 'omp-extension-ui',
                     method: 'setStatus',
                     key: request.statusKey,
-                    text: this.options.isLoginActive()
-                        ? 'OMP provider login status updated'
-                        : request.statusText ?? null
+                    text: request.statusText ?? null
                 } satisfies OmpExtensionUiPresentationEvent);
                 return;
             case 'setWidget':
@@ -744,14 +732,12 @@ export class OmpExtensionUiBridge {
                     type: 'omp-extension-ui',
                     method: 'setWidget',
                     key: request.widgetKey,
-                    lines: this.options.isLoginActive()
-                        ? ['OMP provider login status updated']
-                        : request.widgetLines ?? [],
+                    lines: request.widgetLines ?? [],
                     placement: request.widgetPlacement
                 } satisfies OmpExtensionUiPresentationEvent);
                 return;
             case 'setTitle': {
-                const title = this.options.isLoginActive() ? 'OMP provider login' : request.title;
+                const title = request.title;
                 this.options.sendSummary(title);
                 this.options.sendAgentMessage({
                     type: 'omp-extension-ui',
@@ -763,13 +749,8 @@ export class OmpExtensionUiBridge {
             case 'set_editor_text':
                 this.options.sendAgentMessage({
                     type: 'omp-extension-ui',
-                    ...(this.options.isLoginActive()
-                        ? {
-                            method: 'notify' as const,
-                            message: 'OMP provider login editor text updated',
-                            level: 'info' as const
-                        }
-                        : { method: 'set_editor_text' as const, text: request.text })
+                    method: 'set_editor_text',
+                    text: request.text
                 } satisfies OmpExtensionUiPresentationEvent);
                 return;
             case 'open_url':
@@ -852,7 +833,7 @@ export class OmpExtensionUiBridge {
             request,
             arguments: this.toRequestUserInput(request),
             createdAt: Date.now(),
-            sensitive: this.options.isLoginActive()
+            sensitive: false
         };
         if (request.method !== 'editor' && request.timeout !== undefined) {
             entry.timer = setTimeout(() => {
@@ -875,14 +856,12 @@ export class OmpExtensionUiBridge {
             this.options.sendAgentMessage({
                 type: 'omp-extension-ui',
                 method: 'notify',
-                message: this.options.isLoginActive()
-                    ? 'OMP requested an unsupported provider login URL'
-                    : `OMP requested an unsupported URL scheme: ${request.url}`,
+                message: `OMP requested an unsupported URL scheme: ${request.url}`,
                 level: 'error'
             } satisfies OmpExtensionUiPresentationEvent);
             return;
         }
-        const sensitive = this.options.isLoginActive();
+        const sensitive = false;
         const argumentsValue: OmpExtensionUiInput = {
             url: target,
             questions: [{
@@ -901,7 +880,7 @@ export class OmpExtensionUiBridge {
             sensitive,
             timer: setTimeout(() => {
                 this.complete(entry, 'canceled', 'abort', undefined, 'Timed out');
-            }, LOGIN_TIMEOUT_MS)
+            }, HOST_OPERATION_TIMEOUT_MS)
         };
         entry.timer.unref();
         this.pending.set(request.id, entry);
@@ -909,8 +888,8 @@ export class OmpExtensionUiBridge {
         this.options.sendAgentMessage({
             type: 'omp-extension-ui',
             method: 'open_url',
-            url: sensitive ? this.redactLoginUrl(displayUrl) : displayUrl,
-            ...(sensitive ? {} : { instructions: request.instructions })
+            url: displayUrl,
+            instructions: request.instructions
         } satisfies OmpExtensionUiPresentationEvent);
     }
 
@@ -1134,12 +1113,6 @@ export class OmpHostIntegration {
     private readonly hostTools: OmpHostToolBridge;
     private readonly hostUris: OmpHostUriBridge;
     private readonly extensionUi: OmpExtensionUiBridge;
-    private loginActive = false;
-    private loginProviders: OmpLoginProvider[] = [];
-    private readonly authenticatedProviderIds = new Set<string>();
-    private readonly client: OmpRpcClient;
-    private readonly sessionClient: Pick<ApiSessionClient,
-        'sendAgentMessage' | 'sendClaudeSessionMessage' | 'updateAgentState' | 'rpcHandlerManager'>;
 
     constructor(options: {
         client: OmpRpcClient;
@@ -1149,8 +1122,6 @@ export class OmpHostIntegration {
         onFatal: (error: Error) => void;
         hostUriProviders?: OmpHostUriProvider[];
     }) {
-        this.client = options.client;
-        this.sessionClient = options.sessionClient;
         const sendSummary = (title: string) => options.sessionClient.sendClaudeSessionMessage({
             type: 'summary',
             summary: title,
@@ -1173,21 +1144,12 @@ export class OmpHostIntegration {
             updateAgentState: (handler) => options.sessionClient.updateAgentState(handler),
             sendAgentMessage: (message) => options.sessionClient.sendAgentMessage(message),
             sendSummary,
-            isLoginActive: () => this.loginActive,
             onFatal: options.onFatal
         });
 
         options.sessionClient.rpcHandlerManager.registerHandler(
             RPC_METHODS.Permission,
             async (response: unknown) => await this.extensionUi.handleWebResponse(response)
-        );
-        options.sessionClient.rpcHandlerManager.registerHandler<Record<string, never>, OmpLoginProvidersResponse>(
-            RPC_METHODS.ListOmpLoginProviders,
-            async () => await this.listLoginProviders()
-        );
-        options.sessionClient.rpcHandlerManager.registerHandler<StartOmpLoginRequest, StartOmpLoginResponse>(
-            RPC_METHODS.StartOmpLogin,
-            async (request) => await this.startLogin(request)
         );
         options.sessionClient.rpcHandlerManager.registerHandler<GetOmpExtensionUiRequest, GetOmpExtensionUiResponse>(
             RPC_METHODS.GetOmpExtensionUiRequest,
@@ -1198,8 +1160,6 @@ export class OmpHostIntegration {
     async initialize(): Promise<{ hostToolNames: string[] }> {
         await this.hostTools.register();
         await this.hostUris.register();
-        const providers = await this.listLoginProvidersFromClient();
-        if (!providers.success) throw new Error(providers.error ?? 'Failed to discover OMP login providers');
         return { hostToolNames: HOST_TOOL_DEFINITIONS.map((tool) => tool.name) };
     }
 
@@ -1233,101 +1193,4 @@ export class OmpHostIntegration {
         await this.extensionUi.close(reason);
     }
 
-    private async listLoginProviders(): Promise<OmpLoginProvidersResponse> {
-        if (this.loginActive) {
-            return { success: true, providers: this.loginProviders, loginInProgress: true };
-        }
-        return await this.listLoginProvidersFromClient();
-    }
-
-    private async listLoginProvidersFromClient(): Promise<OmpLoginProvidersResponse> {
-        try {
-            const result = await this.client.request({ type: 'get_login_providers' });
-            this.loginProviders = result.providers.map((provider) => (
-                this.authenticatedProviderIds.has(provider.id)
-                    ? { ...provider, authenticated: true }
-                    : provider
-            ));
-            return { success: true, providers: this.loginProviders, loginInProgress: this.loginActive };
-        } catch (error) {
-            return { success: false, error: errorText(error), loginInProgress: this.loginActive };
-        }
-    }
-
-    private async startLogin(
-        raw: StartOmpLoginRequest
-    ): Promise<StartOmpLoginResponse> {
-        let request: StartOmpLoginRequest;
-        try {
-            request = StartLoginRequestSchema.parse(raw);
-        } catch (error) {
-            return { success: false, error: errorText(error) };
-        }
-        if (this.loginActive) {
-            return { success: false, error: 'An OMP provider login is already in progress' };
-        }
-        this.loginActive = true;
-        let provider: OmpLoginProvider | undefined;
-        try {
-            const catalog = await this.listLoginProvidersFromClient();
-            if (!catalog.success) return catalog;
-            provider = catalog.providers.find((candidate) => candidate.id === request.providerId);
-            if (!provider?.available) {
-                return { success: false, error: `OMP login provider is unavailable: ${request.providerId}` };
-            }
-            if (provider.authenticated) {
-                return { success: true, provider, providers: catalog.providers };
-            }
-            const loginProvider = provider;
-
-            this.sessionClient.sendAgentMessage({
-                type: 'omp-extension-ui',
-                method: 'login_status',
-                providerId: loginProvider.id,
-                status: 'started',
-                message: `OMP login started for ${loginProvider.name}`
-            } satisfies OmpExtensionUiPresentationEvent);
-            await this.client.request({ type: 'login', providerId: loginProvider.id }, { timeoutMs: LOGIN_TIMEOUT_MS });
-            // OMP may store an alternate login flow under another provider id
-            // (for example openai-codex-device -> openai-codex) while its RPC
-            // catalog still checks the login-flow id. A successful login command
-            // is the authoritative completion signal for this live session.
-            this.authenticatedProviderIds.add(loginProvider.id);
-            const refreshed = await this.listLoginProvidersFromClient();
-            const providers = refreshed.success
-                ? refreshed.providers
-                : catalog.providers.map((candidate) => (
-                    candidate.id === loginProvider.id ? { ...candidate, authenticated: true } : candidate
-                ));
-            this.loginProviders = providers;
-            const authenticated = providers.find((candidate) => candidate.id === loginProvider.id)
-                ?? { ...loginProvider, authenticated: true };
-            this.sessionClient.sendAgentMessage({
-                type: 'omp-extension-ui',
-                method: 'login_status',
-                providerId: loginProvider.id,
-                status: 'authenticated',
-                message: `OMP login completed for ${loginProvider.name}`
-            } satisfies OmpExtensionUiPresentationEvent);
-            return {
-                success: true,
-                provider: authenticated,
-                providers
-            };
-        } catch (error) {
-            const message = errorText(error);
-            if (provider) {
-                this.sessionClient.sendAgentMessage({
-                    type: 'omp-extension-ui',
-                    method: 'login_status',
-                    providerId: provider.id,
-                    status: 'failed',
-                    message: `OMP login failed for ${provider.name}`
-                } satisfies OmpExtensionUiPresentationEvent);
-            }
-            return { success: false, error: message };
-        } finally {
-            this.loginActive = false;
-        }
-    }
 }

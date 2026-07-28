@@ -101,6 +101,15 @@ vi.mock('@/hooks/queries/useGrokModelsForCwd', () => ({
         error: null
     })
 }))
+vi.mock('@/fork-features/omp-host-integration/useOmpModelsForCwd', () => ({
+    useOmpModelsForCwd: () => ({
+        availableModels: [],
+        currentModel: null,
+        isLoading: false,
+        error: null,
+        refetch: vi.fn()
+    })
+}))
 vi.mock('../../utils/formatRunnerSpawnError', () => ({
     formatRunnerSpawnError: () => null
 }))

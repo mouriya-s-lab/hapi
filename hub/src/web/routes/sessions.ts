@@ -26,7 +26,6 @@ import type { WebAppEnv } from '../middleware/auth'
 import { requireSessionFromParam, requireSyncEngine } from './guards'
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
-const OmpLoginRequestSchema = z.object({ providerId: z.string().min(1) })
 
 function commandsFromMetadataSlashCommands(names: readonly string[] | undefined): SlashCommand[] {
     if (!names?.length) {
@@ -911,56 +910,6 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
     })
 
-    app.get('/sessions/:id/omp-login-providers', async (c) => {
-        const engine = requireSyncEngine(c, getSyncEngine)
-        if (engine instanceof Response) return engine
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
-        if (sessionResult instanceof Response) return sessionResult
-        if (sessionResult.session.metadata?.flavor !== 'omp') {
-            return c.json({ success: false, error: 'OMP login providers are only available for OMP sessions' }, 400)
-        }
-        if (sessionResult.session.agentState?.controlledByUser === true) {
-            return c.json({ success: false, error: 'OMP login providers are only available for remote sessions' }, 409)
-        }
-        try {
-            return c.json(await engine.listOmpLoginProvidersForSession(sessionResult.sessionId))
-        } catch (error) {
-            return c.json({
-                success: false,
-                error: error instanceof Error ? error.message : 'Failed to list OMP login providers'
-            }, 500)
-        }
-    })
-
-    app.post('/sessions/:id/omp-login', async (c) => {
-        const engine = requireSyncEngine(c, getSyncEngine)
-        if (engine instanceof Response) return engine
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
-        if (sessionResult instanceof Response) return sessionResult
-        if (sessionResult.session.metadata?.flavor !== 'omp') {
-            return c.json({ success: false, error: 'OMP login is only available for OMP sessions' }, 400)
-        }
-        if (sessionResult.session.agentState?.controlledByUser === true) {
-            return c.json({ success: false, error: 'OMP login is only available for remote sessions' }, 409)
-        }
-        const body = await c.req.json().catch(() => null)
-        const parsed = OmpLoginRequestSchema.safeParse(body)
-        if (!parsed.success) {
-            return c.json({ success: false, error: 'Invalid OMP login request' }, 400)
-        }
-        try {
-            const result = await engine.startOmpLoginForSession(
-                sessionResult.sessionId,
-                parsed.data.providerId
-            )
-            return c.json(result, result.success ? 200 : 409)
-        } catch (error) {
-            return c.json({
-                success: false,
-                error: error instanceof Error ? error.message : 'Failed to start OMP login'
-            }, 500)
-        }
-    })
 
     app.get('/sessions/:id/omp-extension-ui/:requestId', async (c) => {
         c.header('Cache-Control', 'no-store')

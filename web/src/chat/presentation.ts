@@ -182,10 +182,6 @@ export function getEventPresentation(event: AgentEvent): EventPresentation {
         if (method === 'open_url') {
             return { icon: '↗', text: `OMP requested URL: ${typeof event.url === 'string' ? event.url : ''}` }
         }
-        if (method === 'login_status') {
-            const message = typeof event.message === 'string' ? event.message : 'OMP login status updated'
-            return { icon: event.status === 'failed' ? '⚠️' : event.status === 'authenticated' ? '✓' : '↗', text: message }
-        }
         return { icon: 'ℹ️', text: `OMP extension UI: ${method}` }
     }
     if (event.type === 'api-error') {

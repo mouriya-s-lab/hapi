@@ -11,10 +11,8 @@ import type {
     OmpCommand,
     OmpOutboundControlFrame
 } from '@/omp/rpc/types';
-import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 import {
     OmpExtensionUiBridge,
-    OmpHostIntegration,
     OmpHostToolBridge,
     OmpHostUriBridge,
     type OmpHostUriProvider
@@ -61,7 +59,7 @@ function createFakeClient(options?: {
     };
 }
 
-function createExtensionBridge(client: OmpRpcClient, sensitive = false) {
+function createExtensionBridge(client: OmpRpcClient) {
     let state: AgentState = { requests: {}, completedRequests: {} };
     const messages: unknown[] = [];
     const summaries: string[] = [];
@@ -73,7 +71,6 @@ function createExtensionBridge(client: OmpRpcClient, sensitive = false) {
         },
         sendAgentMessage: (message) => messages.push(message),
         sendSummary: (title) => summaries.push(title),
-        isLoginActive: () => sensitive,
         onFatal
     });
     return { bridge, messages, summaries, onFatal, getState: () => state };
@@ -520,223 +517,5 @@ describe('OMP extension UI bridge', () => {
         });
         await harness.bridge.close('test complete');
         expect(harness.getState().requests).toEqual({});
-    });
-});
-
-describe('OMP login integration', () => {
-    it('tracks successful alias login while keeping provider secrets out of the transcript', async () => {
-        const loginGate = Promise.withResolvers<void>();
-        const fake = createFakeClient({
-            request: async (command) => {
-                switch (command.type) {
-                    case 'set_host_tools':
-                        return { toolNames: command.tools.map((tool) => tool.name) };
-                    case 'set_host_uri_schemes':
-                        return { schemes: command.schemes.map((scheme) => scheme.scheme) };
-                    case 'get_login_providers':
-                        return {
-                            providers: [{ id: 'example', name: 'Example', available: true, authenticated: false }]
-                        };
-                    case 'login':
-                        await loginGate.promise;
-                        return { providerId: command.providerId };
-                    default:
-                        throw new Error(`Unexpected command in login test: ${command.type}`);
-                }
-            }
-        });
-        let state: AgentState = { requests: {}, completedRequests: {} };
-        const messages: Array<Record<string, unknown>> = [];
-        const rpcHandlers = new Map<string, (request: unknown) => Promise<unknown>>();
-        const integration = new OmpHostIntegration({
-            client: fake.client,
-            cwd: '/workspace',
-            sessionClient: {
-                sendAgentMessage: (message: unknown) => messages.push(message as Record<string, unknown>),
-                sendClaudeSessionMessage: vi.fn(),
-                updateAgentState: (handler: (current: AgentState) => AgentState) => {
-                    state = handler(state);
-                },
-                rpcHandlerManager: {
-                    registerHandler: (method: string, handler: (request: unknown) => Promise<unknown>) => {
-                        rpcHandlers.set(method, handler);
-                    }
-                }
-            } as never,
-            onFatal: vi.fn()
-        });
-        await integration.initialize();
-        expect(fake.requests).toContainEqual({ type: 'set_host_uri_schemes', schemes: [] });
-
-        const startLogin = rpcHandlers.get(RPC_METHODS.StartOmpLogin)!;
-        const listProviders = rpcHandlers.get(RPC_METHODS.ListOmpLoginProviders)!;
-        const answerUi = rpcHandlers.get(RPC_METHODS.Permission)!;
-        const getPendingUi = rpcHandlers.get(RPC_METHODS.GetOmpExtensionUiRequest)!;
-        const login = startLogin({ providerId: 'example' });
-        await vi.waitFor(() => {
-            expect(fake.requests.some((request) => request.type === 'login')).toBe(true);
-        });
-        await expect(listProviders({})).resolves.toMatchObject({ success: true, loginInProgress: true });
-
-        integration.handle({
-            type: 'extension_ui_request',
-            raw: { type: 'extension_ui_request', id: 'secret-input', method: 'input', title: 'Paste callback code' }
-        });
-        integration.handle({
-            type: 'extension_ui_request',
-            raw: {
-                type: 'extension_ui_request',
-                id: 'secret-url',
-                method: 'open_url',
-                url: 'https://provider.example/device?user_code=provider-secret',
-                instructions: 'Enter provider-secret'
-            }
-        });
-        integration.handle({
-            type: 'extension_ui_request',
-            raw: {
-                type: 'extension_ui_request',
-                id: 'secret-progress',
-                method: 'notify',
-                message: 'Waiting for provider-secret'
-            }
-        });
-        await answerUi({
-            id: 'secret-input',
-            approved: true,
-            answers: { value: { answers: ['user_note: credential-must-not-persist'] } }
-        });
-        expect(fake.frames).toContainEqual({
-            type: 'extension_ui_response', id: 'secret-input', value: 'credential-must-not-persist'
-        });
-        expect(state.completedRequests?.['secret-input'].answers).toBeUndefined();
-        expect(state.requests?.['secret-url'].arguments).toEqual({ ompTransientRequest: true });
-        await expect(getPendingUi({ requestId: 'secret-url' })).resolves.toEqual({
-            success: true,
-            input: {
-                url: 'https://provider.example/device?user_code=provider-secret',
-                questions: [expect.objectContaining({
-                    question: 'Enter provider-secret',
-                    options: [{
-                        label: 'Open login page',
-                        description: 'https://provider.example/device?user_code=provider-secret'
-                    }]
-                })]
-            }
-        });
-        expect(JSON.stringify(state)).not.toContain('provider-secret');
-        expect(JSON.stringify(state)).not.toContain('credential-must-not-persist');
-        await answerUi({
-            id: 'secret-url',
-            approved: true,
-            answers: { __mcp_url_confirmation: { answers: ['Open login page'] } }
-        });
-        expect(JSON.stringify(state.completedRequests?.['secret-url'])).not.toContain('provider-secret');
-        expect(JSON.stringify(messages)).not.toContain('provider-secret');
-        const openUrlMessage = messages.find((message) => message.method === 'open_url');
-        expect(openUrlMessage).not.toHaveProperty('instructions');
-        expect(messages).toEqual(expect.arrayContaining([
-            expect.objectContaining({
-                method: 'open_url',
-                url: 'https://provider.example'
-            }),
-            expect.objectContaining({
-                method: 'notify',
-                message: 'OMP provider login status updated'
-            })
-        ]));
-
-        integration.handle({
-            type: 'extension_ui_request',
-            raw: {
-                type: 'extension_ui_request',
-                id: 'secret-before-close',
-                method: 'editor',
-                title: 'Paste another secret',
-                prefill: 'crash-only-secret'
-            }
-        });
-        expect(state.requests?.['secret-before-close'].arguments).toEqual({ ompTransientRequest: true });
-        await integration.close('simulated crash');
-        expect(state.requests).toEqual({});
-        expect(JSON.stringify(state)).not.toContain('crash-only-secret');
-        expect(JSON.stringify(messages)).not.toContain('crash-only-secret');
-        await expect(getPendingUi({ requestId: 'secret-before-close' })).resolves.toMatchObject({
-            success: false
-        });
-
-        loginGate.resolve();
-        await expect(login).resolves.toMatchObject({
-            success: true,
-            provider: { id: 'example', authenticated: true }
-        });
-        await expect(listProviders({})).resolves.toMatchObject({
-            success: true,
-            providers: [expect.objectContaining({ id: 'example', authenticated: true })]
-        });
-        expect(messages).toEqual(expect.arrayContaining([
-            expect.objectContaining({ method: 'login_status', status: 'started' }),
-            expect.objectContaining({ method: 'login_status', status: 'authenticated' })
-        ]));
-    });
-
-    it('claims the login slot before asynchronous provider discovery', async () => {
-        const providerDiscoveryGate = Promise.withResolvers<{
-            providers: Array<{ id: string; name: string; available: boolean; authenticated: boolean }>;
-        }>();
-        let providerDiscoveryCount = 0;
-        const fake = createFakeClient({
-            request: async (command) => {
-                switch (command.type) {
-                    case 'set_host_tools':
-                        return { toolNames: command.tools.map((tool) => tool.name) };
-                    case 'set_host_uri_schemes':
-                        return { schemes: command.schemes.map((scheme) => scheme.scheme) };
-                    case 'get_login_providers':
-                        providerDiscoveryCount += 1;
-                        if (providerDiscoveryCount === 2) return await providerDiscoveryGate.promise;
-                        return {
-                            providers: [{ id: 'example', name: 'Example', available: true, authenticated: false }]
-                        };
-                    case 'login':
-                        return { providerId: command.providerId };
-                    default:
-                        throw new Error(`Unexpected command in concurrent login test: ${command.type}`);
-                }
-            }
-        });
-        const rpcHandlers = new Map<string, (request: unknown) => Promise<unknown>>();
-        const integration = new OmpHostIntegration({
-            client: fake.client,
-            cwd: '/workspace',
-            sessionClient: {
-                sendAgentMessage: vi.fn(),
-                sendClaudeSessionMessage: vi.fn(),
-                updateAgentState: vi.fn(),
-                rpcHandlerManager: {
-                    registerHandler: (method: string, handler: (request: unknown) => Promise<unknown>) => {
-                        rpcHandlers.set(method, handler);
-                    }
-                }
-            } as never,
-            onFatal: vi.fn()
-        });
-        await integration.initialize();
-        const startLogin = rpcHandlers.get(RPC_METHODS.StartOmpLogin)!;
-
-        const first = startLogin({ providerId: 'example' });
-        await vi.waitFor(() => expect(providerDiscoveryCount).toBe(2));
-        await expect(startLogin({ providerId: 'example' })).resolves.toEqual({
-            success: false,
-            error: 'An OMP provider login is already in progress'
-        });
-        expect(providerDiscoveryCount).toBe(2);
-
-        providerDiscoveryGate.resolve({
-            providers: [{ id: 'example', name: 'Example', available: true, authenticated: false }]
-        });
-        await expect(first).resolves.toMatchObject({ success: true });
-        expect(fake.requests.filter((request) => request.type === 'login')).toHaveLength(1);
-        await integration.close('test complete');
     });
 });

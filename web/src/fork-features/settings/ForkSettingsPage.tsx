@@ -3,6 +3,7 @@ import { useAppContext } from '@/lib/app-context'
 import { useTranslation } from '@/lib/use-translation'
 import { SettingsLinkRow, SettingsPageContent, SettingsSection } from '@/components/settings/SettingsPrimitives'
 import { HistoryImportSettingsRow } from '../history-import/HistoryImportSettingsRow'
+import { OmpProviderSettingsRow } from '../omp-host-integration/OmpProviderSettingsRow'
 
 export default function ForkSettingsPage() {
     const navigate = useNavigate()
@@ -20,6 +21,7 @@ export default function ForkSettingsPage() {
                         onClick={() => navigate({ to: '/settings/fork/grants' })}
                     />
                 ) : null}
+                <OmpProviderSettingsRow />
             </SettingsSection>
         </SettingsPageContent>
     )

@@ -35,6 +35,7 @@ import type {
     OmpThinkingOptionsResponse,
     OmpLoginProvidersResponse,
     StartOmpLoginResponse,
+    RespondOmpLoginInputResponse,
     GetOmpExtensionUiResponse,
     PathExistsResponse,
     SlashCommandsResponse,
@@ -50,7 +51,6 @@ import type { RpcRegistry } from '../socket/rpcRegistry'
 const DEFAULT_RPC_TIMEOUT_MS = 30_000
 const MODEL_LIST_RPC_TIMEOUT_MS = 120_000
 const HISTORY_IMPORT_RPC_TIMEOUT_MS = 10 * 60_000
-const OMP_LOGIN_RPC_TIMEOUT_MS = 11 * 60_000
 
 /**
  * tiann/hapi#916: thrown by {@link RpcGateway.rpcCall} when the target CLI is
@@ -100,6 +100,7 @@ export type RpcListOmpModelsResponse = OmpModelsResponse
 export type RpcListOmpThinkingOptionsResponse = OmpThinkingOptionsResponse
 export type RpcListOmpLoginProvidersResponse = OmpLoginProvidersResponse
 export type RpcStartOmpLoginResponse = StartOmpLoginResponse
+export type RpcRespondOmpLoginInputResponse = RespondOmpLoginInputResponse
 export type RpcGetOmpExtensionUiResponse = GetOmpExtensionUiResponse
 
 export class RpcGateway {
@@ -406,6 +407,15 @@ export class RpcGateway {
     async listOmpModelsForSession(sessionId: string): Promise<RpcListOmpModelsResponse> {
         return await this.sessionRpc(sessionId, RPC_METHODS.ListOmpModels, {}) as RpcListOmpModelsResponse
     }
+    async listOmpModelsForMachine(machineId: string, cwd: string): Promise<RpcListOmpModelsResponse> {
+        return await this.machineRpc(
+            machineId,
+            RPC_METHODS.ListOmpModels,
+            { cwd },
+            MODEL_LIST_RPC_TIMEOUT_MS
+        ) as RpcListOmpModelsResponse
+    }
+
 
     async listOmpThinkingOptionsForSession(sessionId: string): Promise<RpcListOmpThinkingOptionsResponse> {
         return await this.sessionRpc(sessionId, RPC_METHODS.ListOmpThinkingOptions, {}) as RpcListOmpThinkingOptionsResponse
@@ -415,17 +425,33 @@ export class RpcGateway {
         return await this.sessionRpc(sessionId, RPC_METHODS.CycleOmpModel, {}) as CycleOmpModelResponse
     }
 
-    async listOmpLoginProvidersForSession(sessionId: string): Promise<RpcListOmpLoginProvidersResponse> {
-        return await this.sessionRpc(sessionId, RPC_METHODS.ListOmpLoginProviders, {}) as RpcListOmpLoginProvidersResponse
+
+    async listOmpLoginProvidersForMachine(machineId: string): Promise<RpcListOmpLoginProvidersResponse> {
+        return await this.machineRpc(
+            machineId,
+            RPC_METHODS.ListOmpLoginProviders,
+            {}
+        ) as RpcListOmpLoginProvidersResponse
     }
 
-    async startOmpLoginForSession(sessionId: string, providerId: string): Promise<RpcStartOmpLoginResponse> {
-        return await this.sessionRpc(
-            sessionId,
+    async startOmpLoginForMachine(machineId: string, providerId: string): Promise<RpcStartOmpLoginResponse> {
+        return await this.machineRpc(
+            machineId,
             RPC_METHODS.StartOmpLogin,
-            { providerId },
-            OMP_LOGIN_RPC_TIMEOUT_MS
+            { providerId }
         ) as RpcStartOmpLoginResponse
+    }
+
+    async respondOmpLoginInputForMachine(
+        machineId: string,
+        flowId: string,
+        value: string
+    ): Promise<RpcRespondOmpLoginInputResponse> {
+        return await this.machineRpc(
+            machineId,
+            RPC_METHODS.RespondOmpLoginInput,
+            { flowId, value }
+        ) as RpcRespondOmpLoginInputResponse
     }
 
     async getOmpExtensionUiRequestForSession(
