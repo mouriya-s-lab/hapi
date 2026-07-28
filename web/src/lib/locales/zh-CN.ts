@@ -719,6 +719,11 @@ export default {
   'settings.display.sessionListStatus.detailedDescription': '显示会话停止的原因：权限、输入、后台任务、新活动或定时消息（时钟图标）。',
   'settings.display.hideArchived': '隐藏归档会话',
   'settings.display.hideArchived.description': '隐藏你从会话菜单归档的会话。关闭此项后它们会重新显示。',
+
+  // Settings - Notifications
+  'settings.notifications.title': '通知',
+  'settings.notifications.sound': '完成提示音',
+  'settings.notifications.sound.description': '代理执行完成、等待你回复时播放提示音；权限请求与任务通知同样会响。',
   'settings.chat.title': '聊天',
   'settings.chat.description': '消息输入、工具卡片和对话颜色。',
   'settings.chat.input': '输入',

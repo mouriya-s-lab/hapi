@@ -711,6 +711,11 @@ export default {
   'settings.display.sessionListStatus.detailedDescription': 'Shows why a session stopped: permission, input, background work, new activity, or a scheduled message (clock icon).',
   'settings.display.hideArchived': 'Hide archived sessions',
   'settings.display.hideArchived.description': 'Hide sessions you archived from the session menu. They stay accessible by turning this off.',
+
+  // Settings - Notifications
+  'settings.notifications.title': 'Notifications',
+  'settings.notifications.sound': 'Completion sound',
+  'settings.notifications.sound.description': 'Play a chime when an agent finishes and waits for your reply. Also rings for permission requests and task notifications.',
   'settings.chat.title': 'Chat',
   'settings.chat.description': 'Message input, tool cards, and conversation colors.',
   'settings.chat.input': 'Input',
