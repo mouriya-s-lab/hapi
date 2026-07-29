@@ -47,6 +47,7 @@ export type SocketServerDeps = {
     onMessagesConsumed?: (sessionId: string) => void
     resolveTerminalNamespace?: (accountId: number, sessionId: string) => string | null
     resolveCliNamespace?: (token: string) => string | null
+    sanitizeSessionMetadata?: (metadata: unknown) => unknown
 }
 
 export function createSocketServer(deps: SocketServerDeps): {
@@ -133,7 +134,8 @@ export function createSocketServer(deps: SocketServerDeps): {
         onBackgroundTaskDelta: deps.onBackgroundTaskDelta,
         onSessionActivity: deps.onSessionActivity,
         onSweepImmediateQueued: deps.onSweepImmediateQueued,
-        onMessagesConsumed: deps.onMessagesConsumed
+        onMessagesConsumed: deps.onMessagesConsumed,
+        sanitizeSessionMetadata: deps.sanitizeSessionMetadata
     }))
 
     terminalNs.use(async (socket, next) => {

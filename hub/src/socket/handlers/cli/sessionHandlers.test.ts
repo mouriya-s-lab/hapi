@@ -120,4 +120,46 @@ describe('cli session handlers', () => {
         expect(broadcastBody.metadata.value.path).toBe('/tmp/project')
         expect(broadcastBody.metadata.value.lifecycleState).toBe('archived')
     })
+
+    it('update-metadata persists the sanitized title, never the raw CLI payload', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession(
+            'sanitized-title',
+            { path: '/tmp/project', host: 'example' },
+            null,
+            'default'
+        )
+        const socket = new FakeSocket()
+
+        registerSessionHandlers(socket as unknown as CliSocketWithData, {
+            store,
+            resolveSessionAccess: () => ({ ok: true, value: session as StoredSession }),
+            emitAccessError: () => {
+                throw new Error('unexpected access error')
+            },
+            sanitizeSessionMetadata: (metadata) => {
+                const next = { ...(metadata as Record<string, unknown>) }
+                delete next.summary
+                return next
+            }
+        })
+
+        let ackResponse: unknown = null
+        socket.trigger(
+            'update-metadata',
+            {
+                sid: session.id,
+                expectedVersion: session.metadataVersion,
+                metadata: { path: '/tmp/project', summary: { text: 'leaked', updatedAt: 1 } }
+            },
+            (response) => {
+                ackResponse = response
+            }
+        )
+
+        const ack = ackResponse as { result: string; metadata: Record<string, unknown> }
+        expect(ack.result).toBe('success')
+        expect(ack.metadata.summary).toBeUndefined()
+        expect(store.sessions.getSession(session.id)?.metadata).not.toHaveProperty('summary')
+    })
 })

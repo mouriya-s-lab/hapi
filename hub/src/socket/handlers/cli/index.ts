@@ -51,10 +51,12 @@ export type CliHandlersDeps = {
     onSessionActivity?: (sessionId: string, updatedAt: number) => void
     onSweepImmediateQueued?: (sessionId: string, now: number) => void
     onMessagesConsumed?: (sessionId: string) => void
+    /** fork-features/multi-user: strips injected gateway memory out of CLI-reported titles. */
+    sanitizeSessionMetadata?: (metadata: unknown) => unknown
 }
 
 export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlersDeps): void {
-    const { io, store, rpcRegistry, terminalRegistry, onSessionAlive, onSessionReady, onSessionEnd, onMachineAlive, onWebappEvent, onBackgroundTaskDelta, onSessionActivity, onSweepImmediateQueued, onMessagesConsumed } = deps
+    const { io, store, rpcRegistry, terminalRegistry, onSessionAlive, onSessionReady, onSessionEnd, onMachineAlive, onWebappEvent, onBackgroundTaskDelta, onSessionActivity, onSweepImmediateQueued, onMessagesConsumed, sanitizeSessionMetadata } = deps
     const terminalNamespace = io.of('/terminal')
     const namespace = typeof socket.data.namespace === 'string' ? socket.data.namespace : null
 
@@ -118,7 +120,8 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
         onBackgroundTaskDelta,
         onSessionActivity,
         onSweepImmediateQueued,
-        onMessagesConsumed
+        onMessagesConsumed,
+        sanitizeSessionMetadata
     })
     registerMachineHandlers(socket, {
         store,

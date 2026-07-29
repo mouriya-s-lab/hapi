@@ -213,7 +213,8 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
             sessionId,
             getCoreSession: (id) => syncEngine?.getSession(id) ?? store.sessions.getSession(id)
         }),
-        resolveCliNamespace: token => resolveGatewayCliNamespace(multiUserGatewayStore, token)
+        resolveCliNamespace: token => resolveGatewayCliNamespace(multiUserGatewayStore, token),
+        sanitizeSessionMetadata: metadata => gatewayMemoryDelivery.sanitizeMetadata(metadata)
     })
 
     syncEngine = new SyncEngine(store, socketServer.io, socketServer.rpcRegistry, sseManager, gatewayMemoryDelivery.decorateForCli)
