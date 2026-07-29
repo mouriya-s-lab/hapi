@@ -972,13 +972,13 @@ async function fetchLatestMessagesOnce(api: ApiClient, sessionId: string): Promi
     }
 }
 
-export async function fetchOlderMessages(api: ApiClient, sessionId: string): Promise<void> {
+export async function fetchOlderMessages(api: ApiClient, sessionId: string): Promise<boolean> {
     const initial = getState(sessionId)
     if (initial.isLoadingMore || !initial.hasMore) {
-        return
+        return false
     }
     if (initial.oldestPositionAt === null || initial.oldestPositionSeq === null) {
-        return
+        return false
     }
     const generation = beginAsyncGeneration(sessionId, 'older', { isLoadingMore: true })
 
@@ -988,6 +988,9 @@ export async function fetchOlderMessages(api: ApiClient, sessionId: string): Pro
             beforeSeq: initial.oldestPositionSeq,
             limit: PAGE_SIZE
         })
+        if (!isCurrentGeneration(sessionId, 'older', generation)) {
+            return false
+        }
 
         const nextBeforeAt = response.page.nextBeforeAt
         const nextBeforeSeq = response.page.nextBeforeSeq
@@ -1003,12 +1006,14 @@ export async function fetchOlderMessages(api: ApiClient, sessionId: string): Pro
                 isLoadingMore: false,
             })
         })
+        return true
     } catch (error) {
         if (!isCurrentGeneration(sessionId, 'older', generation)) {
-            return
+            return false
         }
         const message = error instanceof Error ? error.message : 'Failed to load messages'
         updateStateForGeneration(sessionId, 'older', generation, (prev) => buildState(prev, { isLoadingMore: false, warning: message }))
+        return false
     }
 }
 

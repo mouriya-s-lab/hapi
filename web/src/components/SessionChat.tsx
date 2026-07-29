@@ -421,7 +421,7 @@ type SessionChatProps = {
     messagesVersion: number
     onBack: () => void
     onRefresh: () => void
-    onLoadMore: () => Promise<unknown>
+    onLoadMore: () => Promise<boolean>
     // Resolves true when the send was accepted by the underlying mutation, false when
     // pre-mutation guards (no-api / no-session / pending) rejected the call OR async
     // inactive-session resume failed. Composer state that should only be cleared on

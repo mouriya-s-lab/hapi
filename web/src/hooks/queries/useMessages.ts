@@ -35,7 +35,7 @@ export function useMessages(api: ApiClient | null, sessionId: string | null): {
     hasMore: boolean
     pendingCount: number
     messagesVersion: number
-    loadMore: () => Promise<unknown>
+    loadMore: () => Promise<boolean>
     refetch: () => Promise<unknown>
     flushPending: () => Promise<void>
     setAtBottom: (atBottom: boolean) => void
@@ -63,10 +63,10 @@ export function useMessages(api: ApiClient | null, sessionId: string | null): {
         void fetchLatestMessages(api, sessionId)
     }, [api, sessionId])
 
-    const loadMore = useCallback(async () => {
-        if (!api || !sessionId) return
-        if (!state.hasMore || state.isLoadingMore) return
-        await fetchOlderMessages(api, sessionId)
+    const loadMore = useCallback(async (): Promise<boolean> => {
+        if (!api || !sessionId) return false
+        if (!state.hasMore || state.isLoadingMore) return false
+        return await fetchOlderMessages(api, sessionId)
     }, [api, sessionId, state.hasMore, state.isLoadingMore])
 
     const refetch = useCallback(async () => {

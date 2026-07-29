@@ -103,14 +103,14 @@ export async function locateOutlineTargetMessage(options: LocateOutlineTargetOpt
     return target
 }
 
-export async function loadUntilScrollHeightChanges(options: {
-    getScrollHeight: () => number
+export async function loadUntilVisibleBoundaryChanges(options: {
+    getVisibleBoundary: () => string | null
     hasMoreMessages: () => boolean
     loadOlder: () => Promise<boolean>
 }): Promise<boolean> {
-    const initialScrollHeight = options.getScrollHeight()
+    const initialBoundary = options.getVisibleBoundary()
     let loadedAny = false
-    while (options.hasMoreMessages() && options.getScrollHeight() === initialScrollHeight) {
+    while (options.hasMoreMessages() && options.getVisibleBoundary() === initialBoundary) {
         const loaded = await options.loadOlder()
         if (!loaded) {
             break
@@ -306,7 +306,7 @@ export function HappyThread(props: {
     messagesWarning: string | null
     hasMoreMessages: boolean
     isLoadingMoreMessages: boolean
-    onLoadMore: () => Promise<unknown>
+    onLoadMore: () => Promise<boolean>
     pendingCount: number
     rawMessagesCount: number
     normalizedMessagesCount: number
@@ -322,10 +322,7 @@ export function HappyThread(props: {
     const viewportRef = useRef<HTMLDivElement | null>(null)
     const contentRef = useRef<HTMLDivElement | null>(null)
     const topSentinelRef = useRef<HTMLDivElement | null>(null)
-    const loadLockRef = useRef(false)
     const pendingScrollRef = useRef<PendingScrollRestore | null>(null)
-    const prevLoadingMoreRef = useRef(false)
-    const loadStartedRef = useRef(false)
     const isLoadingMoreRef = useRef(props.isLoadingMoreMessages)
     const hasMoreMessagesRef = useRef(props.hasMoreMessages)
     const isLoadingMessagesRef = useRef(props.isLoadingMessages)
@@ -334,7 +331,6 @@ export function HappyThread(props: {
     const handleLoadMoreRef = useRef<() => void>(() => {})
     const pendingLoadPromiseRef = useRef<Promise<boolean> | null>(null)
     const pendingLoadResolveRef = useRef<((value: boolean) => void) | null>(null)
-    const pendingLoadBaselineRef = useRef<{ messagesVersion: number; hasMoreMessages: boolean } | null>(null)
     const atBottomRef = useRef(true)
     const onAtBottomChangeRef = useRef(props.onAtBottomChange)
     const onFlushPendingRef = useRef(props.onFlushPending)
@@ -353,18 +349,19 @@ export function HappyThread(props: {
     useEffect(() => {
         onFlushPendingRef.current = props.onFlushPending
     }, [props.onFlushPending])
-    useEffect(() => {
+    useLayoutEffect(() => {
         hasMoreMessagesRef.current = props.hasMoreMessages
-    }, [props.hasMoreMessages])
-    useEffect(() => {
         isLoadingMessagesRef.current = props.isLoadingMessages
-    }, [props.isLoadingMessages])
-    useEffect(() => {
         messagesVersionRef.current = props.messagesVersion
-    }, [props.messagesVersion])
-    useEffect(() => {
         onLoadMoreRef.current = props.onLoadMore
-    }, [props.onLoadMore])
+        isLoadingMoreRef.current = props.isLoadingMoreMessages
+    }, [
+        props.hasMoreMessages,
+        props.isLoadingMessages,
+        props.messagesVersion,
+        props.onLoadMore,
+        props.isLoadingMoreMessages
+    ])
 
     useEffect(() => {
         sessionIdRef.current = props.sessionId
@@ -383,21 +380,10 @@ export function HappyThread(props: {
 
     const settlePendingLoad = useCallback((result: boolean) => {
         const resolve = pendingLoadResolveRef.current
-        const baseline = pendingLoadBaselineRef.current
+        pendingScrollRef.current = null
         pendingLoadResolveRef.current = null
         pendingLoadPromiseRef.current = null
-        pendingLoadBaselineRef.current = null
-        if (!resolve) {
-            return
-        }
-        if (!result || !baseline) {
-            resolve(result)
-            return
-        }
-        resolve(
-            messagesVersionRef.current !== baseline.messagesVersion
-            || hasMoreMessagesRef.current !== baseline.hasMoreMessages
-        )
+        resolve?.(result)
     }, [])
 
     // Track scroll position to toggle autoScroll (stable listener using refs)
@@ -494,9 +480,6 @@ export function HappyThread(props: {
         atBottomRef.current = true
         onAtBottomChangeRef.current(true)
         forceScrollTokenRef.current = props.forceScrollToken
-        pendingScrollRef.current = null
-        loadLockRef.current = false
-        loadStartedRef.current = false
         initialScrollSessionRef.current = null
         initialScrollDeadlineRef.current = 0
         clearInitialScrollTimers()
@@ -564,7 +547,6 @@ export function HappyThread(props: {
             || isLoadingMessagesRef.current
             || !hasMoreMessagesRef.current
             || isLoadingMoreRef.current
-            || loadLockRef.current
         ) {
             return Promise.resolve(false)
         }
@@ -578,34 +560,21 @@ export function HappyThread(props: {
             scrollHeight: viewport.scrollHeight
         }
         autoScrollEnabledRef.current = false
-        loadLockRef.current = true
-        loadStartedRef.current = false
-        pendingLoadBaselineRef.current = {
-            messagesVersion: messagesVersionRef.current,
-            hasMoreMessages: hasMoreMessagesRef.current
-        }
         const loadPromise = new Promise<boolean>((resolve) => {
             pendingLoadResolveRef.current = resolve
         })
         pendingLoadPromiseRef.current = loadPromise
         try {
-            void onLoadMoreRef.current().catch((error) => {
-                pendingScrollRef.current = null
-                loadLockRef.current = false
+            void onLoadMoreRef.current().then((loaded) => {
+                if (loaded) {
+                    return
+                }
+                settlePendingLoad(false)
+            }).catch((error) => {
                 settlePendingLoad(false)
                 console.error('Failed to load older messages:', error)
-            }).finally(() => {
-                if (!loadStartedRef.current && !isLoadingMoreRef.current) {
-                    if (pendingScrollRef.current) {
-                        pendingScrollRef.current = null
-                        loadLockRef.current = false
-                    }
-                    settlePendingLoad(true)
-                }
             })
         } catch (error) {
-            pendingScrollRef.current = null
-            loadLockRef.current = false
             settlePendingLoad(false)
             console.error('Failed to load older messages:', error)
         }
@@ -625,8 +594,8 @@ export function HappyThread(props: {
         if (!viewport) {
             return false
         }
-        return loadUntilScrollHeightChanges({
-            getScrollHeight: () => viewport.scrollHeight,
+        return loadUntilVisibleBoundaryChanges({
+            getVisibleBoundary: () => viewport.querySelector<HTMLElement>(MESSAGE_ANCHOR_SELECTOR)?.id ?? null,
             hasMoreMessages: () => hasMoreMessagesRef.current,
             loadOlder: loadOlderFromUserAction
         })
@@ -708,41 +677,33 @@ export function HappyThread(props: {
 
     useLayoutEffect(() => {
         const pending = pendingScrollRef.current
-        const viewport = viewportRef.current
-        if (!viewport) {
+        if (!pending) {
+            if (atBottomRef.current && autoScrollEnabledRef.current) {
+                scrollToBottomInstant()
+            }
             return
         }
-        if (pending) {
+
+        const frame = window.requestAnimationFrame(() => {
+            if (pendingScrollRef.current !== pending) {
+                return
+            }
+            const viewport = viewportRef.current
+            if (!viewport) {
+                settlePendingLoad(false)
+                return
+            }
             const restoredByAnchor = pending.anchor ? restoreScrollAnchor(viewport, pending.anchor) : false
             if (!restoredByAnchor) {
                 const delta = viewport.scrollHeight - pending.scrollHeight
                 viewport.scrollTop = pending.scrollTop + delta
             }
             lastScrollTopRef.current = viewport.scrollTop
-            pendingScrollRef.current = null
-            loadLockRef.current = false
             settlePendingLoad(true)
-            return
-        }
-        if (atBottomRef.current && autoScrollEnabledRef.current) {
-            scrollToBottomInstant()
-        }
-    }, [props.messagesVersion, scrollToBottomInstant, settlePendingLoad])
+        })
+        return () => window.cancelAnimationFrame(frame)
+    }, [props.hasMoreMessages, props.messagesVersion, scrollToBottomInstant, settlePendingLoad])
 
-    useEffect(() => {
-        isLoadingMoreRef.current = props.isLoadingMoreMessages
-        if (props.isLoadingMoreMessages) {
-            loadStartedRef.current = true
-        }
-        if (prevLoadingMoreRef.current && !props.isLoadingMoreMessages) {
-            if (pendingScrollRef.current) {
-                pendingScrollRef.current = null
-                loadLockRef.current = false
-            }
-            settlePendingLoad(true)
-        }
-        prevLoadingMoreRef.current = props.isLoadingMoreMessages
-    }, [props.isLoadingMoreMessages, settlePendingLoad])
 
     const showSkeleton = props.isLoadingMessages && props.rawMessagesCount === 0 && props.pendingCount === 0
 
