@@ -4,6 +4,7 @@ import { useAppearance } from '@/hooks/useTheme'
 import { useFontScale } from '@/hooks/useFontScale'
 import { useComposerEnterBehavior } from '@/hooks/useComposerEnterBehavior'
 import { settingsCategories } from '@/routes/settings/categories'
+import { useAppContext } from '@/lib/app-context'
 import { ChevronRightIcon } from './SettingsPrimitives'
 
 export function SettingsNav(props: { activeId?: string; mobile?: boolean }) {
@@ -12,18 +13,22 @@ export function SettingsNav(props: { activeId?: string; mobile?: boolean }) {
     const { appearance } = useAppearance()
     const { fontScale } = useFontScale()
     const { composerEnterBehavior } = useComposerEnterBehavior()
+    const { user } = useAppContext()
 
     const summaries: Record<string, string> = {
         general: locale === 'zh-CN' ? '简体中文' : 'English',
         display: `${t(`settings.display.appearance.${appearance}`)} · ${Math.round(fontScale * 100)}%`,
         chat: t(`settings.chat.enterBehavior.${composerEnterBehavior}`),
         voice: t('settings.hub.voice.summary'),
+        account: t('settings.fork.account.description'),
+        users: t('settings.fork.users.description'),
+        fork: t('settings.fork.summary'),
         about: `v${__APP_VERSION__}`,
     }
 
     return (
         <nav aria-label={t('settings.title')} className={props.mobile ? 'divide-y divide-[var(--app-divider)]' : 'space-y-1 p-3'}>
-            {settingsCategories.map((category) => {
+            {settingsCategories.filter(category => category.id !== 'users' || user.role === 'admin').map((category) => {
                 const active = props.activeId === category.id
                 return (
                     <button

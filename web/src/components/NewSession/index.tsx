@@ -10,6 +10,7 @@ import { useCodexModels } from '@/hooks/queries/useCodexModels'
 import { useCursorModelsForMachine } from '@/hooks/queries/useCursorModelsForMachine'
 import { useOpencodeModelsForCwd } from '@/hooks/queries/useOpencodeModelsForCwd'
 import { useGrokModelsForCwd } from '@/hooks/queries/useGrokModelsForCwd'
+import { useOmpModelsForCwd } from '@/fork-features/omp-host-integration/useOmpModelsForCwd'
 import { useSessions } from '@/hooks/queries/useSessions'
 import { useActiveSuggestions, type Suggestion } from '@/hooks/useActiveSuggestions'
 import { useDirectorySuggestions } from '@/hooks/useDirectorySuggestions'
@@ -244,12 +245,22 @@ export function NewSession(props: {
         machineId
     ])
 
+    const selectableMachines = useMemo(
+        () => agent === 'omp'
+            ? props.machines.filter((machine) => machine.metadata?.capabilities?.omp === true)
+            : props.machines,
+        [agent, props.machines]
+    )
+
     useEffect(() => {
-        if (props.machines.length === 0) return
-        if (machineId && props.machines.find((m) => m.id === machineId)) return
+        if (selectableMachines.length === 0) {
+            if (machineId !== null) setMachineId(null)
+            return
+        }
+        if (selectableMachines.some((machine) => machine.id === machineId)) return
 
         const lastUsed = getLastUsedMachineId()
-        const foundLast = lastUsed ? props.machines.find((m) => m.id === lastUsed) : null
+        const foundLast = lastUsed ? selectableMachines.find((m) => m.id === lastUsed) : null
 
         if (foundLast) {
             setMachineId(foundLast.id)
@@ -257,14 +268,14 @@ export function NewSession(props: {
                 const paths = getRecentPaths(foundLast.id)
                 if (paths[0]) setDirectory(paths[0])
             }
-        } else if (props.machines[0]) {
-            setMachineId(props.machines[0].id)
+        } else {
+            setMachineId(selectableMachines[0].id)
         }
-    }, [props.machines, machineId, getLastUsedMachineId, getRecentPaths, props.initialDirectory])
+    }, [selectableMachines, machineId, getLastUsedMachineId, getRecentPaths, props.initialDirectory])
 
     const selectedMachine = useMemo(
-        () => (machineId ? props.machines.find((machine) => machine.id === machineId) ?? null : null),
-        [machineId, props.machines]
+        () => (machineId ? selectableMachines.find((machine) => machine.id === machineId) ?? null : null),
+        [machineId, selectableMachines]
     )
     const codexModelsState = useCodexModels({
         api: props.api,
@@ -528,6 +539,36 @@ export function NewSession(props: {
             cwdExists: deferredDirectoryExists,
         })
     })
+    const ompModelsState = useOmpModelsForCwd({
+        api: props.api,
+        machineId,
+        cwd: deferredDirectory,
+        enabled: agent === 'omp'
+            && selectedMachine !== null
+            && Boolean(deferredDirectory)
+            && deferredDirectoryExists === true
+    })
+    const ompModelOptions = useMemo(() => {
+        const current = ompModelsState.currentModel
+        const currentId = current ? `${current.provider}/${current.modelId}` : null
+        const currentModel = currentId
+            ? ompModelsState.availableModels.find((candidate) => (
+                `${candidate.provider}/${candidate.modelId}` === currentId
+            ))
+            : null
+        return [
+            {
+                value: 'auto',
+                label: currentModel
+                    ? `Default (${currentModel.name} · ${currentModel.provider})`
+                    : 'Default'
+            },
+            ...ompModelsState.availableModels.map((candidate) => ({
+                value: `${candidate.provider}/${candidate.modelId}`,
+                label: `${candidate.name} (${candidate.provider})`
+            }))
+        ]
+    }, [ompModelsState.availableModels, ompModelsState.currentModel])
     const grokModelOptions = useMemo(
         () => buildGrokModelOptions(grokModelsState.availableModels),
         [grokModelsState.availableModels]
@@ -1026,7 +1067,7 @@ export function NewSession(props: {
         && serviceTier === 'fast'
         && codexModelsState.isLoading
     const canCreate = Boolean(
-        machineId
+        selectedMachine
         && trimmedDirectory
         && !isFormDisabled
         && !missingWorktreeDirectory
@@ -1037,7 +1078,7 @@ export function NewSession(props: {
     return (
         <div className="flex flex-col divide-y divide-[var(--app-divider)]">
             <MachineSelector
-                machines={props.machines}
+                machines={selectableMachines}
                 machineId={machineId}
                 isLoading={props.isLoading}
                 isDisabled={isFormDisabled}
@@ -1151,20 +1192,26 @@ export function NewSession(props: {
                                 ? codexModelOptions
                                 : agent === 'grok'
                                     ? grokModelOptions
+                                : agent === 'omp'
+                                    ? ompModelOptions
                                 : undefined
                         }
                         isDisabled={
                             isFormDisabled
                             || (agent === 'codex' && Boolean(codexModelsState.error))
                             || (agent === 'grok' && Boolean(grokModelsState.error))
+                            || (agent === 'omp' && Boolean(ompModelsState.error))
                         }
                         isLoading={(agent === 'codex' && codexModelsState.isLoading)
-                            || (agent === 'grok' && grokModelsState.isLoading)}
+                            || (agent === 'grok' && grokModelsState.isLoading)
+                            || (agent === 'omp' && ompModelsState.isLoading)}
                         error={agent === 'codex' && codexModelsState.error
                             ? `${t('newSession.model.loadFailed')}: ${codexModelsState.error}`
                             : agent === 'grok' && grokModelsState.error
                                 ? `${t('newSession.model.loadFailed')}: ${grokModelsState.error}`
-                                : null}
+                                : agent === 'omp' && ompModelsState.error
+                                    ? `${t('newSession.model.loadFailed')}: ${ompModelsState.error}`
+                                    : null}
                         onModelChange={setModel}
                     />
                 )

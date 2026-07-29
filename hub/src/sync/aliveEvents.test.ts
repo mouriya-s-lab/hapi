@@ -64,6 +64,39 @@ describe('alive incremental events', () => {
         expect(update.data).toEqual(expect.objectContaining({ id: machine.id, active: true }))
     })
 
+    it('clears a stale OMP capability when an older runner omits it on registration', () => {
+        const store = new Store(':memory:')
+        const cache = new MachineCache(store, createPublisher([]))
+
+        cache.getOrCreateMachine(
+            'machine-capability-restart',
+            {
+                host: 'localhost',
+                platform: 'linux',
+                happyCliVersion: '0.23.4',
+                capabilities: { omp: true }
+            },
+            null,
+            'default'
+        )
+
+        const restarted = cache.getOrCreateMachine(
+            'machine-capability-restart',
+            {
+                host: 'localhost',
+                platform: 'linux',
+                happyCliVersion: '0.23.3'
+            },
+            null,
+            'default'
+        )
+
+        expect(restarted.metadata?.capabilities?.omp).toBe(false)
+        expect(store.machines.getMachine(restarted.id)?.metadata).toEqual(expect.objectContaining({
+            capabilities: { omp: false }
+        }))
+    })
+
     it('stores health from machine alive and rebroadcasts when it changes', () => {
         const store = new Store(':memory:')
         const events: SyncEvent[] = []

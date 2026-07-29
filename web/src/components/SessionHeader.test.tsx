@@ -27,7 +27,8 @@ describe('SessionHeader', () => {
             model: null,
             modelReasoningEffort: null,
             effort: null,
-            serviceTier: null
+            serviceTier: null,
+            resumeWithSessionModel: false
         }
 
         render(

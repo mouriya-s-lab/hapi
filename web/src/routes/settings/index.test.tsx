@@ -35,6 +35,14 @@ vi.mock('@tanstack/react-router', () => ({
     useNavigate: () => navigate,
 }))
 
+vi.mock('@/lib/app-context', () => ({
+    useAppContext: () => ({
+        api: {},
+        baseUrl: 'http://127.0.0.1:3006',
+        user: { role: 'admin' },
+    }),
+}))
+
 vi.mock('@hapi/protocol', () => ({ PROTOCOL_VERSION: 1 }))
 
 vi.mock('@/hooks/useTheme', () => ({
@@ -124,13 +132,6 @@ vi.mock('@/hooks/useChatSurfaceColors', () => ({
     getChatSurfaceColorPickerValue: () => '#7db7ff',
     toPresetChatSurfaceColorPreference: (value: string) => value === 'default' ? 'default' : `preset:${value}`,
     toCustomChatSurfaceColorPreference: (value: string) => `custom:${value}`,
-}))
-
-vi.mock('@/lib/app-context', () => ({
-    useAppContext: () => ({
-        api: {},
-        baseUrl: 'http://127.0.0.1:3006',
-    }),
 }))
 
 vi.mock('@/components/settings/CompanionPairing', () => ({

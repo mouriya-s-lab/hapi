@@ -116,6 +116,7 @@ export class ApiClient {
             modelReasoningEffort: raw.modelReasoningEffort,
             effort: raw.effort,
             serviceTier: raw.serviceTier,
+            resumeWithSessionModel: raw.resumeWithSessionModel,
             permissionMode: raw.permissionMode,
             collaborationMode: raw.collaborationMode
         }
@@ -166,6 +167,7 @@ export class ApiClient {
             modelReasoningEffort: raw.modelReasoningEffort,
             effort: raw.effort,
             serviceTier: raw.serviceTier,
+            resumeWithSessionModel: raw.resumeWithSessionModel,
             permissionMode: raw.permissionMode,
             collaborationMode: raw.collaborationMode
         }
@@ -276,7 +278,15 @@ export class ApiClient {
         return new ApiSessionClient(this.token, session, options)
     }
 
-    machineSyncClient(machine: Machine, options?: { workspaceRoots?: string[] }): ApiMachineClient {
-        return new ApiMachineClient(this.token, machine, options?.workspaceRoots)
+    machineSyncClient(
+        machine: Machine,
+        options?: { workspaceRoots?: string[]; ompAvailable?: boolean }
+    ): ApiMachineClient {
+        return new ApiMachineClient(
+            this.token,
+            machine,
+            options?.workspaceRoots,
+            options?.ompAvailable ?? false
+        )
     }
 }

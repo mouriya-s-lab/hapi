@@ -52,6 +52,17 @@ describe('getEventPresentation — agent errors', () => {
     })
 })
 
+describe('getEventPresentation — OMP extension UI', () => {
+    it('presents extension URLs', () => {
+        expect(getEventPresentation({
+            type: 'omp-extension-ui',
+            method: 'open_url',
+            url: 'https://example.com/oauth'
+        })).toEqual({ icon: '↗', text: 'OMP requested URL: https://example.com/oauth' })
+
+    })
+})
+
 describe('getEventPresentation — limit-warning', () => {
     it('formats five_hour warning', () => {
         const result = getEventPresentation({
@@ -182,6 +193,19 @@ describe('getEventPresentation — recap (away_summary)', () => {
 
         expect(result.icon).toBe('💭')
         expect(result.text).toBe('recap: Building the login flow, next: wire up the submit handler.')
+    })
+})
+
+describe('getEventPresentation — model refusal fallback', () => {
+    it('formats the original model switch warning', () => {
+        const result = getEventPresentation({
+            type: 'model-refusal-fallback',
+            originalModel: 'claude-fable-5[1m]',
+            message: 'Switched to Opus 4.8 (1M context).'
+        })
+
+        expect(result.icon).toBe('⚠️')
+        expect(result.text).toContain('claude-fable-5[1m]')
     })
 })
 

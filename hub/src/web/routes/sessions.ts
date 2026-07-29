@@ -14,6 +14,7 @@ import {
     SessionServiceTierRequestSchema,
     SessionModelRequestSchema,
     SessionPermissionModeRequestSchema,
+    SessionResumeModelRequestSchema,
     supportsModelChange,
     supportsEffort,
     toSessionSummary,
@@ -22,6 +23,7 @@ import {
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import type { SlashCommand } from '@hapi/protocol/apiTypes'
 import { Hono, type Context } from 'hono'
+import { z } from 'zod'
 import type { SyncEngine, Session } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import { requireSessionFromParam, requireSyncEngine } from './guards'
@@ -241,6 +243,29 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             resumed: result.resumed,
             ...(result.cursorSessionProtocol ? { cursorSessionProtocol: result.cursorSessionProtocol } : {})
         })
+    })
+
+    app.post('/sessions/:id/restart', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) return sessionResult
+
+        const body = await c.req.json().catch(() => ({})) as { ccSwitchProviderId?: unknown }
+        if (body.ccSwitchProviderId !== undefined && typeof body.ccSwitchProviderId !== 'string') {
+            return c.json({ error: 'Invalid ccSwitchProviderId' }, 400)
+        }
+        const result = await engine.restartSession(sessionResult.sessionId, c.get('namespace'), body.ccSwitchProviderId)
+        if (result.type === 'error') {
+            const status = result.code === 'no_machine_online' ? 503
+                : result.code === 'access_denied' ? 403
+                    : result.code === 'session_not_found' ? 404
+                        : result.code === 'resume_unavailable' ? 409
+                            : 500
+            return c.json({ error: result.message, code: result.code }, status)
+        }
+        return c.json({ type: 'success', sessionId: result.sessionId })
     })
 
     app.post('/sessions/:id/upload', async (c) => {
@@ -498,9 +523,14 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = requireSessionFromParam(c, engine)
         if (sessionResult instanceof Response) {
             return sessionResult
+        }
+
+        const flavor = sessionResult.session.metadata?.flavor ?? 'claude'
+        if (!sessionResult.session.active && flavor !== 'claude') {
+            return c.json({ error: 'Session is inactive' }, 409)
         }
 
         const body = await c.req.json().catch(() => null)
@@ -509,7 +539,6 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({ error: 'Invalid body' }, 400)
         }
 
-        const flavor = sessionResult.session.metadata?.flavor ?? 'claude'
         if (!supportsModelChange(flavor)) {
             return c.json({ error: 'Model selection is not supported for this session' }, 400)
         }
@@ -523,6 +552,9 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             if (flavor === 'grok') {
                 return c.json({ error: 'Model selection can only be changed for remote Grok sessions' }, 409)
             }
+            if (flavor === 'omp') {
+                return c.json({ error: 'Model selection can only be changed for remote OMP sessions' }, 409)
+            }
         }
 
         try {
@@ -530,6 +562,39 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({ ok: true })
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to apply model'
+            return c.json({ error: message }, 409)
+        }
+    })
+
+    app.post('/sessions/:id/resume-model', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) {
+            return engine
+        }
+
+        const sessionResult = requireSessionFromParam(c, engine)
+        if (sessionResult instanceof Response) {
+            return sessionResult
+        }
+
+        const body = await c.req.json().catch(() => null)
+        const parsed = SessionResumeModelRequestSchema.safeParse(body)
+        if (!parsed.success) {
+            return c.json({ error: 'Invalid body' }, 400)
+        }
+
+        const flavor = sessionResult.session.metadata?.flavor ?? 'claude'
+        if (flavor !== 'claude') {
+            return c.json({ error: 'Resume model selection is only supported for Claude sessions' }, 400)
+        }
+
+        try {
+            await engine.applySessionConfig(sessionResult.sessionId, {
+                resumeWithSessionModel: parsed.data.resumeWithSessionModel
+            })
+            return c.json({ ok: true })
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to apply resume model setting'
             return c.json({ error: message }, 409)
         }
     })
@@ -576,9 +641,14 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = requireSessionFromParam(c, engine)
         if (sessionResult instanceof Response) {
             return sessionResult
+        }
+
+        const flavor = sessionResult.session.metadata?.flavor ?? 'claude'
+        if (!sessionResult.session.active && flavor !== 'claude') {
+            return c.json({ error: 'Session is inactive' }, 409)
         }
 
         const body = await c.req.json().catch(() => null)
@@ -587,12 +657,14 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({ error: 'Invalid body' }, 400)
         }
 
-        const flavor = sessionResult.session.metadata?.flavor ?? 'claude'
         if (!supportsEffort(flavor)) {
             return c.json({ error: 'Effort selection is not supported for this session type' }, 400)
         }
-        if (flavor === 'grok' && sessionResult.session.agentState?.controlledByUser === true) {
-            return c.json({ error: 'Effort can only be changed for remote Grok sessions' }, 409)
+        if (
+            (flavor === 'grok' || flavor === 'omp')
+            && sessionResult.session.agentState?.controlledByUser === true
+        ) {
+            return c.json({ error: 'Effort can only be changed for remote sessions' }, 409)
         }
 
         try {
@@ -937,6 +1009,101 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({
                 success: false,
                 error: error instanceof Error ? error.message : 'Failed to list OpenCode models'
+            }, 500)
+        }
+    })
+
+    app.get('/sessions/:id/omp-models', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) return sessionResult
+        if (sessionResult.session.metadata?.flavor !== 'omp') {
+            return c.json({ success: false, error: 'OMP models are only available for OMP sessions' }, 400)
+        }
+        if (sessionResult.session.agentState?.controlledByUser === true) {
+            return c.json({ success: false, error: 'OMP models are only available for remote sessions' }, 409)
+        }
+        try {
+            return c.json(await engine.listOmpModelsForSession(sessionResult.sessionId))
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to list OMP models'
+            }, 500)
+        }
+    })
+
+    app.get('/sessions/:id/omp-thinking-options', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) return sessionResult
+        if (sessionResult.session.metadata?.flavor !== 'omp') {
+            return c.json({ success: false, error: 'OMP thinking is only available for OMP sessions' }, 400)
+        }
+        if (sessionResult.session.agentState?.controlledByUser === true) {
+            return c.json({ success: false, error: 'OMP thinking is only available for remote sessions' }, 409)
+        }
+        try {
+            return c.json(await engine.listOmpThinkingOptionsForSession(sessionResult.sessionId))
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to list OMP thinking options'
+            }, 500)
+        }
+    })
+
+
+    app.get('/sessions/:id/omp-extension-ui/:requestId', async (c) => {
+        c.header('Cache-Control', 'no-store')
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) return sessionResult
+        if (sessionResult.session.metadata?.flavor !== 'omp') {
+            return c.json({ success: false, error: 'OMP extension UI is only available for OMP sessions' }, 400)
+        }
+        if (sessionResult.session.agentState?.controlledByUser === true) {
+            return c.json({ success: false, error: 'OMP extension UI is only available for remote sessions' }, 409)
+        }
+        const requestId = c.req.param('requestId')
+        if (!requestId) {
+            return c.json({ success: false, error: 'Invalid OMP extension UI request' }, 400)
+        }
+        try {
+            const result = await engine.getOmpExtensionUiRequestForSession(
+                sessionResult.sessionId,
+                requestId
+            )
+            return c.json(result, result.success ? 200 : 404)
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to load OMP extension UI request'
+            }, 500)
+        }
+    })
+
+    app.post('/sessions/:id/omp-model-cycle', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) return sessionResult
+        if (sessionResult.session.metadata?.flavor !== 'omp') {
+            return c.json({ success: false, error: 'OMP model cycling is only available for OMP sessions' }, 400)
+        }
+        if (sessionResult.session.agentState?.controlledByUser === true) {
+            return c.json({ success: false, error: 'OMP model cycling is only available for remote sessions' }, 409)
+        }
+        try {
+            const result = await engine.cycleOmpModelForSession(sessionResult.sessionId)
+            return c.json(result, result.success ? 200 : 409)
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to cycle OMP model'
             }, 500)
         }
     })

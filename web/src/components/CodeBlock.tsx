@@ -1,8 +1,9 @@
-import type { CSSProperties, ReactNode } from 'react'
+import { useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { useCodeWrap } from '@/hooks/useCodeWrap'
 import { useShikiHighlightedLines, splitCodeLines } from '@/lib/shiki'
 import { CopyIcon, CheckIcon, WrapIcon } from '@/components/icons'
+import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/use-translation'
 
 const DEFAULT_COLLAPSE_LINE_THRESHOLD = 18
@@ -21,6 +22,22 @@ function formatCodeLabel(language?: string, title?: string): string {
     return language
 }
 
+function countCodeLines(code: string): number {
+    if (code.length === 0) return 1
+    const lines = code.split('\n')
+    if (lines.length > 1 && lines[lines.length - 1] === '') {
+        lines.pop()
+    }
+    return Math.max(lines.length, 1)
+}
+
+function ChevronIcon(props: { open: boolean }) {
+    return (
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={cn('shrink-0 transition-transform duration-200', props.open && 'rotate-90')}>
+            <polyline points="9 18 15 12 9 6" />
+        </svg>
+    )
+}
 export function CodeBlock(props: {
     code: string
     language?: string
@@ -36,6 +53,8 @@ export function CodeBlock(props: {
     collapseCharThreshold?: number
 }) {
     const { t } = useTranslation()
+    const [expanded, setExpanded] = useState(false)
+    const rootRef = useRef<HTMLDivElement>(null)
     const showCopyButton = props.showCopyButton ?? true
     // The wrap toggle is a <button>. Callsites that render CodeBlock inside
     // an interactive ancestor (a DialogTrigger button, a role="button"
@@ -45,11 +64,12 @@ export function CodeBlock(props: {
     const { copied, copy } = useCopyToClipboard()
     const { codeWrap, setCodeWrap } = useCodeWrap()
     const highlightedLines = useShikiHighlightedLines(props.code, props.language)
-    const isCollapsed = Boolean(props.collapseLongContent) && shouldCollapseCode(
+    const collapsible = Boolean(props.collapseLongContent) && shouldCollapseCode(
         props.code,
         props.collapseLineThreshold ?? DEFAULT_COLLAPSE_LINE_THRESHOLD,
         props.collapseCharThreshold ?? DEFAULT_COLLAPSE_CHAR_THRESHOLD
     )
+    const isCollapsed = collapsible && !expanded
     const collapsedHeight = props.collapsedHeight ?? DEFAULT_COLLAPSED_HEIGHT
     const scrollHeight = props.maxHeight ?? DEFAULT_SCROLL_HEIGHT
     const codeTextClass = props.size === 'comfortable'
@@ -68,6 +88,7 @@ export function CodeBlock(props: {
     // on newlines using the same normalization, so line numbers match.
     const fallbackLines = splitCodeLines(props.code)
     const codeLines: ReactNode[] = highlightedLines ?? fallbackLines
+    const lineCount = codeLines.length
     const lineNumberWidth = Math.max(String(codeLines.length).length, 3)
     const label = formatCodeLabel(props.language, props.title)
     // First track sizes to the line-number column; the code column takes the
@@ -85,13 +106,25 @@ export function CodeBlock(props: {
         : props.scrollY
             ? { maxHeight: scrollHeight, overflowY: 'auto' as const }
             : { overflowY: 'hidden' as const }
+    const toggleExpanded = (event: MouseEvent<HTMLButtonElement>) => {
+        event.stopPropagation()
+        setExpanded((current) => {
+            if (current) requestAnimationFrame(() => rootRef.current?.scrollIntoView({ block: 'nearest' }))
+            return !current
+        })
+    }
 
     return (
-        <div className="aui-code-surface relative min-w-0 max-w-full overflow-hidden rounded-xl bg-[var(--app-code-bg)] shadow-none">
-            <div className="aui-code-surface-header flex items-center justify-between gap-3 bg-[var(--app-code-header-bg)] px-3 py-2">
-                <div className="min-w-0 flex-1 truncate font-mono text-[11px] uppercase tracking-[0.08em] text-[var(--app-code-header-fg)]">
-                    {label}
-                </div>
+        <div ref={rootRef} className="aui-code-surface relative min-w-0 max-w-full overflow-clip rounded-xl bg-[var(--app-code-bg)] shadow-none">
+            <div className={cn('aui-code-surface-header flex items-center justify-between gap-3 bg-[var(--app-code-header-bg)] px-3 py-2', collapsible && expanded && 'sticky top-0 z-10')}>
+                {collapsible ? (
+                    <button type="button" onClick={toggleExpanded} title={expanded ? t('collapse.collapse') : t('collapse.expand')} className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left font-mono text-[11px] uppercase tracking-[0.08em] text-[var(--app-code-header-fg)] transition-colors hover:text-[var(--app-fg)]">
+                        <ChevronIcon open={expanded} />
+                        <span className="truncate">{label}</span>
+                    </button>
+                ) : (
+                    <div className="min-w-0 flex-1 truncate font-mono text-[11px] uppercase tracking-[0.08em] text-[var(--app-code-header-fg)]">{label}</div>
+                )}
                 <div className="flex shrink-0 items-center gap-1">
                     {showWrapToggle ? (
                         <button
@@ -114,7 +147,7 @@ export function CodeBlock(props: {
                                 event.stopPropagation()
                                 copy(props.code)
                             }}
-                            className="rounded-md p-1 text-[var(--app-code-header-fg)] transition-colors hover:bg-[var(--app-code-copy-hover-bg)] hover:text-[var(--app-fg)]"
+                            className="shrink-0 rounded-md p-1 text-[var(--app-code-header-fg)] transition-colors hover:bg-[var(--app-code-copy-hover-bg)] hover:text-[var(--app-fg)]"
                             title={t('code.copy')}
                         >
                             {copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
@@ -154,9 +187,10 @@ export function CodeBlock(props: {
             </div>
             {isCollapsed ? (
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-t from-[var(--app-code-bg)] via-[var(--app-code-bg)]/94 to-transparent px-2 pb-2 pt-10">
-                    <span className="rounded-full bg-[var(--app-chat-user-chip-bg)] px-2 py-0.5 text-[10px] text-[var(--app-hint)] shadow-none">
-                        {t('code.truncated')}
-                    </span>
+                    <button type="button" onClick={toggleExpanded} className="pointer-events-auto inline-flex cursor-pointer items-center gap-1 rounded-full bg-[var(--app-chat-user-chip-bg)] px-2.5 py-0.5 text-[10px] text-[var(--app-hint)] transition-colors hover:text-[var(--app-fg)]">
+                        <ChevronIcon open={false} />
+                        {t('collapse.expandLines', { n: lineCount })}
+                    </button>
                 </div>
             ) : null}
         </div>

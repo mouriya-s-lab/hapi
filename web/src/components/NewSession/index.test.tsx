@@ -101,6 +101,15 @@ vi.mock('@/hooks/queries/useGrokModelsForCwd', () => ({
         error: null
     })
 }))
+vi.mock('@/fork-features/omp-host-integration/useOmpModelsForCwd', () => ({
+    useOmpModelsForCwd: () => ({
+        availableModels: [],
+        currentModel: null,
+        isLoading: false,
+        error: null,
+        refetch: vi.fn()
+    })
+}))
 vi.mock('../../utils/formatRunnerSpawnError', () => ({
     formatRunnerSpawnError: () => null
 }))
@@ -108,7 +117,11 @@ vi.mock('@/components/CodexSessionSyncDialog', () => ({
     CodexSessionSyncDialog: () => null
 }))
 vi.mock('./DirectorySection', () => ({ DirectorySection: () => null }))
-vi.mock('./MachineSelector', () => ({ MachineSelector: () => null }))
+vi.mock('./MachineSelector', () => ({
+    MachineSelector: (props: { machines: Array<{ id: string }> }) => (
+        <div data-testid="machines">{props.machines.map((candidate) => candidate.id).join(',')}</div>
+    )
+}))
 vi.mock('./SessionTypeSelector', () => ({ SessionTypeSelector: () => null }))
 vi.mock('./GrokPermissionModeSelector', () => ({ GrokPermissionModeSelector: () => null }))
 vi.mock('./YoloToggle', () => ({ YoloToggle: () => null }))
@@ -336,6 +349,38 @@ describe('NewSession launch preferences', () => {
         await waitFor(() => {
             expect(screen.getByTestId('model')).toHaveTextContent('gpt-5.6-terra')
             expect(screen.getByTestId('reasoning')).toHaveTextContent('max')
+        })
+    })
+
+    it('selects only OMP-capable runners for OMP sessions', async () => {
+        savePreferredAgent('omp')
+        const unsupported = {
+            id: 'without-omp',
+            metadata: { host: 'No OMP runner' }
+        } as Machine
+        const supported = {
+            id: 'with-omp',
+            metadata: {
+                host: 'OMP runner',
+                capabilities: { omp: true }
+            }
+        } as Machine
+
+        render(
+            <NewSession
+                api={api}
+                machines={[unsupported, supported]}
+                initialMachineId="without-omp"
+                initialDirectory="C:\\repo"
+                onSuccess={mocks.onSuccess}
+                onCancel={() => {}}
+            />
+        )
+
+        expect(screen.getByTestId('machines')).toHaveTextContent('with-omp')
+        expect(screen.getByTestId('machines')).not.toHaveTextContent('without-omp')
+        await waitFor(() => {
+            expect(screen.getByTestId('create')).toBeEnabled()
         })
     })
 })
