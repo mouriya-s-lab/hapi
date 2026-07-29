@@ -5,5 +5,7 @@ export function resolveGatewayCliNamespace(store: MultiUserGatewayStore, plainte
     const token = store.getActiveTokenByHash(hashApiToken(plaintextToken))
     if (!token) return null
     const account = store.getAccount(token.accountId)
-    return account && account.disabledAt === null ? account.defaultNamespace : null
+    if (!account || account.disabledAt !== null) return null
+    store.touchTokenLastUsed(token.id)
+    return token.namespace
 }

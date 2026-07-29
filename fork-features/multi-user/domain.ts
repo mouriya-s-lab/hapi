@@ -7,8 +7,10 @@ export type Account = {
     id: number
     username: string
     passwordHash: string | null
+    authProvider: string
     role: AccountRole
     defaultNamespace: string
+    createdAt: number
     disabledAt: number | null
     memory: string | null
 }
@@ -18,8 +20,22 @@ export type ApiToken = {
     accountId: number
     name: string | null
     tokenHash: string
+    namespace: string
     createdAt: number
+    lastUsedAt: number | null
     revokedAt: number | null
+}
+
+export type ExternalIdentityBinding = {
+    platform: string
+    platformUserId: string
+    accountId: number
+}
+
+export type PushSubscriptionAccountBinding = {
+    namespace: string
+    endpoint: string
+    accountId: number
 }
 
 export type ResourceBinding = {

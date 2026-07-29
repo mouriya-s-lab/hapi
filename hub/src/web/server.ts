@@ -35,7 +35,7 @@ import type { WebSocketData } from '@socket.io/bun-engine'
 import { loadEmbeddedAssetMap, type EmbeddedWebAsset } from './embeddedAssets'
 import { isBunCompiled } from '../utils/bunCompiled'
 import type { Store } from '../store'
-import { mountMultiUserGateway } from '../../../fork-features/multi-user/hubMount'
+import { mountMultiUserGateway, mountMultiUserPostAuth } from '../../../fork-features/multi-user/hubMount'
 import type { MultiUserGatewayStore } from '../../../fork-features/multi-user/gatewayStore'
 import { createExecutionMiddleware, mountExecutionRoutes } from '../../../fork-features/multi-user/executionMount'
 import { resolveGatewayCliNamespace } from '../../../fork-features/multi-user/cliAdapter'
@@ -246,7 +246,8 @@ function createWebApp(options: {
 
     mountMultiUserGateway(app, {
         ...options.multiUser,
-        jwtSecret: options.jwtSecret
+        jwtSecret: options.jwtSecret,
+        coreStore: options.store
     })
     const multiUserStore = options.multiUser.store
 
@@ -256,6 +257,10 @@ function createWebApp(options: {
     app.route('/api', createBindRoutes(options.jwtSecret, options.store))
 
     app.use('/api/*', createAuthMiddleware(options.jwtSecret))
+    mountMultiUserPostAuth(app, {
+        store: multiUserStore,
+        jwtSecret: options.jwtSecret
+    })
     mountExecutionRoutes(app, {
         store: multiUserStore,
         jwtSecret: options.jwtSecret,

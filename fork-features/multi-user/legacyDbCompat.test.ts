@@ -1,17 +1,18 @@
-import { describe, expect, it, afterEach } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import { copyFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'bun:test'
+import { copyFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { Store } from '../../hub/src/store'
+import { applyGatewaySchema, MultiUserGatewayStore } from './gatewayStore'
 import {
     assertNoLegacyForkArtifactsRemaining,
     detectLegacyForkArtifacts,
     hasAnyLegacyForkArtifacts,
     migrateLegacyForkArtifacts
 } from './legacyDbCompat'
-import { applyGatewaySchema, MultiUserGatewayStore } from './gatewayStore'
 import { hashPassword } from './password'
 import { hashApiToken } from './token'
 
@@ -28,34 +29,47 @@ function makeTempDir(): string {
     return dir
 }
 
+function readUserVersion(dbPath: string): number {
+    const db = new Database(dbPath, { readonly: true })
+    try {
+        return (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
+    } finally {
+        db.close()
+    }
+}
+
 /**
- * Builds a hapi-data.sqlite matching the state left behind by fork commit
- * 2ca4a1979 ("feat: 企业级多用户与权限隔离"): user_version = 11, upstream
- * required tables present, fork-only accounts / api_tokens / resource_grants
- * tables and sessions/machines.owner_account_id columns populated.
+ * Builds the exact behavior-bearing schema differences introduced by PR #102
+ * v10-v13 on top of the then-current core tables.
  */
 function seedForkSchemaDb(dbPath: string, opts: {
+    version?: 10 | 11 | 12 | 13
     adminUsername?: string
     adminPasswordHash?: string
+    adminMemory?: string
     adminTokenHash?: string
+    adminTokenNamespace?: string
     sessionOwners?: Array<{ id: string; namespace: string; ownerAccountId: number | null }>
     machineOwners?: Array<{ id: string; namespace: string; ownerAccountId: number | null }>
     extraAccounts?: Array<{ username: string; passwordHash: string | null; role: string; defaultNamespace: string }>
     grants?: Array<{ resourceType: string; resourceId: string; granteeAccountId: number; role: string }>
+    externalIdentities?: Array<{ platform: string; platformUserId: string; accountId: number | null }>
+    pushSubscriptionAccounts?: Array<{ namespace: string; endpoint: string; accountId: number }>
 } = {}): void {
+    const version = opts.version ?? 10
     const db = new Database(dbPath, { create: true, readwrite: true })
     db.exec('PRAGMA journal_mode = WAL')
     db.exec('PRAGMA foreign_keys = ON')
 
-    // Upstream tables as of SCHEMA_VERSION 11.
+    // Core tables carried by PR #102, including the session columns added in v13.
     db.exec(`
         CREATE TABLE sessions (
             id TEXT PRIMARY KEY, tag TEXT, namespace TEXT NOT NULL DEFAULT 'default',
             machine_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
             metadata TEXT, metadata_version INTEGER DEFAULT 1,
             agent_state TEXT, agent_state_version INTEGER DEFAULT 1,
-            model TEXT, model_reasoning_effort TEXT, effort TEXT, service_tier TEXT,
-            resume_with_session_model INTEGER NOT NULL DEFAULT 0,
+            model TEXT, model_reasoning_effort TEXT, effort TEXT,
+            ${version === 13 ? 'service_tier TEXT, resume_with_session_model INTEGER NOT NULL DEFAULT 0,' : ''}
             todos TEXT, todos_updated_at INTEGER,
             team_state TEXT, team_state_updated_at INTEGER,
             active INTEGER DEFAULT 0, active_at INTEGER, seq INTEGER DEFAULT 0,
@@ -86,13 +100,15 @@ function seedForkSchemaDb(dbPath: string, opts: {
         CREATE TABLE users (
             id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT NOT NULL,
             platform_user_id TEXT NOT NULL, namespace TEXT NOT NULL DEFAULT 'default',
-            created_at INTEGER NOT NULL, UNIQUE(platform, platform_user_id)
+            created_at INTEGER NOT NULL${version >= 11 ? ', account_id INTEGER' : ''},
+            UNIQUE(platform, platform_user_id)
         );
 
         CREATE TABLE push_subscriptions (
             id INTEGER PRIMARY KEY AUTOINCREMENT, namespace TEXT NOT NULL,
             endpoint TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
-            created_at INTEGER NOT NULL, UNIQUE(namespace, endpoint)
+            created_at INTEGER NOT NULL${version >= 11 ? ', account_id INTEGER' : ''},
+            UNIQUE(namespace, endpoint)
         );
 
         CREATE TABLE accounts (
@@ -103,7 +119,7 @@ function seedForkSchemaDb(dbPath: string, opts: {
             role TEXT NOT NULL DEFAULT 'user',
             default_namespace TEXT NOT NULL DEFAULT 'default',
             created_at INTEGER NOT NULL,
-            disabled_at INTEGER
+            disabled_at INTEGER${version >= 12 ? ', memory TEXT' : ''}
         );
 
         CREATE TABLE api_tokens (
@@ -129,7 +145,7 @@ function seedForkSchemaDb(dbPath: string, opts: {
             FOREIGN KEY (grantee_account_id) REFERENCES accounts(id) ON DELETE CASCADE
         );
 
-        PRAGMA user_version = 11;
+        PRAGMA user_version = ${version};
     `)
 
     const now = 1_700_000_000_000
@@ -139,6 +155,9 @@ function seedForkSchemaDb(dbPath: string, opts: {
         'INSERT INTO accounts (username, password_hash, auth_provider, role, default_namespace, created_at, disabled_at) VALUES (?, ?, ?, ?, ?, ?, NULL)'
     ).run(adminUsername, adminPasswordHash, 'local', 'admin', 'default', now)
     const adminId = Number(adminInfo.lastInsertRowid)
+    if (version >= 12 && opts.adminMemory) {
+        db.prepare('UPDATE accounts SET memory=? WHERE id=?').run(opts.adminMemory, adminId)
+    }
 
     for (const extra of opts.extraAccounts ?? []) {
         db.prepare(
@@ -149,23 +168,35 @@ function seedForkSchemaDb(dbPath: string, opts: {
     if (opts.adminTokenHash) {
         db.prepare(
             'INSERT INTO api_tokens (account_id, name, token_hash, namespace, created_at, last_used_at, revoked_at) VALUES (?, ?, ?, ?, ?, NULL, NULL)'
-        ).run(adminId, 'legacy shared token', opts.adminTokenHash, 'default', now)
+        ).run(adminId, 'legacy shared token', opts.adminTokenHash, opts.adminTokenNamespace ?? 'default', now)
     }
 
-    for (const s of opts.sessionOwners ?? []) {
+    for (const session of opts.sessionOwners ?? []) {
         db.prepare(
             'INSERT INTO sessions (id, namespace, created_at, updated_at, seq, owner_account_id) VALUES (?, ?, ?, ?, ?, ?)'
-        ).run(s.id, s.namespace, now, now, 0, s.ownerAccountId)
+        ).run(session.id, session.namespace, now, now, 0, session.ownerAccountId)
     }
-    for (const m of opts.machineOwners ?? []) {
+    for (const machine of opts.machineOwners ?? []) {
         db.prepare(
             'INSERT INTO machines (id, namespace, created_at, updated_at, seq, owner_account_id) VALUES (?, ?, ?, ?, ?, ?)'
-        ).run(m.id, m.namespace, now, now, 0, m.ownerAccountId)
+        ).run(machine.id, machine.namespace, now, now, 0, machine.ownerAccountId)
     }
-    for (const g of opts.grants ?? []) {
+    for (const grant of opts.grants ?? []) {
         db.prepare(
             'INSERT INTO resource_grants (resource_type, resource_id, grantee_account_id, role, created_at) VALUES (?, ?, ?, ?, ?)'
-        ).run(g.resourceType, g.resourceId, g.granteeAccountId, g.role, now)
+        ).run(grant.resourceType, grant.resourceId, grant.granteeAccountId, grant.role, now)
+    }
+    if (version >= 11) {
+        for (const identity of opts.externalIdentities ?? []) {
+            db.prepare(
+                'INSERT INTO users(platform,platform_user_id,namespace,created_at,account_id) VALUES(?,?,?,?,?)'
+            ).run(identity.platform, identity.platformUserId, 'default', now, identity.accountId)
+        }
+        for (const binding of opts.pushSubscriptionAccounts ?? []) {
+            db.prepare(
+                'INSERT INTO push_subscriptions(namespace,endpoint,p256dh,auth,created_at,account_id) VALUES(?,?,?,?,?,?)'
+            ).run(binding.namespace, binding.endpoint, 'fixture-p256dh', 'fixture-auth', now, binding.accountId)
+        }
     }
 
     db.close()
@@ -235,6 +266,7 @@ describe('legacyDbCompat.detectLegacyForkArtifacts', () => {
         const dir = makeTempDir()
         const dbPath = join(dir, 'hapi-data.sqlite')
         seedForkSchemaDb(dbPath, {
+            version: 12,
             sessionOwners: [{ id: 's1', namespace: 'default', ownerAccountId: 1 }]
         })
         const db = new Database(dbPath, { readonly: true })
@@ -243,6 +275,9 @@ describe('legacyDbCompat.detectLegacyForkArtifacts', () => {
             expect(artifacts.tables.sort()).toEqual(['accounts', 'api_tokens', 'resource_grants'])
             expect(artifacts.sessionsHasOwnerColumn).toBe(true)
             expect(artifacts.machinesHasOwnerColumn).toBe(true)
+            expect(artifacts.usersHasAccountColumn).toBe(true)
+            expect(artifacts.pushSubscriptionsHasAccountColumn).toBe(true)
+            expect(artifacts.accountsHasMemoryColumn).toBe(true)
             expect(hasAnyLegacyForkArtifacts(artifacts)).toBe(true)
         } finally {
             db.close()
@@ -282,6 +317,7 @@ describe('legacyDbCompat.migrateLegacyForkArtifacts', () => {
         seedForkSchemaDb(hapiPath, {
             adminPasswordHash,
             adminTokenHash,
+            adminTokenNamespace: 'tenant-blue',
             extraAccounts: [
                 { username: 'alice', passwordHash: hashPassword('alice-pw'), role: 'user', defaultNamespace: 'default' }
             ],
@@ -305,8 +341,7 @@ describe('legacyDbCompat.migrateLegacyForkArtifacts', () => {
         expect(result.tokensCopied).toBe(1)
         expect(result.resourcesCopied).toBe(3)
         expect(result.grantsCopied).toBe(1)
-        expect(result.orphanedOwnerRows).toBe(0)
-        expect(result.orphanedGrants).toBe(0)
+        expect(result.normalizedCoreVersion).toBe(9)
 
         const gateway = new MultiUserGatewayStore(gatewayPath)
         try {
@@ -319,11 +354,14 @@ describe('legacyDbCompat.migrateLegacyForkArtifacts', () => {
             const activeToken = gateway.getActiveTokenByHash(adminTokenHash)
             expect(activeToken).not.toBeNull()
             expect(activeToken?.accountId).toBe(admin!.id)
+            expect(activeToken?.namespace).toBe('tenant-blue')
 
             const sessionResource = gateway.getResource('session', 's-admin')
             expect(sessionResource).toMatchObject({ resourceType: 'session', resourceId: 's-admin', ownerAccountId: admin!.id })
             const machineResource = gateway.getResource('machine', 'm-admin')
             expect(machineResource?.ownerAccountId).toBe(admin!.id)
+            expect(gateway.listAccessibleResources('session', admin!.id).map(resource => resource.resourceId))
+                .toEqual(['s-admin', 's-alice'])
 
             expect(gateway.getGrant('session', 's-admin', alice!.id)).toBe('operator')
         } finally {
@@ -337,7 +375,7 @@ describe('legacyDbCompat.migrateLegacyForkArtifacts', () => {
         expect(again).toEqual({ kind: 'no-op', reason: 'no-artifacts' })
     })
 
-    it('records session/machine rows whose owner_account_id has no matching accounts row as orphans and skips them', () => {
+    it('rejects missing account references before removing source artifacts', () => {
         const dir = makeTempDir()
         const hapiPath = join(dir, 'hapi-data.sqlite')
         const gatewayPath = join(dir, 'gateway.sqlite')
@@ -350,30 +388,67 @@ describe('legacyDbCompat.migrateLegacyForkArtifacts', () => {
         })
 
         const result = migrateLegacyForkArtifacts({ hapiDataPath: hapiPath, gatewayDataPath: gatewayPath })
-        expect(result.kind).toBe('migrated')
-        if (result.kind !== 'migrated') return
-        expect(result.resourcesCopied).toBe(1)
-        expect(result.orphanedOwnerRows).toBe(1)
+        expect(result.kind).toBe('rejected')
+        if (result.kind !== 'rejected') return
+        expect(result.conflicts).toContain('session#s-orphan.owner_account_id references missing accounts#999')
 
-        const gateway = new MultiUserGatewayStore(gatewayPath)
+        const source = new Database(hapiPath, { readonly: true })
         try {
-            expect(gateway.getResource('session', 's-good')).not.toBeNull()
-            expect(gateway.getResource('session', 's-orphan')).toBeNull()
+            expect(detectLegacyForkArtifacts(source).sessionsHasOwnerColumn).toBe(true)
+            expect(source.prepare('SELECT COUNT(*) AS count FROM accounts').get()).toEqual({ count: 1 })
         } finally {
-            gateway.close()
+            source.close()
         }
     })
 
-    it('does not overwrite an existing gateway_accounts row when a legacy account of the same username is migrated', () => {
+    it('rolls back all source cleanup when a later schema normalization step fails', () => {
+        const dir = makeTempDir()
+        const hapiPath = join(dir, 'hapi-data.sqlite')
+        const gatewayPath = join(dir, 'gateway.sqlite')
+        seedForkSchemaDb(hapiPath, {
+            version: 13,
+            sessionOwners: [{ id: 's1', namespace: 'default', ownerAccountId: 1 }],
+            machineOwners: [{ id: 'm1', namespace: 'default', ownerAccountId: 1 }]
+        })
+        const source = new Database(hapiPath)
+        source.exec('CREATE INDEX block_machine_owner_drop ON machines(owner_account_id)')
+        source.close()
+
+        expect(() => migrateLegacyForkArtifacts({
+            hapiDataPath: hapiPath,
+            gatewayDataPath: gatewayPath
+        })).toThrow()
+
+        const afterFailure = new Database(hapiPath, { readonly: true })
+        try {
+            const artifacts = detectLegacyForkArtifacts(afterFailure)
+            expect(artifacts.tables.sort()).toEqual(['accounts', 'api_tokens', 'resource_grants'])
+            expect(artifacts.sessionsHasOwnerColumn).toBe(true)
+            expect(artifacts.machinesHasOwnerColumn).toBe(true)
+            expect(artifacts.usersHasAccountColumn).toBe(true)
+            expect(artifacts.pushSubscriptionsHasAccountColumn).toBe(true)
+            expect(artifacts.userVersion).toBe(13)
+        } finally {
+            afterFailure.close()
+        }
+
+        const repair = new Database(hapiPath)
+        repair.exec('DROP INDEX block_machine_owner_drop')
+        repair.close()
+        expect(migrateLegacyForkArtifacts({
+            hapiDataPath: hapiPath,
+            gatewayDataPath: gatewayPath
+        }).kind).toBe('migrated')
+        assertNoLegacyForkArtifactsRemaining(hapiPath)
+    })
+
+    it('rejects a same-username gateway account with different behavior before removing source data', () => {
         const dir = makeTempDir()
         const hapiPath = join(dir, 'hapi-data.sqlite')
         const gatewayPath = join(dir, 'gateway.sqlite')
 
-        // Pre-populate the gateway store with an existing 'admin' account (as if
-        // createMultiUserGatewayStore had already bootstrapped one before this compat pass ran).
         const preexistingGateway = new MultiUserGatewayStore(gatewayPath)
         preexistingGateway.createAccount('admin', 'admin', 'default', hashPassword('pre-existing'))
-        const preexistingId = preexistingGateway.getAccountByUsername('admin')!.id
         preexistingGateway.close()
 
         seedForkSchemaDb(hapiPath, {
@@ -382,20 +457,89 @@ describe('legacyDbCompat.migrateLegacyForkArtifacts', () => {
         })
 
         const result = migrateLegacyForkArtifacts({ hapiDataPath: hapiPath, gatewayDataPath: gatewayPath })
-        expect(result.kind).toBe('migrated')
+        expect(result.kind).toBe('rejected')
+        if (result.kind !== 'rejected') return
+        expect(result.conflicts[0]).toContain('accounts username=admin conflicts')
+
+        const source = new Database(hapiPath, { readonly: true })
+        try {
+            expect(detectLegacyForkArtifacts(source).tables).toContain('accounts')
+            expect(detectLegacyForkArtifacts(source).sessionsHasOwnerColumn).toBe(true)
+        } finally {
+            source.close()
+        }
+    })
+
+    it('preserves v12 memory, token namespace, and v11 account bindings behind gateway APIs', () => {
+        const dir = makeTempDir()
+        const hapiPath = join(dir, 'hapi-data.sqlite')
+        const gatewayPath = join(dir, 'gateway.sqlite')
+        const tokenHash = hashApiToken('namespace-token')
+        seedForkSchemaDb(hapiPath, {
+            version: 12,
+            adminMemory: 'Use the lab machine',
+            adminTokenHash: tokenHash,
+            adminTokenNamespace: 'tenant-blue',
+            sessionOwners: [{ id: 's1', namespace: 'tenant-blue', ownerAccountId: 1 }],
+            externalIdentities: [
+                { platform: 'telegram', platformUserId: '42', accountId: 1 },
+                { platform: 'telegram', platformUserId: 'legacy-admin', accountId: null }
+            ],
+            pushSubscriptionAccounts: [{ namespace: 'tenant-blue', endpoint: 'https://push.test/admin', accountId: 1 }]
+        })
+
+        const result = migrateLegacyForkArtifacts({ hapiDataPath: hapiPath, gatewayDataPath: gatewayPath })
+        expect(result).toMatchObject({
+            kind: 'migrated',
+            sourceVersion: 12,
+            normalizedCoreVersion: 9,
+            externalIdentitiesCopied: 2,
+            pushSubscriptionAccountsCopied: 1
+        })
 
         const gateway = new MultiUserGatewayStore(gatewayPath)
         try {
             const admin = gateway.getAccountByUsername('admin')!
-            expect(admin.id).toBe(preexistingId)
-            // Pre-existing password_hash survives; legacy hash is discarded to keep operator's login intact.
-            expect(admin.passwordHash).not.toBe(hashPassword('legacy-different-password'))
-            // The legacy sessions owner still maps to the pre-existing admin id (bridged by username).
-            expect(gateway.getResource('session', 's1')?.ownerAccountId).toBe(preexistingId)
+            expect(admin.memory).toBe('Use the lab machine')
+            expect(gateway.getActiveTokenByHash(tokenHash)?.namespace).toBe('tenant-blue')
+            expect(gateway.getExternalIdentity('telegram', '42')?.accountId).toBe(admin.id)
+            expect(gateway.getExternalIdentity('telegram', 'legacy-admin')?.accountId).toBe(admin.id)
+            expect(gateway.getPushSubscriptionAccount('tenant-blue', 'https://push.test/admin')?.accountId).toBe(admin.id)
         } finally {
             gateway.close()
         }
     })
+
+    for (const version of [10, 11, 12, 13] as const) {
+        it(`normalizes PR #102 schema v${version} into the current Store schema`, () => {
+            const dir = makeTempDir()
+            const hapiPath = join(dir, 'hapi-data.sqlite')
+            const gatewayPath = join(dir, 'gateway.sqlite')
+            seedForkSchemaDb(hapiPath, {
+                version,
+                sessionOwners: [{ id: `s-v${version}`, namespace: 'default', ownerAccountId: 1 }]
+            })
+
+            const result = migrateLegacyForkArtifacts({ hapiDataPath: hapiPath, gatewayDataPath: gatewayPath })
+            expect(result.kind).toBe('migrated')
+            const store = new Store(hapiPath)
+            store.close()
+            const currentStorePath = join(dir, 'current-store.sqlite')
+            const currentStore = new Store(currentStorePath)
+            currentStore.close()
+
+            const normalized = new Database(hapiPath, { readonly: true })
+            try {
+                const versionRow = normalized.prepare('PRAGMA user_version').get() as { user_version: number }
+                expect(versionRow.user_version).toBe(readUserVersion(currentStorePath))
+                const columns = normalized.prepare('PRAGMA table_info(sessions)').all() as Array<{ name: string }>
+                expect(columns.some(column => column.name === 'service_tier')).toBe(true)
+                expect(columns.some(column => column.name === 'resume_with_session_model')).toBe(true)
+            } finally {
+                normalized.close()
+            }
+        })
+    }
 })
 
 describe('legacyDbCompat.assertNoLegacyForkArtifactsRemaining', () => {
@@ -466,8 +610,6 @@ describe('legacyDbCompat against real fork-era fixture (commit 2ca4a1979 seed ou
         expect(result.tokensCopied).toBe(2)
         expect(result.resourcesCopied).toBe(3)
         expect(result.grantsCopied).toBe(2)
-        expect(result.orphanedOwnerRows).toBe(0)
-        expect(result.orphanedGrants).toBe(0)
 
         // Gateway side has the migrated data
         const gateway = new MultiUserGatewayStore(gatewayPath)
@@ -537,6 +679,43 @@ describe('legacyDbCompat integration with applyGatewaySchema', () => {
             expect(() => applyGatewaySchema(rawDb)).not.toThrow()
         } finally {
             rawDb.close()
+        }
+    })
+
+    it('backfills existing gateway token namespaces from their accounts', () => {
+        const dir = makeTempDir()
+        const gatewayPath = join(dir, 'gateway.sqlite')
+        const db = new Database(gatewayPath, { create: true })
+        try {
+            db.exec(`
+                CREATE TABLE gateway_accounts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL UNIQUE,
+                    password_hash TEXT,
+                    role TEXT NOT NULL CHECK(role IN ('admin', 'user')),
+                    default_namespace TEXT NOT NULL,
+                    disabled_at INTEGER,
+                    memory TEXT
+                );
+                CREATE TABLE gateway_api_tokens (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    account_id INTEGER NOT NULL REFERENCES gateway_accounts(id) ON DELETE CASCADE,
+                    name TEXT,
+                    token_hash TEXT NOT NULL UNIQUE,
+                    created_at INTEGER NOT NULL,
+                    revoked_at INTEGER
+                );
+                INSERT INTO gateway_accounts(id,username,role,default_namespace)
+                VALUES(7,'alice','user','tenant-blue');
+                INSERT INTO gateway_api_tokens(account_id,name,token_hash,created_at)
+                VALUES(7,'runner','hash',123);
+            `)
+            applyGatewaySchema(db)
+            expect(
+                (db.prepare('SELECT namespace FROM gateway_api_tokens WHERE id=1').get() as { namespace: string }).namespace
+            ).toBe('tenant-blue')
+        } finally {
+            db.close()
         }
     })
 })

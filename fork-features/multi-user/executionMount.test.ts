@@ -5,6 +5,8 @@ import { createExecutionMiddleware, mountExecutionRoutes } from './executionMoun
 import type { SyncEngine } from '../../hub/src/sync/syncEngine'
 import type { WebAppEnv } from '../../hub/src/web/middleware/auth'
 import { MultiUserGatewayStore } from './gatewayStore'
+import { SSEManager } from '../../hub/src/sse/sseManager'
+import { VisibilityTracker } from '../../hub/src/visibility/visibilityTracker'
 
 describe('createExecutionMiddleware', () => {
     it('exposes authenticated account identity as opaque delivery metadata', async () => {
@@ -119,6 +121,59 @@ describe('createExecutionMiddleware', () => {
 
         expect(response.status).toBe(200)
         expect(await response.json()).toEqual({ sessions: [] })
+        store.close()
+    })
+    it('streams only granted cross-namespace session events to a viewer', async () => {
+        const store = new MultiUserGatewayStore(':memory:')
+        const owner = store.createAccount('owner', 'user', 'owner-namespace', null)
+        const viewer = store.createAccount('viewer', 'user', 'viewer-namespace', null)
+        store.bindResource({
+            resourceType: 'session',
+            resourceId: 'shared-session',
+            ownerAccountId: owner.id,
+            coreNamespace: owner.defaultNamespace
+        })
+        store.grant('session', 'shared-session', viewer.id, 'viewer')
+        const jwtSecret = new TextEncoder().encode('test-secret-test-secret-test-secret')
+        const token = await new SignJWT({ gaid: viewer.id })
+            .setProtectedHeader({ alg: 'HS256' })
+            .sign(jwtSecret)
+        const sseManager = new SSEManager(0, new VisibilityTracker())
+        const app = new Hono<WebAppEnv>()
+        mountExecutionRoutes(app, {
+            store,
+            jwtSecret,
+            getSyncEngine: () => null,
+            getSseManager: () => sseManager
+        })
+        const controller = new AbortController()
+        const response = await app.request('/api/events', {
+            headers: { authorization: `Bearer ${token}` },
+            signal: controller.signal
+        })
+        const reader = response.body?.getReader()
+        expect(reader).toBeDefined()
+        const first = await reader!.read()
+        expect(new TextDecoder().decode(first.value)).toContain('"status":"connected"')
+
+        sseManager.broadcast({
+            type: 'session-updated',
+            sessionId: 'private-session',
+            namespace: owner.defaultNamespace
+        })
+        sseManager.broadcast({
+            type: 'session-updated',
+            sessionId: 'shared-session',
+            namespace: owner.defaultNamespace
+        })
+        const event = await reader!.read()
+        const body = new TextDecoder().decode(event.value)
+        expect(body).toContain('"sessionId":"shared-session"')
+        expect(body).not.toContain('private-session')
+
+        controller.abort()
+        await reader!.cancel()
+        sseManager.stop()
         store.close()
     })
 })

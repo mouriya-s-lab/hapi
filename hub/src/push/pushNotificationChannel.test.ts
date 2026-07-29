@@ -191,4 +191,29 @@ describe('PushNotificationChannel', () => {
         expect(toasts).toHaveLength(0)
         expect(pushed).toHaveLength(0)
     })
+
+    it('passes account-scoped endpoints when native FCM falls back to web-push', async () => {
+        const deliveries: Array<{ endpoints?: ReadonlySet<string> }> = []
+        const allowed = new Set(['https://push.test/alice'])
+        const channel = new PushNotificationChannel(
+            {
+                sendToNamespace: async (
+                    _namespace: string,
+                    _payload: PushPayload,
+                    endpoints?: ReadonlySet<string>
+                ) => {
+                    deliveries.push({ endpoints })
+                }
+            } as never,
+            { sendToast: async () => 0 } as never,
+            { hasVisibleConnection: () => false } as never,
+            '',
+            () => allowed
+        )
+
+        await channel.sendReady(createSession(), { nativeGate: { sent: false } })
+
+        expect(deliveries).toEqual([{ endpoints: allowed }])
+    })
+
 })

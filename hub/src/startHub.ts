@@ -24,7 +24,11 @@ import type { WebSocketData } from '@socket.io/bun-engine'
 import { getOrCreateOwnerId } from './config/ownerId'
 import { bootstrapForkMultiUser } from '../../fork-features/multi-user/hubMount'
 import { resolveTerminalNamespace } from '../../fork-features/multi-user/socketAdapter'
-import { MultiUserNotificationAdapter } from '../../fork-features/multi-user/notificationAdapter'
+import {
+    createPushNotificationRouting,
+    createTelegramNotificationNamespaceResolver,
+    MultiUserNotificationAdapter
+} from '../../fork-features/multi-user/notificationAdapter'
 import { resolveGatewayCliNamespace } from '../../fork-features/multi-user/cliAdapter'
 import { createGatewayMemoryDelivery } from '../../fork-features/multi-user/memoryAdapter'
 
@@ -179,6 +183,7 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
     const vapidKeys = await getOrCreateVapidKeys(config.dataDir)
     const vapidSubject = process.env.VAPID_SUBJECT ?? 'mailto:admin@hapi.run'
     const pushService = new PushService(vapidKeys, vapidSubject, store)
+    const pushNotificationRouting = createPushNotificationRouting(multiUserGatewayStore, store)
 
     visibilityTracker = new VisibilityTracker()
     sseManager = new SSEManager(30_000, visibilityTracker)
@@ -244,8 +249,10 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
                 pushService,
                 sseManager,
                 visibilityTracker,
-                config.publicUrl
-            )
+                config.publicUrl,
+                pushNotificationRouting.endpointsForAudience
+            ),
+            pushNotificationRouting.namespacesForAccount
         )
     )
 
@@ -263,7 +270,11 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
         })
         // Only add to notification channels if notifications are enabled
         if (config.telegramNotification) {
-            notificationChannels.push(new MultiUserNotificationAdapter(multiUserGatewayStore, happyBot))
+            notificationChannels.push(new MultiUserNotificationAdapter(
+                multiUserGatewayStore,
+                happyBot,
+                createTelegramNotificationNamespaceResolver(multiUserGatewayStore, store)
+            ))
         }
     }
 
