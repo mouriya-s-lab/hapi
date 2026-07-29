@@ -11,6 +11,7 @@ import { CopyIcon, CheckIcon } from '@/components/icons'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { getConversationMessageAnchorId } from '@/chat/outline'
 import { MessageTimestamp } from '@/components/AssistantChat/messages/MessageTimestamp'
+import { MessageActions } from '@/components/AssistantChat/messages/MessageActions'
 import {
     useFlavorCapabilities,
     getFlavorForkCapability
@@ -56,6 +57,7 @@ export function HappyUserMessage() {
     )
     const role = useAssistantState(({ message }) => message.role)
     const messageId = useAssistantState(({ message }) => message.id)
+    const elementId = getConversationMessageAnchorId(messageId)
     // Raw hub-DB message id (unprefixed). `message.id` is the composed
     // assistant-ui threadMessageId `${kind}:${block.id}` — hub's fork
     // endpoint matches on the raw id, not the composed one.
@@ -122,11 +124,13 @@ export function HappyUserMessage() {
     if (isCliOutput) {
         return (
             <MessagePrimitive.Root
-                id={getConversationMessageAnchorId(messageId)}
-                className="scroll-mt-4 px-1 min-w-0 max-w-full overflow-x-clip"
+                id={elementId}
+                data-hapi-message-role="user"
+                className="happy-message scroll-mt-4 px-1 min-w-0 max-w-full overflow-x-clip"
             >
                 <div className="ml-auto w-full max-w-[92%]">
                     <CliOutputBlock text={cliText} />
+                    <MessageActions align="end" copyText={cliText} messageElementId={elementId} />
                     <MessageTimestamp className="mt-1 block text-right text-[10px] leading-none text-[var(--app-hint)]" />
                 </div>
             </MessagePrimitive.Root>
@@ -138,8 +142,9 @@ export function HappyUserMessage() {
 
     return (
         <MessagePrimitive.Root
-            id={getConversationMessageAnchorId(messageId)}
-            className={`${getUserBubbleClassName(status)} group/msg scroll-mt-4`}
+            id={elementId}
+            data-hapi-message-role="user"
+            className={`happy-message ${getUserBubbleClassName(status)} group/msg scroll-mt-4`}
         >
             <div className="flex flex-col gap-1">
                 <div className="flex items-start gap-2">
@@ -186,6 +191,7 @@ export function HappyUserMessage() {
                     </div>
                 )}
             </div>
+            <MessageActions align="end" copyText={hasText ? text : undefined} messageElementId={elementId} />
         </MessagePrimitive.Root>
     )
 }

@@ -23,6 +23,7 @@ const MESSAGE_PART_COMPONENTS = {
 
 export function HappyAssistantMessage() {
     const messageId = useAssistantState(({ message }) => message.id)
+    const elementId = getConversationMessageAnchorId(messageId)
     const isCliOutput = useAssistantState(({ message }) => {
         const custom = message.metadata.custom as Partial<HappyChatMessageMetadata> | undefined
         return custom?.kind === 'cli-output'
@@ -59,7 +60,8 @@ export function HappyAssistantMessage() {
 
     return (
         <MessagePrimitive.Root
-            id={getConversationMessageAnchorId(messageId)}
+            id={elementId}
+            data-hapi-message-role="assistant"
             className={`happy-message ${rootClass} scroll-mt-4`}
         >
             {isCliOutput
@@ -68,7 +70,7 @@ export function HappyAssistantMessage() {
                     ? <CodexReviewCard review={codexReview} />
                     : <MessagePrimitive.Content components={MESSAGE_PART_COMPONENTS} />}
             <div className="flex items-center gap-1">
-                <MessageActions align="start" copyText={copyText || undefined} metadata={metadata} />
+                <MessageActions align="start" copyText={copyText || undefined} metadata={metadata} messageElementId={elementId} />
                 {!isCliOutput && !codexReview && copyText ? (
                     <SpeakSummaryButton messageId={messageId} text={copyText} />
                 ) : null}

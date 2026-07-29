@@ -35,7 +35,13 @@ vi.mock('@tanstack/react-router', () => ({
     useNavigate: () => navigate,
 }))
 
-vi.mock('@/lib/app-context', () => ({ useAppContext: () => ({ user: { role: 'admin' } }) }))
+vi.mock('@/lib/app-context', () => ({
+    useAppContext: () => ({
+        api: {},
+        baseUrl: 'http://127.0.0.1:3006',
+        user: { role: 'admin' },
+    }),
+}))
 
 vi.mock('@hapi/protocol', () => ({ PROTOCOL_VERSION: 1 }))
 
@@ -128,6 +134,10 @@ vi.mock('@/hooks/useChatSurfaceColors', () => ({
     toCustomChatSurfaceColorPreference: (value: string) => `custom:${value}`,
 }))
 
+vi.mock('@/components/settings/CompanionPairing', () => ({
+    CompanionPairing: () => <div>Companion pairing</div>,
+}))
+
 vi.mock('@/components/settings/VoiceAdvancedControls', () => ({
     VoiceRespondsControls: () => <div>Response length controls</div>,
     VoiceSoundsControls: () => <div>Sound controls</div>,
@@ -179,6 +189,8 @@ describe('responsive settings pages', () => {
 
     it('changes the application language inline', () => {
         renderPage(<SettingsGeneralPage />)
+        expect(screen.getByText('Companion')).toBeInTheDocument()
+        expect(screen.getByText('Companion pairing')).toBeInTheDocument()
         fireEvent.click(screen.getByRole('radio', { name: '简体中文' }))
         expect(localStorage.getItem('hapi-lang')).toBe('zh-CN')
     })
@@ -202,6 +214,7 @@ describe('responsive settings pages', () => {
 
     it('renders About metadata on its own route page', () => {
         renderPage(<SettingsAboutPage />)
+        expect(screen.queryByText('Companion')).not.toBeInTheDocument()
         expect(screen.getByText('App Version')).toBeInTheDocument()
         expect(screen.getByText(String(__APP_VERSION__))).toBeInTheDocument()
         expect(screen.getByText('Protocol Version')).toBeInTheDocument()

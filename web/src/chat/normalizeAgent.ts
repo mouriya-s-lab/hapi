@@ -229,6 +229,7 @@ function normalizeAssistantOutput(
     const parentUUID = asString(data.parentUuid) ?? null
     const isSidechain = Boolean(data.isSidechain)
     const agentTimestamp = parseAgentTimestampMs(data.timestamp)
+    const parentToolUseId = asString(data.parentToolUseId) ?? null
 
     const message = isObject(data.message) ? data.message : null
     if (!message) return null
@@ -270,6 +271,7 @@ function normalizeAssistantOutput(
         model,
         role: 'agent',
         isSidechain,
+        parentToolUseId,
         content: blocks,
         meta,
         agentTimestamp,
@@ -297,6 +299,7 @@ function normalizeUserOutput(
     const parentUUID = asString(data.parentUuid) ?? null
     const isSidechain = Boolean(data.isSidechain)
     const agentTimestamp = parseAgentTimestampMs(data.timestamp)
+    const parentToolUseId = asString(data.parentToolUseId) ?? null
 
     const message = isObject(data.message) ? data.message : null
     if (!message) return null
@@ -310,6 +313,7 @@ function normalizeUserOutput(
             createdAt,
             role: 'agent',
             isSidechain: true,
+            parentToolUseId,
             content: [{ type: 'sidechain', uuid, parentUUID, prompt: messageContent }],
             agentTimestamp
         }
@@ -330,6 +334,7 @@ function normalizeUserOutput(
             createdAt,
             role: 'agent',
             isSidechain: true,
+            parentToolUseId,
             content: [{ type: 'sidechain', uuid, parentUUID, prompt: messageContent }],
             agentTimestamp
         }
@@ -350,6 +355,7 @@ function normalizeUserOutput(
                 createdAt,
                 role: 'agent',
                 isSidechain: true,
+                parentToolUseId,
                 content: [{ type: 'sidechain', uuid, parentUUID, prompt: textParts.join('\n\n') }],
                 agentTimestamp
             }
@@ -413,6 +419,7 @@ function normalizeUserOutput(
         createdAt,
         role: 'agent',
         isSidechain,
+        parentToolUseId,
         content: blocks,
         meta,
         agentTimestamp

@@ -325,6 +325,30 @@ describe('SessionList collapse behavior', () => {
         })
     })
 
+    it('keeps the previous selected path open when selection moves', async () => {
+        const sessions = [
+            makeSession({
+                id: 'session-first',
+                updatedAt: 100,
+                metadata: { path: '/work/first', name: 'First task', flavor: 'codex' },
+            }),
+            makeSession({
+                id: 'session-second',
+                updatedAt: 90,
+                metadata: { path: '/work/second', name: 'Second task', flavor: 'codex' },
+            })
+        ]
+        const { rerender } = render(renderSessionList(sessions, 'session-first'))
+        const firstPanel = screen.getByTitle('/work/first').nextElementSibling
+
+        expect(firstPanel?.getAttribute('data-open')).toBe('true')
+
+        rerender(renderSessionList(sessions, 'session-second'))
+
+        await waitFor(() => {
+            expect(firstPanel?.getAttribute('data-open')).toBe('true')
+        })
+    })
     it('keeps the configured session preview fold while searching', () => {
         localStorage.setItem('hapi-session-preview-limit', '2')
         const sessions = Array.from({ length: 4 }, (_, index) => makeSession({
@@ -342,14 +366,14 @@ describe('SessionList collapse behavior', () => {
             target: { value: 'Matching task' },
         })
 
-        expect(screen.getByText('Matching task 1')).toBeTruthy()
-        expect(screen.getByText('Matching task 2')).toBeTruthy()
-        expect(screen.queryByText('Matching task 3')).toBeNull()
-        expect(screen.queryByText('Matching task 4')).toBeNull()
+        expect(screen.getByRole('button', { name: /Matching task 1/ })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /Matching task 2/ })).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: /Matching task 3/ })).toBeNull()
+        expect(screen.queryByRole('button', { name: /Matching task 4/ })).toBeNull()
 
         fireEvent.click(screen.getByRole('button', { name: 'Show 2 more' }))
 
-        expect(screen.getByText('Matching task 3')).toBeTruthy()
-        expect(screen.getByText('Matching task 4')).toBeTruthy()
+        expect(screen.getByRole('button', { name: /Matching task 3/ })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /Matching task 4/ })).toBeInTheDocument()
     })
 })

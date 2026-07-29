@@ -313,16 +313,14 @@ describe('buildGoalStateMessages', () => {
             .toEqual(['local-immediate'])
     })
 
-    it('includes pending messages that are outside the visible timeline window', () => {
+    it('uses every canonical message even when the thread hides queued rows', () => {
         const now = 1_700_000_000_000
-        const visible = [
-            userMessage({ id: 'visible', createdAt: now - 10 })
-        ]
-        const pending = [
+        const messages = [
+            userMessage({ id: 'visible', createdAt: now - 10 }),
             userMessage({ id: 'pending', createdAt: now })
         ]
 
-        expect(buildGoalStateMessages(visible, pending).map((message) => message.id))
+        expect(buildGoalStateMessages(messages).map((message) => message.id))
             .toEqual(['visible', 'pending'])
     })
 

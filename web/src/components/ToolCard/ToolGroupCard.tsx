@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ToolGroupBlock } from '@/chat/toolGroups'
 import type { ToolCallBlock } from '@/chat/types'
 import { getCodexCommandActions, type CodexCommandAction } from '@/chat/codexCommandPresentation'
 import type { SessionMetadataSummary } from '@/types/api'
-import { ToolDetailDialogContent, ToolStatusIcon, toolStatusColorClass } from '@/components/ToolCard/ToolCard'
+import { useHappyChatContext } from '@/components/AssistantChat/context'
+import { getToolTimingDetails, ToolDetailDialogContent, ToolStatusIcon, ToolTimingSummary, toolStatusColorClass } from '@/components/ToolCard/ToolCard'
 import { extractImagesFromResult, ToolResultImages } from '@/components/ToolCard/views/_results'
 import { getToolPresentation } from '@/components/ToolCard/knownTools'
 import { formatGroupedHeaderSubtitle, formatGroupedHeaderTitle, safeGroupedLabelValue } from '@/components/ToolCard/groupedPresentation'
@@ -11,6 +12,34 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/use-translation'
+import { formatDuration } from '@/chat/presentation'
+
+const TIMING_INTERVAL_MS = 1000
+
+export function getToolGroupTiming(tools: ToolCallBlock[], now: number): {
+    startedAt: number | null
+    completedAt: number | null
+    durationMs: number | null
+    running: boolean
+} {
+    const startedValues = tools
+        .filter((tool) => tool.tool.state !== 'pending')
+        .map((tool) => tool.tool.startedAt ?? tool.tool.createdAt)
+        .filter((value): value is number => Number.isFinite(value))
+    const startedAt = startedValues.length > 0 ? Math.min(...startedValues) : null
+    const running = tools.some((tool) => tool.tool.state === 'running')
+    const allFinished = tools.length > 0 && tools.every((tool) => tool.tool.state === 'completed' || tool.tool.state === 'error')
+    const completedValues = allFinished
+        ? tools.map((tool) => tool.tool.completedAt).filter((value): value is number => value != null && Number.isFinite(value))
+        : []
+    const completedAt = allFinished && completedValues.length === tools.length ? Math.max(...completedValues) : null
+    const durationEnd = running ? now : completedAt
+    const durationMs = startedAt != null && durationEnd != null && durationEnd >= startedAt
+        ? durationEnd - startedAt
+        : null
+
+    return { startedAt, completedAt, durationMs, running }
+}
 
 function DetailsIcon(props: { open: boolean }) {
     return (
@@ -163,13 +192,112 @@ export function ToolGroupCard(props: {
     metadata: SessionMetadataSummary | null
 }) {
     const { t } = useTranslation()
+    const ctx = useHappyChatContext()
     const [open, setOpen] = useState(props.block.defaultOpen)
     const [selectedToolId, setSelectedToolId] = useState<string | null>(null)
+    const [isHydratingHistory, setIsHydratingHistory] = useState(false)
+    const [historyExhausted, setHistoryExhausted] = useState(false)
+    const [retryNonce, setRetryNonce] = useState(0)
+    const [now, setNow] = useState(() => Date.now())
+    const hydrationRunRef = useRef(0)
+    const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const groupTiming = getToolGroupTiming(props.block.tools, now)
 
     useEffect(() => {
+        if (!groupTiming.running) return
+        setNow(Date.now())
+        const id = setInterval(() => setNow(Date.now()), TIMING_INTERVAL_MS)
+        return () => clearInterval(id)
+    }, [groupTiming.running, groupTiming.startedAt])
+
+    function clearRetryTimer() {
+        if (retryTimerRef.current === null) {
+            return
+        }
+        clearTimeout(retryTimerRef.current)
+        retryTimerRef.current = null
+    }
+
+    useEffect(() => {
+        clearRetryTimer()
+        hydrationRunRef.current += 1
         setOpen(props.block.defaultOpen)
         setSelectedToolId(null)
+        setIsHydratingHistory(false)
+        setHistoryExhausted(false)
     }, [props.block.id, props.block.defaultOpen])
+
+    useEffect(() => {
+        return () => {
+            clearRetryTimer()
+        }
+    }, [])
+
+    useEffect(() => {
+        if (!open) {
+            clearRetryTimer()
+            hydrationRunRef.current += 1
+            setIsHydratingHistory(false)
+            setHistoryExhausted(false)
+            return
+        }
+        if (!props.block.needsOlderHistory) {
+            clearRetryTimer()
+            hydrationRunRef.current += 1
+            setIsHydratingHistory(false)
+            setHistoryExhausted(false)
+            return
+        }
+        if (isHydratingHistory || historyExhausted) {
+            return
+        }
+        if (ctx.isLoadingMoreMessages) {
+            return
+        }
+        if (!ctx.hasMoreMessages) {
+            hydrationRunRef.current += 1
+            setIsHydratingHistory(false)
+            setHistoryExhausted(true)
+            return
+        }
+
+        const runId = hydrationRunRef.current + 1
+        hydrationRunRef.current = runId
+        setHistoryExhausted(false)
+        setIsHydratingHistory(true)
+        void ctx.loadOlderMessagesPreservingScroll()
+            .then((loaded) => {
+                if (hydrationRunRef.current !== runId) return
+                setIsHydratingHistory(false)
+                if (!loaded) {
+                    if (!ctx.hasMoreMessages) {
+                        setHistoryExhausted(true)
+                        return
+                    }
+                    clearRetryTimer()
+                    retryTimerRef.current = setTimeout(() => {
+                        retryTimerRef.current = null
+                        if (hydrationRunRef.current !== runId) return
+                        setRetryNonce((value) => value + 1)
+                    }, 150)
+                }
+            })
+            .catch(() => {
+                if (hydrationRunRef.current !== runId) return
+                clearRetryTimer()
+                setIsHydratingHistory(false)
+                setHistoryExhausted(true)
+            })
+    }, [
+        open,
+        props.block.needsOlderHistory,
+        ctx.hasMoreMessages,
+        ctx.isLoadingMoreMessages,
+        ctx.loadOlderMessagesPreservingScroll,
+        historyExhausted,
+        isHydratingHistory,
+        retryNonce,
+    ])
 
     const selectedTool = useMemo(
         () => props.block.tools.find((tool) => tool.id === selectedToolId) ?? null,
@@ -191,6 +319,9 @@ export function ToolGroupCard(props: {
     const subtitle = props.block.presentationMode === 'codex-exploration'
         ? null
         : formatGroupedHeaderSubtitle(props.block, t) ?? formatActionSummary(props.block, t)
+    const summaryBadgeText = props.block.presentationMode === 'codex-exploration'
+        ? null
+        : subtitle ?? t('toolGroup.toolCount', { n: props.block.tools.length })
     const fileCount = props.block.summary.fileTargets.length
     const toolsWithImages = useMemo(
         () => props.block.tools.filter((tool) => extractImagesFromResult(tool.tool.result).length > 0),
@@ -216,18 +347,24 @@ export function ToolGroupCard(props: {
                                     {primaryTitle}
                                 </CardTitle>
                             </div>
-                            {subtitle ? (
-                                <CardDescription className="truncate whitespace-nowrap font-mono text-xs text-[var(--app-tool-card-subtitle)]">
-                                    {subtitle}
-                                </CardDescription>
-                            ) : null}
+                            <ToolTimingSummary
+                                startedAt={groupTiming.startedAt}
+                                completedAt={groupTiming.completedAt}
+                                durationMs={groupTiming.durationMs}
+                                typography="group"
+                            />
                         </div>
 
                         <div className="flex shrink-0 items-center gap-2 self-center text-[var(--app-hint)]">
-                            {props.block.presentationMode !== 'codex-exploration' ? (
+                            {groupTiming.running ? (
+                                <span className={toolStatusColorClass('running')} aria-label={t('toolGroup.rowStatus.running')}>
+                                    <ToolStatusIcon state="running" />
+                                </span>
+                            ) : null}
+                            {summaryBadgeText ? (
                                 <SummaryBadge
-                                    className="bg-[var(--app-subtle-bg)] text-[var(--app-hint)]"
-                                    text={t('toolGroup.toolCount', { n: props.block.tools.length })}
+                                    className="bg-[var(--app-subtle-bg)] text-xs font-normal text-[var(--app-hint)]"
+                                    text={summaryBadgeText}
                                 />
                             ) : null}
                             {props.block.summary.runningCount > 0 ? (
@@ -266,6 +403,7 @@ export function ToolGroupCard(props: {
                             {props.block.presentationMode === 'codex-exploration' ? (
                                 <CodexExplorationRows tools={props.block.tools} onSelect={setSelectedToolId} />
                             ) : props.block.tools.map((tool) => {
+                                const timing = getToolTimingDetails(tool.tool, now)
                                 return (
                                     <button
                                         key={tool.id}
@@ -278,6 +416,11 @@ export function ToolGroupCard(props: {
                                         </span>
                                         <RowLabel block={tool} metadata={props.metadata} />
                                         <div className="flex shrink-0 items-center gap-2">
+                                            {timing.durationMs != null ? (
+                                                <span className="font-mono text-xs text-[var(--app-hint)]">
+                                                    {formatDuration(timing.durationMs)}
+                                                </span>
+                                            ) : null}
                                             <RowStatusBadge block={tool} />
                                         </div>
                                     </button>

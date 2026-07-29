@@ -11,6 +11,9 @@ vi.mock('@assistant-ui/react', () => ({
         Viewport: ({ children }: PropsWithChildren) => <>{children}</>,
         Messages: () => <div id="stable-visible-message" data-testid="stable-visible-message" />,
     },
+    useAssistantState<T>(selector: (state: { thread: { extras: undefined } }) => T): T {
+        return selector({ thread: { extras: undefined } })
+    },
 }))
 
 const scrollToDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTo')
@@ -67,17 +70,17 @@ function PaginationHarness(props: { onRequest: () => void }) {
                 metadata={null}
                 disabled={false}
                 onRefresh={() => undefined}
-                onFlushPending={() => undefined}
-                onAtBottomChange={() => undefined}
-                isLoadingMessages={false}
                 messagesWarning={null}
                 hasMoreMessages={committedPageCount < 3}
                 isLoadingMoreMessages={isLoadingMore}
                 onLoadMore={onLoadMore}
-                pendingCount={0}
+                onViewModeChange={() => undefined}
+                isSyncingTail={false}
+                unseenCount={0}
                 rawMessagesCount={1}
                 normalizedMessagesCount={1}
                 messagesVersion={committedPageCount}
+                historyVersion={committedPageCount}
                 forceScrollToken={0}
                 outlineOpen={false}
                 outlineItems={[]}

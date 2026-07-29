@@ -14,6 +14,7 @@ import { randomUUID } from "node:crypto";
 import { registerGeneratedMediaFromPath } from "@/modules/common/generatedImages";
 import { registerGeneratedFile } from "@/modules/common/generatedFiles";
 import { resolveSkill } from "@/modules/common/skills";
+import { PingPeerError, pingPeer } from "@/modules/pingPeer/pingPeer";
 
 type StartHappyServerOptions = {
     emitTitleSummary?: boolean;
@@ -23,6 +24,19 @@ type StartHappyServerOptions = {
         flavor: string;
     };
 };
+
+/** Registered on the MCP server, but never pre-approved via Claude --allowedTools. */
+const CLAUDE_MANUAL_APPROVAL_HAPI_TOOLS = new Set(['ping_peer']);
+
+/**
+ * Map HAPI MCP tool names to Claude `--allowedTools` entries.
+ * Keeps `ping_peer` off the auto-allow list so resume+inject still prompts.
+ */
+export function toClaudeAllowedHapiMcpTools(toolNames: string[]): string[] {
+    return toolNames
+        .filter((toolName) => !CLAUDE_MANUAL_APPROVAL_HAPI_TOOLS.has(toolName))
+        .map((toolName) => `mcp__hapi__${toolName}`);
+}
 
 function createHapiMcpServer(
     client: ApiSessionClient,
@@ -61,6 +75,13 @@ function createHapiMcpServer(
         title: z.string().optional().describe('Optional display title or filename for the image'),
     });
 
+    const pingPeerInputSchema: z.ZodTypeAny = z.object({
+        sessionIdPrefix: z.string().trim().min(1).describe(
+            'Target HAPI session id or unique id prefix (another session - not this chat)'
+        ),
+        message: z.string().min(1).describe('Message text to deliver to the target session'),
+    });
+
     const displayVideoInputSchema: z.ZodTypeAny = z.object({
         path: z.string().describe('Local filesystem path of the video to display inline (mp4 or webm)'),
         title: z.string().optional().describe('Optional display title or filename for the video'),
@@ -93,7 +114,6 @@ function createHapiMcpServer(
 
         return media;
     }
-
     const skillLookupInputSchema: z.ZodTypeAny = z.object({
         name: z.string().trim().min(1).max(128).describe('Exact skill name shown by HAPI skill autocomplete'),
     });
@@ -165,6 +185,45 @@ function createHapiMcpServer(
         }
     });
 
+    mcp.registerTool<any, any>('ping_peer', {
+        description: 'Send a message to another HAPI session (peer handoff / nudge). Resolves by session id prefix, resumes if inactive, then POSTs the message on the same hub/namespace. Prefer this (or `hapi ping-peer`) over reinventing JWT+curl. Targets another session - not the current chat.',
+        title: 'Ping Peer Session',
+        inputSchema: pingPeerInputSchema,
+    }, async (args: { sessionIdPrefix: string; message: string }) => {
+        logger.debug('[hapiMCP] ping_peer:', args.sessionIdPrefix);
+        try {
+            const result = await pingPeer({
+                sessionIdPrefix: args.sessionIdPrefix,
+                message: args.message,
+            });
+            return {
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: `Delivered to ${result.sessionId}${result.resumed ? ' (resumed)' : ''} (${result.name})`,
+                    },
+                ],
+                isError: false,
+            };
+        } catch (error) {
+            const message = error instanceof PingPeerError
+                ? error.message
+                : error instanceof Error
+                    ? error.message
+                    : String(error);
+            logger.debug('[hapiMCP] ping_peer failed:', message);
+            return {
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: `Failed to ping peer: ${message}`,
+                    },
+                ],
+                isError: true,
+            };
+        }
+    });
+
     mcp.registerTool<any, any>('display_video', {
         description: 'Display a local mp4 or webm file inline in the current HAPI chat session. Call with the absolute filesystem path when the user should see a screen recording or video artifact.',
         title: 'Display Video',
@@ -174,7 +233,6 @@ function createHapiMcpServer(
 
         try {
             const video = await displayInlineMedia(args, 'video');
-
             return {
                 content: [
                     {
@@ -366,8 +424,8 @@ export async function startHappyServer(client: ApiSessionClient, options: StartH
     }));
 
     const toolNames = enableChangeTitle
-        ? ['change_title', 'display_image', 'display_video', 'send_file']
-        : ['display_image', 'display_video', 'send_file'];
+        ? ['change_title', 'display_image', 'ping_peer', 'display_video', 'send_file']
+        : ['display_image', 'ping_peer', 'display_video', 'send_file'];
     if (options.skillLookup) {
         toolNames.push('skill_lookup');
     }

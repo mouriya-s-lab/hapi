@@ -1,5 +1,62 @@
 import { describe, expect, it } from 'vitest'
-import { getToolPresentation } from '@/components/ToolCard/knownTools'
+import { formatTerminalCommandTitle, getToolPresentation } from '@/components/ToolCard/knownTools'
+
+describe('formatTerminalCommandTitle', () => {
+    it.each([
+        ['bun run test --watch', 'bun run test'],
+        ['git status --short', 'git status'],
+        ['rg -n "foo" web/src', 'rg'],
+        ['sudo systemctl restart hapi', 'systemctl restart'],
+        ['CI=1 env NODE_ENV=test npm run lint -- --fix', 'npm run lint'],
+        ['/usr/bin/docker compose up -d', 'docker compose up'],
+        ['git -C /tmp/repo status', 'git'],
+        ['sudo -u root systemctl restart hapi', null],
+        ['bun test && bun typecheck', null],
+        ['', null],
+    ])('formats %j as %j', (command, expected) => {
+        expect(formatTerminalCommandTitle(command)).toBe(expected)
+    })
+
+    it.each(['Bash', 'CodexBash', 'shell_command', 'run_shell_command'])('uses the command fallback for %s', (toolName) => {
+        const presentation = getToolPresentation({
+            toolName,
+            input: { command: 'git status --short' },
+            result: null,
+            childrenCount: 0,
+            description: null,
+            metadata: null,
+        })
+
+        expect(presentation.title).toBe('git status')
+        expect(presentation.subtitle).toBe('git status --short')
+    })
+
+    it('keeps the agent description authoritative', () => {
+        const presentation = getToolPresentation({
+            toolName: 'Bash',
+            input: { command: 'git status --short' },
+            result: null,
+            childrenCount: 0,
+            description: 'Inspect repository status',
+            metadata: null,
+        })
+
+        expect(presentation.title).toBe('Inspect repository status')
+    })
+
+    it('shortens a native title that only repeats the raw command', () => {
+        const presentation = getToolPresentation({
+            toolName: 'run_shell_command',
+            input: { command: 'ls -la /tmp' },
+            result: null,
+            childrenCount: 0,
+            description: 'ls -la /tmp',
+            metadata: null,
+        })
+
+        expect(presentation.title).toBe('ls')
+    })
+})
 
 describe('getToolPresentation — unknown tool semantic title + subtitle dedup', () => {
     it('promotes semantic title "Run shell" when toolName equals input.command (Gemini ACP case)', () => {
@@ -44,7 +101,7 @@ describe('getToolPresentation — unknown tool semantic title + subtitle dedup',
         expect(presentation.subtitle).toBe('*.ts')
     })
 
-    it('keeps the original toolName when subtitle differs (no promotion needed)', () => {
+    it('uses a concise command title for run_shell_command', () => {
         const presentation = getToolPresentation({
             toolName: 'run_shell_command',
             input: { command: 'ls -la /tmp' },
@@ -54,7 +111,7 @@ describe('getToolPresentation — unknown tool semantic title + subtitle dedup',
             metadata: null,
         })
 
-        expect(presentation.title).toBe('run_shell_command')
+        expect(presentation.title).toBe('ls')
         expect(presentation.subtitle).toBe('ls -la /tmp')
     })
 

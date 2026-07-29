@@ -8,7 +8,7 @@
  */
 
 import { isKnownFlavor, type LocalResumeTarget, type ResumableSession } from '@hapi/protocol'
-import type { CursorChatStoreStatus, CursorMigrateOutcome, CursorMigrateToAcpRequest, ImportableSessionProvider, ImportProviderSessionResponse, ListCcSwitchProvidersResponse, ListImportableSessionsResponse, QueuedStateResponse, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
+import type { CursorChatStoreStatus, CursorMigrateOutcome, CursorMigrateToAcpRequest, ImportableSessionProvider, ImportProviderSessionResponse, ListCcSwitchProvidersResponse, ListImportableSessionsResponse, MessagesResponse, QueuedStateResponse, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor, ClaudeLaunch, CodexCollaborationMode, DecryptedMessage, PermissionMode, Session, SyncEvent } from '@hapi/protocol/types'
 import { unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
 import type { Server } from 'socket.io'
@@ -340,16 +340,14 @@ export class SyncEngine {
 
     getMessagesPage(
         sessionId: string,
-        options: { limit: number; before?: { at: number; seq: number } | null }
-    ): {
-        messages: DecryptedMessage[]
-        page: {
+        options: {
             limit: number
-            nextBeforeSeq: number | null
-            nextBeforeAt: number | null
-            hasMore: boolean
+            before?: { at: number; seq: number } | null
+            after?: { at: number; seq: number } | null
+            until?: { at: number; seq: number } | null
+            epoch?: number | null
         }
-    } {
+    ): MessagesResponse {
         return this.messageService.getMessagesPage(sessionId, options)
     }
 
@@ -449,6 +447,113 @@ export class SyncEngine {
 
     recordSessionActivity(sessionId: string, updatedAt: number): void {
         this.sessionCache.recordSessionActivity(sessionId, updatedAt)
+    }
+
+    /**
+     * tiann/hapi#893 (scratchlist v2). Read-side: list entries for a
+     * session. Auth / namespace check is the route layer's job (via
+     * `requireSessionFromParam`); by the time we get here the caller
+     * already proved access.
+     */
+    listScratchlistEntries(sessionId: string): Array<{
+        entryId: string
+        text: string
+        createdAt: number
+        updatedAt: number
+    }> {
+        return this.store.scratchlist.list(sessionId).map((row) => ({
+            entryId: row.entryId,
+            text: row.text,
+            createdAt: row.createdAt,
+            updatedAt: row.updatedAt
+        }))
+    }
+
+    countScratchlistEntries(sessionId: string): number {
+        return this.store.scratchlist.count(sessionId)
+    }
+
+    /**
+     * Read a single entry by id. The route layer uses this to short-
+     * circuit duplicate POSTs (migration retry) BEFORE running the
+     * server-side cap check; otherwise an idempotent retry against a
+     * session that has hit `SCRATCHLIST_MAX_ENTRIES` would 409 when it
+     * should 200 with the existing row.
+     */
+    getScratchlistEntry(
+        sessionId: string,
+        entryId: string
+    ): { entryId: string; text: string; createdAt: number; updatedAt: number } | null {
+        const row = this.store.scratchlist.get(sessionId, entryId)
+        if (!row) return null
+        return {
+            entryId: row.entryId,
+            text: row.text,
+            createdAt: row.createdAt,
+            updatedAt: row.updatedAt
+        }
+    }
+
+    /**
+     * Insert a scratchlist entry. Returns the canonical row on success
+     * (so the route layer can serialise it without a follow-up read).
+     * Emits a `session-updated` SSE patch carrying `scratchlistUpdatedAt`
+     * so other clients viewing the same session refetch.
+     *
+     * `outcome: 'duplicate'` covers the migration path's idempotency:
+     * the web client may retry pushing a localStorage entry after a
+     * partial failure; the second attempt should be a no-op rather than
+     * a hard error. Route layer maps duplicate → 200/conflict per its
+     * own contract; this layer just reports it.
+     */
+    createScratchlistEntry(
+        sessionId: string,
+        text: string,
+        options?: { entryId?: string; createdAt?: number }
+    ): {
+        outcome: 'created' | 'duplicate'
+        entry: { entryId: string; text: string; createdAt: number; updatedAt: number }
+    } | { outcome: 'session-not-found' } {
+        const result = this.store.scratchlist.create(sessionId, text, options)
+        if (result.outcome === 'session-not-found') {
+            return result
+        }
+        if (result.outcome === 'created') {
+            this.sessionCache.emitScratchlistChanged(sessionId, result.entry.updatedAt)
+        }
+        return {
+            outcome: result.outcome,
+            entry: {
+                entryId: result.entry.entryId,
+                text: result.entry.text,
+                createdAt: result.entry.createdAt,
+                updatedAt: result.entry.updatedAt
+            }
+        }
+    }
+
+    updateScratchlistEntry(
+        sessionId: string,
+        entryId: string,
+        text: string
+    ): { entryId: string; text: string; createdAt: number; updatedAt: number } | null {
+        const updated = this.store.scratchlist.update(sessionId, entryId, text)
+        if (!updated) return null
+        this.sessionCache.emitScratchlistChanged(sessionId, updated.updatedAt)
+        return {
+            entryId: updated.entryId,
+            text: updated.text,
+            createdAt: updated.createdAt,
+            updatedAt: updated.updatedAt
+        }
+    }
+
+    deleteScratchlistEntry(sessionId: string, entryId: string): boolean {
+        const removed = this.store.scratchlist.delete(sessionId, entryId)
+        if (removed) {
+            this.sessionCache.emitScratchlistChanged(sessionId, Date.now())
+        }
+        return removed
     }
 
     handleMachineAlive(payload: { machineId: string; time: number; health?: unknown }): void {
@@ -919,7 +1024,8 @@ export class SyncEngine {
         serviceTier?: string,
         claudeLaunch?: ClaudeLaunch,
         ccSwitchProviderId?: string,
-        existingSessionId?: string
+        existingSessionId?: string,
+        collaborationMode?: CodexCollaborationMode
     ): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }> {
         return await this.rpcGateway.spawnSession(
             machineId,
@@ -936,7 +1042,8 @@ export class SyncEngine {
             serviceTier,
             claudeLaunch,
             ccSwitchProviderId,
-            existingSessionId
+            existingSessionId,
+            collaborationMode
         )
     }
 
@@ -964,7 +1071,9 @@ export class SyncEngine {
         }
 
         const flavor = this.resolveFlavor(session)
-        if (flavor === 'codex') return metadata.codexSessionId ?? null
+        if (flavor === 'codex') {
+            return metadata.codexSessionId ?? this.recoverCodexSessionIdFromMessages(session.id, namespace)
+        }
         if (flavor === 'gemini') return metadata.geminiSessionId ?? null
         if (flavor === 'opencode') return metadata.opencodeSessionId ?? null
         if (flavor === 'grok') return metadata.grokSessionId ?? null
@@ -1433,7 +1542,8 @@ export class SyncEngine {
             includeStoredModelParameters ? session.serviceTier ?? undefined : undefined,
             claudeLaunch,
             opts?.ccSwitchProviderId ?? metadata.ccSwitchProviderId,
-            access.sessionId
+            access.sessionId,
+            session.collaborationMode ?? undefined
         )
 
         if (spawnResult.type !== 'success') {
@@ -1630,10 +1740,60 @@ export class SyncEngine {
             const found = this.extractClaudeSessionId(messages[i].content)
             if (!found) continue
 
-            this.persistRecoveredClaudeSessionId(sessionId, namespace, found)
-            return found
+            return this.persistRecoveredAgentSessionId(sessionId, namespace, 'claudeSessionId', found)
         }
         return null
+    }
+
+    private recoverCodexSessionIdFromMessages(sessionId: string, namespace: string): string | null {
+        const messages = this.messageService.getMessages(sessionId, 200)
+        for (let i = messages.length - 1; i >= 0; i -= 1) {
+            const content = messages[i].content
+            if (this.isCodexContextResetMessage(content)) return null
+
+            const found = this.extractCodexParentThreadId(content)
+            if (!found) continue
+
+            return this.persistRecoveredAgentSessionId(sessionId, namespace, 'codexSessionId', found)
+        }
+        return null
+    }
+
+    private isCodexContextResetMessage(value: unknown): boolean {
+        const message = asRecord(value)
+        const content = asRecord(message?.content)
+        const event = asRecord(content?.data)
+        return message?.role === 'agent'
+            && content?.type === 'event'
+            && event?.type === 'message'
+            && event.message === 'Context was reset'
+    }
+
+    private extractCodexParentThreadId(value: unknown): string | null {
+        const message = asRecord(value)
+        const content = asRecord(message?.content)
+        const event = asRecord(content?.data)
+        if (message?.role !== 'agent' || content?.type !== 'codex' || !event) {
+            return null
+        }
+
+        const scope = asRecord(event.scope)
+        const roles = [event.scope_role, event.scopeRole, scope?.role]
+            .filter((role) => role !== undefined)
+        if (roles.length === 0 || roles.some((role) => role !== 'parent')) {
+            return null
+        }
+
+        const threadIds: string[] = []
+        for (const threadId of [event.thread_id, event.threadId, scope?.thread_id, scope?.threadId]) {
+            if (threadId === undefined) continue
+
+            const normalized = this.normalizeAgentSessionId(threadId)
+            if (!normalized) return null
+            threadIds.push(normalized)
+        }
+        const uniqueThreadIds = [...new Set(threadIds)]
+        return uniqueThreadIds.length === 1 ? uniqueThreadIds[0] : null
     }
 
     private extractClaudeSessionId(value: unknown): string | null {
@@ -1642,7 +1802,7 @@ export class SyncEngine {
         }
 
         const obj = value as Record<string, unknown>
-        const direct = this.normalizeClaudeSessionId(obj.session_id) ?? this.normalizeClaudeSessionId(obj.sessionId)
+        const direct = this.normalizeAgentSessionId(obj.session_id) ?? this.normalizeAgentSessionId(obj.sessionId)
         if (direct) {
             return direct
         }
@@ -1662,7 +1822,7 @@ export class SyncEngine {
         return null
     }
 
-    private normalizeClaudeSessionId(value: unknown): string | null {
+    private normalizeAgentSessionId(value: unknown): string | null {
         if (typeof value !== 'string') {
             return null
         }
@@ -1672,28 +1832,45 @@ export class SyncEngine {
             : null
     }
 
-    private persistRecoveredClaudeSessionId(sessionId: string, namespace: string, claudeSessionId: string): void {
+    private persistRecoveredAgentSessionId(
+        sessionId: string,
+        namespace: string,
+        field: 'claudeSessionId' | 'codexSessionId',
+        agentSessionId: string
+    ): string {
         for (let attempt = 0; attempt < 2; attempt += 1) {
             const latest = this.sessionCache.getSessionByNamespace(sessionId, namespace)
                 ?? this.sessionCache.refreshSession(sessionId)
-            if (!latest?.metadata) return
-            if (latest.metadata.claudeSessionId === claudeSessionId) return
+            if (!latest?.metadata) return agentSessionId
+
+            const existingAgentSessionId = latest.metadata[field]
+            if (typeof existingAgentSessionId === 'string') {
+                return existingAgentSessionId
+            }
 
             const result = this.store.sessions.updateSessionMetadata(
                 sessionId,
-                { ...latest.metadata, claudeSessionId },
+                { ...latest.metadata, [field]: agentSessionId },
                 latest.metadataVersion,
                 namespace,
                 { touchUpdatedAt: false }
             )
             if (result.result === 'success') {
                 this.sessionCache.refreshSession(sessionId)
-                return
+                return agentSessionId
             }
             if (result.result !== 'version-mismatch') {
-                return
+                return agentSessionId
+            }
+
+            this.sessionCache.refreshSession(sessionId)
+            const refreshed = this.sessionCache.getSessionByNamespace(sessionId, namespace)
+            const authoritativeAgentSessionId = refreshed?.metadata?.[field]
+            if (typeof authoritativeAgentSessionId === 'string') {
+                return authoritativeAgentSessionId
             }
         }
+        return agentSessionId
     }
 
     private hasSameAgentSessionIds(

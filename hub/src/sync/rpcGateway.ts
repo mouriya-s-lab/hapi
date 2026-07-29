@@ -188,13 +188,32 @@ export class RpcGateway {
         serviceTier?: string,
         claudeLaunch?: ClaudeLaunch,
         ccSwitchProviderId?: string,
-        existingSessionId?: string
+        existingSessionId?: string,
+        collaborationMode?: CodexCollaborationMode
     ): Promise<{ type: 'success'; sessionId: string } | { type: 'error'; message: string }> {
         try {
             const result = await this.machineRpc(
                 machineId,
                 RPC_METHODS.SpawnHappySession,
-                { type: 'spawn-in-directory', directory, agent, model, modelReasoningEffort, yolo, sessionType, worktreeName, resumeSessionId, effort, permissionMode, serviceTier, existingSessionId, sessionId: existingSessionId, claudeLaunch, ccSwitchProviderId }
+                {
+                    type: 'spawn-in-directory',
+                    directory,
+                    agent,
+                    model,
+                    modelReasoningEffort,
+                    yolo,
+                    sessionType,
+                    worktreeName,
+                    resumeSessionId,
+                    effort,
+                    permissionMode,
+                    serviceTier,
+                    existingSessionId,
+                    sessionId: existingSessionId,
+                    claudeLaunch,
+                    ccSwitchProviderId,
+                    collaborationMode
+                }
             )
             if (result && typeof result === 'object') {
                 const obj = result as Record<string, unknown>

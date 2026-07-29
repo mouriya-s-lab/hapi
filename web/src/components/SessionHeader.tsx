@@ -10,6 +10,7 @@ import { SessionExportDialog } from '@/components/SessionExportDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
 import { SessionIdDialog } from '@/components/SessionIdDialog'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { useScratchlistCount } from '@/lib/use-scratchlist-count'
 import { formatReopenError } from '@/lib/reopenError'
 import { formatCodexReasoningLabel, shouldShowCodexReasoningLabel } from '@/lib/codexStatusLabels'
 import { formatUsageSnapshotLabel, getSessionModelLabel } from '@/lib/sessionModelLabel'
@@ -89,6 +90,7 @@ function MoreVerticalIcon(props: { className?: string }) {
 
 export function SessionHeader(props: {
     session: Session
+    serviceTier?: string | null
     onBack: () => void
     onToggleFiles?: () => void
     filesActive?: boolean
@@ -111,7 +113,10 @@ export function SessionHeader(props: {
         ? formatCodexReasoningLabel(session.modelReasoningEffort)
         : null
     // Match expected Fast badge semantics (#1004): only explicit service tier, no effort/model heuristics.
-    const showFastBadge = agentFlavor === 'codex' && isFastServiceTier(session.serviceTier)
+    const showFastBadge = agentFlavor === 'codex' && isFastServiceTier(props.serviceTier ?? session.serviceTier)
+    const codexSessionId = session.metadata?.flavor === 'codex'
+        ? session.metadata.codexSessionId?.trim() || null
+        : null
     const sessionMachineId = session.metadata?.machineId ?? null
     const { machines } = useMachines(api, Boolean(sessionMachineId))
     const machineUsage = machines.find((machine) => machine.id === sessionMachineId)?.metadata?.usage
@@ -143,6 +148,9 @@ export function SessionHeader(props: {
         Boolean(sessionFlavor) &&
         getFlavorForkCapability(capabilities, sessionFlavor).fork !== 'none'
     const [reopenError, setReopenError] = useState<string | null>(null)
+    // Surface the scratchlist entry count in the delete confirmation so the
+    // operator knows what cascades when the session is removed.
+    const scratchlistCount = useScratchlistCount(session.id, api)
     const [forkError, setForkError] = useState<string | null>(null)
 
     const handleDelete = async () => {
@@ -219,7 +227,7 @@ export function SessionHeader(props: {
                         </div>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--app-hint)]">
                             <span className="inline-flex items-center gap-1">
-                                <AgentFlavorIcon flavor={session.metadata?.flavor} className="h-3.5 w-3.5 shrink-0" />
+                                <AgentFlavorIcon flavor={session.metadata?.flavor} className="h-3.5 w-3.5 shrink-0 -translate-y-px" />
                                 {session.metadata?.flavor?.trim() || 'unknown'}
                             </span>
                             {usageLabel ? (
@@ -369,7 +377,16 @@ export function SessionHeader(props: {
                 isOpen={deleteOpen}
                 onClose={() => setDeleteOpen(false)}
                 title={t('dialog.delete.title')}
-                description={t('dialog.delete.description', { name: title })}
+                description={
+                    scratchlistCount > 0
+                        ? `${t('dialog.delete.description', { name: title })} ${t(
+                            scratchlistCount === 1
+                                ? 'dialog.delete.scratchlist.one'
+                                : 'dialog.delete.scratchlist.other',
+                            { n: String(scratchlistCount) }
+                        )}`
+                        : t('dialog.delete.description', { name: title })
+                }
                 confirmLabel={t('dialog.delete.confirm')}
                 confirmingLabel={t('dialog.delete.confirming')}
                 onConfirm={handleDelete}

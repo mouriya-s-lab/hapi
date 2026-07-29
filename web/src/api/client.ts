@@ -298,6 +298,11 @@ export class ApiClient {
         options: {
             beforeSeq?: number | null
             beforeAt?: number | null
+            afterSeq?: number | null
+            afterAt?: number | null
+            untilSeq?: number | null
+            untilAt?: number | null
+            epoch?: number | null
             limit?: number
         }
     ): Promise<MessagesResponse> {
@@ -307,6 +312,21 @@ export class ApiClient {
         }
         if (options.beforeSeq !== undefined && options.beforeSeq !== null) {
             params.set('beforeSeq', `${options.beforeSeq}`)
+        }
+        if (options.afterAt !== undefined && options.afterAt !== null) {
+            params.set('afterAt', `${options.afterAt}`)
+        }
+        if (options.afterSeq !== undefined && options.afterSeq !== null) {
+            params.set('afterSeq', `${options.afterSeq}`)
+        }
+        if (options.untilAt !== undefined && options.untilAt !== null) {
+            params.set('untilAt', `${options.untilAt}`)
+        }
+        if (options.untilSeq !== undefined && options.untilSeq !== null) {
+            params.set('untilSeq', `${options.untilSeq}`)
+        }
+        if (options.epoch !== undefined && options.epoch !== null) {
+            params.set('epoch', `${options.epoch}`)
         }
         if (options.limit !== undefined && options.limit !== null) {
             params.set('limit', `${options.limit}`)
@@ -762,7 +782,9 @@ export class ApiClient {
         sessionType?: 'simple' | 'worktree',
         worktreeName?: string,
         effort?: string,
-        permissionMode?: PermissionMode
+        permissionMode?: PermissionMode,
+        serviceTier?: 'fast' | 'standard',
+        collaborationMode?: 'default' | 'plan'
     ): Promise<SpawnResponse> {
         return await this.request<SpawnResponse>(`/api/machines/${encodeURIComponent(machineId)}/spawn`, {
             method: 'POST',
@@ -775,7 +797,9 @@ export class ApiClient {
                 sessionType,
                 worktreeName,
                 effort,
-                permissionMode
+                permissionMode,
+                serviceTier,
+                collaborationMode
             })
         })
     }
@@ -791,7 +815,6 @@ export class ApiClient {
             `/api/machines/${encodeURIComponent(machineId)}/cc-switch/providers`
         )
     }
-
     async getSessionOpencodeModels(sessionId: string): Promise<OpencodeModelsResponse> {
         return await this.request<OpencodeModelsResponse>(
             `/api/sessions/${encodeURIComponent(sessionId)}/opencode-models`
@@ -936,6 +959,60 @@ export class ApiClient {
         await this.request(`/api/sessions/${encodeURIComponent(sessionId)}`, {
             method: 'DELETE'
         })
+    }
+
+    /*
+     * Scratchlist v2 (tiann/hapi#893).
+     *
+     * The hub is the durable store; localStorage is demoted to an
+     * offline cache. Mutations return the canonical entry so optimistic
+     * updates can reconcile with the hub-stamped `updatedAt`.
+     */
+
+    async getScratchlist(sessionId: string): Promise<{
+        entries: Array<{ entryId: string; text: string; createdAt: number; updatedAt: number }>
+    }> {
+        return await this.request(
+            `/api/sessions/${encodeURIComponent(sessionId)}/scratchlist`
+        )
+    }
+
+    async createScratchlistEntry(
+        sessionId: string,
+        body: { text: string; entryId?: string; createdAt?: number }
+    ): Promise<{
+        entry: { entryId: string; text: string; createdAt: number; updatedAt: number }
+    }> {
+        return await this.request(
+            `/api/sessions/${encodeURIComponent(sessionId)}/scratchlist`,
+            {
+                method: 'POST',
+                body: JSON.stringify(body)
+            }
+        )
+    }
+
+    async updateScratchlistEntry(
+        sessionId: string,
+        entryId: string,
+        text: string
+    ): Promise<{
+        entry: { entryId: string; text: string; createdAt: number; updatedAt: number }
+    }> {
+        return await this.request(
+            `/api/sessions/${encodeURIComponent(sessionId)}/scratchlist/${encodeURIComponent(entryId)}`,
+            {
+                method: 'PUT',
+                body: JSON.stringify({ text })
+            }
+        )
+    }
+
+    async deleteScratchlistEntry(sessionId: string, entryId: string): Promise<void> {
+        await this.request(
+            `/api/sessions/${encodeURIComponent(sessionId)}/scratchlist/${encodeURIComponent(entryId)}`,
+            { method: 'DELETE' }
+        )
     }
 
     async fetchVoiceToken(options?: { customAgentId?: string; customApiKey?: string; voiceId?: string }): Promise<{

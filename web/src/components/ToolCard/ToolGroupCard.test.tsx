@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ToolCallBlock } from '@/chat/types'
 import type { ToolGroupBlock } from '@/chat/toolGroups'
 import { HappyChatProvider } from '@/components/AssistantChat/context'
-import { ToolGroupCard } from '@/components/ToolCard/ToolGroupCard'
+import { getToolGroupTiming, ToolGroupCard } from '@/components/ToolCard/ToolGroupCard'
 import { I18nProvider } from '@/lib/i18n-context'
 
 function makeToolBlock(id: string, name: string, input: unknown = {}): ToolCallBlock {
@@ -114,11 +114,70 @@ describe('ToolGroupCard', () => {
 
         expect(screen.getByRole('button', { name: /inspect a\.ts/i })).toHaveAttribute('aria-expanded', 'false')
         expect(screen.getByText('Run 1 · Read 1')).toBeInTheDocument()
-        expect(screen.getByText('2 actions')).toBeInTheDocument()
+        expect(screen.queryByText('2 actions')).not.toBeInTheDocument()
+        expect(screen.getByText('Run 1 · Read 1')).toHaveClass('text-xs', 'font-normal', 'text-[var(--app-hint)]')
         expect(screen.queryByText('src/a.ts')).not.toBeInTheDocument()
         expect(screen.queryByText('bun test')).not.toBeInTheDocument()
 
         expect(view.container.innerHTML).toContain('bg-[var(--app-tool-group-bg)]')
+    })
+
+    it('derives completed group wall-clock timing from the earliest start and latest finish', () => {
+        const first = makeToolBlock('read-1', 'Read')
+        first.tool.startedAt = 1_000
+        first.tool.completedAt = 2_000
+        const second = makeToolBlock('bash-1', 'Bash')
+        second.tool.startedAt = 1_500
+        second.tool.completedAt = 4_000
+
+        expect(getToolGroupTiming([first, second], 10_000)).toEqual({
+            startedAt: 1_000,
+            completedAt: 4_000,
+            durationMs: 3_000,
+            running: false,
+        })
+    })
+
+    it('shows group start, live duration, and a spinner while collapsed and running', () => {
+        const startedAt = Date.now() - 5_000
+        const completed = makeToolBlock('read-1', 'Read')
+        completed.tool.startedAt = startedAt
+        completed.tool.completedAt = startedAt + 1_000
+        const running = makeToolBlock('bash-1', 'Bash')
+        running.tool.state = 'running'
+        running.tool.startedAt = startedAt + 1_000
+        running.tool.completedAt = null
+
+        const group = makeGroup({
+            tools: [completed, running],
+            summary: {
+                ...makeGroup().summary,
+                runningCount: 1,
+            },
+        })
+        const view = renderCard(group)
+
+        expect(screen.getByText('Started')).toBeInTheDocument()
+        expect(screen.getByText('Duration')).toBeInTheDocument()
+        expect(screen.queryByText('Finished')).not.toBeInTheDocument()
+        expect(within(view.container).getByLabelText('Running')).toBeInTheDocument()
+    })
+
+    it('shows final timing in the collapsed header after every tool finishes', () => {
+        const startedAt = Date.now() - 4_000
+        const first = makeToolBlock('read-1', 'Read')
+        first.tool.startedAt = startedAt
+        first.tool.completedAt = startedAt + 1_000
+        const second = makeToolBlock('bash-1', 'Bash')
+        second.tool.startedAt = startedAt + 1_000
+        second.tool.completedAt = startedAt + 4_000
+
+        renderCard(makeGroup({ tools: [first, second] }))
+
+        expect(screen.getByText('Started')).toBeInTheDocument()
+        expect(screen.getByText('Finished')).toBeInTheDocument()
+        expect(screen.getByText('Duration')).toBeInTheDocument()
+        expect(screen.getByText('4.0s')).toBeInTheDocument()
     })
 
     it('keeps image tool results visible while the group rows are collapsed', () => {
@@ -151,9 +210,9 @@ describe('ToolGroupCard', () => {
         fireEvent.click(groupToggle)
         expect(groupToggle).toHaveAttribute('aria-expanded', 'true')
         expect(view.container.querySelector('svg[data-state="open"]')).toBeInTheDocument()
-        expect(screen.getByText('2 actions')).toBeInTheDocument()
+        expect(screen.getByText('Run 1 · Read 1')).toBeInTheDocument()
+        expect(screen.queryByText('2 actions')).not.toBeInTheDocument()
         expect(screen.getByText('src/a.ts')).toBeInTheDocument()
-        expect(screen.getByText('Terminal')).toBeInTheDocument()
         expect(screen.getByText('bun test')).toBeInTheDocument()
 
         const firstRowButton = within(view.container)
@@ -211,7 +270,7 @@ describe('ToolGroupCard', () => {
             }
         }))
 
-        expect(within(view.container).getByRole('button', { name: /^explored$/i })).toHaveAttribute('aria-expanded', 'true')
+        expect(within(view.container).getByRole('button', { name: /^explored\b/i })).toHaveAttribute('aria-expanded', 'true')
         expect(screen.getByText('Read')).toBeInTheDocument()
         expect(screen.getByText('package.json')).toBeInTheDocument()
         expect(screen.getByText('Search')).toBeInTheDocument()
@@ -255,7 +314,7 @@ describe('ToolGroupCard', () => {
         expect(screen.getByText('Tool 1')).toBeInTheDocument()
     })
 
-    it('expands incomplete groups without starting pagination or replacing the card', () => {
+    it('expands incomplete groups and hydrates their older history in place', () => {
         const loadOlder = vi.fn(async () => true)
         const view = renderCard(makeGroup({
             id: 'tool-group:bash-1',
@@ -266,7 +325,7 @@ describe('ToolGroupCard', () => {
 
         fireEvent.click(groupToggle)
 
-        expect(loadOlder).not.toHaveBeenCalled()
+        expect(loadOlder).toHaveBeenCalledTimes(1)
         expect(groupToggle).toHaveAttribute('aria-expanded', 'true')
         expect(screen.getByText('src/a.ts')).toBeInTheDocument()
     })

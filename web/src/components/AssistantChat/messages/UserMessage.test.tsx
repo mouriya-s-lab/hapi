@@ -54,6 +54,9 @@ vi.mock('@tanstack/react-router', () => ({
     useNavigate: () => state.navigate
 }))
 
+vi.mock('@/components/AssistantChat/messages/MessageActions', () => ({
+    MessageActions: () => null
+}))
 vi.mock('@/hooks/queries/useFlavorCapabilities', () => ({
     useFlavorCapabilities: () => ({ data: state.capabilities }),
     getFlavorForkCapability: (caps: any, flavor: string | null | undefined) => {

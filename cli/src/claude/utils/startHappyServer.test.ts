@@ -5,9 +5,9 @@ import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { ApiSessionClient } from '@/api/apiSession'
+import { startHappyServer, toClaudeAllowedHapiMcpTools } from './startHappyServer'
 import { clearGeneratedImages, getGeneratedImage } from '@/modules/common/generatedImages'
 import { clearGeneratedFiles, getGeneratedFile } from '@/modules/common/generatedFiles'
-import { startHappyServer } from './startHappyServer'
 
 type AgentMediaMessage = {
     type: 'generated-image' | 'generated-file'
@@ -50,7 +50,7 @@ describe('startHappyServer inline media MCP', () => {
         const server = await startHappyServer(sessionClient)
         cleanups.push(server.stop)
         expect(metadata.hapiMcpUrl).toBe(server.url)
-        expect(server.toolNames).toEqual(['change_title', 'display_image', 'display_video', 'send_file'])
+        expect(server.toolNames).toEqual(['change_title', 'display_image', 'ping_peer', 'display_video', 'send_file'])
 
         const client = new Client({ name: 'inline-media-integration-test', version: '1.0.0' })
         await client.connect(new StreamableHTTPClientTransport(new URL(server.url)))
@@ -239,6 +239,7 @@ describe('startHappyServer skill_lookup', () => {
         expect(tools.tools.map((tool) => tool.name)).toEqual([
             'change_title',
             'display_image',
+            'ping_peer',
             'display_video',
             'send_file'
         ])
@@ -258,8 +259,23 @@ describe('startHappyServer skill_lookup', () => {
         await mcp.connect(new StreamableHTTPClientTransport(new URL(server.url)))
         const tools = await mcp.listTools()
 
-        expect(server.toolNames).toEqual(['display_image', 'display_video', 'send_file'])
-        expect(tools.tools.map((tool) => tool.name)).toEqual(['display_image', 'display_video', 'send_file'])
+        expect(server.toolNames).toEqual(['display_image', 'ping_peer', 'display_video', 'send_file'])
+        expect(tools.tools.map((tool) => tool.name)).toEqual(['display_image', 'ping_peer', 'display_video', 'send_file'])
     })
 
+})
+
+describe('toClaudeAllowedHapiMcpTools', () => {
+    it('keeps ping_peer registered but out of Claude --allowedTools', () => {
+        expect(toClaudeAllowedHapiMcpTools([
+            'change_title',
+            'display_image',
+            'ping_peer',
+            'skill_lookup'
+        ])).toEqual([
+            'mcp__hapi__change_title',
+            'mcp__hapi__display_image',
+            'mcp__hapi__skill_lookup'
+        ])
+    })
 })

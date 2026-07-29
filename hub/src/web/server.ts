@@ -21,6 +21,7 @@ import { createMachinesRoutes } from './routes/machines'
 import { createGitRoutes } from './routes/git'
 import { createCliRoutes } from './routes/cli'
 import { createPushRoutes } from './routes/push'
+import { createDevicesRoutes } from './routes/devices'
 import { createVoiceRoutes } from './routes/voice'
 import { createImportableSessionsRoutes } from '../../../fork-features/history-import/hub/routes'
 import { mountForkRoutes } from '../../../fork-features/session-fork/hubMount'
@@ -270,6 +271,7 @@ function createWebApp(options: {
     app.route('/api', createImportableSessionsRoutes(options.getSyncEngine))
     app.route('/api', createGitRoutes(options.getSyncEngine))
     app.route('/api', createPushRoutes(options.store, options.vapidPublicKey))
+    app.route('/api', createDevicesRoutes(options.store))
     app.route('/api', createVoiceRoutes())
 
     // fork-features/session-fork: POST /api/sessions/:id/fork +

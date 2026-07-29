@@ -97,6 +97,8 @@ export async function buildHapiMcpBridge(
     if (options.enableChangeTitle !== false) {
         tools.change_title = { approval_mode: 'approve' };
     }
+    // ping_peer is registered on the HTTP MCP server / stdio bridge, but is not
+    // auto-approved: it targets another session (resume + inject message).
     if (options.skillLookup) {
         tools.skill_lookup = {
             approval_mode: 'approve'

@@ -327,6 +327,8 @@ describe('NewSession launch preferences', () => {
             machineId: 'machine-1',
             effort: 'auto',
             modelReasoningEffort: 'max',
+            serviceTier: 'standard',
+            collaborationMode: 'default',
             yoloMode: false,
             grokPermissionMode: 'default',
             sessionType: 'simple',

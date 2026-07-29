@@ -138,8 +138,8 @@ function ReopenIcon(props: { className?: string }) {
             strokeLinejoin="round"
             className={props.className}
         >
-            <path d="M3 12a9 9 0 1 0 3-6.7" />
-            <polyline points="3 4 3 10 9 10" />
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+            <path d="M3 3v5h5" />
         </svg>
     )
 }

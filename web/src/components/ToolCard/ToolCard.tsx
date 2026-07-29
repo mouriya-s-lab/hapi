@@ -1,4 +1,4 @@
-import type { ChatBlock, ToolCallBlock } from '@/chat/types'
+import type { ChatBlock, ChatToolCall, ToolCallBlock } from '@/chat/types'
 import type { ApiClient } from '@/api/client'
 import type { SessionMetadataSummary } from '@/types/api'
 import { memo, useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
@@ -17,7 +17,7 @@ import { getToolFullViewComponent, getToolViewComponent } from '@/components/Too
 import { extractImagesFromResult, getToolResultViewComponent, ToolResultImages } from '@/components/ToolCard/views/_results'
 import { formatTaskChildLabel, TaskStateIcon } from '@/components/ToolCard/helpers'
 import { toolDurationMs } from '@/components/ToolCard/toolDuration'
-import { formatDuration } from '@/chat/presentation'
+import { formatDuration, formatMessageTimestampTitle } from '@/chat/presentation'
 import type { TerminalToolDisplayMode } from '@/hooks/useTerminalToolDisplayMode'
 import { usePointerFocusRing } from '@/hooks/usePointerFocusRing'
 import { getInputStringAny, truncate } from '@/lib/toolInputUtils'
@@ -46,25 +46,112 @@ export function shouldShowInlineToolCardBody(
     return !presentationMinimal
 }
 
-function ElapsedView(props: { from: number; active: boolean }) {
+export function getToolTimingDetails(tool: ChatToolCall, now: number): {
+    startedAt: number | null
+    completedAt: number | null
+    durationMs: number | null
+} {
+    if (tool.state === 'pending') {
+        return { startedAt: null, completedAt: null, durationMs: null }
+    }
+
+    const active = tool.state === 'running'
+    const hasExecPair = tool.execStartedAt != null && tool.execCompletedAt != null
+    const startedAt = active || !hasExecPair
+        ? (tool.startedAt ?? tool.createdAt)
+        : tool.execStartedAt
+    const completedAt = active
+        ? null
+        : (hasExecPair ? tool.execCompletedAt : tool.completedAt)
+    const liveDurationMs = active && startedAt != null ? Math.max(0, now - startedAt) : null
+
+    return {
+        startedAt,
+        completedAt,
+        durationMs: toolDurationMs(tool) ?? liveDurationMs,
+    }
+}
+
+export function formatCompactToolTimestamp(value: number): string {
+    return new Date(value).toLocaleTimeString(undefined, {
+        hour: 'numeric',
+        minute: '2-digit',
+        second: '2-digit',
+    })
+}
+
+export function ToolTimingSummary(props: {
+    startedAt: number | null
+    completedAt: number | null
+    durationMs: number | null
+    typography?: 'detail' | 'group'
+}) {
+    const { t } = useTranslation()
+    const items = [
+        props.startedAt != null ? { label: t('tool.startedAt'), value: formatCompactToolTimestamp(props.startedAt) } : null,
+        props.completedAt != null ? { label: t('tool.completedAt'), value: formatCompactToolTimestamp(props.completedAt) } : null,
+        props.durationMs != null ? { label: t('tool.duration'), value: formatDuration(props.durationMs) } : null,
+    ].filter((item): item is { label: string; value: string } => item !== null)
+
+    if (items.length === 0) return null
+
+    return (
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-[var(--app-hint)]">
+            {items.map((item) => (
+                <span key={item.label} className="inline-flex items-baseline gap-1.5 whitespace-nowrap">
+                    <span className={props.typography === 'group' ? undefined : 'font-medium'}>{item.label}</span>
+                    <span className={props.typography === 'group' ? undefined : 'font-mono'}>{item.value}</span>
+                </span>
+            ))}
+        </div>
+    )
+}
+
+function ToolCardTimingSummary(props: { tool: ChatToolCall }) {
+    const active = props.tool.state === 'running'
     const [now, setNow] = useState(() => Date.now())
 
     useEffect(() => {
-        if (!props.active) return
+        if (!active) return
         setNow(Date.now())
         const id = setInterval(() => setNow(Date.now()), ELAPSED_INTERVAL_MS)
         return () => clearInterval(id)
-    }, [props.active, props.from])
+    }, [active, props.tool.startedAt, props.tool.createdAt])
 
-    if (!props.active) return null
+    return <ToolTimingSummary {...getToolTimingDetails(props.tool, now)} />
+}
 
-    const elapsed = Math.max(0, now - props.from) / 1000
-    if (!Number.isFinite(elapsed)) return null
+function ToolTimingDetails(props: { block: ToolCallBlock }) {
+    const { t } = useTranslation()
+    const tool = props.block.tool
+    const active = tool.state === 'running'
+    const [now, setNow] = useState(() => Date.now())
+
+    useEffect(() => {
+        if (!active) return
+        setNow(Date.now())
+        const id = setInterval(() => setNow(Date.now()), ELAPSED_INTERVAL_MS)
+        return () => clearInterval(id)
+    }, [active, tool.startedAt, tool.createdAt])
+
+    const { startedAt, completedAt, durationMs } = getToolTimingDetails(tool, now)
+    const rows = [
+        startedAt != null ? [t('tool.startedAt'), formatMessageTimestampTitle(new Date(startedAt))] : null,
+        !active && completedAt != null ? [t('tool.completedAt'), formatMessageTimestampTitle(new Date(completedAt))] : null,
+        durationMs != null ? [t('tool.duration'), formatDuration(durationMs)] : null,
+    ].filter((row): row is string[] => row !== null)
+
+    if (rows.length === 0) return null
 
     return (
-        <span className="font-mono text-xs text-[var(--app-hint)]">
-            {elapsed.toFixed(1)}s
-        </span>
+        <div className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-xs">
+            {rows.map(([label, value]) => (
+                <div key={label} className="contents">
+                    <span className="font-medium text-[var(--app-hint)]">{label}</span>
+                    <span className="font-mono text-[var(--app-hint)]">{value}</span>
+                </div>
+            ))}
+        </div>
     )
 }
 
@@ -175,9 +262,13 @@ function renderTaskSummary(
 
 function renderToolInput(block: ToolCallBlock, surface: 'inline' | 'dialog' = 'inline'): ReactNode {
     const collapseLongContent = surface === 'inline'
+    // The inline surface renders inside a role="button" preview, so the
+    // wrap toggle's <button> would nest inside an interactive ancestor
+    // (invalid HTML / hydration violation). Suppress it for inline; the
+    // dialog surface (button-free) keeps the toggle.
     const codeBlockSurfaceProps = surface === 'dialog'
         ? { size: 'comfortable' as const, scrollY: true }
-        : {}
+        : { showWrapToggle: false }
     const toolName = block.tool.name
     const input = block.tool.input
 
@@ -315,15 +406,9 @@ export function ToolDetailDialogContent(props: {
         )
     }
     const durationMs = toolDurationMs(props.block.tool)
-
     return (
         <div className="mt-3 flex max-h-[75vh] flex-col gap-4 overflow-auto">
-            {durationMs != null ? (
-                <div className="flex items-center gap-2 text-xs">
-                    <span className="font-medium text-[var(--app-hint)]">{t('tool.duration')}</span>
-                    <span className="font-mono text-[var(--app-hint)]">{formatDuration(durationMs)}</span>
-                </div>
-            ) : null}
+            <ToolTimingDetails block={props.block} />
             <div>
                 <div className="mb-1 text-xs font-medium text-[var(--app-hint)]">
                     {isQuestionToolWithAnswers ? t('tool.questionsAnswers') : t('tool.input')}
@@ -371,7 +456,6 @@ function ToolCardInner(props: ToolCardProps) {
     const subtitle = presentation.subtitle ?? props.block.tool.description
     const taskSummary = renderTaskSummary(props.block, props.metadata, t)
     const subagentModel = isSubagentToolName(toolName) ? getSubagentModel(props.block.children) : null
-    const runningFrom = props.block.tool.startedAt ?? props.block.tool.createdAt
     const isCodexAgentCard = toolName === 'CodexAgent'
     const useCompactTerminalCard = shouldUseCompactTerminalToolCard(toolName, props.terminalToolDisplayMode)
     const showInline = shouldShowInlineToolCardBody(toolName, presentation.minimal, props.terminalToolDisplayMode)
@@ -428,6 +512,7 @@ function ToolCardInner(props: ToolCardProps) {
                         {truncate(subtitle, 160)}
                     </CardDescription>
                 ) : null}
+                <ToolCardTimingSummary tool={props.block.tool} />
             </div>
 
             <div className={cn(
@@ -442,7 +527,6 @@ function ToolCardInner(props: ToolCardProps) {
                         {subagentModel}
                     </span>
                 ) : null}
-                <ElapsedView from={runningFrom} active={props.block.tool.state === 'running'} />
                 <span className={stateColor}>
                     <ToolStatusIcon state={props.block.tool.state} />
                 </span>

@@ -68,6 +68,17 @@ describe('useLongPress', () => {
         expect(onClick).toHaveBeenCalledTimes(1)
     })
 
+    it('does not fire onClick when the touch moved (scroll gesture)', () => {
+        const onClick = vi.fn()
+        const { getByTestId } = render(<Probe onClick={onClick} />)
+        const row = getByTestId('row')
+
+        fireEvent.touchStart(row, { touches: [{ clientX: 10, clientY: 10 }] })
+        fireEvent.touchMove(row, { touches: [{ clientX: 10, clientY: 40 }] })
+        fireEvent.touchEnd(row, { changedTouches: [{ clientX: 10, clientY: 40 }] })
+
+        expect(onClick).not.toHaveBeenCalled()
+    })
     it('still fires onLongPress (and not onClick) for a touch long-press', () => {
         const onClick = vi.fn()
         const onLongPress = vi.fn()

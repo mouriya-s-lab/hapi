@@ -30,6 +30,7 @@ import { useHideArchivedSessions } from '@/hooks/useHideArchivedSessions'
 import { filterVisibleSessions } from '@/lib/sessionListFilters'
 import { useMessages } from '@/hooks/queries/useMessages'
 import { useMachines } from '@/hooks/queries/useMachines'
+import { useMachineLabels } from '@/hooks/useMachineLabels'
 import { useSession } from '@/hooks/queries/useSession'
 import { useCursorChatStoreStatus } from '@/hooks/queries/useCursorChatStoreStatus'
 import { useSessions } from '@/hooks/queries/useSessions'
@@ -41,13 +42,13 @@ import { ApiError } from '@/api/client'
 import { queryKeys } from '@/lib/query-keys'
 import { useToast } from '@/lib/toast-context'
 import { useTranslation } from '@/lib/use-translation'
-import { fetchLatestMessages, seedMessageWindowFromSession } from '@/lib/message-window-store'
+import { seedMessageWindowFromSession, syncTailMessages } from '@/lib/message-window-store'
 import { clearDraftsAfterSend } from '@/lib/clearDraftsAfterSend'
 import { inactiveSessionCanResume } from '@/lib/sessionResume'
 import { markSessionSeen } from '@/lib/sessionLastSeen'
 import { useSessionBrowserTitle } from '@/hooks/useSessionBrowserTitle'
 import { clearCodexImportedSession, markCodexSessionsImported } from '@/lib/codexImportedSessions'
-import type { Machine, CodexDuplicateSessionGroup, CodexLocalSessionSummary } from '@/types/api'
+import type { CodexDuplicateSessionGroup, CodexLocalSessionSummary } from '@/types/api'
 import FilesPage from '@/routes/sessions/files'
 import FilePage from '@/routes/sessions/file'
 import TerminalPage from '@/routes/sessions/terminal'
@@ -145,8 +146,8 @@ function RefreshIcon(props: { className?: string }) {
             strokeLinejoin="round"
             className={props.className}
         >
-            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-            <path d="M21 3v6h-6" />
+            <path d="M21 12a9 9 0 1 1-2.64-6.36L21 8" />
+            <path d="M21 3v5h-5" />
         </svg>
     )
 }
@@ -188,12 +189,6 @@ function SettingsIcon(props: { className?: string }) {
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
         </svg>
     )
-}
-
-function getMachineTitle(machine: Machine): string {
-    if (machine.metadata?.displayName) return machine.metadata.displayName
-    if (machine.metadata?.host) return machine.metadata.host
-    return machine.id.slice(0, 8)
 }
 
 function SessionsPage() {
@@ -252,16 +247,7 @@ function SessionsPage() {
         })()
     }, [addToast, refetch, t])
 
-    const projectCount = useMemo(() => new Set(visibleSessions.map(s =>
-        s.metadata?.worktree?.basePath ?? s.metadata?.path ?? 'Other'
-    )).size, [visibleSessions])
-    const machineLabelsById = useMemo(() => {
-        const labels: Record<string, string> = {}
-        for (const machine of machines) {
-            labels[machine.id] = getMachineTitle(machine)
-        }
-        return labels
-    }, [machines])
+    const machineLabelsById = useMachineLabels(machines)
     const machinesById = useMemo(() => {
         const byId: Record<string, typeof machines[number]> = {}
         for (const machine of machines) {
@@ -569,11 +555,8 @@ function SessionsPage() {
                 className={`${isSessionsIndex ? 'flex' : 'hidden split:flex'} w-full shrink-0 flex-col bg-[var(--app-bg)]`}
                 style={{ '--sidebar-w': `${sidebar.width}px` } as React.CSSProperties}
             >
-                <div className="bg-[var(--app-bg)] pt-[env(safe-area-inset-top)]">
-                    <div className="mx-auto w-full max-w-content flex items-center justify-between px-3 py-2">
-                        <div className="text-xs text-[var(--app-hint)]">
-                            {t('sessions.count', { n: visibleSessions.length, m: projectCount })}
-                        </div>
+                <div className="session-list-scrollbar-offset shrink-0 bg-[var(--app-bg)] pt-[env(safe-area-inset-top)]">
+                    <div className="mx-auto flex w-full max-w-content items-center justify-end px-2 py-2">
                         <div className="flex items-center gap-2">
                             <button
                                 type="button"
@@ -616,7 +599,7 @@ function SessionsPage() {
                             <button
                                 type="button"
                                 onClick={() => navigate({ to: '/sessions/new' })}
-                                className="session-list-new-button p-1.5 rounded-full text-[var(--app-link)] transition-colors"
+                                className="session-list-new-button flex h-9 w-9 items-center justify-center rounded-full text-[var(--app-link)] transition-colors"
                                 title={t('sessions.new')}
                             >
                                 <PlusIcon className="h-5 w-5" />
@@ -625,7 +608,7 @@ function SessionsPage() {
                     </div>
                 </div>
 
-                <div ref={sidebarScrollRef} className="app-scroll-y flex-1 min-h-0 desktop-scrollbar-left">
+                <div className="flex min-h-0 flex-1 flex-col">
                     {error ? (
                         <div className="mx-auto w-full max-w-content px-3 py-2">
                             <div className="text-sm text-red-600">{error}</div>
@@ -745,17 +728,16 @@ function SessionPage() {
     } = useCursorChatStoreStatus({ api, session })
     const {
         messages,
-        pendingMessages,
         warning: messagesWarning,
-        isLoading: messagesLoading,
+        isSyncingTail: messagesSyncingTail,
         isLoadingMore: messagesLoadingMore,
         hasMore: messagesHasMore,
         loadMore: loadMoreMessages,
         refetch: refetchMessages,
-        pendingCount,
+        unseenCount,
         messagesVersion,
-        flushPending,
-        setAtBottom,
+        historyVersion,
+        setViewMode,
     } = useMessages(api, sessionId)
 
     // Tracks the most recent send the hub rejected (4xx/5xx/network), keyed
@@ -946,7 +928,7 @@ function SessionPage() {
                                 queryKey: queryKeys.session(resolvedSessionId),
                                 queryFn: () => api.getSession(resolvedSessionId),
                             }),
-                            fetchLatestMessages(api, resolvedSessionId),
+                            syncTailMessages(api, resolvedSessionId),
                         ])
                     } catch {
                     }
@@ -1062,20 +1044,19 @@ function SessionPage() {
             cursorChatOnDisk={cursorChatStoreStatus?.onDisk}
             reopenDisabledReason={cursorReopenDisabledReason}
             messages={messages}
-            pendingMessages={pendingMessages}
             messagesWarning={messagesWarning}
             hasMoreMessages={messagesHasMore}
-            isLoadingMessages={messagesLoading}
+            isSyncingTail={messagesSyncingTail}
             isLoadingMoreMessages={messagesLoadingMore}
             isSending={isSending}
-            pendingCount={pendingCount}
+            unseenCount={unseenCount}
             messagesVersion={messagesVersion}
+            historyVersion={historyVersion}
             onBack={goBack}
             onRefresh={refreshSelectedSession}
             onLoadMore={loadMoreMessages}
             onSend={sendMessage}
-            onFlushPending={flushPending}
-            onAtBottomChange={setAtBottom}
+            onViewModeChange={setViewMode}
             onRetryMessage={retryMessage}
             autocompleteSuggestions={getAutocompleteSuggestions}
             availableSlashCommands={slashCommands}

@@ -57,6 +57,11 @@ export type HappyChatMessageMetadata = {
     turnCount?: number
 }
 
+export type HappyRuntimeExtras = Readonly<{
+    messagesVersion: number
+    historyVersion: number
+}>
+
 function formatCodexReviewText(review: CodexReview): string {
     const lines = ['Codex review']
     if (review.overallCorrectness) {
@@ -92,6 +97,56 @@ function visibleBlockRole(block: VisibleChatBlock): VisibleChatBlockRole {
     if (block.kind === 'agent-event') return 'system'
     if (block.kind === 'cli-output') return block.source === 'user' ? 'user' : 'assistant'
     return 'assistant'
+}
+
+export function getBlockPresentationTimestamp(block: VisibleChatBlock): number {
+    if (visibleBlockRole(block) === 'user') {
+        return block.invokedAt ?? block.createdAt
+    }
+    if (block.kind === 'tool-group') {
+        return block.tools.reduce(
+            (latest, tool) => Math.max(latest, tool.tool.completedAt ?? tool.createdAt),
+            block.createdAt
+        )
+    }
+    if (block.kind === 'tool-call') {
+        return Math.max(block.createdAt, block.tool.completedAt ?? block.createdAt)
+    }
+    return block.createdAt
+}
+
+/**
+ * `@assistant-ui/react` joins adjacent assistant-role blocks into one card and
+ * takes its timestamp from the first block. Use the response's final activity
+ * time so prepending an older page cannot change an existing card's timestamp.
+ */
+export function getResponseGroupTimestamps(
+    blocks: readonly VisibleChatBlock[]
+): Map<VisibleChatBlock, number> {
+    const timestamps = new Map<VisibleChatBlock, number>()
+    let first: VisibleChatBlock | null = null
+    let latestTimestamp = 0
+
+    const flush = () => {
+        if (first) timestamps.set(first, latestTimestamp)
+        first = null
+    }
+
+    for (const block of blocks) {
+        if (visibleBlockRole(block) !== 'assistant') {
+            flush()
+            continue
+        }
+        const timestamp = getBlockPresentationTimestamp(block)
+        if (!first) {
+            first = block
+            latestTimestamp = timestamp
+        } else {
+            latestTimestamp = Math.max(latestTimestamp, timestamp)
+        }
+    }
+    flush()
+    return timestamps
 }
 
 type TurnSource = {
@@ -335,12 +390,16 @@ export function assignThreadMessageIds(
     return assignThreadMessageIdsWithStableWrappers(blocks, new WeakMap())
 }
 
-function toThreadMessageLike(block: VisibleChatBlock, threadMessageId: string): ThreadMessageLike {
+function toThreadMessageLike(
+    block: VisibleChatBlock,
+    threadMessageId: string,
+    timestamp: number
+): ThreadMessageLike {
     if (block.kind === 'user-text') {
         return {
             role: 'user',
             id: threadMessageId,
-            createdAt: new Date(block.createdAt),
+            createdAt: new Date(timestamp),
             content: [{ type: 'text', text: block.text }],
             metadata: {
                 custom: {
@@ -360,7 +419,7 @@ function toThreadMessageLike(block: VisibleChatBlock, threadMessageId: string): 
         return {
             role: 'assistant',
             id: threadMessageId,
-            createdAt: new Date(block.createdAt),
+            createdAt: new Date(timestamp),
             content: [{ type: 'text', text: block.text }],
             metadata: {
                 custom: {
@@ -378,7 +437,7 @@ function toThreadMessageLike(block: VisibleChatBlock, threadMessageId: string): 
         return {
             role: 'assistant',
             id: threadMessageId,
-            createdAt: new Date(block.createdAt),
+            createdAt: new Date(timestamp),
             content: [{
                 type: 'tool-call',
                 toolCallId: block.id,
@@ -422,7 +481,7 @@ function toThreadMessageLike(block: VisibleChatBlock, threadMessageId: string): 
         return {
             role: 'assistant',
             id: threadMessageId,
-            createdAt: new Date(block.createdAt),
+            createdAt: new Date(timestamp),
             content: [{ type: 'reasoning', text: block.text }],
             metadata: {
                 custom: {
@@ -440,7 +499,7 @@ function toThreadMessageLike(block: VisibleChatBlock, threadMessageId: string): 
         return {
             role: 'assistant',
             id: threadMessageId,
-            createdAt: new Date(block.createdAt),
+            createdAt: new Date(timestamp),
             content: [{ type: 'text', text: formatCodexReviewText(block.review) }],
             metadata: {
                 custom: {
@@ -459,7 +518,7 @@ function toThreadMessageLike(block: VisibleChatBlock, threadMessageId: string): 
         return {
             role: 'system',
             id: threadMessageId,
-            createdAt: new Date(block.createdAt),
+            createdAt: new Date(timestamp),
             content: [{ type: 'text', text: renderEventLabel(block.event) }],
             metadata: {
                 custom: {
@@ -476,7 +535,7 @@ function toThreadMessageLike(block: VisibleChatBlock, threadMessageId: string): 
         return {
             role: block.source === 'user' ? 'user' : 'assistant',
             id: threadMessageId,
-            createdAt: new Date(block.createdAt),
+            createdAt: new Date(timestamp),
             content: [{ type: 'text', text: block.text }],
             metadata: {
                 custom: {
@@ -496,7 +555,7 @@ function toThreadMessageLike(block: VisibleChatBlock, threadMessageId: string): 
         return {
             role: 'assistant',
             id: threadMessageId,
-            createdAt: new Date(groupBlock.createdAt),
+            createdAt: new Date(timestamp),
             content: [{
                 type: 'tool-call',
                 toolCallId: groupBlock.id,
@@ -520,7 +579,7 @@ function toThreadMessageLike(block: VisibleChatBlock, threadMessageId: string): 
     return {
         role: 'assistant',
         id: threadMessageId,
-        createdAt: new Date(toolBlock.createdAt),
+        createdAt: new Date(timestamp),
         content: [{
             type: 'tool-call',
             toolCallId: toolBlock.id,
@@ -601,6 +660,8 @@ function extractMessageContent(message: AppendMessage): { text: string; attachme
 export function useHappyRuntime(props: {
     session: Session
     blocks: readonly VisibleChatBlock[]
+    messagesVersion: number
+    historyVersion: number
     isSending: boolean
     isRunning?: boolean
     onSendMessage: (text: string, attachments?: AttachmentMetadata[], scheduledAt?: number | null) => void
@@ -637,10 +698,18 @@ export function useHappyRuntime(props: {
         () => aggregateResponseGroups(visibleBlocks),
         [visibleBlocks]
     )
+    const responseGroupTimestamps = useMemo(
+        () => getResponseGroupTimestamps(props.blocks),
+        [props.blocks]
+    )
 
     const convertBlock = useCallback(
         ({ block, threadMessageId }: BlockWithThreadMessageId): ThreadMessageLike => {
-            const message = toThreadMessageLike(block, threadMessageId)
+            const message = toThreadMessageLike(
+                block,
+                threadMessageId,
+                responseGroupTimestamps.get(block) ?? getBlockPresentationTimestamp(block)
+            )
             const aggregate = aggregates.get(block.id)
             if (!aggregate) return message
             const existing = message.metadata?.custom as HappyChatMessageMetadata | undefined
@@ -659,7 +728,7 @@ export function useHappyRuntime(props: {
                 }
             }
         },
-        [aggregates]
+        [aggregates, responseGroupTimestamps]
     )
 
     // Use cached message converter for performance optimization
@@ -685,12 +754,18 @@ export function useHappyRuntime(props: {
         await props.onAbort()
     }, [props.onAbort])
 
+    const extras = useMemo<HappyRuntimeExtras>(() => ({
+        messagesVersion: props.messagesVersion,
+        historyVersion: props.historyVersion
+    }), [props.messagesVersion, props.historyVersion])
+
     // Memoize the adapter to avoid recreating on every render
     // useExternalStoreRuntime may use adapter identity for subscriptions
     const adapter = useMemo(() => ({
         isDisabled: props.isSending || (!props.session.active && !props.allowSendWhenInactive),
         isRunning,
         messages: convertedMessages,
+        extras,
         onNew,
         onCancel,
         adapters: props.attachmentAdapter ? { attachments: props.attachmentAdapter } : undefined,
@@ -701,6 +776,7 @@ export function useHappyRuntime(props: {
         props.allowSendWhenInactive,
         isRunning,
         convertedMessages,
+        extras,
         onNew,
         onCancel,
         props.attachmentAdapter

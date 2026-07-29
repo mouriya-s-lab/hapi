@@ -32,13 +32,11 @@ export function useLongPress(options: UseLongPressOptions): UseLongPressHandlers
     const touchMoved = useRef(false)
     const pressPointRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
     // Timestamp of the most recent touch interaction. Touch browsers emit
-    // compatibility mouse events (mousedown/mouseup/click) ~300ms after a tap
-    // for any touch the page did not preventDefault. Since we bind BOTH touch
-    // and mouse handlers, those "ghost" mouse events would otherwise fire
-    // onClick a SECOND time — and on a persistent list (e.g. the tablet
-    // sidebar layout) the second click lands on whatever row slid under the
-    // finger meanwhile, navigating to the wrong session. We swallow mouse
-    // events that arrive shortly after a touch.
+    // compatibility mouse events (mousedown/mouseup/click) after a tap for any
+    // touch the page did not preventDefault. Since we bind BOTH touch and
+    // mouse handlers, those "ghost" mouse events would fire onClick a second
+    // time — on a persistent list (tablet sidebar) the second click lands on
+    // whatever row slid under the finger, navigating to the wrong session.
     const lastTouchAtRef = useRef(0)
 
     const clearTimer = useCallback(() => {
@@ -74,8 +72,7 @@ export function useLongPress(options: UseLongPressOptions): UseLongPressHandlers
     }, [clearTimer, onClick])
 
     // True when a mouse event is actually a touch-synthesized compatibility
-    // event firing right after a tap. Such events must be ignored so a tap
-    // doesn't trigger onClick twice.
+    // event firing right after a tap; such events must not re-trigger onClick.
     const isGhostMouseEvent = useCallback(
         () => Date.now() - lastTouchAtRef.current < GHOST_MOUSE_WINDOW_MS,
         []

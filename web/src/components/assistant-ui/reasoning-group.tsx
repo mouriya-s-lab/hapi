@@ -36,7 +36,7 @@ export const ReasoningGroupView: FC<ReasoningGroupViewProps> = ({ children, isOp
     const { t } = useTranslation()
 
     return (
-        <div className="aui-reasoning-group my-3 rounded-2xl bg-[var(--app-reasoning-bg)]">
+        <div data-hapi-share-exclude="true" className="aui-reasoning-group my-3 rounded-2xl bg-[var(--app-reasoning-bg)]">
             <button
                 type="button"
                 onClick={onToggle}
