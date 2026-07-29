@@ -677,11 +677,22 @@ export function HappyThread(props: {
 
     useLayoutEffect(() => {
         const pending = pendingScrollRef.current
-        const viewport = viewportRef.current
-        if (!viewport) {
+        if (!pending) {
+            if (atBottomRef.current && autoScrollEnabledRef.current) {
+                scrollToBottomInstant()
+            }
             return
         }
-        if (pending) {
+
+        const frame = window.requestAnimationFrame(() => {
+            if (pendingScrollRef.current !== pending) {
+                return
+            }
+            const viewport = viewportRef.current
+            if (!viewport) {
+                settlePendingLoad(false)
+                return
+            }
             const restoredByAnchor = pending.anchor ? restoreScrollAnchor(viewport, pending.anchor) : false
             if (!restoredByAnchor) {
                 const delta = viewport.scrollHeight - pending.scrollHeight
@@ -689,11 +700,8 @@ export function HappyThread(props: {
             }
             lastScrollTopRef.current = viewport.scrollTop
             settlePendingLoad(true)
-            return
-        }
-        if (atBottomRef.current && autoScrollEnabledRef.current) {
-            scrollToBottomInstant()
-        }
+        })
+        return () => window.cancelAnimationFrame(frame)
     }, [props.hasMoreMessages, props.messagesVersion, scrollToBottomInstant, settlePendingLoad])
 
 
