@@ -433,7 +433,8 @@ describe('message-window-store async generations', () => {
         }
 
         await fetchLatestMessages(api as unknown as ApiClient, SESSION_ID)
-        await fetchOlderMessages(api as unknown as ApiClient, SESSION_ID)
+        expect(await fetchOlderMessages(api as unknown as ApiClient, SESSION_ID)).toBe(true)
+        expect(await fetchOlderMessages(api as unknown as ApiClient, SESSION_ID)).toBe(false)
 
         expect(calls[1]).toEqual({
             beforeAt: 1_700_000_500_000,
