@@ -6,9 +6,9 @@ import {
     ConversationOutlinePanel,
     captureScrollAnchor,
     getHistoryCoverageRetryDelay,
-    getScrollIntent,
     hasAppliedHistoryVersion,
-    loadUntilScrollHeightChanges,
+    getScrollIntent,
+    loadUntilVisibleBoundaryChanges,
     locateOutlineTargetMessage,
     prependMissingUserSnapshot,
     restoreScrollAnchor,
@@ -325,15 +325,15 @@ describe('share turn snapshots', () => {
 describe('visible older-history loading', () => {
     it('continues across pages hidden inside a collapsed tool group', async () => {
         let page = 0
-        let scrollHeight = 1000
+        let visibleBoundary = 'current-group'
         const loadOlder = vi.fn(async () => {
             page += 1
-            if (page === 3) scrollHeight = 1300
+            if (page === 3) visibleBoundary = 'older-message'
             return true
         })
 
-        await expect(loadUntilScrollHeightChanges({
-            getScrollHeight: () => scrollHeight,
+        await expect(loadUntilVisibleBoundaryChanges({
+            getVisibleBoundary: () => visibleBoundary,
             hasMoreMessages: () => true,
             loadOlder
         })).resolves.toBe(true)
@@ -342,8 +342,8 @@ describe('visible older-history loading', () => {
 
     it('stops when the history source cannot load another page', async () => {
         const loadOlder = vi.fn(async () => false)
-        await expect(loadUntilScrollHeightChanges({
-            getScrollHeight: () => 1000,
+        await expect(loadUntilVisibleBoundaryChanges({
+            getVisibleBoundary: () => 'current-group',
             hasMoreMessages: () => true,
             loadOlder
         })).resolves.toBe(false)

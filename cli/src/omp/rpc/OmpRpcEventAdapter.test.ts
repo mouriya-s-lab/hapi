@@ -446,6 +446,84 @@ describe('OmpRpcEventAdapter', () => {
         ]));
     });
 
+    it('summarizes compaction events without forwarding snapcompact payloads', () => {
+        const harness = createHarness();
+        harness.adapter.handle(rpcEvent({
+            type: 'auto_compaction_start',
+            reason: 'threshold',
+            action: 'snapcompact'
+        }));
+        harness.adapter.handle(rpcEvent({
+            type: 'auto_compaction_end',
+            action: 'snapcompact',
+            aborted: false,
+            willRetry: false,
+            result: {
+                shortSummary: 'Archived conversation history',
+                tokensBefore: 182_000,
+                preserveData: {
+                    snapcompact: {
+                        frames: [
+                            { data: 'iVBORw0KGgo=', mimeType: 'image/png' },
+                            { data: 'another-frame', mimeType: 'image/png' }
+                        ],
+                        totalChars: 217_555,
+                        truncatedChars: 1_024,
+                        text: 'archived conversation source'
+                    }
+                }
+            }
+        }));
+
+        expect(harness.structuredEvents).toEqual([
+            {
+                type: 'omp-compaction',
+                phase: 'started',
+                action: 'snapcompact',
+                reason: 'threshold'
+            },
+            {
+                type: 'omp-compaction',
+                phase: 'finished',
+                action: 'snapcompact',
+                willRetry: false,
+                outcome: 'completed',
+                result: {
+                    shortSummary: 'Archived conversation history',
+                    tokensBefore: 182_000,
+                    archive: {
+                        frameCount: 2,
+                        totalChars: 217_555,
+                        truncatedChars: 1_024
+                    }
+                }
+            }
+        ]);
+        expect(JSON.stringify(harness.structuredEvents)).not.toContain('iVBORw0KGgo');
+        expect(JSON.stringify(harness.structuredEvents)).not.toContain('archived conversation source');
+    });
+
+    it('preserves the fallback reason when OMP skips shake compaction', () => {
+        const harness = createHarness();
+        harness.adapter.handle(rpcEvent({
+            type: 'auto_compaction_end',
+            action: 'shake',
+            aborted: false,
+            willRetry: false,
+            skipped: true,
+            errorMessage: 'Auto-shake found nothing eligible to drop; falling back to context-full compaction.'
+        }));
+
+        expect(harness.structuredEvents).toEqual([{
+            type: 'omp-compaction',
+            phase: 'finished',
+            action: 'shake',
+            willRetry: false,
+            outcome: 'skipped',
+            message: 'Auto-shake found nothing eligible to drop; falling back to context-full compaction.'
+        }]);
+    });
+
     it('preserves unknown frames and emits controlled structured diagnostics', () => {
         const harness = createHarness();
         expect(OMP_KNOWN_EVENT_TYPES).toHaveLength(37);

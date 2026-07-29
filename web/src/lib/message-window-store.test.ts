@@ -792,7 +792,8 @@ describe('history view and older pagination', () => {
             }))
         const api = createApi(getMessages)
         await syncTailMessages(api, id)
-        await fetchOlderMessages(api, id)
+        expect(await fetchOlderMessages(api, id)).toBe(true)
+        expect(await fetchOlderMessages(api, id)).toBe(false)
 
         expect(getMessages).toHaveBeenCalledTimes(2)
         expect(getMessages.mock.calls[1]?.[1]).toEqual({

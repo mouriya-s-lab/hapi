@@ -1,4 +1,5 @@
 import type { AgentEvent } from '@/chat/types'
+import { getOmpEventPresentation } from '@/fork-features/omp-product/eventPresentation'
 
 function normalizeTimestamp(value: number): Date {
     const ms = value < 1_000_000_000_000 ? value * 1000 : value
@@ -169,6 +170,8 @@ export type EventPresentation = {
 }
 
 export function getEventPresentation(event: AgentEvent): EventPresentation {
+    const ompPresentation = getOmpEventPresentation(event)
+    if (ompPresentation) return ompPresentation
     if (event.type === 'omp-rpc-warning') {
         const warning = typeof event.warning === 'string' ? event.warning : 'Unknown OMP RPC event'
         return { icon: '⚠️', text: warning }
