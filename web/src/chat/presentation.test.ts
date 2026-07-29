@@ -24,6 +24,105 @@ describe('getEventPresentation — OMP extension UI', () => {
     })
 })
 
+describe('getEventPresentation — OMP compaction', () => {
+    it('shows the compaction strategy and trigger while starting', () => {
+        expect(getEventPresentation({
+            type: 'omp-compaction',
+            phase: 'started',
+            action: 'snapcompact',
+            reason: 'threshold'
+        })).toEqual({
+            icon: '◷',
+            text: 'Compacting conversation · snapcompact · threshold'
+        })
+    })
+
+    it('shows archive metrics from the sanitized event', () => {
+        expect(getEventPresentation({
+            type: 'omp-compaction',
+            phase: 'finished',
+            action: 'snapcompact',
+            outcome: 'completed',
+            willRetry: false,
+            result: {
+                shortSummary: 'Archived conversation history',
+                tokensBefore: 182_000,
+                archive: {
+                    frameCount: 2,
+                    totalChars: 217_555,
+                    truncatedChars: 1_024
+                }
+            }
+        })).toEqual({
+            icon: '✓',
+            text: 'Conversation compacted · snapcompact · 218k chars archived · 2 frames · 1k chars dropped · 182k tokens before'
+        })
+    })
+
+    it('renders legacy frames readably without exposing their base64 or source text', () => {
+        const result = getEventPresentation({
+            type: 'omp-compaction',
+            phase: 'finished',
+            frame: {
+                type: 'auto_compaction_end',
+                action: 'snapcompact',
+                aborted: false,
+                willRetry: false,
+                result: {
+                    tokensBefore: 182_000,
+                    preserveData: {
+                        snapcompact: {
+                            frames: [{ data: 'iVBORw0KGgo=', mimeType: 'image/png' }],
+                            totalChars: 217_555,
+                            truncatedChars: 0,
+                            text: 'archived conversation source'
+                        }
+                    }
+                }
+            }
+        })
+
+        expect(result).toEqual({
+            icon: '✓',
+            text: 'Conversation compacted · snapcompact · 218k chars archived · 1 frame · 182k tokens before'
+        })
+        expect(result.text).not.toContain('iVBORw0KGgo')
+        expect(result.text).not.toContain('archived conversation source')
+    })
+
+    it('shows the fallback reason from a sanitized shake event', () => {
+        expect(getEventPresentation({
+            type: 'omp-compaction',
+            phase: 'finished',
+            action: 'shake',
+            outcome: 'skipped',
+            willRetry: false,
+            message: 'Auto-shake found nothing eligible to drop; falling back to context-full compaction.'
+        })).toEqual({
+            icon: '–',
+            text: 'Conversation compaction skipped · shake · Auto-shake found nothing eligible to drop; falling back to context-full compaction.'
+        })
+    })
+
+    it('shows the fallback reason when a legacy shake compaction was skipped', () => {
+        expect(getEventPresentation({
+            type: 'omp-compaction',
+            phase: 'finished',
+            frame: {
+                type: 'auto_compaction_end',
+                action: 'shake',
+                aborted: false,
+                skipped: true,
+                errorMessage: 'Auto-shake found nothing eligible to drop; falling back to context-full compaction.'
+            }
+        })).toEqual({
+            icon: '–',
+            text: 'Conversation compaction skipped · shake · Auto-shake found nothing eligible to drop; falling back to context-full compaction.'
+        })
+    })
+
+})
+
 describe('getEventPresentation — limit-warning', () => {
     it('formats five_hour warning', () => {
         const result = getEventPresentation({

@@ -174,6 +174,34 @@ const RetryFailureSchema = z.object({
     errorMessage: z.string()
 }).passthrough();
 
+const CompactionActionSchema = z.enum(['context-full', 'handoff', 'shake', 'snapcompact']);
+const CompactionStartEventSchema = z.object({
+    type: z.literal('auto_compaction_start'),
+    reason: z.enum(['threshold', 'overflow', 'idle', 'incomplete']),
+    action: CompactionActionSchema
+});
+const SnapcompactArchiveSummarySchema = z.object({
+    frames: z.array(z.unknown()),
+    totalChars: z.number().int().nonnegative(),
+    truncatedChars: z.number().int().nonnegative()
+});
+const CompactionResultSummarySchema = z.object({
+    shortSummary: z.string().optional(),
+    tokensBefore: z.number().int().nonnegative(),
+    preserveData: z.object({
+        snapcompact: SnapcompactArchiveSummarySchema.optional()
+    }).optional()
+});
+const CompactionEndEventSchema = z.object({
+    type: z.literal('auto_compaction_end'),
+    action: CompactionActionSchema,
+    result: CompactionResultSummarySchema.nullish(),
+    aborted: z.boolean(),
+    willRetry: z.boolean().optional(),
+    errorMessage: z.string().optional(),
+    skipped: z.boolean().optional()
+});
+
 type OmpAgentRunStartEvent = {
     type: 'agent-run-start';
     agentId: string;
@@ -217,10 +245,60 @@ type OmpAgentRunUpdateEvent = {
 
 export type OmpAgentRunEvent = OmpAgentRunStartEvent | OmpAgentRunUpdateEvent;
 
+type OmpCompactionResultSummary = {
+    shortSummary?: string;
+    tokensBefore: number;
+    archive?: {
+        frameCount: number;
+        totalChars: number;
+        truncatedChars: number;
+    };
+};
+
+function summarizeCompactionResult(
+    result: z.infer<typeof CompactionResultSummarySchema> | null | undefined
+): OmpCompactionResultSummary | undefined {
+    if (!result) return undefined;
+
+    const summary: OmpCompactionResultSummary = {
+        tokensBefore: result.tokensBefore
+    };
+    if (result.shortSummary) summary.shortSummary = result.shortSummary;
+
+    const archive = result.preserveData?.snapcompact;
+    if (archive) {
+        summary.archive = {
+            frameCount: archive.frames.length,
+            totalChars: archive.totalChars,
+            truncatedChars: archive.truncatedChars
+        };
+    }
+    return summary;
+}
+
+type OmpCompactionFinishedBase = {
+    type: 'omp-compaction';
+    phase: 'finished';
+    action: z.infer<typeof CompactionActionSchema>;
+    willRetry: boolean;
+};
+
+export type OmpCompactionEvent =
+    | {
+        type: 'omp-compaction';
+        phase: 'started';
+        action: z.infer<typeof CompactionActionSchema>;
+        reason: z.infer<typeof CompactionStartEventSchema>['reason'];
+    }
+    | (OmpCompactionFinishedBase & { outcome: 'completed'; result?: OmpCompactionResultSummary })
+    | (OmpCompactionFinishedBase & { outcome: 'aborted' })
+    | (OmpCompactionFinishedBase & { outcome: 'skipped'; message?: string })
+    | (OmpCompactionFinishedBase & { outcome: 'failed'; errorMessage: string });
+
 export type OmpStructuredEvent =
     | { type: 'omp-rpc-warning'; eventType: string; warning: string; frame: JsonObject }
     | { type: 'omp-retry'; phase: string; frame: JsonObject }
-    | { type: 'omp-compaction'; phase: string; frame: JsonObject }
+    | OmpCompactionEvent
     | { type: 'omp-notice'; level: string; message: string; source?: string; frame: JsonObject }
     | { type: 'omp-session-event'; eventType: string; frame: JsonObject }
     | { type: 'omp-command-output'; text: string; frame: JsonObject }
@@ -401,12 +479,10 @@ export class OmpRpcEventAdapter {
                 this.handleRetryEvent(event.raw, 'fallback-succeeded');
                 return;
             case 'auto_compaction_start':
-                this.callbacks.onStructuredEvent({ type: 'omp-compaction', phase: 'started', frame: event.raw });
-                this.callbacks.onInkMessage('OMP compaction started', 'status');
+                this.handleCompactionStart(event.raw);
                 return;
             case 'auto_compaction_end':
-                this.callbacks.onStructuredEvent({ type: 'omp-compaction', phase: 'finished', frame: event.raw });
-                this.callbacks.onInkMessage('OMP compaction finished', 'status');
+                this.handleCompactionEnd(event.raw);
                 return;
             case 'thinking_level_changed':
                 this.handleThinkingLevelChanged(event.raw);
@@ -714,6 +790,57 @@ export class OmpRpcEventAdapter {
     private handleRetryEvent(raw: JsonObject, phase: string): void {
         this.callbacks.onStructuredEvent({ type: 'omp-retry', phase, frame: raw });
         this.callbacks.onInkMessage(`OMP retry ${phase}`, 'status');
+    }
+
+    private handleCompactionStart(raw: JsonObject): void {
+        const parsed = CompactionStartEventSchema.safeParse(raw);
+        if (!parsed.success) {
+            this.invalidEvent('auto_compaction_start', parsed.error);
+            return;
+        }
+        this.callbacks.onStructuredEvent({
+            type: 'omp-compaction',
+            phase: 'started',
+            action: parsed.data.action,
+            reason: parsed.data.reason
+        });
+        this.callbacks.onInkMessage('OMP compaction started', 'status');
+    }
+
+    private handleCompactionEnd(raw: JsonObject): void {
+        const parsed = CompactionEndEventSchema.safeParse(raw);
+        if (!parsed.success) {
+            this.invalidEvent('auto_compaction_end', parsed.error);
+            return;
+        }
+
+        const { action, aborted, errorMessage, skipped } = parsed.data;
+        const base: OmpCompactionFinishedBase = {
+            type: 'omp-compaction',
+            phase: 'finished',
+            action,
+            willRetry: parsed.data.willRetry ?? false
+        };
+
+        if (aborted) {
+            this.callbacks.onStructuredEvent({ ...base, outcome: 'aborted' });
+        } else if (skipped) {
+            this.callbacks.onStructuredEvent({
+                ...base,
+                outcome: 'skipped',
+                ...(errorMessage ? { message: errorMessage } : {})
+            });
+        } else if (errorMessage) {
+            this.callbacks.onStructuredEvent({ ...base, outcome: 'failed', errorMessage });
+        } else {
+            const result = summarizeCompactionResult(parsed.data.result);
+            this.callbacks.onStructuredEvent({
+                ...base,
+                outcome: 'completed',
+                ...(result ? { result } : {})
+            });
+        }
+        this.callbacks.onInkMessage('OMP compaction finished', 'status');
     }
 
     private handleNotice(raw: JsonObject): void {
