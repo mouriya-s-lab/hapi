@@ -1,4 +1,4 @@
-import type { Machine, MachinePatch } from '@hapi/protocol/types'
+import type { Machine, MachineMetadata, MachinePatch } from '@hapi/protocol/types'
 import { MachineHealthSchema, MachineMetadataSchema, RunnerStateSchema } from '@hapi/protocol/schemas'
 import type { Store } from '../store'
 import { clampAliveTime } from './aliveTime'
@@ -8,6 +8,31 @@ type MachineAlivePayload = {
     machineId: string
     time: number
     health?: unknown
+}
+
+function reconcileOmpCapabilityOnRegistration(
+    rawStoredMetadata: unknown,
+    rawRegistrationMetadata: unknown
+): MachineMetadata | null {
+    const registration = MachineMetadataSchema.safeParse(rawRegistrationMetadata)
+    if (!registration.success) {
+        return null
+    }
+
+    const registeredOmp = registration.data.capabilities?.omp === true
+    const stored = MachineMetadataSchema.safeParse(rawStoredMetadata)
+    if (stored.success && (stored.data.capabilities?.omp === true) === registeredOmp) {
+        return null
+    }
+
+    const metadata = stored.success ? stored.data : registration.data
+    return {
+        ...metadata,
+        capabilities: {
+            ...metadata.capabilities,
+            omp: registeredOmp
+        }
+    }
 }
 
 function parseMachineHealth(value: unknown): Machine['health'] {
@@ -73,6 +98,18 @@ export class MachineCache {
 
     getOrCreateMachine(id: string, metadata: unknown, runnerState: unknown, namespace: string): Machine {
         const stored = this.store.machines.getOrCreateMachine(id, metadata, runnerState, namespace)
+        const reconciledMetadata = reconcileOmpCapabilityOnRegistration(stored.metadata, metadata)
+        if (reconciledMetadata) {
+            const update = this.store.machines.updateMachineMetadata(
+                stored.id,
+                reconciledMetadata,
+                stored.metadataVersion,
+                namespace
+            )
+            if (update.result !== 'success') {
+                throw new Error('Failed to reconcile machine capabilities during registration')
+            }
+        }
         return this.refreshMachine(stored.id) ?? (() => { throw new Error('Failed to load machine') })()
     }
 

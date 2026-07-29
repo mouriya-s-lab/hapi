@@ -782,6 +782,7 @@ export default {
   'settings.fork.omp.description': 'Manage provider sign-in on each runner. Credentials stay in OMP.',
   'settings.fork.omp.machine': 'Runner',
   'settings.fork.omp.machineRequired': 'Choose a runner',
+  'settings.fork.omp.noRunners': 'No online runners have a supported OMP installation.',
   'settings.fork.omp.loading': 'Loading…',
   'settings.fork.omp.signedInCount': '{count} signed in',
   'settings.fork.omp.signedIn': 'Signed in',

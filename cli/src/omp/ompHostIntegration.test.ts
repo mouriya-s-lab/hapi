@@ -17,6 +17,7 @@ import {
     OmpHostUriBridge,
     type OmpHostUriProvider
 } from '../../../fork-features/omp-host-integration/cli';
+import { detectOmpMachineAvailability } from '../../../fork-features/omp-host-integration/machine';
 
 type FakeClient = {
     client: OmpRpcClient;
@@ -517,5 +518,32 @@ describe('OMP extension UI bridge', () => {
         });
         await harness.bridge.close('test complete');
         expect(harness.getState().requests).toEqual({});
+    });
+});
+
+describe('OMP runner capability detection', () => {
+    it('advertises only supported OMP installations', async () => {
+        const supported = await detectOmpMachineAvailability(async () => ({
+            raw: 'omp/17.1.7',
+            major: 17,
+            minor: 1,
+            patch: 7
+        }));
+        const outdated = await detectOmpMachineAvailability(async () => ({
+            raw: 'omp/16.9.0',
+            major: 16,
+            minor: 9,
+            patch: 0
+        }));
+        const missing = await detectOmpMachineAvailability(async () => {
+            throw new Error('omp was not found on PATH');
+        });
+
+        expect(supported).toMatchObject({ available: true, version: { raw: 'omp/17.1.7' } });
+        expect(outdated).toEqual({
+            available: false,
+            error: 'OMP 16.9.0 is too old; HAPI requires OMP 17.0.4 or newer for RPC mode'
+        });
+        expect(missing).toEqual({ available: false, error: 'omp was not found on PATH' });
     });
 });

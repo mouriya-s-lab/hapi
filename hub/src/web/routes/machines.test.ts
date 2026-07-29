@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import type { Machine, SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import { createMachinesRoutes } from './machines'
+import { RpcTargetMissingError } from '../../sync/rpcGateway'
 
 function createMachine(overrides?: Partial<Machine>): Machine {
     return {
@@ -22,6 +23,17 @@ function createMachine(overrides?: Partial<Machine>): Machine {
         runnerState: null,
         runnerStateVersion: 1,
         ...overrides
+    }
+}
+
+function createOmpMachine(): Machine {
+    const machine = createMachine()
+    return {
+        ...machine,
+        metadata: {
+            ...machine.metadata!,
+            capabilities: { omp: true }
+        }
     }
 }
 
@@ -278,7 +290,7 @@ describe('machines routes', () => {
     })
 
     it('forwards OMP model discovery with the selected workspace', async () => {
-        const machine = createMachine()
+        const machine = createOmpMachine()
         const calls: Array<{ machineId: string; cwd: string }> = []
         const result = {
             success: true as const,
@@ -318,7 +330,7 @@ describe('machines routes', () => {
     })
 
     it('keeps OMP provider login and required input on the machine RPC', async () => {
-        const machine = createMachine()
+        const machine = createOmpMachine()
         const flowId = '00000000-0000-4000-8000-000000000001'
         const calls: Array<Record<string, string>> = []
         const provider = {
@@ -396,5 +408,61 @@ describe('machines routes', () => {
             { action: 'start', machineId: 'machine-1', providerId: provider.id },
             { action: 'respond', machineId: 'machine-1', flowId, value: 'authorization-code' }
         ])
+    })
+
+    it('rejects runners without OMP before invoking machine RPC', async () => {
+        const machine = createMachine()
+        let invoked = false
+        const engine = {
+            getMachine: () => machine,
+            getMachineByNamespace: () => machine,
+            listOmpLoginProvidersForMachine: async () => {
+                invoked = true
+                return { success: true as const, providers: [], flow: null }
+            }
+        } as Partial<SyncEngine>
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'default')
+            await next()
+        })
+        app.route('/api', createMachinesRoutes(() => engine as SyncEngine))
+
+        const response = await app.request('/api/machines/machine-1/omp-login-providers')
+
+        expect(response.status).toBe(409)
+        expect(await response.json()).toEqual({
+            success: false,
+            error: 'OMP is not available on this runner'
+        })
+        expect(invoked).toBe(false)
+    })
+
+    it('maps a stale OMP capability with a missing handler to conflict', async () => {
+        const machine = createOmpMachine()
+        const engine = {
+            getMachine: () => machine,
+            getMachineByNamespace: () => machine,
+            listOmpLoginProvidersForMachine: async () => {
+                throw new RpcTargetMissingError(
+                    'machine-1:listOmpLoginProviders',
+                    'handler-not-registered'
+                )
+            }
+        } as Partial<SyncEngine>
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'default')
+            await next()
+        })
+        app.route('/api', createMachinesRoutes(() => engine as SyncEngine))
+
+        const response = await app.request('/api/machines/machine-1/omp-login-providers')
+
+        expect(response.status).toBe(409)
+        expect(await response.json()).toEqual({
+            success: false,
+            error: 'OMP is not available on this runner'
+        })
     })
 })

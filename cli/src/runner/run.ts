@@ -28,6 +28,7 @@ import { buildMachineMetadata } from '@/agent/sessionFactory';
 import { resolveWorkspaceRoots } from '@/utils/workspaceRoot';
 import { hashRunnerCliApiToken, hashRunnerExtraHeaders } from './runnerIdentity';
 import { scheduleCursorModelsPrewarm } from '@/modules/common/cursorModelsPrewarm';
+import { detectOmpMachineAvailability } from '../../../fork-features/omp-host-integration/machine';
 
 export async function startRunner(options: { workspaceRoots?: string[] } = {}): Promise<void> {
   // We don't have cleanup function at the time of server construction
@@ -773,11 +774,21 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
     const workspaceRoots = resolveWorkspaceRoots(options.workspaceRoots);
     logger.debug(`[RUNNER RUN] Workspace roots: ${workspaceRoots?.join(', ') ?? '(not set)'}`);
 
+    const ompAvailability = await detectOmpMachineAvailability();
+    if (ompAvailability.available) {
+      logger.debug(`[RUNNER RUN] OMP ${ompAvailability.version.raw} available`);
+    } else {
+      logger.debug(`[RUNNER RUN] OMP unavailable: ${ompAvailability.error}`);
+    }
+
     // Get or create machine (with retry for transient connection errors)
     const machine = await withRetry(
       () => api.getOrCreateMachine({
         machineId,
-        metadata: buildMachineMetadata({ workspaceRoots }),
+        metadata: buildMachineMetadata({
+          workspaceRoots,
+          ompAvailable: ompAvailability.available
+        }),
         runnerState: initialRunnerState
       }),
       {
@@ -794,7 +805,10 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
     logger.debug(`[RUNNER RUN] Machine registered: ${machine.id}`);
 
     // Create realtime machine session
-    const apiMachine = api.machineSyncClient(machine, { workspaceRoots });
+    const apiMachine = api.machineSyncClient(machine, {
+      workspaceRoots,
+      ompAvailable: ompAvailability.available
+    });
 
     // Set RPC handlers
     apiMachine.setRPCHandlers({

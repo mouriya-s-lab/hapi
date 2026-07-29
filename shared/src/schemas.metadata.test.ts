@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MetadataSchema } from './schemas';
+import { MachineMetadataSchema, MetadataSchema } from './schemas';
 
 describe('MetadataSchema cursorSessionProtocol', () => {
     const base = {
@@ -45,5 +45,18 @@ describe('MetadataSchema OMP thinking state', () => {
             ...base,
             ompThinking: { thinkingLevel: 'high', configured: 'auto', resolved: 'auto' }
         }).success).toBe(false);
+    });
+});
+
+describe('MachineMetadataSchema runner capabilities', () => {
+    it('preserves OMP availability across the machine metadata boundary', () => {
+        const parsed = MachineMetadataSchema.parse({
+            host: 'runner',
+            platform: 'darwin',
+            happyCliVersion: '1.0.0',
+            capabilities: { omp: true }
+        });
+
+        expect(parsed.capabilities).toEqual({ omp: true });
     });
 });
