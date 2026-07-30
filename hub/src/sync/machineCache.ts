@@ -98,7 +98,10 @@ export class MachineCache {
 
     getOrCreateMachine(id: string, metadata: unknown, runnerState: unknown, namespace: string): Machine {
         const stored = this.store.machines.getOrCreateMachine(id, metadata, runnerState, namespace)
-        const reconciledMetadata = reconcileOmpCapabilityOnRegistration(stored.metadata, metadata)
+        const runnerRegistration = RunnerStateSchema.safeParse(runnerState).success
+        const reconciledMetadata = runnerRegistration
+            ? reconcileOmpCapabilityOnRegistration(stored.metadata, metadata)
+            : null
         if (reconciledMetadata) {
             const update = this.store.machines.updateMachineMetadata(
                 stored.id,
