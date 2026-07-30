@@ -171,12 +171,15 @@ export class Store {
 
         const stepMigrations = buildStepMigrations(false)
         if (currentVersion < SCHEMA_VERSION && stepMigrations[currentVersion]) {
-            for (let v = currentVersion; v < SCHEMA_VERSION; v++) {
-                const step = stepMigrations[v]
-                if (!step) throw this.buildSchemaMismatchError(currentVersion)
-                step()
-            }
-            this.setUserVersion(SCHEMA_VERSION)
+            this.db.transaction(() => {
+                for (let v = currentVersion; v < SCHEMA_VERSION; v++) {
+                    const step = stepMigrations[v]
+                    if (!step) throw this.buildSchemaMismatchError(currentVersion)
+                    step()
+                }
+                this.assertRequiredTablesPresent()
+                this.setUserVersion(SCHEMA_VERSION)
+            })()
             return
         }
 
@@ -515,6 +518,8 @@ export class Store {
      * Rollback: `DROP TABLE session_scratchlist; PRAGMA user_version = 11;`
      */
     private migrateFromV11ToV12(): void {
+        // Reconcile databases stamped as v11 without the idempotent v10 table migration.
+        this.migrateFromV10ToV11()
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS session_scratchlist (
                 session_id TEXT NOT NULL,
