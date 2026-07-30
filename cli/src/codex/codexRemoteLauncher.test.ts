@@ -68,7 +68,14 @@ const harness = vi.hoisted(() => ({
     emitRunningChildTurnBeforeSuppressedParent: false,
     emitCompletedChildTurnBeforeSuppressedParent: false,
     emitTurnAbortedOnInterrupt: false,
-    bridgeOptions: [] as unknown[]
+    bridgeOptions: [] as unknown[],
+    compactTranscriptSummary: null as string | null,
+    enableTranscriptScanner: false,
+    transcriptEventHandler: null as ((event: {
+        timestamp?: string;
+        type: string;
+        payload?: unknown;
+    }) => void) | null,
 }));
 
 vi.mock('./codexAppServerClient', () => {
@@ -143,6 +150,13 @@ vi.mock('./codexAppServerClient', () => {
             const compacted = { threadId, turnId: `compact-${harness.compactThreadIds.length}` };
             harness.notifications.push({ method: 'thread/compacted', params: compacted });
             this.notificationHandler?.('thread/compacted', compacted);
+            if (harness.compactTranscriptSummary) {
+                harness.transcriptEventHandler?.({
+                    timestamp: new Date(Date.now() + 1_000).toISOString(),
+                    type: 'compacted',
+                    payload: { message: harness.compactTranscriptSummary }
+                });
+            }
             return {};
         }
 
@@ -944,6 +958,36 @@ vi.mock('./utils/buildHapiMcpBridge', () => ({
     }
 }));
 
+vi.mock('./utils/codexSessionScanner', () => ({
+    createCodexSessionScanner: async (options: {
+        onEvent: (event: {
+            timestamp?: string;
+            type: string;
+            payload?: unknown;
+        }) => void;
+    }) => {
+        harness.transcriptEventHandler = options.onEvent;
+        return {
+            flush: async () => {},
+            cleanup: async () => {},
+            setTranscriptPath: async () => {}
+        };
+    }
+}));
+
+vi.mock('./utils/codexTranscriptLocator', () => ({
+    createCodexTranscriptLocator: (options: {
+        onLocated: (located: { transcriptPath: string }) => void;
+    }) => ({
+        ready: Promise.resolve().then(() => {
+            if (harness.enableTranscriptScanner) {
+                options.onLocated({ transcriptPath: '/tmp/hapi-codex-transcript.jsonl' });
+            }
+        }),
+        cleanup: async () => {}
+    })
+}));
+
 import { codexRemoteLauncher } from './codexRemoteLauncher';
 
 type FakeAgentState = {
@@ -1153,6 +1197,9 @@ describe('codexRemoteLauncher', () => {
         harness.emitCompletedChildTurnBeforeSuppressedParent = false;
         harness.emitTurnAbortedOnInterrupt = false;
         harness.bridgeOptions = [];
+        harness.compactTranscriptSummary = null;
+        harness.enableTranscriptScanner = false;
+        harness.transcriptEventHandler = null;
     });
 
     it('finishes a turn and emits ready when task lifecycle events include turn_id', async () => {
@@ -1190,6 +1237,53 @@ describe('codexRemoteLauncher', () => {
         expect(sessionEvents.filter((event) => event.type === 'ready').length).toBeGreaterThanOrEqual(1);
         expect(thinkingChanges).toContain(true);
         expect(session.thinking).toBe(false);
+    });
+
+    it('forwards owned compact summaries and suppresses external turn summaries', async () => {
+        harness.suppressTurnCompletion = true;
+        harness.enableTranscriptScanner = true;
+        const { session, codexMessages } = createSessionStub(['first message']);
+        const running = codexRemoteLauncher(session as never);
+
+        await vi.waitFor(() => {
+            expect(harness.startTurnThreadIds).toEqual(['thread-1']);
+            expect(harness.transcriptEventHandler).toBeTypeOf('function');
+        });
+
+        const timestamp = new Date(Date.now() + 1_000).toISOString();
+        const emitCompact = (turnId: string, summary: string) => {
+            harness.transcriptEventHandler?.({
+                timestamp,
+                type: 'response_item',
+                payload: {
+                    type: 'message',
+                    internal_chat_message_metadata_passthrough: { turn_id: turnId }
+                }
+            });
+            harness.transcriptEventHandler?.({
+                timestamp,
+                type: 'compacted',
+                payload: { message: summary }
+            });
+        };
+
+        emitCompact('turn-1', 'owned summary');
+        emitCompact('turn-external', 'external summary');
+
+        expect(codexMessages).toContainEqual(expect.objectContaining({
+            type: 'summary',
+            summary: 'owned summary'
+        }));
+        expect(codexMessages).not.toContainEqual(expect.objectContaining({
+            type: 'summary',
+            summary: 'external summary'
+        }));
+
+        harness.dispatchNotification?.('turn/completed', {
+            status: 'Completed',
+            turn: { id: 'turn-1' }
+        });
+        expect(await running).toBe('exit');
     });
 
     it('routes app-server MCP elicitation through the existing user-input transport', async () => {
@@ -2818,22 +2912,29 @@ describe('codexRemoteLauncher', () => {
         expect(session.thinking).toBe(false);
     });
 
-    it('compacts the current thread without starting a turn', async () => {
-        const { session, sessionEvents } = createSessionStub(['first message', '/compact']);
+    it('forwards manual compact summaries without starting a turn', async () => {
+        harness.enableTranscriptScanner = true;
+        harness.compactTranscriptSummary = 'manual compact summary';
+        const { session, sessionEvents, codexMessages } = createSessionStub(['/compact']);
+        session.sessionId = 'thread-existing';
 
         const exitReason = await codexRemoteLauncher(session as never);
 
         expect(exitReason).toBe('exit');
-        expect(harness.startThreadIds).toEqual(['thread-1']);
-        expect(harness.startTurnThreadIds).toEqual(['thread-1']);
-        expect(harness.compactThreadIds).toEqual(['thread-1']);
+        expect(harness.startThreadIds).toEqual([]);
+        expect(harness.startTurnThreadIds).toEqual([]);
+        expect(harness.compactThreadIds).toEqual(['thread-existing']);
+        expect(codexMessages).toContainEqual(expect.objectContaining({
+            type: 'summary',
+            summary: 'manual compact summary'
+        }));
         expect(sessionEvents).toContainEqual({
             type: 'message',
             message: 'Compaction started'
         });
         expect(sessionEvents).toContainEqual({
             type: 'message',
-            message: 'Compaction completed, but the summary was unavailable'
+            message: 'Compaction completed'
         });
     });
 

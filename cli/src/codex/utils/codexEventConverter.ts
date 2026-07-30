@@ -115,6 +115,17 @@ function extractResponseItemTurnId(payload: Record<string, unknown>): string | n
     return metadata ? asString(metadata.turn_id) ?? asString(metadata.turnId) : null;
 }
 
+export function getCodexEventTurnId(event: CodexSessionEvent): string | null {
+    const payload = asRecord(event.payload);
+    if (!payload) {
+        return null;
+    }
+
+    return asString(payload.turn_id)
+        ?? asString(payload.turnId)
+        ?? extractResponseItemTurnId(payload);
+}
+
 export function convertCodexEvent(rawEvent: unknown): CodexConversionResult | null {
     const parsed = CodexSessionEventSchema.safeParse(rawEvent);
     if (!parsed.success) {
