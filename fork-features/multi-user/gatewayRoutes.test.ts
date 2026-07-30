@@ -1,17 +1,22 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { MultiUserGatewayStore } from './gatewayStore'
-import { createMultiUserGatewayRoutes } from './gatewayRoutes'
-import { hashPassword } from './password'
 import { Hono } from 'hono'
+import { decodeJwt } from 'jose'
+import { afterEach, describe, expect, it } from 'vitest'
+
+import { createMultiUserGatewayRoutes, type TelegramGatewayAdapter } from './gatewayRoutes'
+import { MultiUserGatewayStore } from './gatewayStore'
+import { hashPassword } from './password'
+import { hashApiToken } from './token'
 
 const stores: MultiUserGatewayStore[] = []
 afterEach(() => { for (const store of stores.splice(0)) store.close() })
 
-const jsonRequest = (path: string, body?: unknown, token?: string, method = 'POST') => new Request(`http://gateway${path}`, {
-    method,
-    headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
-    body: body === undefined ? undefined : JSON.stringify(body)
-})
+function jsonRequest(path: string, body?: unknown, token?: string, method = 'POST'): Request {
+    return new Request(`http://gateway${path}`, {
+        method,
+        headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        body: body === undefined ? undefined : JSON.stringify(body)
+    })
+}
 
 describe('multi-user gateway routes', () => {
     it('supports password login and admin account creation without core account tables', async () => {
@@ -44,6 +49,78 @@ describe('multi-user gateway routes', () => {
         expect((await app.fetch(new Request('http://gateway/tokens', { headers: { authorization: `Bearer ${apiJwt}` } }))).status).toBe(200)
         expect((await app.fetch(jsonRequest(`/tokens/${result.token.id}`, undefined, passwordJwt, 'DELETE'))).status).toBe(200)
         expect((await app.fetch(new Request('http://gateway/tokens', { headers: { authorization: `Bearer ${apiJwt}` } }))).status).toBe(401)
+    })
+
+    it('keeps a migrated API token namespace through login and refresh', async () => {
+        const store = new MultiUserGatewayStore(':memory:')
+        stores.push(store)
+        const account = store.createAccount('alice', 'user', 'account-default', hashPassword('password-123'))
+        store.createToken(account.id, 'legacy tenant token', hashApiToken('legacy-tenant-token'), 'tenant-blue')
+        const app = createMultiUserGatewayRoutes({ store, jwtSecret: new TextEncoder().encode('x'.repeat(32)), coreUserId: 7 })
+
+        const login = await app.fetch(jsonRequest('/auth', { accessToken: 'legacy-tenant-token' }))
+        const loginJwt = (await login.json() as { token: string }).token
+        expect(decodeJwt(loginJwt).ns).toBe('tenant-blue')
+
+        const refresh = await app.fetch(jsonRequest('/auth/refresh', undefined, loginJwt))
+        const refreshJwt = (await refresh.json() as { token: string }).token
+        expect(decodeJwt(refreshJwt).ns).toBe('tenant-blue')
+    })
+
+    it('restores Telegram login, same-namespace rebinding, and namespace-preserving refresh', async () => {
+        const store = new MultiUserGatewayStore(':memory:')
+        stores.push(store)
+        const account = store.createAccount('alice', 'user', 'account-alice', hashPassword('password-123'))
+        const previousAccount = store.createAccount('previous', 'user', 'tenant-blue')
+        store.bindExternalIdentity({ platform: 'telegram', platformUserId: '43', accountId: previousAccount.id })
+        store.bindExternalIdentity({ platform: 'telegram', platformUserId: '42', accountId: account.id })
+        store.createToken(account.id, 'telegram binder', hashApiToken('telegram-bind-token'), 'tenant-blue')
+        const telegram: TelegramGatewayAdapter = {
+            authenticate: async () => ({
+                kind: 'authenticated',
+                identity: {
+                    platformUserId: '42',
+                    namespace: 'tenant-blue',
+                    username: 'alice_tg'
+                }
+            }),
+            bind: async (_initData, namespace) => ({
+                kind: 'authenticated',
+                identity: {
+                    platformUserId: '43',
+                    namespace,
+                    username: 'alice_tg_new'
+                }
+            })
+        }
+        const app = createMultiUserGatewayRoutes({
+            store,
+            jwtSecret: new TextEncoder().encode('x'.repeat(32)),
+            coreUserId: 7,
+            telegram
+        })
+
+        const login = await app.fetch(jsonRequest('/auth', { initData: 'bound-init-data' }))
+        expect(login.status).toBe(200)
+        const loginJwt = (await login.json() as { token: string }).token
+        expect(decodeJwt(loginJwt)).toMatchObject({
+            ns: 'tenant-blue',
+            gaid: account.id,
+            source: 'telegram',
+            tgid: '42'
+        })
+        expect(store.getExternalIdentity('telegram', '42')?.accountId).toBe(account.id)
+
+        const refresh = await app.fetch(jsonRequest('/auth/refresh', undefined, loginJwt))
+        expect(decodeJwt((await refresh.json() as { token: string }).token).ns).toBe('tenant-blue')
+
+        const bind = await app.fetch(jsonRequest('/bind', {
+            initData: 'new-init-data',
+            accessToken: 'telegram-bind-token'
+        }))
+        expect(bind.status).toBe(200)
+        expect(store.getExternalIdentity('telegram', '43')?.accountId).toBe(account.id)
+        expect(decodeJwt((await bind.json() as { token: string }).token).ns).toBe('tenant-blue')
     })
 
     it('keeps account memory private and isolated per authenticated account', async () => {

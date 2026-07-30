@@ -22,9 +22,13 @@ import QRCode from 'qrcode'
 import type { Server as BunServer } from 'bun'
 import type { WebSocketData } from '@socket.io/bun-engine'
 import { getOrCreateOwnerId } from './config/ownerId'
-import { createMultiUserGatewayStore } from '../../fork-features/multi-user/hubMount'
+import { bootstrapForkMultiUser } from '../../fork-features/multi-user/hubMount'
 import { resolveTerminalNamespace } from '../../fork-features/multi-user/socketAdapter'
-import { MultiUserNotificationAdapter } from '../../fork-features/multi-user/notificationAdapter'
+import {
+    createPushNotificationRouting,
+    createTelegramNotificationNamespaceResolver,
+    MultiUserNotificationAdapter
+} from '../../fork-features/multi-user/notificationAdapter'
 import { resolveGatewayCliNamespace } from '../../fork-features/multi-user/cliAdapter'
 import { createGatewayMemoryDelivery } from '../../fork-features/multi-user/memoryAdapter'
 
@@ -173,13 +177,13 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
         console.log(`[Hub] Tunnel: disabled (${relayFlag.source})`)
     }
 
-    const store = new Store(config.dbPath)
-    const multiUserGatewayStore = createMultiUserGatewayStore(config.dataDir, config.cliApiToken)
+    const { store, multiUserGatewayStore } = bootstrapForkMultiUser(config)
     const gatewayMemoryDelivery = createGatewayMemoryDelivery(multiUserGatewayStore)
     const jwtSecret = await getOrCreateJwtSecret()
     const vapidKeys = await getOrCreateVapidKeys(config.dataDir)
     const vapidSubject = process.env.VAPID_SUBJECT ?? 'mailto:admin@hapi.run'
     const pushService = new PushService(vapidKeys, vapidSubject, store)
+    const pushNotificationRouting = createPushNotificationRouting(multiUserGatewayStore, store)
 
     visibilityTracker = new VisibilityTracker()
     sseManager = new SSEManager(30_000, visibilityTracker)
@@ -245,8 +249,10 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
                 pushService,
                 sseManager,
                 visibilityTracker,
-                config.publicUrl
-            )
+                config.publicUrl,
+                pushNotificationRouting.endpointsForAudience
+            ),
+            pushNotificationRouting.namespacesForAccount
         )
     )
 
@@ -264,7 +270,11 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
         })
         // Only add to notification channels if notifications are enabled
         if (config.telegramNotification) {
-            notificationChannels.push(new MultiUserNotificationAdapter(multiUserGatewayStore, happyBot))
+            notificationChannels.push(new MultiUserNotificationAdapter(
+                multiUserGatewayStore,
+                happyBot,
+                createTelegramNotificationNamespaceResolver(multiUserGatewayStore, store)
+            ))
         }
     }
 
