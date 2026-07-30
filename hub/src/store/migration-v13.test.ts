@@ -5,17 +5,17 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Store } from './index'
 
-describe('Store V12/V13→V15 schema reconciliation', () => {
+describe('Store V12/V13→V16 schema reconciliation', () => {
     it('fresh DB has both reconciled tables', () => {
         const store = new Store(':memory:')
         expect(tableExists(store, 'message_epochs')).toBe(true)
         expect(tableExists(store, 'session_scratchlist')).toBe(true)
-        expect(getUserVersion(store)).toBe(15)
+        expect(getUserVersion(store)).toBe(16)
         store.close()
     })
 
-    it('scratchlist V12 DB migrates to V15 and preserves existing messages', () => {
-        const dir = mkdtempSync(join(tmpdir(), 'hapi-migration-v15-test-'))
+    it('scratchlist V12 DB migrates to V16 and preserves existing messages', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'hapi-migration-v16-test-'))
         const dbPath = join(dir, 'test.db')
         let store: Store | undefined
         try {
@@ -34,7 +34,7 @@ describe('Store V12/V13→V15 schema reconciliation', () => {
             store = new Store(dbPath)
             expect(tableExists(store, 'message_epochs')).toBe(true)
             expect(tableExists(store, 'session_scratchlist')).toBe(true)
-            expect(getUserVersion(store)).toBe(15)
+            expect(getUserVersion(store)).toBe(16)
             expect(store.messages.getMessageEpoch('session-1')).toBe(0)
             expect(store.messages.getMessages('session-1')).toHaveLength(1)
         } finally {
@@ -72,7 +72,7 @@ describe('Store V12/V13→V15 schema reconciliation', () => {
             store = new Store(dbPath)
             expect(tableExists(store, 'message_epochs')).toBe(true)
             expect(tableExists(store, 'session_scratchlist')).toBe(true)
-            expect(getUserVersion(store)).toBe(15)
+            expect(getUserVersion(store)).toBe(16)
             expect(store.messages.getMessages('session-1')).toHaveLength(1)
         } finally {
             store?.close()

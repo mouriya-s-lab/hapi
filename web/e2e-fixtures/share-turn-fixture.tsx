@@ -16,6 +16,14 @@ const fixtureImage = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`
     </svg>
 `)
 
+const portraitFixtureImage = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`
+    <svg xmlns="http://www.w3.org/2000/svg" width="240" height="420" viewBox="0 0 240 420">
+        <rect width="240" height="420" rx="28" fill="#0f766e"/>
+        <text x="120" y="190" text-anchor="middle" fill="white" font-family="system-ui" font-size="24" font-weight="700">Portrait</text>
+        <text x="120" y="226" text-anchor="middle" fill="white" font-family="system-ui" font-size="16">attachment</text>
+    </svg>
+`)
+
 const markdown = `## Complex response fixture
 
 This paragraph contains **bold text**, *emphasis*, ~~strikethrough~~, inline \`code\`, a [safe link](https://example.com), 中文内容，以及一段足够长的文字，用于验证换行、行高和宽屏导出效果是否与原始 HAPI 页面保持一致。
@@ -91,12 +99,21 @@ function App() {
                                 <span className="mr-1 inline-flex rounded-full bg-[var(--app-chat-user-chip-bg)] px-2 py-px text-[var(--app-chat-user-chip-fg)]">plan</span>
                                 {'请导出这一轮复杂对话，并确保代码、表格、图片附件和长文本的样式全部保留。\n第二行用于验证换行。'}
                             </div>
-                            <img className="mt-3 max-h-60 rounded-xl" src={fixtureImage} alt="HAPI export fixture" />
+                            <div className="hapi-share-media-grid mt-3 flex flex-wrap gap-2" data-hapi-image-count="2">
+                                <button type="button" title="Click to zoom" className="overflow-hidden rounded-xl">
+                                    <img className="max-h-60" src={fixtureImage} alt="HAPI landscape export fixture" />
+                                </button>
+                                <button type="button" title="Click to zoom" className="overflow-hidden rounded-xl">
+                                    <img className="max-h-60" src={portraitFixtureImage} alt="HAPI portrait export fixture" />
+                                </button>
+                            </div>
                         </div>
                     </div>
                     <div data-hapi-message-role="assistant" className="happy-message share-turn-network-style px-1 min-w-0 max-w-full overflow-x-hidden">
                         <MarkdownRenderer content={markdown} standalone />
+                        <p data-testid="before-hidden-tool">Visible content before the hidden tool.</p>
                         <div data-hapi-share-exclude="true" className="mt-3 rounded-xl border p-3">Excluded tool output</div>
+                        <p data-testid="after-hidden-tool">Visible content after the hidden tool.</p>
                         <div className="happy-message-actions mt-1 flex h-5 items-center gap-1" data-testid="localized-message-actions">
                             <button type="button" title="已复制" aria-label="已复制">Copied state control</button>
                         </div>
@@ -109,7 +126,11 @@ function App() {
             <ShareTurnDialog
                 isOpen={open}
                 title="Complex HAPI turn"
-                subtitle="Markdown · attachment · code · table"
+                flavor="codex"
+                modelLabel="gpt-5.6-sol"
+                reasoningLabel="high"
+                showFastBadge={false}
+                worktreeBranch="feat/share-turn-polish"
                 sourceSnapshots={snapshots}
                 onClose={() => setOpen(false)}
             />

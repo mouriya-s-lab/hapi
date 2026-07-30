@@ -29,7 +29,7 @@ export { ScratchlistStore } from './scratchlistStore'
 export { SessionStore } from './sessionStore'
 export { UserStore } from './userStore'
 
-const SCHEMA_VERSION: number = 15
+const SCHEMA_VERSION: number = 16
 const REQUIRED_TABLES = [
     'sessions',
     'machines',
@@ -142,6 +142,7 @@ export class Store {
             12: () => this.migrateFromV12ToV13(),
             13: () => this.migrateFromV13ToV14(),
             14: () => this.migrateFromV14ToV15(),
+            15: () => this.migrateFromV15ToV16(),
         })
 
         if (currentVersion === 0) {
@@ -297,6 +298,7 @@ export class Store {
                 text TEXT NOT NULL,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
+                attachments TEXT DEFAULT NULL,
                 PRIMARY KEY (session_id, entry_id),
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
@@ -549,10 +551,26 @@ export class Store {
         this.migrateFromV12ToV13()
     }
 
+    /**
+     * Reconcile the two schema-v15 branches: upstream scratchlist attachments
+     * and the fork's resume-with-session-model preference.
+     */
     private migrateFromV14ToV15(): void {
-        const columns = this.getSessionColumnNames()
-        if (columns.size === 0 || columns.has('resume_with_session_model')) return
-        this.db.exec('ALTER TABLE sessions ADD COLUMN resume_with_session_model INTEGER NOT NULL DEFAULT 0')
+        const scratchlistColumns = this.db.prepare('PRAGMA table_info(session_scratchlist)').all() as Array<{ name: string }>
+        if (!scratchlistColumns.some((column) => column.name === 'attachments')) {
+            this.db.exec('ALTER TABLE session_scratchlist ADD COLUMN attachments TEXT DEFAULT NULL')
+        }
+
+        const sessionColumns = this.getSessionColumnNames()
+        if (sessionColumns.size > 0 && !sessionColumns.has('resume_with_session_model')) {
+            this.db.exec('ALTER TABLE sessions ADD COLUMN resume_with_session_model INTEGER NOT NULL DEFAULT 0')
+        }
+    }
+
+    private migrateFromV15ToV16(): void {
+        // Both the upstream and fork branches shipped schema v15 with one of
+        // these columns. Re-run the idempotent reconciliation for either shape.
+        this.migrateFromV14ToV15()
     }
 
     private getSessionColumnNames(): Set<string> {

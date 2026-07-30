@@ -50,6 +50,10 @@ export function isClaudeChatVisibleMessage(message: { type: unknown; subtype?: u
         return false
     }
 
+    if (message.type === 'tool_progress') {
+        return false
+    }
+
     if (message.type !== 'system') {
         return true
     }

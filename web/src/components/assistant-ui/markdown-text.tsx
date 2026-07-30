@@ -1,7 +1,7 @@
 import '@assistant-ui/react-markdown/styles/dot.css'
 
-import type { ComponentPropsWithoutRef, MouseEvent } from 'react'
-import { useState, useCallback, useEffect, useMemo, createContext, useContext, type ReactNode } from 'react'
+import type { ComponentPropsWithoutRef, MouseEvent, ReactNode } from 'react'
+import { useState, useCallback, useEffect, useMemo, createContext, useContext } from 'react'
 import {
     MarkdownTextPrimitive,
     unstable_memoizeMarkdownComponents as memoizeMarkdownComponents,
@@ -27,17 +27,20 @@ import { CopyIcon, CheckIcon, WrapIcon } from '@/components/icons'
 import { useTranslation } from '@/lib/use-translation'
 import { useOptionalHappyChatContext } from '@/components/AssistantChat/context'
 import { decodeFilePathHref, remarkFilePathLinks } from '@/lib/remark-file-path-links'
+import { remarkSessionPathLinks } from '@/lib/remark-session-path-links'
+import { buildSessionReferencePath, parseSessionPathHref } from '@/lib/sessionReference'
 import { UriConfirmDialog } from '@/components/UriConfirmDialog'
 
 import type { MarkdownTextPrimitiveProps } from '@assistant-ui/react-markdown'
 
 // ── Plugin array ────────────────────────────────────────────────────────────
-// Order: remarkGfm → remarkRepairTables → remarkLatexBracketMath → remarkNonHttpsAutolink → remarkStripCjkAutolink → remarkMath → remarkDisableIndentedCode → remarkFilePathLinks
+// Order: remarkGfm → remarkRepairTables → remarkLatexBracketMath → remarkNonHttpsAutolink → remarkStripCjkAutolink → remarkMath → remarkDisableIndentedCode → remarkSessionPathLinks → remarkFilePathLinks
 // remarkRepairTables must run immediately after remarkGfm — it reads file.value
 // (raw source) to pad short separator rows before remark-gfm parses the table.
 // remarkNonHttpsAutolink must run BEFORE remarkStripCjkAutolink so that the
 // CJK strip plugin sees the new link nodes and can trim trailing CJK punctuation
 // from them. Both must come before remarkMath (to avoid treating TeX as URI).
+// remarkSessionPathLinks turns bare /sessions/<id> citations into links.
 // remarkFilePathLinks runs last to convert file paths → links after all other
 // transforms have settled.
 //
@@ -56,6 +59,7 @@ const MARKDOWN_PLUGIN_TAIL_HEAD = [
 
 const MARKDOWN_PLUGIN_TAIL = [
     ...MARKDOWN_PLUGIN_TAIL_HEAD,
+    remarkSessionPathLinks,     // bare /sessions/<id> → clickable session citation
     remarkFilePathLinks,        // upstream — file path → link conversion, runs last
 ] satisfies NonNullable<MarkdownTextPrimitiveProps['remarkPlugins']>
 
@@ -65,6 +69,7 @@ const MARKDOWN_PLUGIN_TAIL = [
 // autolinks (already inert on that surface) but disable explicit-link rewrite.
 const MARKDOWN_PLUGIN_TAIL_STANDALONE = [
     ...MARKDOWN_PLUGIN_TAIL_HEAD,
+    remarkSessionPathLinks,
     [remarkFilePathLinks, { rewriteExplicitLinks: false }],
 ] satisfies NonNullable<MarkdownTextPrimitiveProps['remarkPlugins']>
 
@@ -507,6 +512,35 @@ function FilePathAnchor(props: ComponentPropsWithoutRef<'a'> & { filePath: strin
     )
 }
 
+function SessionPathAnchor(props: ComponentPropsWithoutRef<'a'> & { targetSessionId: string }) {
+    const navigate = useNavigate()
+    const rel = props.target === '_blank' ? (props.rel ?? 'noreferrer') : props.rel
+    // Preserve Vite BASE_URL for copy / open-in-new-tab (SPA click uses navigate).
+    const href = buildSessionReferencePath(props.targetSessionId)
+
+    const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+        props.onClick?.(event)
+        if (event.defaultPrevented) return
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+
+        event.preventDefault()
+        void navigate({
+            to: '/sessions/$sessionId',
+            params: { sessionId: props.targetSessionId },
+        })
+    }
+
+    return (
+        <a
+            {...props}
+            href={href}
+            rel={rel}
+            onClick={handleClick}
+            className={cn('aui-md-a font-medium text-[var(--app-link)] underline decoration-[color:var(--app-link-muted)] underline-offset-3', props.className)}
+        />
+    )
+}
+
 /**
  * Anchor component with URI scheme policy enforcement.
  *
@@ -522,6 +556,7 @@ function FilePathAnchor(props: ComponentPropsWithoutRef<'a'> & { filePath: strin
  * - Custom schemes, already allowed by user: live href in DOM; middle-click works.
  * - File-path links (decoded by remarkFilePathLinks): delegated to FilePathAnchor
  *   which uses useNavigate for SPA routing.
+ * - Session citation paths (`/sessions/<id>`): SessionPathAnchor SPA navigation.
  */
 function A(props: ComponentPropsWithoutRef<'a'>) {
     const chat = useOptionalHappyChatContext()
@@ -537,6 +572,7 @@ function A(props: ComponentPropsWithoutRef<'a'>) {
     // <UriConfirmProvider> (or supply a mock UriConfirmContext.Provider).
     const ctx = useContext(UriConfirmContext)
     const filePath = typeof props.href === 'string' ? decodeFilePathHref(props.href) : null
+    const targetSessionId = typeof props.href === 'string' ? parseSessionPathHref(props.href) : null
     const rel = props.target === '_blank' ? (props.rel ?? 'noreferrer') : props.rel
 
     if (filePath) {
@@ -544,6 +580,10 @@ function A(props: ComponentPropsWithoutRef<'a'>) {
             return <>{props.children}</>
         }
         return <FilePathAnchor {...props} filePath={filePath} sessionId={chat.sessionId} />
+    }
+
+    if (targetSessionId) {
+        return <SessionPathAnchor {...props} targetSessionId={targetSessionId} />
     }
 
     const isAllowed = ctx?.isAllowed ?? (() => false)

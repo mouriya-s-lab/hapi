@@ -84,6 +84,7 @@ function createApp(session: Session, overrides: EngineOverrides = {}) {
         },
         listScratchlistEntries: overrides.listScratchlistEntries ?? (() => []),
         countScratchlistEntries: overrides.countScratchlistEntries ?? (() => 0),
+        sumScratchlistAttachmentBytes: () => 0,
         getScratchlistEntry: overrides.getScratchlistEntry ?? (() => null),
         createScratchlistEntry: overrides.createScratchlistEntry
             ?? ((sessionId: string, text: string) => ({
@@ -92,17 +93,26 @@ function createApp(session: Session, overrides: EngineOverrides = {}) {
                     entryId: `auto-${Date.now()}`,
                     text,
                     createdAt: 1000,
-                    updatedAt: 1000
+                    updatedAt: 1000,
+                    attachments: [],
                 }
             })),
         updateScratchlistEntry: overrides.updateScratchlistEntry
-            ?? ((sessionId: string, entryId: string, text: string) => ({
+            ?? ((sessionId: string, entryId: string, patch: { text?: string }) => ({
                 entryId,
-                text,
+                text: patch.text ?? '',
                 createdAt: 1000,
-                updatedAt: 2000
+                updatedAt: 2000,
+                attachments: [],
             })),
-        deleteScratchlistEntry: overrides.deleteScratchlistEntry ?? (() => true)
+        deleteScratchlistEntry: overrides.deleteScratchlistEntry ?? (() => true),
+        resolveScratchlistAttachmentsForSession: async (
+            _sessionId: string,
+            _namespace: string,
+            claimed: Array<{ id: string; filename: string; mimeType: string; size: number; path: string }>
+        ) => ({ ok: true as const, attachments: claimed }),
+        sumScratchlistAttachmentBytesOnDisk: async () => 0,
+        deleteScratchlistAttachmentById: async () => true,
     } as unknown as SyncEngine
 
     const app = new Hono<WebAppEnv>()
@@ -119,8 +129,8 @@ describe('GET /api/sessions/:id/scratchlist', () => {
         const session = createSession()
         const app = createApp(session, {
             listScratchlistEntries: () => [
-                { entryId: 'a', text: 'note A', createdAt: 1000, updatedAt: 1000 },
-                { entryId: 'b', text: 'note B', createdAt: 2000, updatedAt: 2500 }
+                { entryId: 'a', text: 'note A', createdAt: 1000, updatedAt: 1000, attachments: [] },
+                { entryId: 'b', text: 'note B', createdAt: 2000, updatedAt: 2500, attachments: [] }
             ]
         })
         const res = await app.request('/api/sessions/session-1/scratchlist')
@@ -157,7 +167,8 @@ describe('POST /api/sessions/:id/scratchlist', () => {
                         entryId: options?.entryId ?? 'fresh-id',
                         text,
                         createdAt: options?.createdAt ?? 1000,
-                        updatedAt: 1000
+                        updatedAt: 1000,
+                        attachments: options?.attachments ?? [],
                     }
                 }
             }
@@ -179,7 +190,7 @@ describe('POST /api/sessions/:id/scratchlist', () => {
         const app = createApp(session, {
             createScratchlistEntry: () => ({
                 outcome: 'duplicate' as const,
-                entry: { entryId: 'dup', text: 'pre-existing', createdAt: 100, updatedAt: 100 }
+                entry: { entryId: 'dup', text: 'pre-existing', createdAt: 100, updatedAt: 100, attachments: [] }
             })
         })
         const res = await app.request('/api/sessions/session-1/scratchlist', {
@@ -245,7 +256,8 @@ describe('POST /api/sessions/:id/scratchlist', () => {
                         entryId: 'pre-existing',
                         text: 'already there',
                         createdAt: 100,
-                        updatedAt: 100
+                        updatedAt: 100,
+                        attachments: [],
                     }
                 }
                 return null
@@ -254,7 +266,7 @@ describe('POST /api/sessions/:id/scratchlist', () => {
                 createCalls.push(1)
                 return {
                     outcome: 'created' as const,
-                    entry: { entryId: 'should-not-fire', text: 'noop', createdAt: 0, updatedAt: 0 }
+                    entry: { entryId: 'should-not-fire', text: 'noop', createdAt: 0, updatedAt: 0, attachments: [] }
                 }
             }
         })
@@ -336,11 +348,19 @@ describe('PUT /api/sessions/:id/scratchlist/:entryId', () => {
     it('returns the updated entry on success', async () => {
         const session = createSession()
         const app = createApp(session, {
-            updateScratchlistEntry: (_sessionId, entryId, text) => ({
-                entryId,
-                text,
+            getScratchlistEntry: () => ({
+                entryId: 'entry-1',
+                text: 'before',
                 createdAt: 1000,
-                updatedAt: 5000
+                updatedAt: 1000,
+                attachments: [],
+            }),
+            updateScratchlistEntry: (_sessionId, entryId, patch) => ({
+                entryId,
+                text: patch.text ?? 'before',
+                createdAt: 1000,
+                updatedAt: 5000,
+                attachments: patch.attachments ?? [],
             })
         })
         const res = await app.request('/api/sessions/session-1/scratchlist/entry-1', {
@@ -357,6 +377,7 @@ describe('PUT /api/sessions/:id/scratchlist/:entryId', () => {
     it('returns 404 when the entry does not exist', async () => {
         const session = createSession()
         const app = createApp(session, {
+            getScratchlistEntry: () => null,
             updateScratchlistEntry: () => null
         })
         const res = await app.request('/api/sessions/session-1/scratchlist/missing-id', {
@@ -376,6 +397,33 @@ describe('PUT /api/sessions/:id/scratchlist/:entryId', () => {
             body: JSON.stringify({ text: '' })
         })
         expect(res.status).toBe(400)
+    })
+
+    it('rejects clearing attachments on a textless entry (would leave an empty row)', async () => {
+        const session = createSession()
+        const app = createApp(session, {
+            getScratchlistEntry: () => ({
+                entryId: 'entry-1',
+                text: '',
+                createdAt: 1000,
+                updatedAt: 1000,
+                attachments: [{
+                    id: '11111111-1111-4111-8111-111111111111',
+                    filename: 'a.png',
+                    mimeType: 'image/png',
+                    size: 3,
+                    path: 'hapi-hub:scratchlist/default/session-1/11111111-1111-4111-8111-111111111111-a.png',
+                }],
+            }),
+        })
+        const res = await app.request('/api/sessions/session-1/scratchlist/entry-1', {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ attachments: [] })
+        })
+        expect(res.status).toBe(400)
+        const body = await res.json() as { code?: string }
+        expect(body.code).toBe('scratchlist_entry_empty')
     })
 
     it('returns 403 when the session is in another namespace', async () => {

@@ -160,11 +160,11 @@ export default function SettingsDisplayPage() {
                 <SettingsSwitch label={t('settings.display.activeSessionsOnly')} description={t('settings.display.activeSessionsOnly.desc')} checked={showActiveSessionsOnly} onChange={setShowActiveSessionsOnly} />
                 <SettingsChoiceGroup
                     label={t('settings.display.sessionListStatus')}
+                    description={t('settings.display.sessionListStatus.detailedDescription')}
                     value={sessionListStatusMode}
                     options={getSessionListStatusModeOptions().map((option) => ({ value: option.value, label: t(option.labelKey) }))}
                     onChange={setSessionListStatusMode}
                 />
-                {sessionListStatusMode === 'detailed' ? <div className="px-3 pb-3 text-xs text-[var(--app-hint)]">{t('settings.display.sessionListStatus.detailedDescription')}</div> : null}
             </SettingsSection>
         </SettingsPageContent>
     )

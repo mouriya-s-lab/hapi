@@ -10,7 +10,8 @@ import SettingsVoicePage from './voice'
 import SettingsVoiceVoicesPage from './voice-voices'
 import SettingsVoiceAdvancedPage from './voice-advanced'
 
-const { navigate, setAppearance, setColorTheme, setFontScale, setTerminalFontSize, setComposerEnterBehavior, setVoice } = vi.hoisted(() => ({
+const { context, navigate, setAppearance, setColorTheme, setFontScale, setTerminalFontSize, setComposerEnterBehavior, setVoice } = vi.hoisted(() => ({
+    context: { token: '' },
     navigate: vi.fn(),
     setAppearance: vi.fn(),
     setColorTheme: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock('@/lib/app-context', () => ({
     useAppContext: () => ({
         api: {},
         baseUrl: 'http://127.0.0.1:3006',
+        token: context.token,
         user: { role: 'admin' },
     }),
 }))
@@ -134,6 +136,7 @@ vi.mock('@/hooks/useChatSurfaceColors', () => ({
     toCustomChatSurfaceColorPreference: (value: string) => `custom:${value}`,
 }))
 
+
 vi.mock('@/components/settings/CompanionPairing', () => ({
     CompanionPairing: () => <div>Companion pairing</div>,
 }))
@@ -171,6 +174,7 @@ describe('responsive settings pages', () => {
     beforeEach(() => {
         vi.clearAllMocks()
         localStorage.clear()
+        context.token = `x.${btoa(JSON.stringify({ ns: 'default' }))}.x`
     })
 
     it('renders the mobile hub categories with current summaries', () => {
@@ -185,6 +189,12 @@ describe('responsive settings pages', () => {
         renderPage(<SettingsHubPage />)
         fireEvent.click(screen.getByRole('button', { name: /General/ }))
         expect(navigate).toHaveBeenCalledWith({ to: '/settings/general' })
+    })
+
+    it('hides Hub storage from tenant namespaces', () => {
+        context.token = `x.${btoa(JSON.stringify({ ns: 'tenant' }))}.x`
+        renderPage(<SettingsHubPage />)
+        expect(screen.queryByText('Hub database usage')).not.toBeInTheDocument()
     })
 
     it('changes the application language inline', () => {
@@ -203,6 +213,15 @@ describe('responsive settings pages', () => {
         expect(screen.getByRole('radio', { name: '120%' })).toBeInTheDocument()
         expect(screen.getByRole('spinbutton', { name: 'Sessions Before Folding' })).toHaveValue(8)
         expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    })
+
+    it('keeps the session status description visible with its choice group', () => {
+        renderPage(<SettingsDisplayPage />)
+
+        const description = screen.getByText('Shows why a session stopped: permission, input, background work, new activity, or a scheduled message (clock icon).')
+        const choices = screen.getByRole('radiogroup', { name: 'Session list status' })
+        expect(description.parentElement?.parentElement).toBe(choices.parentElement)
+        expect(description.compareDocumentPosition(choices) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     })
 
     it('keeps chat enum choices inline', () => {

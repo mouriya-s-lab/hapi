@@ -1,11 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useTranslation } from '@/lib/use-translation'
+import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 
 type ShareTurnDialogProps = {
     isOpen: boolean
     title: string
-    subtitle: string
+    flavor: string | null
+    modelLabel: string | null
+    reasoningLabel: string | null
+    showFastBadge: boolean
+    worktreeBranch: string | null
     sourceSnapshots: Array<{
         html: string
         text: string
@@ -19,6 +24,7 @@ type ShareTurnSnapshot = ShareTurnDialogProps['sourceSnapshots'][number]
 const SHARE_EXPORT_WIDTH = 960
 const SHARE_EXPORT_SCALE = 2
 const MAX_EXPORT_PIXELS = 24_000_000
+const SHARE_HIDDEN_CONTENT_SELECTOR = '[data-hapi-share-exclude="true"], .aui-reasoning-group'
 
 function nextFrame(): Promise<void> {
     return new Promise((resolve) => {
@@ -27,8 +33,25 @@ function nextFrame(): Promise<void> {
 }
 
 function stripCaptureOnlyControls(root: HTMLElement): void {
-    for (const element of Array.from(root.querySelectorAll('[data-hapi-share-exclude="true"], .aui-reasoning-group'))) {
-        element.remove()
+    for (const element of Array.from(root.querySelectorAll(SHARE_HIDDEN_CONTENT_SELECTOR))) {
+        if (!(element instanceof HTMLElement) || !root.contains(element)) continue
+
+        let previous = element.previousElementSibling
+        while (previous?.matches(SHARE_HIDDEN_CONTENT_SELECTOR)) previous = previous.previousElementSibling
+        let next = element.nextElementSibling
+        while (next?.matches(SHARE_HIDDEN_CONTENT_SELECTOR)) next = next.nextElementSibling
+
+        const separatesVisibleContent = previous != null
+            && next != null
+            && !previous.matches('.hapi-share-hidden-content-spacer')
+        if (separatesVisibleContent) {
+            const spacer = document.createElement('div')
+            spacer.className = 'hapi-share-hidden-content-spacer'
+            spacer.setAttribute('aria-hidden', 'true')
+            element.replaceWith(spacer)
+        } else {
+            element.remove()
+        }
     }
     for (const element of Array.from(root.querySelectorAll('.happy-message-actions, .happy-message-actions-first-line, [data-hapi-share-action="true"], button[aria-expanded], input, textarea, select'))) {
         element.remove()
@@ -37,6 +60,11 @@ function stripCaptureOnlyControls(root: HTMLElement): void {
         anchor.removeAttribute('href')
         anchor.removeAttribute('target')
         anchor.removeAttribute('rel')
+    }
+    for (const imageButton of Array.from(root.querySelectorAll('button:has(img)'))) {
+        imageButton.removeAttribute('title')
+        imageButton.removeAttribute('aria-label')
+        imageButton.setAttribute('tabindex', '-1')
     }
     for (const element of Array.from(root.querySelectorAll('[role="button"], [contenteditable="true"]'))) {
         if (element.tagName.toLowerCase() !== 'a') {
@@ -59,8 +87,24 @@ function formatShareTimestamp(date = new Date()): string {
     ].join('')
 }
 
-function getShareFileName(): string {
-    return `HAPI-${formatShareTimestamp()}.png`
+function sanitizeShareFileNamePart(title: string): string {
+    const withoutControlCharacters = Array.from(title.normalize('NFKC'))
+        .filter((character) => {
+            const codePoint = character.codePointAt(0) ?? 0
+            return codePoint >= 32 && codePoint !== 127
+        })
+        .join('')
+    const sanitized = withoutControlCharacters
+        .replace(/[<>:"/\\|?*]+/g, '-')
+        .replace(/\s+/g, ' ')
+        .replace(/-+/g, '-')
+        .replace(/^[ .-]+|[ .-]+$/g, '')
+        .trim()
+    return Array.from(sanitized || 'Shared turn').slice(0, 80).join('').trim()
+}
+
+function getShareFileName(title: string): string {
+    return `HAPI-${sanitizeShareFileNamePart(title)}-${formatShareTimestamp()}.png`
 }
 
 function prepareExportElement(element: HTMLElement): HTMLElement {
@@ -151,10 +195,27 @@ function prepareExportElement(element: HTMLElement): HTMLElement {
         .hapi-share-export-root .sr-only {
             display: none !important;
         }
+        .hapi-share-export-root .hapi-share-hidden-content-spacer {
+            display: block !important;
+            height: 0.75rem !important;
+        }
         .hapi-share-export-root pre,
-        .hapi-share-export-root code {
+        .hapi-share-export-root .aui-md-codeblockcode {
             white-space: pre-wrap !important;
             overflow-wrap: anywhere !important;
+        }
+        .hapi-share-export-root .aui-md-code:not(.aui-md-codeblockcode) {
+            display: inline-block !important;
+            width: auto !important;
+            max-width: 100% !important;
+            white-space: normal !important;
+            overflow-wrap: anywhere !important;
+            direction: ltr !important;
+            unicode-bidi: isolate !important;
+            text-align: left !important;
+            vertical-align: baseline !important;
+            padding-left: 0.2em !important;
+            padding-right: 0.2em !important;
         }
     `
     captureElement.prepend(style)
@@ -233,7 +294,6 @@ function copyLoadedStyleSheets(source: Document, target: Document): void {
             // network fallback; same-origin app CSS always takes the inline path.
         }
     }
-
     for (const node of Array.from(source.head.querySelectorAll('link[rel="stylesheet"], style'))) {
         if (copiedOwners.has(node)) continue
         const clone = node.cloneNode(true)
@@ -379,8 +439,8 @@ function downloadBlob(blob: Blob, fileName: string): void {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-async function shareImageBlob(blob: Blob): Promise<void> {
-    const file = new File([blob], getShareFileName(), { type: blob.type })
+async function shareImageBlob(blob: Blob, fileName: string): Promise<void> {
+    const file = new File([blob], fileName, { type: blob.type })
     if (!navigator.share) {
         throw new Error('Image sharing is not supported in this browser')
     }
@@ -506,9 +566,7 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
         try {
             const blob = await elementToPngBlob(capture)
             await action(blob)
-            if (mode === 'copy') {
-                setCopied(true)
-            }
+            if (mode === 'copy') setCopied(true)
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to create image')
         } finally {
@@ -518,24 +576,57 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
 
     return (
         <Dialog open={props.isOpen} onOpenChange={(open) => { if (!open) props.onClose() }}>
-            <DialogContent className="max-h-[calc(100vh-24px)] max-w-3xl overflow-hidden p-4" aria-describedby={undefined}>
-                <DialogHeader>
+            <DialogContent
+                className="max-h-[calc(100vh-24px)] max-w-3xl overflow-hidden p-4 [&>button:last-child]:top-4"
+                aria-describedby={undefined}
+            >
+                <DialogHeader className="h-8 justify-center !px-10 text-center sm:text-center">
                     <DialogTitle>{t('shareTurn.title')}</DialogTitle>
                 </DialogHeader>
 
                 <div className="mt-3 max-h-[58vh] overflow-auto rounded-2xl border border-[var(--app-border)] bg-[var(--app-bg)] p-2 sm:max-h-[65vh] sm:p-3">
                     <div
                         ref={captureRef}
-                        className="mx-auto w-[720px] max-w-full rounded-[28px] bg-[var(--app-bg)] p-4 text-[var(--app-fg)] sm:p-5"
+                        className="hapi-share-preview-root mx-auto w-[720px] max-w-full rounded-[28px] bg-[var(--app-bg)] p-4 text-[var(--app-fg)] sm:p-5"
                     >
-                        <div className="mb-4 flex items-start justify-between gap-3 border-b border-[var(--app-divider)] pb-3">
+                        <style>{`
+                            .hapi-share-preview-root .hapi-share-hidden-content-spacer {
+                                display: block !important;
+                                height: 0.75rem !important;
+                            }
+                            .hapi-share-preview-root .hapi-share-media-grid:not([data-hapi-image-count="1"]) {
+                                display: grid !important;
+                                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                                align-items: start !important;
+                                width: 100% !important;
+                            }
+                            .hapi-share-preview-root .hapi-share-media-grid:not([data-hapi-image-count="1"]) > button,
+                            .hapi-share-preview-root .hapi-share-media-grid:not([data-hapi-image-count="1"]) > button > img {
+                                width: 100% !important;
+                                min-width: 0 !important;
+                            }
+                            .hapi-share-preview-root .hapi-share-media-grid > button {
+                                height: auto !important;
+                                align-self: start !important;
+                                cursor: default !important;
+                                pointer-events: none !important;
+                            }
+                        `}</style>
+                        <div className="mb-4 border-b border-[var(--app-divider)] pb-3">
                             <div className="min-w-0">
-                                <div className="text-lg font-semibold">HAPI</div>
-                                <div className="mt-1 truncate text-xs text-[var(--app-hint)]">{props.title}</div>
-                                <div className="mt-0.5 truncate text-xs text-[var(--app-hint)]">{props.subtitle}</div>
-                            </div>
-                            <div className="rounded-full border border-[var(--app-border)] px-2 py-1 text-[10px] text-[var(--app-hint)]">
-                                {t('shareTurn.badge')}
+                                <div className="truncate text-lg font-semibold">{props.title}</div>
+                                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--app-hint)]">
+                                    <span className="inline-flex items-center gap-1">
+                                        <AgentFlavorIcon flavor={props.flavor} className="h-3.5 w-3.5 shrink-0" />
+                                        {props.flavor?.trim() || 'unknown'}
+                                    </span>
+                                    {props.modelLabel ? <span>{props.modelLabel}</span> : null}
+                                    {props.reasoningLabel ? <span>{props.reasoningLabel}</span> : null}
+                                    {props.showFastBadge ? <span className="text-[#34C759]">fast</span> : null}
+                                    {props.worktreeBranch ? (
+                                        <span>{t('session.item.worktree')}: {props.worktreeBranch}</span>
+                                    ) : null}
+                                </div>
                             </div>
                         </div>
                         <div ref={bodyRef} data-hapi-share-body="true" className="flex flex-col gap-3" />
@@ -552,24 +643,23 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
                 <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
                     <button
                         type="button"
-                        onClick={props.onClose}
-                        className="rounded-md border border-[var(--app-border)] px-3 py-2 text-sm text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)] sm:w-32"
-                    >
-                        {t('shareTurn.cancel')}
-                    </button>
-                    <button
-                        type="button"
                         onClick={() => { void withPng(copyImageBlob, 'copy') }}
                         disabled={busy !== null || !ready}
                         className="hidden rounded-md border border-[var(--app-border)] px-3 py-2 text-sm text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)] disabled:opacity-50 sm:inline-block sm:w-32"
                     >
-                        {busy === 'copy' ? t('shareTurn.copying') : copied ? t('shareTurn.copied') : t('shareTurn.copy')}
+                        {copied ? t('shareTurn.copied') : t('shareTurn.copy')}
                     </button>
                     {showNativeShareButton ? (
                         <button
                             type="button"
                             onClick={() => {
-                                if (preparedBlob) runBlobAction(preparedBlob, shareImageBlob, 'share')
+                                if (preparedBlob) {
+                                    runBlobAction(
+                                        preparedBlob,
+                                        (blob) => shareImageBlob(blob, getShareFileName(props.title)),
+                                        'share'
+                                    )
+                                }
                             }}
                             disabled={busy !== null || !preparedBlob}
                             className="rounded-md border border-[var(--app-border)] px-3 py-2 text-sm text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)] disabled:opacity-50 sm:w-32"
@@ -580,10 +670,10 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
                     <button
                         type="button"
                         onClick={() => {
-                            void withPng((blob) => downloadBlob(blob, getShareFileName()), 'download')
+                            void withPng((blob) => downloadBlob(blob, getShareFileName(props.title)), 'download')
                         }}
                         disabled={busy !== null || !ready}
-                        className="col-span-2 rounded-md bg-[var(--app-button)] px-3 py-2 text-sm text-[var(--app-button-text)] disabled:opacity-50 sm:col-span-1 sm:w-32"
+                        className="rounded-md bg-[var(--app-button)] px-3 py-2 text-sm text-[var(--app-button-text)] disabled:opacity-50 sm:w-32"
                     >
                         {busy === 'download' ? t('shareTurn.saving') : t('shareTurn.download')}
                     </button>

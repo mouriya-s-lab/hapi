@@ -229,6 +229,8 @@ describe('ToolGroupCard', () => {
         expect(screen.getAllByText('src/a.ts')[0]).toBeInTheDocument()
         expect(within(dialog).getAllByText('Input').length).toBeGreaterThan(0)
         expect(within(dialog).getAllByText('Result').length).toBeGreaterThan(0)
+        expect(within(dialog).getByRole('heading').parentElement).toHaveClass('text-left')
+        expect(within(dialog).getByRole('button', { name: 'Close' })).toHaveClass('top-2')
     })
 
     it('shows structured Codex exploration actions by default without a generic action count', () => {

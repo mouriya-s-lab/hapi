@@ -445,10 +445,10 @@ export function ToolGroupCard(props: {
                     setSelectedToolId(null)
                 }
             }}>
-                <DialogContent className="max-w-2xl" aria-describedby={undefined}>
+                <DialogContent className="max-w-2xl" closeButtonClassName="top-2" aria-describedby={undefined}>
                     {selectedTool && selectedPresentation ? (
                         <>
-                            <DialogHeader>
+                            <DialogHeader className="text-left">
                                 <DialogTitle>{selectedPresentation.title}</DialogTitle>
                             </DialogHeader>
                             <ToolDetailDialogContent

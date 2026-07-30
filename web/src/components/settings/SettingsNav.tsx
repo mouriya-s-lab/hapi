@@ -3,32 +3,51 @@ import { useTranslation } from '@/lib/use-translation'
 import { useAppearance } from '@/hooks/useTheme'
 import { useFontScale } from '@/hooks/useFontScale'
 import { useComposerEnterBehavior } from '@/hooks/useComposerEnterBehavior'
-import { settingsCategories } from '@/routes/settings/categories'
 import { useAppContext } from '@/lib/app-context'
+import { settingsCategories } from '@/routes/settings/categories'
 import { ChevronRightIcon } from './SettingsPrimitives'
+
+function getNamespace(token: string): string | null {
+    try {
+        const payload = token.split('.')[1]
+        if (!payload) return null
+        const base64 = payload.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(payload.length / 4) * 4, '=')
+        const decoded = JSON.parse(atob(base64)) as { ns?: unknown }
+        return typeof decoded.ns === 'string' ? decoded.ns : null
+    } catch {
+        return null
+    }
+}
 
 export function SettingsNav(props: { activeId?: string; mobile?: boolean }) {
     const navigate = useNavigate()
+    const { token, user } = useAppContext()
     const { t, locale } = useTranslation()
     const { appearance } = useAppearance()
     const { fontScale } = useFontScale()
     const { composerEnterBehavior } = useComposerEnterBehavior()
-    const { user } = useAppContext()
 
     const summaries: Record<string, string> = {
         general: locale === 'zh-CN' ? '简体中文' : 'English',
         display: `${t(`settings.display.appearance.${appearance}`)} · ${Math.round(fontScale * 100)}%`,
         chat: t(`settings.chat.enterBehavior.${composerEnterBehavior}`),
         voice: t('settings.hub.voice.summary'),
+        machines: t('settings.hub.machines.summary'),
+        storage: t('settings.storage.summary'),
         account: t('settings.fork.account.description'),
         users: t('settings.fork.users.description'),
         fork: t('settings.fork.summary'),
         about: `v${__APP_VERSION__}`,
     }
+    const namespace = getNamespace(token)
+    const visibleCategories = settingsCategories.filter(
+        (category) => (category.id !== 'storage' || namespace === 'default')
+            && (category.id !== 'users' || user.role === 'admin')
+    )
 
     return (
         <nav aria-label={t('settings.title')} className={props.mobile ? 'divide-y divide-[var(--app-divider)]' : 'space-y-1 p-3'}>
-            {settingsCategories.filter(category => category.id !== 'users' || user.role === 'admin').map((category) => {
+            {visibleCategories.map((category) => {
                 const active = props.activeId === category.id
                 return (
                     <button

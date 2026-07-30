@@ -1,4 +1,5 @@
 import * as Popover from '@radix-ui/react-popover'
+import { useAssistantState } from '@assistant-ui/react'
 import { CheckIcon, CopyIcon, InfoIcon } from '@/components/icons'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { useTranslation } from '@/lib/use-translation'
@@ -17,8 +18,16 @@ type MessageActionsProps = {
 export function MessageActions({ align, copyText, metadata, messageElementId }: MessageActionsProps) {
     const { copied, copy } = useCopyToClipboard()
     const { t } = useTranslation()
+    const threadIsRunning = useAssistantState(({ thread }) => thread?.isRunning ?? false)
     const canCopy = Boolean(copyText)
     const hasMetadata = metadata ? buildMessageMetadataLabels(metadata).length > 0 : false
+    const shareButton = messageElementId && !threadIsRunning ? (
+        <ShareTurnButton
+            messageElementId={messageElementId}
+            fallbackText={copyText}
+            className="flex h-5 w-5 items-center justify-center rounded text-[var(--app-hint)] transition-colors hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)]"
+        />
+    ) : null
 
     return (
         <div
@@ -28,6 +37,8 @@ export function MessageActions({ align, copyText, metadata, messageElementId }: 
             )}
         >
             {align === 'end' ? <DesktopTimestamp /> : null}
+            {align === 'end' && hasMetadata && metadata ? <MessageInfoPopover metadata={metadata} /> : null}
+            {align === 'end' ? shareButton : null}
             {canCopy ? (
                 <button
                     type="button"
@@ -39,14 +50,8 @@ export function MessageActions({ align, copyText, metadata, messageElementId }: 
                     {copied ? <CheckIcon className="h-3.5 w-3.5 text-green-500" /> : <CopyIcon className="h-3.5 w-3.5" />}
                 </button>
             ) : null}
-            {hasMetadata && metadata ? <MessageInfoPopover metadata={metadata} /> : null}
-            {messageElementId ? (
-                <ShareTurnButton
-                    messageElementId={messageElementId}
-                    fallbackText={copyText}
-                    className="flex h-5 w-5 items-center justify-center rounded text-[var(--app-hint)] transition-colors hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)]"
-                />
-            ) : null}
+            {align === 'start' ? shareButton : null}
+            {align === 'start' && hasMetadata && metadata ? <MessageInfoPopover metadata={metadata} /> : null}
             {align === 'start' ? <DesktopTimestamp /> : null}
         </div>
     )

@@ -1,7 +1,14 @@
 import type { ReactNode } from 'react'
 
-export function SettingsFieldLabel(props: { children: ReactNode; hidden?: boolean }) {
-    return props.hidden ? null : <div className="mb-2 text-sm font-medium text-[var(--app-fg)]">{props.children}</div>
+export function SettingsFieldLabel(props: { children: ReactNode; hidden?: boolean; description?: string }) {
+    if (props.hidden) return null
+    if (!props.description) return <div className="mb-2 text-sm font-medium text-[var(--app-fg)]">{props.children}</div>
+    return (
+        <div className="mb-2">
+            <div className="text-sm font-medium text-[var(--app-fg)]">{props.children}</div>
+            <div className="mt-0.5 text-xs leading-snug text-[var(--app-hint)]">{props.description}</div>
+        </div>
+    )
 }
 
 export function ChevronRightIcon(props: { className?: string }) {
@@ -72,6 +79,7 @@ export function SettingsSwitch(props: { label: string; description?: string; che
 
 export function SettingsChoiceGroup<T extends string | number>(props: {
     label: string
+    description?: string
     hideLabel?: boolean
     value: T
     options: ReadonlyArray<{ value: T; label: string; description?: string }>
@@ -81,7 +89,7 @@ export function SettingsChoiceGroup<T extends string | number>(props: {
     const columns = props.columns === 5 ? 'grid-cols-5' : props.columns === 4 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2'
     return (
         <div className="px-3 py-3">
-            <SettingsFieldLabel hidden={props.hideLabel}>{props.label}</SettingsFieldLabel>
+            <SettingsFieldLabel hidden={props.hideLabel} description={props.description}>{props.label}</SettingsFieldLabel>
             <div role="radiogroup" aria-label={props.label} className={`grid ${columns} gap-2`}>
                 {props.options.map((option) => {
                     const selected = props.value === option.value

@@ -240,6 +240,20 @@ export const RenameSessionRequestSchema = z.object({
 export type RenameSessionRequest = z.infer<typeof RenameSessionRequestSchema>
 
 /**
+ * An empty string clears the custom name, so unlike session rename there is no
+ * `min(1)`: the machine falls back to its hostname. The length ceiling is
+ * enforced after trimming, so it is not expressed here.
+ */
+export const RenameMachineRequestSchema = z.object({
+    displayName: z.string()
+})
+
+export type RenameMachineRequest = z.infer<typeof RenameMachineRequestSchema>
+
+export const MACHINE_DISPLAY_NAME_MAX_LENGTH = 64
+
+
+/**
  * Scratchlist v2 (tiann/hapi#893) per-entry caps.
  *
  * `MAX_ENTRIES` (200) is a per-session ceiling: refuses to create entry
@@ -265,6 +279,8 @@ export const SCRATCHLIST_MAX_TEXT_LENGTH = 10_000
  */
 export const SCRATCHLIST_MAX_ENTRY_ID_LENGTH = 128
 
+import { ScratchlistAttachmentsArraySchema } from './scratchlistAttachments'
+
 export const ScratchlistEntryCreateRequestSchema = z.object({
     /**
      * Optional client-supplied entry id. Lets the web client preserve its
@@ -274,20 +290,43 @@ export const ScratchlistEntryCreateRequestSchema = z.object({
      * generate one.
      */
     entryId: z.string().min(1).max(SCRATCHLIST_MAX_ENTRY_ID_LENGTH).optional(),
-    text: z.string().min(1).max(SCRATCHLIST_MAX_TEXT_LENGTH),
+    text: z.string().max(SCRATCHLIST_MAX_TEXT_LENGTH).default(''),
+    attachments: ScratchlistAttachmentsArraySchema.optional().default([]),
     /**
      * Optional client-supplied createdAt. Used by the migration path to
      * preserve the original timestamps from localStorage. New entries
      * omit this and let the hub stamp `Date.now()`.
      */
     createdAt: z.number().int().nonnegative().optional()
-})
+}).refine(
+    (data) => data.text.trim().length > 0 || data.attachments.length > 0,
+    { message: 'Scratchlist entry requires text or attachments', path: ['text'] }
+)
 
 export type ScratchlistEntryCreateRequest = z.infer<typeof ScratchlistEntryCreateRequestSchema>
 
 export const ScratchlistEntryUpdateRequestSchema = z.object({
-    text: z.string().min(1).max(SCRATCHLIST_MAX_TEXT_LENGTH)
-})
+    text: z.string().max(SCRATCHLIST_MAX_TEXT_LENGTH).optional(),
+    attachments: ScratchlistAttachmentsArraySchema.optional(),
+}).refine(
+    (data) => data.text !== undefined || data.attachments !== undefined,
+    { message: 'Update requires text and/or attachments', path: ['text'] }
+).refine(
+    (data) => {
+        // Attachments-only patch may clear the list (`[]`) while keeping text.
+        if (data.text === undefined && data.attachments !== undefined) {
+            return true
+        }
+        if (data.text !== undefined && data.attachments === undefined) {
+            return data.text.trim().length > 0
+        }
+        if (data.text !== undefined && data.attachments !== undefined) {
+            return data.text.trim().length > 0 || data.attachments.length > 0
+        }
+        return true
+    },
+    { message: 'Scratchlist entry requires non-empty text or attachments', path: ['text'] }
+)
 
 export type ScratchlistEntryUpdateRequest = z.infer<typeof ScratchlistEntryUpdateRequestSchema>
 
@@ -849,6 +888,13 @@ export type SlashCommandsResponse = {
     error?: string
 }
 
+export type SqliteStorageUsageResponse = {
+    path: string
+    databaseBytes: number
+    walBytes: number
+    shmBytes: number
+    totalBytes: number
+}
 export type ImportableSessionProvider = 'claude' | 'codex'
 
 export type ImportableSessionSummary = {

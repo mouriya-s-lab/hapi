@@ -88,6 +88,43 @@ describe('SessionList directory action', () => {
         })
     })
 
+    it('keeps the sticky project header opaque and aligned with the list viewport', () => {
+        const session = makeSession({
+            id: 'session-1',
+            updatedAt: Date.now(),
+            metadata: {
+                path: '/home/ubuntu',
+                name: 'Greeting',
+                flavor: 'codex',
+            }
+        })
+
+        renderWithProviders(
+            <SessionList
+                sessions={[session]}
+                selectedSessionId={null}
+                onSelect={vi.fn()}
+                onNewSession={vi.fn()}
+                onRefresh={vi.fn()}
+                isLoading={false}
+                renderHeader={false}
+                api={null}
+            />
+        )
+
+        const projectHeader = screen.getByTitle('/home/ubuntu')
+        expect(projectHeader).toHaveClass('bg-[var(--app-bg)]')
+        expect(projectHeader).toHaveClass('hover:bg-[var(--app-secondary-bg)]')
+        expect(projectHeader).not.toHaveClass('hover:bg-[var(--app-subtle-bg)]')
+
+        const listContent = projectHeader.parentElement?.parentElement
+        expect(listContent).not.toHaveClass('pt-1')
+
+        const searchInput = screen.getByPlaceholderText(/Search sessions/)
+        const searchWrapper = searchInput.parentElement?.parentElement
+        expect(searchWrapper).toHaveClass('pb-1')
+    })
+
     it('hides the directory action for sessions without path metadata', () => {
         renderWithProviders(
             <SessionList

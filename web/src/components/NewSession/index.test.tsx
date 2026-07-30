@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
     spawnSession: vi.fn(),
     onSuccess: vi.fn(),
     notification: vi.fn(),
+    checkPathsExists: vi.fn(),
     codexModelsLoading: false,
     directoryExists: undefined as boolean | undefined
 }))
@@ -44,7 +45,7 @@ vi.mock('@/hooks/useRecentPaths', () => ({
 vi.mock('@/hooks/useMachinePathsExists', () => ({
     useMachinePathsExists: () => ({
         pathExistence: { 'C:\\repo': mocks.directoryExists },
-        checkPathsExists: async () => ({ 'C:\\repo': mocks.directoryExists })
+        checkPathsExists: mocks.checkPathsExists
     })
 }))
 vi.mock('@/hooks/useDirectorySuggestions', () => ({
@@ -165,6 +166,8 @@ describe('NewSession launch preferences', () => {
         mocks.spawnSession.mockReset()
         mocks.onSuccess.mockReset()
         mocks.notification.mockReset()
+        mocks.checkPathsExists.mockReset()
+        mocks.checkPathsExists.mockImplementation(async () => ({ 'C:\\repo': mocks.directoryExists }))
         mocks.codexModelsLoading = false
         mocks.directoryExists = true
         savePreferredAgent('codex')
@@ -287,6 +290,34 @@ describe('NewSession launch preferences', () => {
             effort: 'auto',
             modelReasoningEffort: 'max'
         })
+    })
+
+    it('spawns only once when Create is activated twice during directory validation', async () => {
+        let finishDirectoryCheck!: (result: Record<string, boolean>) => void
+        mocks.checkPathsExists.mockReturnValue(new Promise((resolve) => {
+            finishDirectoryCheck = resolve
+        }))
+        mocks.spawnSession.mockResolvedValue({ type: 'success', sessionId: 'session-1' })
+
+        render(
+            <NewSession
+                api={api}
+                machines={[machine]}
+                initialMachineId="machine-1"
+                initialDirectory="C:\\repo"
+                onSuccess={mocks.onSuccess}
+                onCancel={() => {}}
+            />
+        )
+
+        const create = screen.getByTestId('create')
+        fireEvent.click(create)
+        fireEvent.click(create)
+        finishDirectoryCheck({ 'C:\\repo': true })
+
+        await waitFor(() => expect(mocks.onSuccess).toHaveBeenCalledWith('session-1'))
+        expect(mocks.checkPathsExists).toHaveBeenCalledTimes(1)
+        expect(mocks.spawnSession).toHaveBeenCalledTimes(1)
     })
 
     it('does not save changed launch settings when creation fails', async () => {

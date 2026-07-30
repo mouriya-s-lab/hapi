@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ApiClient } from '@/api/client'
 import { HappyThread } from '@/components/AssistantChat/HappyThread'
 import { I18nProvider } from '@/lib/i18n-context'
+import type { Session } from '@/types/api'
 
 vi.mock('@assistant-ui/react', () => ({
     ThreadPrimitive: {
@@ -38,6 +39,27 @@ afterAll(() => {
 })
 
 const api = new ApiClient('test-token')
+const session: Session = {
+    id: 'pagination-session',
+    namespace: 'default',
+    seq: 1,
+    createdAt: 0,
+    updatedAt: 0,
+    active: true,
+    activeAt: 0,
+    metadata: null,
+    metadataVersion: 1,
+    agentState: null,
+    agentStateVersion: 1,
+    thinking: false,
+    thinkingAt: 0,
+    model: null,
+    modelReasoningEffort: null,
+    effort: null,
+    serviceTier: null,
+    resumeWithSessionModel: false,
+}
+
 
 function PaginationHarness(props: { onRequest: () => void }) {
     const [committedPageCount, setCommittedPageCount] = useState(0)
@@ -66,6 +88,7 @@ function PaginationHarness(props: { onRequest: () => void }) {
             <output data-testid="page">{committedPageCount}</output>
             <HappyThread
                 api={api}
+                session={session}
                 sessionId="pagination-session"
                 metadata={null}
                 disabled={false}
@@ -120,11 +143,11 @@ describe('HappyThread older-history pagination lifecycle', () => {
         }
         viewport.scrollTop = 0
 
-        fireEvent.click(screen.getByRole('button', { name: 'Load older' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Load earlier' }))
 
         await waitFor(() => expect(onRequest).toHaveBeenCalledTimes(3))
         await waitFor(() => expect(viewport.scrollTop).toBe(34))
         expect(anchor.getBoundingClientRect().top).toBe(61)
-        expect(screen.queryByRole('button', { name: 'Load older' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: 'Load earlier' })).not.toBeInTheDocument()
     })
 })

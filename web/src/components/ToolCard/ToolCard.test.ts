@@ -169,6 +169,17 @@ describe('getSubagentModel', () => {
         expect(getSubagentModel(children)).toBeNull()
     })
 
+    it('uses an explicit invocation model when child messages do not expose one', () => {
+        expect(getSubagentModel([], 'gpt-5.6-terra')).toBe('gpt-5.6-terra')
+    })
+
+    it('prefers the executed child model over an explicit invocation model', () => {
+        expect(getSubagentModel(
+            [makeAgentTextBlock({ model: 'claude-haiku-4-5-20251001' })],
+            'gpt-5.6-terra'
+        )).toBe('Haiku 4.5')
+    })
+
     it('returns the single formatted model when every carrying child agrees, across mixed block kinds', () => {
         const children: ChatBlock[] = [
             makeToolCallChild({ model: null }),

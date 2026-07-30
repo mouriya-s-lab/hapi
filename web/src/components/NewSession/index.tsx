@@ -148,7 +148,9 @@ export function NewSession(props: {
     const [codexImportError, setCodexImportError] = useState<string | null>(null)
     const [isImportingCodexSession, setIsImportingCodexSession] = useState(false)
     const [isCodexImportDialogOpen, setIsCodexImportDialogOpen] = useState(false)
-    const isFormDisabled = Boolean(isPending || props.isLoading || isImportingCodexSession)
+    const [isCreating, setIsCreating] = useState(false)
+    const createInFlightRef = useRef(false)
+    const isFormDisabled = Boolean(isCreating || isPending || props.isLoading || isImportingCodexSession)
     const worktreeInputRef = useRef<HTMLInputElement>(null)
     const preserveRestoredDraftRef = useRef(false)
 
@@ -918,8 +920,10 @@ export function NewSession(props: {
     }, [suggestions, selectedIndex, moveUp, moveDown, clearSuggestions, handleSuggestionSelect])
 
     async function handleCreate() {
-        if (!machineId || !trimmedDirectory) return
+        if (!machineId || !trimmedDirectory || createInFlightRef.current) return
 
+        createInFlightRef.current = true
+        setIsCreating(true)
         setError(null)
         try {
             const existsResult = await checkPathsExists([trimmedDirectory])
@@ -1039,6 +1043,9 @@ export function NewSession(props: {
             setIsImportingCodexSession(false)
             haptic.notification('error')
             setError(e instanceof Error ? e.message : 'Failed to create session')
+        } finally {
+            createInFlightRef.current = false
+            setIsCreating(false)
         }
     }
 
@@ -1264,7 +1271,7 @@ export function NewSession(props: {
             ) : null}
 
             <ActionButtons
-                isPending={isPending || isImportingCodexSession}
+                isPending={isCreating || isPending || isImportingCodexSession}
                 canCreate={canCreate}
                 isDisabled={isFormDisabled}
                 createLabel={createLabel}

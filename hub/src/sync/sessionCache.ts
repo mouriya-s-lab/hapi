@@ -875,6 +875,10 @@ export class SessionCache {
             throw new Error('Cannot delete active session')
         }
 
+        const scratchlistAttachments = this.store.scratchlist
+            .list(sessionId)
+            .flatMap((entry) => entry.attachments)
+
         const deleted = this.store.sessions.deleteSession(sessionId, session.namespace)
         if (!deleted) {
             throw new Error('Failed to delete session')
@@ -884,6 +888,16 @@ export class SessionCache {
         this.lastBroadcastAtBySessionId.delete(sessionId)
         this.todoBackfillAttemptedSessionIds.delete(sessionId)
         this.pendingThinkingUntilBySessionId.delete(sessionId)
+
+        void import('../scratchlistAttachments/storage').then(async ({
+            deleteScratchlistAttachmentFiles,
+            deleteScratchlistSessionAttachmentDir,
+            getHapiHomeDir,
+        }) => {
+            const hapiHome = getHapiHomeDir()
+            await deleteScratchlistAttachmentFiles(hapiHome, scratchlistAttachments)
+            await deleteScratchlistSessionAttachmentDir(hapiHome, session.namespace, sessionId)
+        })
 
         this.publisher.emit({ type: 'session-removed', sessionId, namespace: session.namespace })
     }
@@ -937,9 +951,38 @@ export class SessionCache {
         // promise that scratchlist survives reloads.
         const movedScratchlist = this.store.scratchlist.transfer(oldSessionId, newSessionId)
         if (movedScratchlist.moved > 0) {
+            // Attachment hub paths embed the old session id. Re-key files +
+            // metadata so quota/resolve stay correct on the consolidated id.
+            const {
+                getHapiHomeDir,
+                moveScratchlistAttachmentFilesForSession,
+                deleteScratchlistSessionAttachmentDir,
+            } = await import('../scratchlistAttachments/storage')
+            const hapiHome = getHapiHomeDir()
+            for (const entry of this.store.scratchlist.list(newSessionId)) {
+                if (entry.attachments.length === 0) continue
+                const attachments = await moveScratchlistAttachmentFilesForSession(
+                    hapiHome,
+                    namespace,
+                    oldSessionId,
+                    newSessionId,
+                    entry.attachments,
+                )
+                if (attachments.some((att, i) => att.path !== entry.attachments[i]?.path)) {
+                    this.store.scratchlist.update(newSessionId, entry.entryId, { attachments })
+                }
+            }
+            // Collided SQL losers + orphan uploads still under the old dir.
+            await deleteScratchlistSessionAttachmentDir(hapiHome, namespace, oldSessionId)
             // Rows landed on the consolidated session - invalidate so
             // any client on the new id refetches.
             this.emitScratchlistChanged(newSessionId)
+        } else if (movedScratchlist.collided > 0) {
+            // Every old entry lost the PK race — drop leftover hub blobs.
+            const { getHapiHomeDir, deleteScratchlistSessionAttachmentDir } = await import(
+                '../scratchlistAttachments/storage'
+            )
+            await deleteScratchlistSessionAttachmentDir(getHapiHomeDir(), namespace, oldSessionId)
         }
         if (!options.deleteOldSession && (movedScratchlist.moved > 0 || movedScratchlist.collided > 0)) {
             // HAPI Bot PR #896: when every old entry collides (moved=0,
