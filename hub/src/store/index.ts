@@ -29,7 +29,7 @@ export { ScratchlistStore } from './scratchlistStore'
 export { SessionStore } from './sessionStore'
 export { UserStore } from './userStore'
 
-const SCHEMA_VERSION: number = 15
+const SCHEMA_VERSION: number = 16
 const REQUIRED_TABLES = [
     'sessions',
     'machines',
@@ -142,6 +142,7 @@ export class Store {
             12: () => this.migrateFromV12ToV13(),
             13: () => this.migrateFromV13ToV14(),
             14: () => this.migrateFromV14ToV15(),
+            15: () => this.migrateFromV15ToV16(),
         })
 
         if (currentVersion === 0) {
@@ -204,6 +205,7 @@ export class Store {
                 model_reasoning_effort TEXT,
                 effort TEXT,
                 service_tier TEXT,
+                resume_with_session_model INTEGER NOT NULL DEFAULT 0,
                 todos TEXT,
                 todos_updated_at INTEGER,
                 team_state TEXT,
@@ -550,19 +552,25 @@ export class Store {
     }
 
     /**
-     * tiann/hapi#921 (scratchlist v2.2): attachment metadata JSON column.
-     * Bytes live on hub filesystem under HAPI_HOME/scratchlist-attachments/.
-     * Upstream ladder: V11→V12 = session_scratchlist (#896); V12–V14 =
-     * message_epochs reconciliation; this step is V14→V15 for attachments.
-     *
-     * Rollback: `ALTER TABLE session_scratchlist DROP COLUMN attachments` is
-     * unsupported on older SQLite; rebuild DB or leave column unused.
+     * Reconcile the two schema-v15 branches: upstream scratchlist attachments
+     * and the fork's resume-with-session-model preference.
      */
     private migrateFromV14ToV15(): void {
-        const columns = this.db.prepare('PRAGMA table_info(session_scratchlist)').all() as Array<{ name: string }>
-        if (!columns.some((col) => col.name === 'attachments')) {
-            this.db.exec(`ALTER TABLE session_scratchlist ADD COLUMN attachments TEXT DEFAULT NULL`)
+        const scratchlistColumns = this.db.prepare('PRAGMA table_info(session_scratchlist)').all() as Array<{ name: string }>
+        if (!scratchlistColumns.some((column) => column.name === 'attachments')) {
+            this.db.exec('ALTER TABLE session_scratchlist ADD COLUMN attachments TEXT DEFAULT NULL')
         }
+
+        const sessionColumns = this.getSessionColumnNames()
+        if (sessionColumns.size > 0 && !sessionColumns.has('resume_with_session_model')) {
+            this.db.exec('ALTER TABLE sessions ADD COLUMN resume_with_session_model INTEGER NOT NULL DEFAULT 0')
+        }
+    }
+
+    private migrateFromV15ToV16(): void {
+        // Both the upstream and fork branches shipped schema v15 with one of
+        // these columns. Re-run the idempotent reconciliation for either shape.
+        this.migrateFromV14ToV15()
     }
 
     private getSessionColumnNames(): Set<string> {

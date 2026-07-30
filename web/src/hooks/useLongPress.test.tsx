@@ -79,7 +79,6 @@ describe('useLongPress', () => {
 
         expect(onClick).not.toHaveBeenCalled()
     })
-
     it('still fires onLongPress (and not onClick) for a touch long-press', () => {
         const onClick = vi.fn()
         const onLongPress = vi.fn()

@@ -1,24 +1,23 @@
 import { useId, useMemo, useRef, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
 import type { Session } from '@/types/api'
 import type { ApiClient } from '@/api/client'
 import { isTelegramApp } from '@/hooks/useTelegram'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
+import { useFlavorCapabilities, getFlavorForkCapability } from '@/hooks/queries/useFlavorCapabilities'
+import { useMachines } from '@/hooks/queries/useMachines'
 import { SessionActionMenu } from '@/components/SessionActionMenu'
 import { SessionExportDialog } from '@/components/SessionExportDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
+import { SessionIdDialog } from '@/components/SessionIdDialog'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { useScratchlistCount } from '@/lib/use-scratchlist-count'
 import { formatReopenError } from '@/lib/reopenError'
 import { formatCodexReasoningLabel, shouldShowCodexReasoningLabel } from '@/lib/codexStatusLabels'
-import { getSessionModelLabel } from '@/lib/sessionModelLabel'
+import { formatUsageSnapshotLabel, getSessionModelLabel } from '@/lib/sessionModelLabel'
 import { useTranslation } from '@/lib/use-translation'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 import { isFastServiceTier } from '@/components/AssistantChat/codexFastMode'
 import { getSessionTitle } from '@/lib/sessionTitle'
-import { useToast } from '@/lib/toast-context'
-import { queryKeys } from '@/lib/query-keys'
-import { markCodexSessionsImported } from '@/lib/codexImportedSessions'
 
 function FilesIcon(props: { className?: string }) {
     return (
@@ -102,11 +101,10 @@ export function SessionHeader(props: {
     reopenDisabledReason?: string
     onSessionDeleted?: () => void
     onSessionReopened?: (newSessionId: string) => void
+    onSessionForked?: (newSessionId: string) => void
 }) {
     const { t } = useTranslation()
-    const queryClient = useQueryClient()
-    const { addToast } = useToast()
-    const { session, api, onSessionDeleted, onSessionReopened } = props
+    const { session, api, onSessionDeleted, onSessionReopened, onSessionForked } = props
     const title = useMemo(() => getSessionTitle(session), [session])
     const worktreeBranch = session.metadata?.worktree?.branch
     const modelLabel = getSessionModelLabel(session)
@@ -119,28 +117,41 @@ export function SessionHeader(props: {
     const codexSessionId = session.metadata?.flavor === 'codex'
         ? session.metadata.codexSessionId?.trim() || null
         : null
+    const sessionMachineId = session.metadata?.machineId ?? null
+    const { machines } = useMachines(api, Boolean(sessionMachineId))
+    const machineUsage = machines.find((machine) => machine.id === sessionMachineId)?.metadata?.usage
+    const usageSnapshot = ['openusage', 'cc-switch']
+        .flatMap((providerId) => machineUsage?.snapshots.find((snapshot) => snapshot.providerId === providerId) ?? [])
+        .at(0)
+    const usageLabel = session.metadata?.flavor === 'claude'
+        ? formatUsageSnapshotLabel(usageSnapshot, t('session.item.remaining'))
+        : null
 
     const [menuOpen, setMenuOpen] = useState(false)
     const [menuAnchorPoint, setMenuAnchorPoint] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
     const menuId = useId()
     const menuAnchorRef = useRef<HTMLButtonElement | null>(null)
     const [renameOpen, setRenameOpen] = useState(false)
+    const [sessionIdOpen, setSessionIdOpen] = useState(false)
     const [exportOpen, setExportOpen] = useState(false)
     const [archiveOpen, setArchiveOpen] = useState(false)
     const [deleteOpen, setDeleteOpen] = useState(false)
-    const [isSyncingCodex, setIsSyncingCodex] = useState(false)
 
-    const { archiveSession, reopenSession, renameSession, deleteSession, isPending } = useSessionActions(
+    const { archiveSession, reopenSession, renameSession, deleteSession, forkSession, isPending } = useSessionActions(
         api,
         session.id,
         session.metadata?.flavor ?? null
     )
+    const { data: capabilities } = useFlavorCapabilities(api)
+    const sessionFlavor = session.metadata?.flavor ?? null
+    const forkSupported =
+        Boolean(sessionFlavor) &&
+        getFlavorForkCapability(capabilities, sessionFlavor).fork !== 'none'
     const [reopenError, setReopenError] = useState<string | null>(null)
-    // tiann/hapi#893: surface the scratchlist entry count in the
-    // delete-confirm copy so the operator knows what cascades when they
-    // confirm. Read-only hook reuses the cache filled by SessionChat -
-    // no extra network when both components are mounted.
+    // Surface the scratchlist entry count in the delete confirmation so the
+    // operator knows what cascades when the session is removed.
     const scratchlistCount = useScratchlistCount(session.id, api)
+    const [forkError, setForkError] = useState<string | null>(null)
 
     const handleDelete = async () => {
         await deleteSession()
@@ -159,44 +170,15 @@ export function SessionHeader(props: {
         }
     }
 
-    const handleSyncCodex = async () => {
-        if (!api || !codexSessionId || isSyncingCodex) return
-
-        setIsSyncingCodex(true)
+    const handleFork = async () => {
+        setForkError(null)
         try {
-            // 中文注释：手动同步必须携带当前会话归属机器和目录；多台 runner 在线时后端不能靠猜。
-            const result = await api.syncCodexSession({
-                sessionIds: [codexSessionId],
-                cwd: typeof session.metadata?.path === 'string' ? session.metadata.path : undefined,
-                machineId: typeof session.metadata?.machineId === 'string' ? session.metadata.machineId : undefined
-            })
-            if (!result.success) {
-                throw new Error(result.error || t('codexSync.failed.body'))
+            const result = await forkSession()
+            if (result.type === 'success') {
+                onSessionForked?.(result.newSessionId)
             }
-
-            markCodexSessionsImported([codexSessionId])
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: queryKeys.session(session.id) }),
-                queryClient.invalidateQueries({ queryKey: queryKeys.messages(session.id) }),
-                queryClient.invalidateQueries({ queryKey: queryKeys.sessions })
-            ])
-            addToast({
-                title: t('codexSync.manual.success.title'),
-                body: (result.syncedCount ?? 1) === 0
-                    ? t('codexSync.manual.success.noNewMessages')
-                    : t('codexSync.manual.success.body', { n: result.syncedCount ?? 1 }),
-                sessionId: session.id,
-                url: `/sessions/${session.id}`
-            })
         } catch (error) {
-            addToast({
-                title: t('codexSync.manual.failed.title'),
-                body: error instanceof Error ? error.message : t('codexSync.failed.body'),
-                sessionId: session.id,
-                url: `/sessions/${session.id}`
-            })
-        } finally {
-            setIsSyncingCodex(false)
+            setForkError(error instanceof Error ? error.message : 'Fork failed')
         }
     }
 
@@ -248,13 +230,15 @@ export function SessionHeader(props: {
                                 <AgentFlavorIcon flavor={session.metadata?.flavor} className="h-3.5 w-3.5 shrink-0 -translate-y-px" />
                                 {session.metadata?.flavor?.trim() || 'unknown'}
                             </span>
-                            {modelLabel ? (
+                            {usageLabel ? (
+                                <span>{usageLabel}</span>
+                            ) : modelLabel ? (
                                 <span>
                                     {t(modelLabel.key)}: {modelLabel.value}
                                 </span>
                             ) : null}
                             {reasoningLabel ? (
-                                <span data-testid="session-header-reasoning" className="hidden sm:inline">
+                                <span data-testid="session-header-reasoning">
                                     {reasoningLabel}
                                 </span>
                             ) : null}
@@ -318,15 +302,30 @@ export function SessionHeader(props: {
                 sessionTitle={title}
                 sessionActive={session.active}
                 onRename={() => setRenameOpen(true)}
+                onShowSessionId={() => setSessionIdOpen(true)}
                 onExport={() => setExportOpen(true)}
-                onSyncCodex={api && codexSessionId ? handleSyncCodex : undefined}
                 onArchive={() => setArchiveOpen(true)}
                 onReopen={props.canReopen === false ? undefined : handleReopen}
                 reopenDisabledReason={props.reopenDisabledReason}
                 onDelete={() => setDeleteOpen(true)}
+                onFork={forkSupported ? handleFork : undefined}
+                forkSupported={forkSupported}
                 anchorPoint={menuAnchorPoint}
                 menuId={menuId}
             />
+
+            {forkError ? (
+                <ConfirmDialog
+                    isOpen={true}
+                    onClose={() => setForkError(null)}
+                    title={t('dialog.fork.errorTitle', { defaultValue: 'Fork failed' })}
+                    description={forkError}
+                    confirmLabel={t('dialog.fork.dismiss', { defaultValue: 'OK' })}
+                    confirmingLabel={t('dialog.fork.dismiss', { defaultValue: 'OK' })}
+                    onConfirm={async () => setForkError(null)}
+                    isPending={false}
+                />
+            ) : null}
 
             {reopenError ? (
                 <ConfirmDialog
@@ -347,6 +346,12 @@ export function SessionHeader(props: {
                 currentName={title}
                 onRename={renameSession}
                 isPending={isPending}
+            />
+
+            <SessionIdDialog
+                isOpen={sessionIdOpen}
+                onClose={() => setSessionIdOpen(false)}
+                session={session}
             />
 
             <SessionExportDialog
