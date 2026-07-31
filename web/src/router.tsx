@@ -219,12 +219,6 @@ function BarChartIcon(props: { className?: string }) {
     )
 }
 
-function getMachineTitle(machine: Machine): string {
-    if (machine.metadata?.displayName) return machine.metadata.displayName
-    if (machine.metadata?.host) return machine.metadata.host
-    return machine.id.slice(0, 8)
-}
-
 function SessionsPage() {
     const { api } = useAppContext()
     const navigate = useNavigate()

@@ -29,6 +29,9 @@ export type UsageSummaryResponse = {
 }
 
 const PRESET_RANGES = ['all', '24h', '7d', '30d'] as const
+
+// usage 端点只有按模型的聚合，没有按天的活动数据；日历里不渲染活动标记。
+const EMPTY_ACTIVITY_DATES: ReadonlySet<string> = new Set()
 type PresetRange = (typeof PRESET_RANGES)[number]
 type RangeKey = PresetRange | 'custom'
 
@@ -261,6 +264,7 @@ export default function UsagePage() {
                                     <SessionDateRangePicker
                                         start={customStart}
                                         end={customEnd}
+                                        sessionActivityDates={EMPTY_ACTIVITY_DATES}
                                         onChange={(start, end) => {
                                             setCustomStart(start)
                                             setCustomEnd(end)
