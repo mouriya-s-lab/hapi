@@ -154,10 +154,12 @@ export function mountExecutionRoutes(app: Hono<WebAppEnv>, deps: {
         const store = deps.getStore()
         if (!account || !engine || !store) return c.json({ error: 'Not connected' }, account ? 503 : 401)
 
-        const namespaceSessions = engine.getSessionsByNamespace(account.defaultNamespace)
-        const visible = account.role === 'admin'
-            ? namespaceSessions
-            : accessibleRecords(deps.store, 'session', account.id, id => engine.getSession(id))
+        // listAccessibleResources 对 admin 返回全部绑定，普通用户返回拥有+被授权，
+        // 与 GET /api/sessions 的可见集共用同一条查询。
+        const visible = deps.store.listAccessibleResources('session', account.id)
+            .map(binding => engine.getSession(binding.resourceId))
+            .filter(session => session != null)
+            .map(session => session!)
 
         // 机器下拉列表基于鉴权后的会话集合，不会泄漏用户无权访问的机器。
         const hosts = Array.from(new Set(
