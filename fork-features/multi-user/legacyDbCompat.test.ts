@@ -522,6 +522,8 @@ describe('legacyDbCompat.migrateLegacyForkArtifacts', () => {
 
             const result = migrateLegacyForkArtifacts({ hapiDataPath: hapiPath, gatewayDataPath: gatewayPath })
             expect(result.kind).toBe('migrated')
+            if (result.kind !== 'migrated') return
+            expect(result.normalizedCoreVersion).toBe(version === 13 ? 10 : 9)
             const store = new Store(hapiPath)
             store.close()
             const currentStorePath = join(dir, 'current-store.sqlite')

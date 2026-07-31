@@ -24,7 +24,7 @@ export type LegacyMigrationResult =
     | {
         kind: 'migrated'
         sourceVersion: SupportedLegacyVersion
-        normalizedCoreVersion: 9 | 11
+        normalizedCoreVersion: 9 | 10 | 11
         accountsCopied: number
         tokensCopied: number
         resourcesCopied: number
@@ -484,7 +484,7 @@ function writeGatewayData(
     })()
 }
 
-function normalizeCoreSchema(db: Database, artifacts: LegacyForkArtifacts): 9 | 11 {
+function normalizeCoreSchema(db: Database, artifacts: LegacyForkArtifacts): 9 | 10 | 11 {
     return db.transaction(() => {
         if (artifacts.sessionsHasOwnerColumn) {
             db.exec('DROP INDEX IF EXISTS idx_sessions_owner')
@@ -501,7 +501,10 @@ function normalizeCoreSchema(db: Database, artifacts: LegacyForkArtifacts): 9 | 
         if (artifacts.tables.includes('accounts')) db.exec('DROP TABLE accounts')
 
         const sessions = columnNames(db, 'sessions')
-        const normalizedVersion = sessions.has('service_tier') && sessions.has('resume_with_session_model') ? 11 : 9
+        const hasCurrentSessionColumns = sessions.has('service_tier') && sessions.has('resume_with_session_model')
+        const normalizedVersion = hasCurrentSessionColumns
+            ? (columnNames(db, 'fcm_devices').size > 0 ? 11 : 10)
+            : 9
         db.exec(`PRAGMA user_version = ${normalizedVersion}`)
         return normalizedVersion
     })()
