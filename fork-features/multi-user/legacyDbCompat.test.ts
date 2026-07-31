@@ -19,7 +19,15 @@ import { hashApiToken } from './token'
 const cleanupDirs: string[] = []
 afterEach(() => {
     for (const dir of cleanupDirs.splice(0)) {
-        rmSync(dir, { recursive: true, force: true })
+        try {
+            rmSync(dir, { recursive: true, force: true })
+        } catch (error) {
+            // Windows: bun:sqlite keeps the file mapping alive briefly after
+            // close(), so removing the temp dir can hit EBUSY. A leftover temp
+            // dir is harmless; rethrowing here would fail every test on win32
+            // and mask the real assertions.
+            if (process.platform !== 'win32') throw error
+        }
     }
 })
 
@@ -373,6 +381,47 @@ describe('legacyDbCompat.migrateLegacyForkArtifacts', () => {
         // Idempotent: second migrate is a no-op even though the gateway file already exists.
         const again = migrateLegacyForkArtifacts({ hapiDataPath: hapiPath, gatewayDataPath: gatewayPath })
         expect(again).toEqual({ kind: 'no-op', reason: 'no-artifacts' })
+    })
+
+    it('skips grants whose resource row was deleted (orphans) instead of rejecting the migration', () => {
+        const dir = makeTempDir()
+        const hapiPath = join(dir, 'hapi-data.sqlite')
+        const gatewayPath = join(dir, 'gateway.sqlite')
+
+        seedForkSchemaDb(hapiPath, {
+            extraAccounts: [
+                { username: 'peter', passwordHash: hashPassword('peter-pw'), role: 'user', defaultNamespace: 'default' }
+            ],
+            sessionOwners: [
+                { id: 's-live', namespace: 'default', ownerAccountId: 1 }
+            ],
+            grants: [
+                { resourceType: 'session', resourceId: 's-live', granteeAccountId: 2, role: 'viewer' },
+                // The granted session was deleted after the grant was issued — the
+                // production fork-era DB carries six of these. The row cannot satisfy
+                // the gateway_grants FK; it must be skipped, not reject the migration.
+                { resourceType: 'session', resourceId: 's-deleted-long-ago', granteeAccountId: 2, role: 'operator' }
+            ]
+        })
+
+        const result = migrateLegacyForkArtifacts({ hapiDataPath: hapiPath, gatewayDataPath: gatewayPath })
+        expect(result.kind).toBe('migrated')
+        if (result.kind !== 'migrated') return
+        expect(result.grantsCopied).toBe(1)
+        expect(result.orphanGrantsSkipped).toEqual([
+            { resourceType: 'session', resourceId: 's-deleted-long-ago', granteeAccountId: 2, role: 'operator' }
+        ])
+
+        const gateway = new MultiUserGatewayStore(gatewayPath)
+        try {
+            const peter = gateway.getAccountByUsername('peter')
+            expect(gateway.getGrant('session', 's-live', peter!.id)).toBe('viewer')
+            expect(gateway.getGrant('session', 's-deleted-long-ago', peter!.id)).toBeNull()
+        } finally {
+            gateway.close()
+        }
+
+        assertNoLegacyForkArtifactsRemaining(hapiPath)
     })
 
     it('rejects missing account references before removing source artifacts', () => {

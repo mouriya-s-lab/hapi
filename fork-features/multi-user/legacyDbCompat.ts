@@ -31,6 +31,14 @@ export type LegacyMigrationResult =
         grantsCopied: number
         externalIdentitiesCopied: number
         pushSubscriptionAccountsCopied: number
+        /**
+         * Grants whose source resource row no longer exists (session/machine
+         * deleted after the grant was issued). Real fork-era databases carry
+         * these; they cannot satisfy the gateway_grants FK and are skipped
+         * instead of rejecting the whole migration. Callers should surface
+         * each one so the operator can re-issue the grant if it still matters.
+         */
+        orphanGrantsSkipped: Array<{ resourceType: string; resourceId: string; granteeAccountId: number; role: string }>
     }
 
 type SqliteMasterRow = { name: string }
@@ -302,7 +310,6 @@ function prepareLegacyMigration(gatewayDb: Database, data: LegacyData): {
         }
     }
 
-    const sourceResources = new Set(data.resources.map(resource => `${resource.resource_type}:${resource.resource_id}`))
     for (const resource of data.resources) {
         const targetOwnerId = resolveTargetAccountId(
             resource.owner_account_id,
@@ -328,9 +335,6 @@ function prepareLegacyMigration(gatewayDb: Database, data: LegacyData): {
         if (grant.role !== 'viewer' && grant.role !== 'operator') {
             conflicts.push(`resource_grants resource=${grant.resource_type}:${grant.resource_id} has unsupported role=${grant.role}`)
             continue
-        }
-        if (!sourceResources.has(`${grant.resource_type}:${grant.resource_id}`)) {
-            conflicts.push(`resource_grants resource=${grant.resource_type}:${grant.resource_id} has no owned source resource`)
         }
         const targetAccountId = resolveTargetAccountId(
             grant.grantee_account_id,
@@ -544,6 +548,16 @@ export function migrateLegacyForkArtifacts(params: {
         }
 
         const data = readLegacyData(hapiDb, artifacts)
+
+        // Orphan grants: the granted session/machine row was deleted after the
+        // grant was issued, so there is no owner binding to migrate and the
+        // gateway_grants FK could never hold. Real fork-era databases contain
+        // these (grants outlive their sessions); skip them row by row instead
+        // of rejecting the whole migration.
+        const ownedResourceKeys = new Set(data.resources.map(resource => `${resource.resource_type}:${resource.resource_id}`))
+        const orphanGrants = data.grants.filter(grant => !ownedResourceKeys.has(`${grant.resource_type}:${grant.resource_id}`))
+        data.grants = data.grants.filter(grant => ownedResourceKeys.has(`${grant.resource_type}:${grant.resource_id}`))
+
         const gatewayDb = new Database(params.gatewayDataPath, { create: true })
         try {
             applyGatewaySchema(gatewayDb)
@@ -566,7 +580,13 @@ export function migrateLegacyForkArtifacts(params: {
             resourcesCopied: data.resources.length,
             grantsCopied: data.grants.length,
             externalIdentitiesCopied: data.externalIdentities.length,
-            pushSubscriptionAccountsCopied: data.pushSubscriptionAccounts.length
+            pushSubscriptionAccountsCopied: data.pushSubscriptionAccounts.length,
+            orphanGrantsSkipped: orphanGrants.map(grant => ({
+                resourceType: grant.resource_type,
+                resourceId: grant.resource_id,
+                granteeAccountId: grant.grantee_account_id,
+                role: grant.role
+            }))
         }
     } finally {
         hapiDb.close()

@@ -140,8 +140,16 @@ export function bootstrapForkMultiUser(config: {
             + `resources=${legacyMigration.resourcesCopied}, grants=${legacyMigration.grantsCopied}, `
             + `identities=${legacyMigration.externalIdentitiesCopied}, `
             + `push-bindings=${legacyMigration.pushSubscriptionAccountsCopied}, `
+            + `orphan-grants-skipped=${legacyMigration.orphanGrantsSkipped.length}, `
             + `core-schema=v${legacyMigration.normalizedCoreVersion}`
         )
+        for (const orphan of legacyMigration.orphanGrantsSkipped) {
+            console.warn(
+                `[Hub] Skipped legacy grant with no surviving resource: `
+                + `${orphan.resourceType}#${orphan.resourceId} ${orphan.role} -> account#${orphan.granteeAccountId} `
+                + '(the granted session/machine was deleted; re-issue the grant if it still matters)'
+            )
+        }
     }
 
     const store = new Store(config.dbPath)
