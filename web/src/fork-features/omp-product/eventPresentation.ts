@@ -41,6 +41,35 @@ function formatEventText(label: string, details: Array<string | null | undefined
     return [label, ...details].filter((detail): detail is string => Boolean(detail)).join(' · ')
 }
 
+function formatTtsrTriggeredEvent(event: Record<string, unknown>): OmpEventPresentation | null {
+    if (event.eventType !== 'ttsr_triggered') return null
+
+    const frame = asRecord(event.frame)
+    const rules = Array.isArray(frame?.rules) ? frame.rules : []
+    const ruleNames: string[] = []
+    for (const rule of rules) {
+        const name = asString(asRecord(rule)?.name)
+        if (name && !ruleNames.includes(name)) ruleNames.push(name)
+    }
+
+    if (ruleNames.length === 0) {
+        return { icon: '⚠️', text: 'Injecting rule' }
+    }
+    if (ruleNames.length === 1) {
+        return { icon: '⚠️', text: `Injecting rule: ${ruleNames[0]}` }
+    }
+
+    const visibleRuleNames = ruleNames.slice(0, 4)
+    const hiddenRuleCount = ruleNames.length - visibleRuleNames.length
+    return {
+        icon: '⚠️',
+        text: formatEventText(
+            `Injecting ${ruleNames.length} rules: ${visibleRuleNames.join(', ')}`,
+            [hiddenRuleCount > 0 ? `+${hiddenRuleCount} more` : null]
+        )
+    }
+}
+
 function readOutcome(event: Record<string, unknown>, frame: Record<string, unknown> | null): CompactionOutcome {
     const explicit = event.outcome
     if (explicit === 'completed' || explicit === 'aborted' || explicit === 'skipped' || explicit === 'failed') {
@@ -68,9 +97,10 @@ function readArchive(result: Record<string, unknown> | null): ArchiveSummary | n
 }
 
 export function getOmpEventPresentation(event: AgentEvent): OmpEventPresentation | null {
+    const record = event as Record<string, unknown>
+    if (event.type === 'omp-session-event') return formatTtsrTriggeredEvent(record)
     if (event.type !== 'omp-compaction') return null
 
-    const record = event as Record<string, unknown>
     const frame = asRecord(record.frame)
     const phase = asString(record.phase)
     const action = asString(record.action) ?? asString(frame?.action)

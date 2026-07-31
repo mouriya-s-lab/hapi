@@ -63,6 +63,65 @@ describe('getEventPresentation — OMP extension UI', () => {
     })
 })
 
+describe('getEventPresentation — OMP TTSR', () => {
+    it('shows rule names without exposing the raw rule frame', () => {
+        const result = getEventPresentation({
+            type: 'omp-session-event',
+            eventType: 'ttsr_triggered',
+            frame: {
+                type: 'ttsr_triggered',
+                rules: [{
+                    name: 'ts-no-tiny-functions',
+                    path: 'SECRET_PATH',
+                    content: 'SECRET_RULE_BODY',
+                    condition: 'SECRET_CONDITION',
+                    scope: ['SECRET_SCOPE']
+                }]
+            }
+        })
+
+        expect(result).toEqual({
+            icon: '⚠️',
+            text: 'Injecting rule: ts-no-tiny-functions'
+        })
+        expect(result.text).not.toMatch(/SECRET_(?:PATH|RULE_BODY|CONDITION|SCOPE)/)
+    })
+
+    it('handles events without named rules', () => {
+        expect(getEventPresentation({
+            type: 'omp-session-event',
+            eventType: 'ttsr_triggered',
+            frame: {
+                type: 'ttsr_triggered',
+                rules: []
+            }
+        })).toEqual({
+            icon: '⚠️',
+            text: 'Injecting rule'
+        })
+    })
+
+    it('shows multiple rule names and summarizes overflow', () => {
+        expect(getEventPresentation({
+            type: 'omp-session-event',
+            eventType: 'ttsr_triggered',
+            frame: {
+                type: 'ttsr_triggered',
+                rules: [
+                    { name: 'rule-one' },
+                    { name: 'rule-two' },
+                    { name: 'rule-three' },
+                    { name: 'rule-four' },
+                    { name: 'rule-five' }
+                ]
+            }
+        })).toEqual({
+            icon: '⚠️',
+            text: 'Injecting 5 rules: rule-one, rule-two, rule-three, rule-four · +1 more'
+        })
+    })
+})
+
 describe('getEventPresentation — OMP compaction', () => {
     it('shows the compaction strategy and trigger while starting', () => {
         expect(getEventPresentation({
