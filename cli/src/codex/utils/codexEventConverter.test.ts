@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { convertCodexEvent, isCodexEventFromCurrentProcess } from './codexEventConverter';
+import {
+    convertCodexEvent,
+    getCodexEventTurnId,
+    isCodexEventFromCurrentProcess
+} from './codexEventConverter';
 
 describe('convertCodexEvent', () => {
     it('accepts current-process transcript events and rejects old or invalid timestamps', () => {
@@ -15,6 +19,20 @@ describe('convertCodexEvent', () => {
         }, startupTimestampMs)).toBe(false);
         expect(isCodexEventFromCurrentProcess({ timestamp: 'invalid', type: 'compacted' }, startupTimestampMs)).toBe(false);
         expect(isCodexEventFromCurrentProcess({ type: 'compacted' }, startupTimestampMs)).toBe(false);
+    });
+
+    it('extracts turn ownership from transcript event metadata', () => {
+        expect(getCodexEventTurnId({
+            type: 'response_item',
+            payload: {
+                internal_chat_message_metadata_passthrough: { turn_id: 'turn-response' }
+            }
+        })).toBe('turn-response');
+        expect(getCodexEventTurnId({
+            type: 'turn_context',
+            payload: { turn_id: 'turn-context' }
+        })).toBe('turn-context');
+        expect(getCodexEventTurnId({ type: 'compacted', payload: {} })).toBeNull();
     });
 
     it('converts compacted transcript records into shared summary messages', () => {

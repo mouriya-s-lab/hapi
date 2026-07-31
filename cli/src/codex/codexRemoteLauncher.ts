@@ -24,6 +24,7 @@ import { extractErrorInfo } from '@/utils/errorUtils';
 import { createCodexSessionScanner, type CodexSessionScanner } from './utils/codexSessionScanner';
 import { createCodexTranscriptLocator, type CodexTranscriptLocator } from './utils/codexTranscriptLocator';
 import { convertCodexEvent, isCodexEventFromCurrentProcess } from './utils/codexEventConverter';
+import { createCodexCompactSummaryTurnOwnership } from '../../../fork-features/codex-compact-summary/turnOwnership';
 import {
     RemoteLauncherBase,
     type RemoteLauncherDisplayContext,
@@ -348,6 +349,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
         let transcriptLocatorThreadId = session.sessionId ?? null;
         let compactSummarySequence = 0;
         const compactSummaryWaiters = new Set<() => void>();
+        const compactSummaryOwnership = createCodexCompactSummaryTurnOwnership();
 
         const waitForCompactSummary = async (afterSequence: number, timeoutMs: number): Promise<boolean> => {
             if (compactSummarySequence > afterSequence) return true;
@@ -376,6 +378,13 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 replayExistingHistory: true,
                 onEvent: (event) => {
                     if (!isCodexEventFromCurrentProcess(event, startupTimestampMs)) return;
+                    if (!compactSummaryOwnership.observeTranscriptEvent(event)) {
+                        logger.debug(
+                            `[codex-remote]: Suppressing compact summary from non-HAPI turn ` +
+                            `${compactSummaryOwnership.getTranscriptTurnId() ?? 'unknown'}`
+                        );
+                        return;
+                    }
                     const converted = convertCodexEvent(event);
                     const summary = converted?.messages?.find((message) => message.type === 'summary');
                     if (summary) {
@@ -2574,6 +2583,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 dismissedSafetyBufferingKeys.clear();
                 if (turnId) {
                     this.currentTurnId = turnId;
+                    compactSummaryOwnership.recordOwnedTurn(turnId);
                     allowAnonymousTerminalEvent = false;
                 } else if (!this.currentTurnId) {
                     allowAnonymousTerminalEvent = true;
@@ -3640,6 +3650,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             const compactCompletion = beginManualCompact(threadId);
             void compactCompletion.catch(() => {});
             const summarySequenceBeforeCompact = compactSummarySequence;
+            compactSummaryOwnership.expectOwnedCompact();
             try {
                 await appServerClient.compactThread({ threadId }, {
                     signal: this.abortController.signal
@@ -3655,6 +3666,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 const detail = error instanceof Error ? error.message : String(error);
                 sendVisibleStatus(`Compaction failed: ${detail}`);
             } finally {
+                compactSummaryOwnership.clearExpectedOwnedCompact();
                 if (manualCompact?.threadId === threadId) {
                     const compact = manualCompact;
                     clearManualCompact(compact);
@@ -3862,6 +3874,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 if (turnInFlight) {
                     if (turnId) {
                         this.currentTurnId = turnId;
+                        compactSummaryOwnership.recordOwnedTurn(turnId);
                     } else if (!this.currentTurnId) {
                         allowAnonymousTerminalEvent = true;
                     }
