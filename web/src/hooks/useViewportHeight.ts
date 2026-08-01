@@ -48,10 +48,25 @@ export function useViewportHeight(): void {
 
         viewport.addEventListener('resize', update)
         viewport.addEventListener('scroll', update)
+        // Recovery path: Android (esp. installed PWA) can drop the final
+        // visualViewport resize when the keyboard dismisses while the page is
+        // losing focus or being backgrounded. The stale --app-viewport-height
+        // then pins <html>/<body> to the keyboard-era height: the app squeezes
+        // into the top of the screen with dead space (and a second scrollbar)
+        // below the composer until a reload. Re-validate whenever the window
+        // geometry changes or the app returns to the foreground.
+        window.addEventListener('resize', update)
+        window.addEventListener('focus', update)
+        window.addEventListener('pageshow', update)
+        document.addEventListener('visibilitychange', update)
 
         return () => {
             viewport.removeEventListener('resize', update)
             viewport.removeEventListener('scroll', update)
+            window.removeEventListener('resize', update)
+            window.removeEventListener('focus', update)
+            window.removeEventListener('pageshow', update)
+            document.removeEventListener('visibilitychange', update)
             root.style.removeProperty('--app-viewport-height')
         }
     }, [])
