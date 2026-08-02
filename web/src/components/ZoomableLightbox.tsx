@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode, type WheelEvent } from 'react'
+import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { CloseIcon } from '@/components/icons'
 
 const MIN_SCALE = 0.25
@@ -377,9 +378,6 @@ export function ZoomableLightbox(props: ZoomableLightboxProps) {
         if (!open) return
 
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') {
-                closeViewer()
-            }
             if (event.key === '0') {
                 resetView()
             }
@@ -404,77 +402,84 @@ export function ZoomableLightbox(props: ZoomableLightboxProps) {
     const minInteractiveScale = Math.min(MIN_SCALE, baseScale)
 
     return (
-        <div
-            className="fixed inset-0 z-50 h-[100dvh] w-full bg-black text-white"
-            role="dialog"
-            aria-modal="true"
-            aria-label={ariaLabel}
+        <DialogPrimitive.Root
+            open={open}
+            onOpenChange={(nextOpen) => {
+                if (!nextOpen) closeViewer()
+            }}
         >
-            <div
-                ref={viewportRef}
-                className="absolute inset-x-0 bottom-0 cursor-grab touch-none overflow-hidden active:cursor-grabbing"
-                style={{ top: `${toolbarHeight}px` }}
-                onWheel={handleWheel}
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
-                onPointerCancel={handlePointerUp}
-                onDoubleClick={resetView}
-            >
-                <div
-                    ref={contentRef}
-                    className="absolute left-1/2 top-1/2 select-none"
-                    style={{
-                        transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px)) scale(${scale})`,
-                        transformOrigin: 'center center',
-                    }}
+            <DialogPrimitive.Portal>
+                <DialogPrimitive.Content
+                    className="pointer-events-auto fixed inset-0 z-50 h-[100dvh] w-full bg-black text-white"
+                    aria-label={ariaLabel}
                 >
-                    {children}
-                </div>
-            </div>
-            <div
-                ref={toolbarRef}
-                className="pointer-events-none absolute inset-x-0 top-0 z-10 pt-[env(safe-area-inset-top,0px)]"
-                onPointerDown={(event) => event.stopPropagation()}
-            >
-                <div className="pointer-events-auto flex items-center gap-2 border-b border-white/10 bg-black/70 px-3 py-2 backdrop-blur-sm">
-                    <div className="min-w-0 flex-1 truncate text-sm font-medium">{title ?? ariaLabel}</div>
-                    <button
-                        type="button"
-                        onClick={() => zoomBy(-SCALE_STEP)}
-                        className="rounded bg-white/10 px-3 py-1 text-sm hover:bg-white/20 disabled:opacity-40"
-                        disabled={scale <= minInteractiveScale}
-                        title="Zoom out"
+                    <div
+                        ref={viewportRef}
+                        className="absolute inset-x-0 bottom-0 cursor-grab touch-none overflow-hidden active:cursor-grabbing"
+                        style={{ top: `${toolbarHeight}px` }}
+                        onWheel={handleWheel}
+                        onPointerDown={handlePointerDown}
+                        onPointerMove={handlePointerMove}
+                        onPointerUp={handlePointerUp}
+                        onPointerCancel={handlePointerUp}
+                        onDoubleClick={resetView}
                     >
-                        −
-                    </button>
-                    <button
-                        type="button"
-                        onClick={resetView}
-                        className="rounded bg-white/10 px-3 py-1 text-sm hover:bg-white/20"
-                        title="Fit to screen"
+                        <div
+                            ref={contentRef}
+                            className="absolute left-1/2 top-1/2 select-none"
+                            style={{
+                                transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px)) scale(${scale})`,
+                                transformOrigin: 'center center',
+                            }}
+                        >
+                            {children}
+                        </div>
+                    </div>
+                    <div
+                        ref={toolbarRef}
+                        className="pointer-events-none absolute inset-x-0 top-0 z-10 pt-[env(safe-area-inset-top,0px)]"
+                        onPointerDown={(event) => event.stopPropagation()}
                     >
-                        {zoomLabel}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => zoomBy(SCALE_STEP)}
-                        className="rounded bg-white/10 px-3 py-1 text-sm hover:bg-white/20 disabled:opacity-40"
-                        disabled={scale >= MAX_SCALE}
-                        title="Zoom in"
-                    >
-                        +
-                    </button>
-                    <button
-                        type="button"
-                        onClick={closeViewer}
-                        className="flex h-8 w-8 items-center justify-center rounded bg-white/10 hover:bg-white/20"
-                        title="Close"
-                    >
-                        <CloseIcon className="h-4 w-4" />
-                    </button>
-                </div>
-            </div>
-        </div>
+                        <div className="pointer-events-auto flex items-center gap-2 border-b border-white/10 bg-black/70 px-3 py-2 backdrop-blur-sm">
+                            <div className="min-w-0 flex-1 truncate text-sm font-medium">{title ?? ariaLabel}</div>
+                            <button
+                                type="button"
+                                onClick={() => zoomBy(-SCALE_STEP)}
+                                className="rounded bg-white/10 px-3 py-1 text-sm hover:bg-white/20 disabled:opacity-40"
+                                disabled={scale <= minInteractiveScale}
+                                title="Zoom out"
+                            >
+                                −
+                            </button>
+                            <button
+                                type="button"
+                                onClick={resetView}
+                                className="rounded bg-white/10 px-3 py-1 text-sm hover:bg-white/20"
+                                title="Fit to screen"
+                            >
+                                {zoomLabel}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => zoomBy(SCALE_STEP)}
+                                className="rounded bg-white/10 px-3 py-1 text-sm hover:bg-white/20 disabled:opacity-40"
+                                disabled={scale >= MAX_SCALE}
+                                title="Zoom in"
+                            >
+                                +
+                            </button>
+                            <button
+                                type="button"
+                                onClick={closeViewer}
+                                className="flex h-8 w-8 items-center justify-center rounded bg-white/10 hover:bg-white/20"
+                                title="Close"
+                            >
+                                <CloseIcon className="h-4 w-4" />
+                            </button>
+                        </div>
+                    </div>
+                </DialogPrimitive.Content>
+            </DialogPrimitive.Portal>
+        </DialogPrimitive.Root>
     )
 }

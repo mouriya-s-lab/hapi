@@ -56,8 +56,9 @@ function context(flavor: string): HappyChatContextValue {
         disabled: false,
         onRefresh: () => undefined,
         hasMoreMessages: false,
+        isSyncingTail: false,
         isLoadingMoreMessages: false,
-        loadOlderMessagesPreservingScroll: async () => false
+        loadOlderMessagesPreservingScroll: async () => 'terminal-stop'
     }
 }
 

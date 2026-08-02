@@ -6,8 +6,9 @@ import {
     ConversationOutlinePanel,
     captureScrollAnchor,
     getHistoryCoverageRetryDelay,
-    hasAppliedHistoryVersion,
+    getPullToLoadState,
     getScrollIntent,
+    hasAppliedHistoryVersion,
     loadUntilVisibleBoundaryChanges,
     locateOutlineTargetMessage,
     prependMissingUserSnapshot,
@@ -262,6 +263,13 @@ describe('top-triggered history loading', () => {
     it('defers an intersection signal until the initial scroll-settling deadline', () => {
         expect(getHistoryCoverageRetryDelay(2_800, 1_000)).toBe(1_816)
         expect(getHistoryCoverageRetryDelay(900, 1_000)).toBe(16)
+    })
+
+    it('shows pull feedback at 16px and arms release loading at 64px', () => {
+        expect(getPullToLoadState(15)).toBe('idle')
+        expect(getPullToLoadState(16)).toBe('pulling')
+        expect(getPullToLoadState(63)).toBe('pulling')
+        expect(getPullToLoadState(64)).toBe('ready')
     })
 })
 

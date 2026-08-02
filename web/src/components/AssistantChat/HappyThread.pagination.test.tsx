@@ -5,6 +5,7 @@ import { ApiClient } from '@/api/client'
 import { HappyThread } from '@/components/AssistantChat/HappyThread'
 import { I18nProvider } from '@/lib/i18n-context'
 import type { Session } from '@/types/api'
+import type { OlderLoadOutcome } from '@/lib/message-window-store'
 
 vi.mock('@assistant-ui/react', () => ({
     ThreadPrimitive: {
@@ -64,12 +65,14 @@ const session: Session = {
 function PaginationHarness(props: { onRequest: () => void }) {
     const [committedPageCount, setCommittedPageCount] = useState(0)
     const [isLoadingMore, setIsLoadingMore] = useState(false)
-    const pendingResolveRef = useRef<((loaded: boolean) => void) | null>(null)
+    const pendingResolveRef = useRef<((outcome: OlderLoadOutcome) => void) | null>(null)
+    const pendingBeforeApplyRef = useRef<((historyVersion: number) => boolean) | null>(null)
 
-    const onLoadMore = useCallback(() => {
+    const onLoadMore = useCallback((onBeforeApply?: (historyVersion: number) => boolean) => {
         props.onRequest()
+        pendingBeforeApplyRef.current = onBeforeApply ?? null
         setIsLoadingMore(true)
-        return new Promise<boolean>((resolve) => {
+        return new Promise<OlderLoadOutcome>((resolve) => {
             pendingResolveRef.current = resolve
         })
     }, [props.onRequest])
@@ -77,11 +80,24 @@ function PaginationHarness(props: { onRequest: () => void }) {
     useEffect(() => {
         if (!isLoadingMore) return
 
-        setCommittedPageCount((count) => count + 1)
+        const historyVersion = committedPageCount + 1
+        const shouldApply = pendingBeforeApplyRef.current?.(historyVersion) ?? true
+        pendingBeforeApplyRef.current = null
         setIsLoadingMore(false)
-        pendingResolveRef.current?.(true)
+        if (!shouldApply) {
+            pendingResolveRef.current?.({ kind: 'stopped', reason: 'invalidated' })
+            pendingResolveRef.current = null
+            return
+        }
+        setCommittedPageCount(historyVersion)
+        pendingResolveRef.current?.({
+            kind: 'applied',
+            historyVersion,
+            hasMore: historyVersion < 3,
+            addedRenderableCount: 1
+        })
         pendingResolveRef.current = null
-    }, [isLoadingMore])
+    }, [committedPageCount, isLoadingMore])
 
     return (
         <I18nProvider>
@@ -97,6 +113,7 @@ function PaginationHarness(props: { onRequest: () => void }) {
                 hasMoreMessages={committedPageCount < 3}
                 isLoadingMoreMessages={isLoadingMore}
                 onLoadMore={onLoadMore}
+                onCancelLoadMore={() => undefined}
                 onViewModeChange={() => undefined}
                 isSyncingTail={false}
                 unseenCount={0}

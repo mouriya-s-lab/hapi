@@ -65,8 +65,9 @@ function renderDialogContent(block: ToolCallBlock, onClose = vi.fn()) {
                 disabled: false,
                 onRefresh: vi.fn(),
                 hasMoreMessages: false,
+                isSyncingTail: false,
                 isLoadingMoreMessages: false,
-                loadOlderMessagesPreservingScroll: vi.fn(async () => false)
+                loadOlderMessagesPreservingScroll: vi.fn(async () => 'terminal-stop' as const)
             }}>
                 <ToolDetailDialogContent
                     block={block}

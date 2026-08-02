@@ -6,6 +6,11 @@
 import { z } from "zod";
 
 // Usage statistics for assistant messages - used in apiSession.ts
+// `passthrough` for the same reason as RawMessageSchema below: the SDK path
+// injects `context_window` onto this object (sdkToLogConverter.ts) and Anthropic
+// keeps adding usage breakdowns. Under Zod's default `strip`, the local-JSONL
+// path silently dropped `context_window`, which made the web status bar fall
+// back to a heuristic denominator for local sessions only.
 export const UsageSchema = z.object({
   input_tokens: z.number().int().nonnegative(),
   cache_creation_input_tokens: z.number().int().nonnegative().optional(),
@@ -15,7 +20,7 @@ export const UsageSchema = z.object({
   context_window: z.number().int().positive().optional(),
   cost_usd: z.number().nonnegative().optional(),
   service_tier: z.string().optional(),
-});
+}).passthrough();
 
 // `passthrough` keeps fields the SDK adds going forward (e.g. `model`, future
 // usage breakdowns) so the hub forwards them verbatim. Without it, Zod's

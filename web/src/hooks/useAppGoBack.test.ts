@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getSettingsBackTarget } from './useAppGoBack'
+import { getSessionFilesBackSearch, getSettingsBackTarget } from './useAppGoBack'
 
 describe('getSettingsBackTarget', () => {
     it.each([
@@ -16,5 +16,28 @@ describe('getSettingsBackTarget', () => {
         ['/sessions', null],
     ])('maps %s to %s', (pathname, target) => {
         expect(getSettingsBackTarget(pathname)).toBe(target)
+    })
+})
+
+describe('getSessionFilesBackSearch', () => {
+    it('preserves the directory tab and file search query', () => {
+        expect(getSessionFilesBackSearch({
+            path: 'encoded-path',
+            staged: false,
+            tab: 'directories',
+            query: '感',
+        })).toEqual({
+            tab: 'directories',
+            query: '感',
+        })
+    })
+
+    it('drops unrelated and invalid search values', () => {
+        expect(getSessionFilesBackSearch({
+            path: 'encoded-path',
+            tab: 'changes',
+            query: '',
+        })).toEqual({})
+        expect(getSessionFilesBackSearch(null)).toEqual({})
     })
 })

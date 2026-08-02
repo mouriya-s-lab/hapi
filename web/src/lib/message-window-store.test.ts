@@ -74,6 +74,23 @@ function makeAgentMessage(props: {
     } as DecryptedMessage
 }
 
+function makeHiddenAgentMessage(props: { id: string; seq: number; at: number }): DecryptedMessage {
+    return {
+        id: props.id,
+        seq: props.seq,
+        localId: null,
+        content: {
+            role: 'agent',
+            content: {
+                type: 'output',
+                data: { type: 'system', isMeta: true }
+            }
+        },
+        createdAt: props.at,
+        invokedAt: props.at
+    } as DecryptedMessage
+}
+
 function makeAgentRunMessage(id: string, seq: number, at: number): DecryptedMessage {
     return {
         id,
@@ -688,7 +705,7 @@ describe('message tail synchronization', () => {
 })
 
 describe('history view and older pagination', () => {
-    it('appends while reading history, increments unseen state, then clears and compacts at the tail', () => {
+    it('appends while reading history, then compacts at the tail', () => {
         const id = sessionId('history-unseen')
         const initial = Array.from({ length: VISIBLE_WINDOW_SIZE }, (_, index) =>
             makeAgentMessage({ id: `initial-${index}`, seq: index + 1, at: index + 1 })
@@ -701,16 +718,12 @@ describe('history view and older pagination', () => {
             makeAgentMessage({ id: 'new-2', seq: 402, at: 402 })
         ])
 
-        expect(getMessageWindowState(id)).toMatchObject({
-            viewMode: 'history',
-            unseenCount: 2
-        })
+        expect(getMessageWindowState(id).viewMode).toBe('history')
         expect(getMessageWindowState(id).messages.map((message) => message.id)).toContain('new-2')
 
         setMessageViewMode(id, 'tail')
         const state = getMessageWindowState(id)
         expect(state.viewMode).toBe('tail')
-        expect(state.unseenCount).toBe(0)
         expect(state.messages).toHaveLength(VISIBLE_WINDOW_SIZE)
         expect(state.messages.at(-1)?.id).toBe('new-2')
     })
@@ -792,14 +805,98 @@ describe('history view and older pagination', () => {
             }))
         const api = createApi(getMessages)
         await syncTailMessages(api, id)
-        expect(await fetchOlderMessages(api, id)).toBe(true)
-        expect(await fetchOlderMessages(api, id)).toBe(false)
+        expect(await fetchOlderMessages(api, id)).toEqual({
+            kind: 'applied',
+            historyVersion: 1,
+            hasMore: false,
+            addedRenderableCount: 1
+        })
+        expect(await fetchOlderMessages(api, id)).toEqual({ kind: 'stopped', reason: 'exhausted' })
 
         expect(getMessages).toHaveBeenCalledTimes(2)
         expect(getMessages.mock.calls[1]?.[1]).toEqual({
             beforeAt: 10_000,
             beforeSeq: 10,
             limit: 200
+        })
+        expect(getMessageWindowState(id).messages.map((message) => message.id)).toEqual(['older', 'latest'])
+    })
+
+    it('leaves the window unchanged when the final older-page apply check rejects', async () => {
+        const id = sessionId('older-page-apply-rejected')
+        const latest = makeAgentMessage({ id: 'latest', seq: 10, at: 10_000 })
+        const older = makeAgentMessage({ id: 'older', seq: 9, at: 9_000 })
+        const getMessages = vi.fn()
+            .mockResolvedValueOnce(latestResponse([latest], {
+                epoch: 4,
+                hasMore: true,
+                nextBeforeAt: 10_000,
+                nextBeforeSeq: 10
+            }))
+            .mockResolvedValueOnce(beforeResponse([older], {
+                epoch: 4,
+                hasMore: false,
+                nextBeforeAt: 9_000,
+                nextBeforeSeq: 9
+            }))
+        const api = createApi(getMessages)
+        await syncTailMessages(api, id)
+        const before = getMessageWindowState(id)
+
+        const onBeforeApply = vi.fn(() => false)
+        const outcome = await fetchOlderMessages(api, id, { onBeforeApply })
+
+        expect(onBeforeApply).toHaveBeenCalledWith(before.historyVersion + 1)
+        expect(outcome).toEqual({ kind: 'stopped', reason: 'invalidated' })
+        expect(getMessageWindowState(id)).toMatchObject({
+            messages: [latest],
+            isLoadingMore: false,
+            historyVersion: before.historyVersion
+        })
+    })
+
+    it('advances through hidden older rows without retaining them in the visible window', async () => {
+        const id = sessionId('hidden-older-page')
+        const latest = makeAgentMessage({ id: 'latest', seq: 10, at: 10_000 })
+        const hidden = makeHiddenAgentMessage({ id: 'hidden', seq: 9, at: 9_000 })
+        const older = makeAgentMessage({ id: 'older', seq: 8, at: 8_000 })
+        const getMessages = vi.fn()
+            .mockResolvedValueOnce(latestResponse([latest], {
+                epoch: 4,
+                hasMore: true,
+                nextBeforeAt: 10_000,
+                nextBeforeSeq: 10
+            }))
+            .mockResolvedValueOnce(beforeResponse([hidden], {
+                epoch: 4,
+                hasMore: true,
+                nextBeforeAt: 9_000,
+                nextBeforeSeq: 9
+            }))
+            .mockResolvedValueOnce(beforeResponse([older], {
+                epoch: 4,
+                hasMore: false,
+                nextBeforeAt: 8_000,
+                nextBeforeSeq: 8
+            }))
+        const api = createApi(getMessages)
+        await syncTailMessages(api, id)
+
+        const hiddenOutcome = await fetchOlderMessages(api, id)
+        expect(hiddenOutcome).toMatchObject({
+            kind: 'applied',
+            addedRenderableCount: 0
+        })
+        expect(getMessageWindowState(id).messages.map((message) => message.id)).toEqual(['latest'])
+
+        const visibleOutcome = await fetchOlderMessages(api, id)
+        expect(visibleOutcome).toMatchObject({
+            kind: 'applied',
+            addedRenderableCount: 1
+        })
+        expect(getMessages.mock.calls[2]?.[1]).toMatchObject({
+            beforeAt: 9_000,
+            beforeSeq: 9
         })
         expect(getMessageWindowState(id).messages.map((message) => message.id)).toEqual(['older', 'latest'])
     })
@@ -844,10 +941,45 @@ describe('history view and older pagination', () => {
             nextBeforeAt: 9_000,
             nextBeforeSeq: 9
         }))
-        await loadingOlder
+        expect(await loadingOlder).toEqual({ kind: 'stopped', reason: 'invalidated' })
 
         expect(getMessageWindowState(id).messages.map((message) => message.id)).toEqual(['fresh'])
         expect(getMessageWindowState(id).epoch).toBe(2)
+    })
+
+    it('treats an invalidated older request rejection as a stopped load', async () => {
+        const id = sessionId('older-rejection-after-reset')
+        const older = deferred<MessagesResponse>()
+        const getMessages = vi.fn(async (_sessionId: string, options?: Parameters<ApiClient['getMessages']>[1]) => {
+            if (options?.beforeAt !== undefined) {
+                return await older.promise
+            }
+            if (options?.afterAt !== undefined) {
+                return latestResponse([
+                    makeAgentMessage({ id: 'fresh', seq: 20, at: 20_000 })
+                ], { epoch: 2, reset: true })
+            }
+            return latestResponse([
+                makeAgentMessage({ id: 'initial', seq: 10, at: 10_000 })
+            ], {
+                epoch: 1,
+                hasMore: true,
+                nextBeforeAt: 10_000,
+                nextBeforeSeq: 10
+            })
+        }) as ApiClient['getMessages']
+        const api = createApi(getMessages)
+        await syncTailMessages(api, id)
+
+        const loadingOlder = fetchOlderMessages(api, id)
+        await vi.waitFor(() => expect(getMessageWindowState(id).isLoadingMore).toBe(true))
+        await syncTailMessages(api, id)
+
+        older.reject(new Error('stale transport failure'))
+
+        expect(await loadingOlder).toEqual({ kind: 'stopped', reason: 'invalidated' })
+        expect(getMessageWindowState(id).warning).toBeNull()
+        expect(getMessageWindowState(id).messages.map((message) => message.id)).toEqual(['fresh'])
     })
 
     it('rejects an older page that resolves after a reset request starts but before it applies', async () => {
@@ -886,7 +1018,7 @@ describe('history view and older pagination', () => {
             nextBeforeAt: 9_000,
             nextBeforeSeq: 9
         }))
-        expect(await loadingOlder).toBe(false)
+        expect(await loadingOlder).toEqual({ kind: 'stopped', reason: 'invalidated' })
         expect(getMessageWindowState(id).messages.map((message) => message.id)).toEqual(['initial'])
 
         reset.resolve(latestResponse([
@@ -923,7 +1055,7 @@ describe('history view and older pagination', () => {
 
         const loadedOlderPage = await fetchOlderMessages(api, id)
 
-        expect(loadedOlderPage).toBe(false)
+        expect(loadedOlderPage).toEqual({ kind: 'stopped', reason: 'epoch-reset' })
         expect(getMessageWindowState(id).messages.map((message) => message.id)).toEqual(['fresh'])
         expect(getMessageWindowState(id).epoch).toBe(2)
     })

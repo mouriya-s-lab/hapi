@@ -408,9 +408,109 @@ describe('SessionList collapse behavior', () => {
         expect(screen.queryByRole('button', { name: /Matching task 3/ })).toBeNull()
         expect(screen.queryByRole('button', { name: /Matching task 4/ })).toBeNull()
 
-        fireEvent.click(screen.getByRole('button', { name: 'Show 2 more' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Expand 2' }))
 
         expect(screen.getByRole('button', { name: /Matching task 3/ })).toBeInTheDocument()
         expect(screen.getByRole('button', { name: /Matching task 4/ })).toBeInTheDocument()
+    })
+
+    it('expands and collapses the session preview one batch at a time', () => {
+        localStorage.setItem('hapi-session-preview-limit', '2')
+        const sessions = Array.from({ length: 6 }, (_, index) => makeSession({
+            id: `session-${index + 1}`,
+            updatedAt: 100 - index,
+            metadata: {
+                path: '/work/hapi',
+                name: `Task ${index + 1}`,
+                flavor: 'codex',
+            },
+        }))
+
+        render(renderSessionList(sessions, null))
+
+        expect(screen.getByRole('button', { name: 'Expand 2' })).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: 'Collapse 2' })).toBeNull()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Expand 2' }))
+
+        expect(screen.getByRole('button', { name: /Task 4/ })).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: /Task 5/ })).toBeNull()
+        expect(screen.getByRole('button', { name: 'Collapse 2' })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Expand 2' })).toBeInTheDocument()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Expand 2' }))
+
+        expect(screen.getByRole('button', { name: /Task 6/ })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Collapse 2' })).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: 'Expand 2' })).toBeNull()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Collapse 2' }))
+
+        expect(screen.queryByRole('button', { name: /Task 5/ })).toBeNull()
+        expect(screen.getByRole('button', { name: 'Collapse 2' })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Expand 2' })).toBeInTheDocument()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Collapse 2' }))
+
+        expect(screen.queryByRole('button', { name: /Task 3/ })).toBeNull()
+        expect(screen.queryByRole('button', { name: 'Collapse 2' })).toBeNull()
+        expect(screen.getByRole('button', { name: 'Expand 2' })).toBeInTheDocument()
+    })
+
+    it('does not offer a no-op collapse when required sessions exceed the preview limit', () => {
+        localStorage.setItem('hapi-session-preview-limit', '2')
+        const sessions = Array.from({ length: 4 }, (_, index) => makeSession({
+            id: `session-${index + 1}`,
+            updatedAt: 100 - index,
+            pendingRequestsCount: index > 0 ? 1 : 0,
+            metadata: {
+                path: '/work/hapi',
+                name: `Task ${index + 1}`,
+                flavor: 'codex',
+            },
+        }))
+
+        render(renderSessionList(sessions, null))
+
+        expect(screen.queryByRole('button', { name: /Collapse/ })).toBeNull()
+        expect(screen.queryByRole('button', { name: /Task 1/ })).toBeNull()
+        expect(screen.getByRole('button', { name: 'Expand 1' })).toBeInTheDocument()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Expand 1' }))
+
+        expect(screen.getByRole('button', { name: /Task 1/ })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Collapse 1' })).toBeInTheDocument()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Collapse 1' }))
+
+        expect(screen.queryByRole('button', { name: /Task 1/ })).toBeNull()
+        expect(screen.queryByRole('button', { name: /Collapse/ })).toBeNull()
+    })
+
+    it('expands from the rendered count when required sessions exceed the preview limit', () => {
+        localStorage.setItem('hapi-session-preview-limit', '2')
+        const sessions = Array.from({ length: 8 }, (_, index) => makeSession({
+            id: `session-${index + 1}`,
+            updatedAt: 100 - index,
+            pendingRequestsCount: index < 5 ? 1 : 0,
+            metadata: {
+                path: '/work/hapi',
+                name: `Task ${index + 1}`,
+                flavor: 'codex',
+            },
+        }))
+
+        render(renderSessionList(sessions, null))
+
+        expect(screen.getByRole('button', { name: /Task 5/ })).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: /Task 6/ })).toBeNull()
+        expect(screen.getByRole('button', { name: 'Expand 2' })).toBeInTheDocument()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Expand 2' }))
+
+        expect(screen.getByRole('button', { name: /Task 6/ })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /Task 7/ })).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: /Task 8/ })).toBeNull()
+        expect(screen.getByRole('button', { name: 'Expand 1' })).toBeInTheDocument()
     })
 })

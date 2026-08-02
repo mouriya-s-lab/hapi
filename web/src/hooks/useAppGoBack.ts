@@ -9,6 +9,21 @@ export function getSettingsBackTarget(pathname: string): string | null {
     return null
 }
 
+export function getSessionFilesBackSearch(search: unknown): {
+    tab?: 'directories'
+    query?: string
+} {
+    if (!search || typeof search !== 'object') return {}
+
+    const currentSearch = search as { tab?: unknown; query?: unknown }
+    return {
+        ...(currentSearch.tab === 'directories' ? { tab: 'directories' as const } : {}),
+        ...(typeof currentSearch.query === 'string' && currentSearch.query.length > 0
+            ? { query: currentSearch.query }
+            : {}),
+    }
+}
+
 export function useAppGoBack(): () => void {
     const navigate = useNavigate()
     const router = useRouter()
@@ -32,13 +47,7 @@ export function useAppGoBack(): () => void {
         // For single file view, go back to files list
         if (pathname.match(/^\/sessions\/[^/]+\/file$/)) {
             const filesPath = pathname.replace(/\/file$/, '/files')
-
-            const tab = (search && typeof search === 'object' && 'tab' in search)
-                ? (search as { tab?: unknown }).tab
-                : undefined
-            const nextSearch = tab === 'directories' ? { tab: 'directories' as const } : {}
-
-            navigate({ to: filesPath, search: nextSearch })
+            navigate({ to: filesPath, search: getSessionFilesBackSearch(search) })
             return
         }
 

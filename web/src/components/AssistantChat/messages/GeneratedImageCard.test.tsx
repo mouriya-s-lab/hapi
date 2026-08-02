@@ -26,8 +26,9 @@ function context(getGeneratedImageBlob: (sessionId: string, imageId: string) => 
         disabled: false,
         onRefresh: () => undefined,
         hasMoreMessages: false,
+        isSyncingTail: false,
         isLoadingMoreMessages: false,
-        loadOlderMessagesPreservingScroll: async () => false
+        loadOlderMessagesPreservingScroll: async () => 'terminal-stop'
     }
 }
 

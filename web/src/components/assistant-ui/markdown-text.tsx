@@ -404,13 +404,17 @@ function CodeHeader(props: CodeHeaderProps) {
     const language = props.language && props.language !== 'unknown' ? props.language : 'text'
 
     return (
-        <div className="aui-code-shell-header flex items-center justify-between gap-3 rounded-t-xl bg-[var(--app-code-header-bg)] px-3 py-2 text-[11px] uppercase tracking-[0.08em] text-[var(--app-code-header-fg)]">
+        <div data-hapi-code-header="true" className="aui-code-shell-header flex items-center justify-between gap-3 rounded-t-xl bg-[var(--app-code-header-bg)] px-3 py-2 text-[11px] uppercase tracking-[0.08em] text-[var(--app-code-header-fg)]">
             <div className="min-w-0 flex-1 truncate font-mono">
                 {language}
             </div>
             <div className="flex shrink-0 items-center gap-1">
                 <button
                     type="button"
+                    data-hapi-code-wrap-toggle="true"
+                    data-hapi-wrap-enable-label={t('code.wrap.enable')}
+                    data-hapi-wrap-disable-label={t('code.wrap.disable')}
+                    data-hapi-share-export-exclude="true"
                     onClick={() => setCodeWrap(!codeWrap)}
                     className={`rounded-md p-1 transition-colors hover:bg-[var(--app-code-copy-hover-bg)] hover:text-[var(--app-fg)] ${codeWrap ? 'text-[var(--app-fg)]' : 'text-[var(--app-code-header-fg)]'}`}
                     title={t(codeWrap ? 'code.wrap.disable' : 'code.wrap.enable')}
@@ -420,11 +424,20 @@ function CodeHeader(props: CodeHeaderProps) {
                 </button>
                 <button
                     type="button"
+                    data-hapi-code-copy="true"
+                    data-hapi-copy-label={t('code.copy')}
+                    data-hapi-copied-label={t('message.copied')}
+                    data-hapi-share-export-exclude="true"
                     onClick={() => copy(props.code)}
                     className="rounded-md p-1 text-[var(--app-code-header-fg)] transition-colors hover:bg-[var(--app-code-copy-hover-bg)] hover:text-[var(--app-fg)]"
-                    title="Copy"
+                    title={t('code.copy')}
                 >
-                    {copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
+                    <span data-hapi-copy-default="true" className={copied ? 'hidden' : ''}>
+                        <CopyIcon className="h-3.5 w-3.5" />
+                    </span>
+                    <span data-hapi-copy-success="true" className={copied ? '' : 'hidden'}>
+                        <CheckIcon className="h-3.5 w-3.5" />
+                    </span>
                 </button>
             </div>
         </div>
@@ -439,8 +452,9 @@ function Pre(props: ComponentPropsWithoutRef<'pre'>) {
         <div className={cn(
             'aui-md-pre-wrapper min-w-0 w-full max-w-full overflow-y-hidden',
             codeWrap ? '' : 'overflow-x-auto'
-        )}>
+        )} data-hapi-code-body="true">
             <pre
+                data-hapi-code-grid="true"
                 {...rest}
                 className={cn(
                     'aui-md-pre m-0 rounded-b-xl bg-[var(--app-code-bg)] px-4 py-3 text-sm',

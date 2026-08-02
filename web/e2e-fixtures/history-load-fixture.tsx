@@ -14,6 +14,7 @@ import { isQueuedForInvocation } from '../src/lib/messages'
 import { useHappyRuntime } from '../src/lib/assistant-runtime'
 import { HappyThread } from '../src/components/AssistantChat/HappyThread'
 import type { ChatBlock } from '../src/chat/types'
+import { getMessageWindowState } from '../src/lib/message-window-store'
 
 // Drives the real message-window store + chat pipeline + HappyThread against a
 // fake paginated message API, so e2e tests can exercise older-history loading
@@ -26,6 +27,8 @@ const BASE_AT = 1_700_000_000_000
 
 type Probe = {
     requests: { direction: string; beforeSeq: number | null; limit: number | undefined; at: number }[]
+    refetch: () => Promise<void>
+    windowState: () => { messageCount: number; oldestSeq: number | null; newestSeq: number | null }
 }
 
 declare global {
@@ -34,18 +37,51 @@ declare global {
     }
 }
 
-window.__probe = { requests: [] }
+window.__probe = {
+    requests: [],
+    refetch: async () => {},
+    windowState: () => {
+        const state = getMessageWindowState(SESSION_ID)
+        return {
+            messageCount: state.messages.length,
+            oldestSeq: state.oldestSeq,
+            newestSeq: state.newestSeq
+        }
+    }
+}
+
+// Test knobs via query params:
+// - ?shortPages=1  — `before` pages return 2 messages regardless of limit, so
+//   one page is shorter than the preload margin and cannot push the top
+//   sentinel out of the observed box (no intersection transition).
+// - ?failBefore=N  — the first N `before` requests reject, mimicking a
+//   transient network failure while the sentinel stays covered.
+// - ?filteredOlder=1 — every row older than the initial tail page is an
+//   agent meta row that normalizeDecryptedMessage filters out, so a loaded
+//   page renders zero height and the sentinel cannot move.
+// - ?epochBump=1 — `before` responses carry a newer epoch than the tail, so
+//   every older-page request hits the store's deliberate epoch-mismatch stop
+//   (reset + tail resync, typed terminal stop).
+// - ?slowBefore=1 — delay older-page responses long enough for a normal tail
+//   synchronization to invalidate an in-flight request.
+const fixtureParams = new URLSearchParams(window.location.search)
+const shortPages = fixtureParams.has('shortPages')
+const failBeforeCount = Number(fixtureParams.get('failBefore') ?? '0')
+const filteredOlder = fixtureParams.has('filteredOlder')
+const epochBump = fixtureParams.has('epochBump')
+const slowBefore = fixtureParams.has('slowBefore')
+let beforeAttempts = 0
 
 const allMessages: DecryptedMessage[] = Array.from({ length: TOTAL_MESSAGES }, (_, index) => {
     const seq = index + 1
+    const filtered = filteredOlder && seq <= TOTAL_MESSAGES - 200
     return {
         id: `m-${seq}`,
         seq,
         localId: null,
-        content: {
-            role: 'user',
-            content: { type: 'text', text: `Fixture message ${seq}` }
-        },
+        content: filtered
+            ? { role: 'agent', content: { type: 'output', data: { isMeta: true } } }
+            : { role: 'user', content: { type: 'text', text: `Fixture message ${seq}` } },
         createdAt: BASE_AT + seq,
         invokedAt: BASE_AT + seq
     } as DecryptedMessage
@@ -92,23 +128,32 @@ const fakeApi = {
             limit: query.limit,
             at: Date.now()
         })
-        // Small async delay to mimic latency.
-        await new Promise((resolve) => setTimeout(resolve, 50))
+        // Small async delay to mimic latency. Some tests deliberately keep an
+        // older request in flight while a normal tail synchronization runs.
+        await new Promise((resolve) => setTimeout(
+            resolve,
+            direction === 'before' && slowBefore ? 500 : 50
+        ))
 
         if (direction === 'before') {
+            beforeAttempts += 1
+            if (beforeAttempts <= failBeforeCount) {
+                throw new Error('fixture: forced before-page failure')
+            }
             const cursorAt = query.beforeAt ?? Number.POSITIVE_INFINITY
             const cursorSeq = query.beforeSeq ?? Number.POSITIVE_INFINITY
             const older = allMessages.filter((message) => {
                 const position = positionOf(message)
                 return position.at < cursorAt || (position.at === cursorAt && position.seq < cursorSeq)
             })
-            const pageMessages = older.slice(-limit)
+            const pageMessages = shortPages ? older.slice(-2) : older.slice(-limit)
             const oldest = pageMessages[0] ?? null
             return {
                 messages: pageMessages,
                 page: pageFrom(pageMessages, {
                     direction: 'before',
                     limit,
+                    epoch: epochBump ? 2 : 1,
                     hasMore: older.length > pageMessages.length,
                     nextBeforeSeq: oldest?.seq ?? null,
                     nextBeforeAt: oldest ? positionOf(oldest).at : null,
@@ -121,8 +166,20 @@ const fakeApi = {
         }
 
         const pageMessages = allMessages.slice(-limit)
+        // After an epoch bump the "rewritten" tail renders taller rows, so
+        // the reset changes content height — this is what re-fires the
+        // ResizeObserver coverage re-check in the epoch-reset scenario.
+        const rewritten = epochBump && beforeAttempts > 0
         return {
-            messages: pageMessages,
+            messages: rewritten
+                ? pageMessages.map((message) => ({
+                    ...message,
+                    content: {
+                        role: 'user',
+                        content: { type: 'text', text: `Fixture message ${message.seq} ${'x'.repeat(400)}` }
+                    }
+                }) as DecryptedMessage)
+                : pageMessages,
             page: pageFrom(pageMessages, {
                 direction: 'latest',
                 limit,
@@ -151,12 +208,15 @@ function FixtureThread() {
         isSyncingTail,
         isLoadingMore,
         hasMore,
-        unseenCount,
         messagesVersion,
         historyVersion,
         loadMore,
+        cancelLoadMore,
+        refetch,
         setViewMode
     } = useMessages(fakeApi, SESSION_ID)
+
+    window.__probe.refetch = refetch
 
     const blocksByIdRef = useRef<Map<string, ChatBlock>>(new Map())
 
@@ -196,6 +256,7 @@ function FixtureThread() {
             <div className="flex h-screen min-h-0 flex-col">
                 <HappyThread
                     api={fakeApi}
+                    session={fakeSession}
                     sessionId={SESSION_ID}
                     metadata={null}
                     disabled={false}
@@ -206,7 +267,10 @@ function FixtureThread() {
                     hasMoreMessages={hasMore}
                     isLoadingMoreMessages={isLoadingMore}
                     onLoadMore={loadMore}
-                    unseenCount={unseenCount}
+                    onCancelLoadMore={cancelLoadMore}
+                    // This fixture drives HappyThread directly, bypassing the
+                    // SessionChat block reduction that computes the real count.
+                    unseenCount={0}
                     rawMessagesCount={messages.length}
                     normalizedMessagesCount={normalizedMessages.length}
                     messagesVersion={messagesVersion}

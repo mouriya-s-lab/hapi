@@ -1,7 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useTranslation } from '@/lib/use-translation'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
+import { ZoomableLightbox } from '@/components/ZoomableLightbox'
+import { safeCopyToClipboard } from '@/lib/clipboard'
 
 type ShareTurnDialogProps = {
     isOpen: boolean
@@ -61,17 +63,51 @@ function stripCaptureOnlyControls(root: HTMLElement): void {
         anchor.removeAttribute('target')
         anchor.removeAttribute('rel')
     }
-    for (const imageButton of Array.from(root.querySelectorAll('button:has(img)'))) {
-        imageButton.removeAttribute('title')
-        imageButton.removeAttribute('aria-label')
-        imageButton.setAttribute('tabindex', '-1')
-    }
     for (const element of Array.from(root.querySelectorAll('[role="button"], [contenteditable="true"]'))) {
         if (element.tagName.toLowerCase() !== 'a') {
             element.removeAttribute('role')
         }
         element.removeAttribute('contenteditable')
         element.removeAttribute('tabindex')
+    }
+}
+
+function stripExportControls(root: HTMLElement): void {
+    for (const element of Array.from(root.querySelectorAll('[data-hapi-share-export-exclude="true"]'))) {
+        element.remove()
+    }
+    for (const imageButton of Array.from(root.querySelectorAll('button:has(img)'))) {
+        imageButton.removeAttribute('title')
+        imageButton.removeAttribute('aria-label')
+        imageButton.setAttribute('tabindex', '-1')
+    }
+}
+
+function getPreviewCodeBody(control: HTMLElement): HTMLElement | null {
+    const block = control.closest<HTMLElement>('[data-hapi-code-block="true"]')
+    if (block) return block.querySelector<HTMLElement>('[data-hapi-code-body="true"]')
+    const header = control.closest<HTMLElement>('[data-hapi-code-header="true"]')
+    const body = header?.nextElementSibling
+    return body instanceof HTMLElement && body.matches('[data-hapi-code-body="true"]') ? body : null
+}
+
+function setPreviewCodeWrap(control: HTMLElement, enabled: boolean): void {
+    const body = getPreviewCodeBody(control)
+    const grid = body?.querySelector<HTMLElement>('[data-hapi-code-grid="true"]')
+    if (!body || !grid) return
+
+    body.classList.toggle('overflow-x-auto', !enabled)
+    grid.classList.toggle('w-full', enabled)
+    grid.classList.toggle('w-max', !enabled)
+    grid.classList.toggle('min-w-full', !enabled)
+    grid.style.gridTemplateColumns = enabled
+        ? grid.style.gridTemplateColumns.replace(/max-content\s*$/, 'minmax(0, 1fr)')
+        : grid.style.gridTemplateColumns.replace(/minmax\(0,\s*1fr\)\s*$/, 'max-content')
+    grid.style.whiteSpace = enabled ? 'pre-wrap' : 'pre'
+    grid.style.wordBreak = enabled ? 'break-word' : ''
+    for (const cell of Array.from(grid.querySelectorAll<HTMLElement>('[data-code-cell]'))) {
+        cell.style.whiteSpace = enabled ? 'pre-wrap' : 'pre'
+        cell.style.wordBreak = enabled ? 'break-word' : ''
     }
 }
 
@@ -120,6 +156,7 @@ function prepareExportElement(element: HTMLElement): HTMLElement {
     const color = elementStyle.color || getComputedStyle(document.documentElement).getPropertyValue('--app-fg').trim() || '#111827'
 
     captureElement.classList.add('hapi-share-export-root')
+    stripExportControls(captureElement)
     captureElement.style.cssText += [
         'position:absolute',
         'left:0',
@@ -153,7 +190,7 @@ function prepareExportElement(element: HTMLElement): HTMLElement {
         .hapi-share-export-root [data-hapi-share-exclude="true"],
         .hapi-share-export-root .aui-reasoning-group,
         .hapi-share-export-root button[aria-expanded],
-        .hapi-share-export-root button[title="Copy"] {
+        .hapi-share-export-root [data-hapi-share-export-exclude="true"] {
             display: none !important;
         }
         .hapi-share-export-root img,
@@ -198,11 +235,6 @@ function prepareExportElement(element: HTMLElement): HTMLElement {
         .hapi-share-export-root .hapi-share-hidden-content-spacer {
             display: block !important;
             height: 0.75rem !important;
-        }
-        .hapi-share-export-root pre,
-        .hapi-share-export-root .aui-md-codeblockcode {
-            white-space: pre-wrap !important;
-            overflow-wrap: anywhere !important;
         }
         .hapi-share-export-root .aui-md-code:not(.aui-md-codeblockcode) {
             display: inline-block !important;
@@ -461,6 +493,13 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
     const [restoreTick, setRestoreTick] = useState(0)
     const [ready, setReady] = useState(false)
     const [preparedBlob, setPreparedBlob] = useState<Blob | null>(null)
+    const [previewRevision, setPreviewRevision] = useState(0)
+    const [previewImage, setPreviewImage] = useState<{
+        src: string
+        label: string
+        naturalWidth: number
+        naturalHeight: number
+    } | null>(null)
     const showNativeShareButton = true
 
     useLayoutEffect(() => {
@@ -506,6 +545,7 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
 
         setError(null)
         setCopied(false)
+        setPreviewImage(null)
         return undefined
     }, [props.isOpen, props.sourceSnapshots, restoreTick])
 
@@ -526,7 +566,65 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
         return () => {
             cancelled = true
         }
-    }, [props.isOpen, props.sourceSnapshots, ready, restoreTick])
+    }, [props.isOpen, props.sourceSnapshots, ready, restoreTick, previewRevision])
+
+    const handlePreviewClick = (event: ReactMouseEvent<HTMLElement>) => {
+        const target = event.target
+        if (!(target instanceof Element)) return
+
+        const wrapButton = target.closest<HTMLButtonElement>('[data-hapi-code-wrap-toggle="true"]')
+        if (wrapButton) {
+            event.preventDefault()
+            event.stopPropagation()
+            if (!getPreviewCodeBody(wrapButton)) return
+            const enabled = wrapButton.getAttribute('aria-pressed') !== 'true'
+            wrapButton.setAttribute('aria-pressed', String(enabled))
+            wrapButton.title = enabled
+                ? (wrapButton.dataset.hapiWrapDisableLabel ?? '')
+                : (wrapButton.dataset.hapiWrapEnableLabel ?? '')
+            setPreviewCodeWrap(wrapButton, enabled)
+            setPreparedBlob(null)
+            setPreviewRevision((revision) => revision + 1)
+            return
+        }
+
+        const copyButton = target.closest<HTMLButtonElement>('[data-hapi-code-copy="true"]')
+        if (copyButton) {
+            event.preventDefault()
+            event.stopPropagation()
+            const body = getPreviewCodeBody(copyButton)
+            const cells = Array.from(body?.querySelectorAll<HTMLElement>('[data-code-cell]') ?? [])
+            const code = (cells.length > 0
+                ? cells.map((cell) => cell.textContent ?? '').join('\n')
+                : body?.querySelector('pre')?.textContent ?? '')
+            if (!code) return
+            void safeCopyToClipboard(code).then(() => {
+                copyButton.querySelector('[data-hapi-copy-default="true"]')?.classList.add('hidden')
+                copyButton.querySelector('[data-hapi-copy-success="true"]')?.classList.remove('hidden')
+                copyButton.title = copyButton.dataset.hapiCopiedLabel ?? copyButton.title
+                window.setTimeout(() => {
+                    if (!copyButton.isConnected) return
+                    copyButton.querySelector('[data-hapi-copy-default="true"]')?.classList.remove('hidden')
+                    copyButton.querySelector('[data-hapi-copy-success="true"]')?.classList.add('hidden')
+                    copyButton.title = copyButton.dataset.hapiCopyLabel ?? copyButton.title
+                }, 1500)
+            }).catch(() => undefined)
+            return
+        }
+
+        const imageButton = target.closest<HTMLButtonElement>('[data-image-preview-trigger]')
+        const image = imageButton?.querySelector<HTMLImageElement>('img')
+        if (image) {
+            event.preventDefault()
+            event.stopPropagation()
+            setPreviewImage({
+                src: image.currentSrc || image.src,
+                label: image.alt || imageButton?.dataset.imagePreviewLabel || 'Image preview',
+                naturalWidth: image.naturalWidth || image.width,
+                naturalHeight: image.naturalHeight || image.height
+            })
+        }
+    }
 
     const runBlobAction = (
         blob: Blob,
@@ -587,6 +685,7 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
                 <div className="mt-3 max-h-[58vh] overflow-auto rounded-2xl border border-[var(--app-border)] bg-[var(--app-bg)] p-2 sm:max-h-[65vh] sm:p-3">
                     <div
                         ref={captureRef}
+                        onClick={handlePreviewClick}
                         className="hapi-share-preview-root mx-auto w-[720px] max-w-full rounded-[28px] bg-[var(--app-bg)] p-4 text-[var(--app-fg)] sm:p-5"
                     >
                         <style>{`
@@ -608,8 +707,8 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
                             .hapi-share-preview-root .hapi-share-media-grid > button {
                                 height: auto !important;
                                 align-self: start !important;
-                                cursor: default !important;
-                                pointer-events: none !important;
+                                cursor: zoom-in !important;
+                                pointer-events: auto !important;
                             }
                         `}</style>
                         <div className="mb-4 border-b border-[var(--app-divider)] pb-3">
@@ -635,6 +734,27 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
                         </div>
                     </div>
                 </div>
+                {previewImage ? (
+                    <ZoomableLightbox
+                        open
+                        onClose={() => setPreviewImage(null)}
+                        title={previewImage.label}
+                        ariaLabel={previewImage.label}
+                        fitContentKey={previewImage.src}
+                        fitContentSize={previewImage.naturalWidth > 0 && previewImage.naturalHeight > 0
+                            ? { width: previewImage.naturalWidth, height: previewImage.naturalHeight }
+                            : null}
+                    >
+                        <img
+                            src={previewImage.src}
+                            alt={previewImage.label}
+                            width={previewImage.naturalWidth || undefined}
+                            height={previewImage.naturalHeight || undefined}
+                            className="block max-w-none select-none object-contain"
+                            draggable={false}
+                        />
+                    </ZoomableLightbox>
+                ) : null}
 
                 {error ? (
                     <div className="rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-600">{error}</div>

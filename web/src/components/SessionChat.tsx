@@ -21,6 +21,7 @@ import { reduceChatBlocks } from '@/chat/reducer'
 import { reconcileChatBlocks } from '@/chat/reconcile'
 import { buildConversationOutline } from '@/chat/outline'
 import { buildVisibleChatBlocks, isToolGroupBlock, type ToolGroupBlock } from '@/chat/toolGroups'
+import { useUnseenBlockCount } from '@/hooks/useUnseenBlockCount'
 import { isQueuedForInvocation } from '@/lib/messages'
 import { inactiveSessionCanResume } from '@/lib/sessionResume'
 import {
@@ -39,6 +40,7 @@ import { useHubScratchlist } from '@/lib/use-hub-scratchlist'
 import { ScratchlistMigrationBanner } from '@/components/AssistantChat/ScratchlistMigrationBanner'
 import { useToast } from '@/lib/toast-context'
 import { useHappyRuntime } from '@/lib/assistant-runtime'
+import type { OlderLoadOutcome } from '@/lib/message-window-store'
 import { createAttachmentAdapter } from '@/lib/attachmentAdapter'
 import { createScratchlistAttachmentAdapter } from '@/lib/scratchlistAttachmentAdapter'
 import {
@@ -429,12 +431,13 @@ type SessionChatProps = {
     isSyncingTail: boolean
     isLoadingMoreMessages: boolean
     isSending: boolean
-    unseenCount: number
+    viewMode: 'tail' | 'history'
     messagesVersion: number
     historyVersion: number
     onBack: () => void
     onRefresh: () => void
-    onLoadMore: () => Promise<boolean>
+    onLoadMore: (onBeforeApply?: (historyVersion: number) => boolean) => Promise<OlderLoadOutcome>
+    onCancelLoadMore: () => void
     // Resolves true when the send was accepted by the underlying mutation, false when
     // pre-mutation guards (no-api / no-session / pending) rejected the call OR async
     // inactive-session resume failed. Composer state that should only be cleared on
@@ -1069,6 +1072,11 @@ function SessionChatInner(props: SessionChatProps) {
         visibleGroupsRef.current = visibleBlocks.filter(isToolGroupBlock)
     }, [visibleBlocks])
 
+    // "N new messages" counts rendered blocks, not raw messages: a subagent run
+    // is dozens of sidechain messages but a single Task card, and a tool_use +
+    // tool_result pair is one card.
+    const unseenCount = useUnseenBlockCount(props.viewMode, visibleBlocks)
+
     const outlineItems = useMemo(
         () => buildConversationOutline(reconciled.blocks),
         [reconciled.blocks]
@@ -1436,7 +1444,8 @@ function SessionChatInner(props: SessionChatProps) {
                         hasMoreMessages={props.hasMoreMessages}
                         isLoadingMoreMessages={props.isLoadingMoreMessages}
                         onLoadMore={props.onLoadMore}
-                        unseenCount={props.unseenCount}
+                        onCancelLoadMore={props.onCancelLoadMore}
+                        unseenCount={unseenCount}
                         rawMessagesCount={visibleMessages.length}
                         normalizedMessagesCount={normalizedMessages.length}
                         messagesVersion={props.messagesVersion}

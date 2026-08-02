@@ -85,7 +85,9 @@ describe('isRenderIrrelevantSessionPatch', () => {
         serviceTier: null
     } as unknown as Session
 
-    it('treats a keep-alive that only moves activeAt as irrelevant', () => {
+    it('treats a sub-minute activeAt keep-alive as irrelevant', () => {
+        // Relative age stays in the `just now` bucket until 60s; accepting
+        // every ~10s heartbeat would thrash the full chat tree for no visible change.
         expect(isRenderIrrelevantSessionPatch(session, {
             active: true,
             thinking: false,
@@ -95,6 +97,20 @@ describe('isRenderIrrelevantSessionPatch', () => {
             permissionMode: 'default',
             serviceTier: null
         })).toBe(true)
+    })
+
+    it('treats an activeAt move of at least one minute as render-relevant', () => {
+        // Live sessions need the cached stamp to advance so the header does
+        // not flip from `just now` to `1m ago` while keep-alives continue.
+        expect(isRenderIrrelevantSessionPatch(session, {
+            active: true,
+            thinking: false,
+            activeAt: 1_000 + 60_000,
+            model: 'opus',
+            effort: null,
+            permissionMode: 'default',
+            serviceTier: null
+        })).toBe(false)
     })
 
     it('reports a changed field as relevant even alongside a new activeAt', () => {

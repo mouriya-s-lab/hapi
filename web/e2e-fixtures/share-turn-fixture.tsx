@@ -100,10 +100,10 @@ function App() {
                                 {'请导出这一轮复杂对话，并确保代码、表格、图片附件和长文本的样式全部保留。\n第二行用于验证换行。'}
                             </div>
                             <div className="hapi-share-media-grid mt-3 flex flex-wrap gap-2" data-hapi-image-count="2">
-                                <button type="button" title="Click to zoom" className="overflow-hidden rounded-xl">
+                                <button type="button" title="Click to zoom" data-image-preview-trigger="" data-image-preview-label="HAPI landscape export fixture" className="overflow-hidden rounded-xl">
                                     <img className="max-h-60" src={fixtureImage} alt="HAPI landscape export fixture" />
                                 </button>
-                                <button type="button" title="Click to zoom" className="overflow-hidden rounded-xl">
+                                <button type="button" title="Click to zoom" data-image-preview-trigger="" data-image-preview-label="HAPI portrait export fixture" className="overflow-hidden rounded-xl">
                                     <img className="max-h-60" src={portraitFixtureImage} alt="HAPI portrait export fixture" />
                                 </button>
                             </div>

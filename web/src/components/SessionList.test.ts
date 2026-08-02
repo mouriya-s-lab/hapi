@@ -6,6 +6,7 @@ import {
     filterActiveSessionsOnly,
     getSessionTimeRange,
     getNextSessionVisibleCount,
+    getPreviousSessionVisibleCount,
     getSessionDedupKey,
     getWorktreeSessionLabel,
     getVisibleSessionPreview,
@@ -425,6 +426,22 @@ describe('getNextSessionVisibleCount', () => {
 
     it('always advances by at least one even with a zero step', () => {
         expect(getNextSessionVisibleCount(5, 0, 20)).toBe(6)
+    })
+})
+
+describe('getPreviousSessionVisibleCount', () => {
+    it('collapses one batch of step size per call', () => {
+        expect(getPreviousSessionVisibleCount(20, 8)).toBe(12)
+        expect(getPreviousSessionVisibleCount(12, 8)).toBe(8)
+    })
+
+    it('never goes below the preview limit', () => {
+        expect(getPreviousSessionVisibleCount(10, 8)).toBe(8)
+        expect(getPreviousSessionVisibleCount(8, 8)).toBe(8)
+    })
+
+    it('uses a minimum batch size of one', () => {
+        expect(getPreviousSessionVisibleCount(5, 0)).toBe(4)
     })
 })
 

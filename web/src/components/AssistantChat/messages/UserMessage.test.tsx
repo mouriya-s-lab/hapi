@@ -97,7 +97,7 @@ vi.mock('@/components/AssistantChat/context', () => ({
         onRetryMessage: undefined,
         hasMoreMessages: false,
         isLoadingMoreMessages: false,
-        loadOlderMessagesPreservingScroll: async () => false
+        loadOlderMessagesPreservingScroll: async () => 'terminal-stop'
     })
 }))
 

@@ -1,8 +1,12 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useCallback, useState } from 'react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ToolCallBlock } from '@/chat/types'
 import type { ToolGroupBlock } from '@/chat/toolGroups'
-import { HappyChatProvider } from '@/components/AssistantChat/context'
+import {
+    HappyChatProvider,
+    type OlderHistoryLoadResult
+} from '@/components/AssistantChat/context'
 import { getToolGroupTiming, ToolGroupCard } from '@/components/ToolCard/ToolGroupCard'
 import { I18nProvider } from '@/lib/i18n-context'
 
@@ -83,8 +87,14 @@ function makeGroup(overrides: Partial<ToolGroupBlock> = {}): ToolGroupBlock {
     }
 }
 
-function renderCard(block: ToolGroupBlock, options?: { loadOlder?: () => Promise<boolean>; hasMore?: boolean; isLoadingMore?: boolean }) {
-    const loadOlderMessagesPreservingScroll = options?.loadOlder ?? vi.fn(async () => false)
+function renderCard(block: ToolGroupBlock, options?: {
+    loadOlder?: () => Promise<OlderHistoryLoadResult>
+    hasMore?: boolean
+    isSyncingTail?: boolean
+    isLoadingMore?: boolean
+}) {
+    const loadOlderMessagesPreservingScroll = options?.loadOlder
+        ?? vi.fn(async () => 'terminal-stop' as const)
     return render(
         <I18nProvider>
             <HappyChatProvider value={{
@@ -95,6 +105,7 @@ function renderCard(block: ToolGroupBlock, options?: { loadOlder?: () => Promise
                 disabled: false,
                 onRefresh: vi.fn(),
                 hasMoreMessages: options?.hasMore ?? false,
+                isSyncingTail: options?.isSyncingTail ?? false,
                 isLoadingMoreMessages: options?.isLoadingMore ?? false,
                 loadOlderMessagesPreservingScroll,
             }}>
@@ -316,19 +327,242 @@ describe('ToolGroupCard', () => {
         expect(screen.getByText('Tool 1')).toBeInTheDocument()
     })
 
-    it('expands incomplete groups and hydrates their older history in place', () => {
-        const loadOlder = vi.fn(async () => true)
-        const view = renderCard(makeGroup({
-            id: 'tool-group:bash-1',
-            historyState: 'needs-older-history',
-            needsOlderHistory: true,
-        }), { loadOlder, hasMore: true })
+    it('auto-loads older history after expand when the group is incomplete', async () => {
+        const loadOlder = vi.fn()
+
+        function Harness() {
+            const loadOlderMessagesPreservingScroll = useCallback(async () => {
+                loadOlder()
+                return 'terminal-stop' as const
+            }, [])
+
+            return (
+                <I18nProvider>
+                    <HappyChatProvider value={{
+                        api: {} as never,
+                        sessionId: 'session-1',
+                        metadata: { path: 'repo', host: 'local' },
+                        terminalToolDisplayMode: 'detailed',
+                        disabled: false,
+                        onRefresh: vi.fn(),
+                        hasMoreMessages: true,
+                        isSyncingTail: false,
+                        isLoadingMoreMessages: false,
+                        loadOlderMessagesPreservingScroll,
+                    }}>
+                        <ToolGroupCard
+                            block={makeGroup({
+                                id: 'tool-group:bash-1',
+                                historyState: 'needs-older-history',
+                                needsOlderHistory: true,
+                            })}
+                            metadata={{ path: 'repo', host: 'local' }}
+                        />
+                    </HappyChatProvider>
+                </I18nProvider>
+            )
+        }
+
+        const view = render(<Harness />)
         const groupToggle = within(view.container).getByRole('button', { name: /inspect a\.ts/i })
 
         fireEvent.click(groupToggle)
 
+        await waitFor(() => {
+            expect(loadOlder).toHaveBeenCalledTimes(1)
+        })
+        await waitFor(() => {
+            expect(screen.getByText('Earlier tool activity is unavailable.')).toBeInTheDocument()
+        })
+        await new Promise((resolve) => setTimeout(resolve, 300))
         expect(loadOlder).toHaveBeenCalledTimes(1)
-        expect(groupToggle).toHaveAttribute('aria-expanded', 'true')
-        expect(screen.getByText('src/a.ts')).toBeInTheDocument()
+    })
+
+    it('waits for tail synchronization after a transient stop, then retries', async () => {
+        const loadOlder = vi.fn()
+        let releaseTailSync: (() => void) | null = null
+
+        function Harness() {
+            const [isSyncingTail, setIsSyncingTail] = useState(false)
+            releaseTailSync = () => setIsSyncingTail(false)
+
+            const loadOlderMessagesPreservingScroll = useCallback(async () => {
+                loadOlder()
+                if (loadOlder.mock.calls.length === 1) {
+                    setIsSyncingTail(true)
+                    return 'transient-stop' as const
+                }
+                return 'terminal-stop' as const
+            }, [])
+
+            return (
+                <I18nProvider>
+                    <HappyChatProvider value={{
+                        api: {} as never,
+                        sessionId: 'session-1',
+                        metadata: { path: 'repo', host: 'local' },
+                        terminalToolDisplayMode: 'detailed',
+                        disabled: false,
+                        onRefresh: vi.fn(),
+                        hasMoreMessages: true,
+                        isSyncingTail,
+                        isLoadingMoreMessages: false,
+                        loadOlderMessagesPreservingScroll,
+                    }}>
+                        <ToolGroupCard
+                            block={makeGroup({
+                                id: 'tool-group:bash-1',
+                                historyState: 'needs-older-history',
+                                needsOlderHistory: true,
+                            })}
+                            metadata={{ path: 'repo', host: 'local' }}
+                        />
+                    </HappyChatProvider>
+                </I18nProvider>
+            )
+        }
+
+        const view = render(<Harness />)
+        fireEvent.click(within(view.container).getByRole('button', { name: /inspect a\.ts/i }))
+
+        await waitFor(() => {
+            expect(loadOlder).toHaveBeenCalledTimes(1)
+        })
+        expect(screen.queryByText('Earlier tool activity is unavailable.')).not.toBeInTheDocument()
+
+        await act(async () => {
+            releaseTailSync?.()
+        })
+
+        await waitFor(() => {
+            expect(loadOlder).toHaveBeenCalledTimes(2)
+        })
+        await waitFor(() => {
+            expect(screen.getByText('Earlier tool activity is unavailable.')).toBeInTheDocument()
+        })
+    })
+
+    it('continues hydrating incomplete history across multiple page loads', async () => {
+        let loadCount = 0
+
+        function Harness() {
+            const [isLoadingMore, setIsLoadingMore] = useState(false)
+            const [hasMore, setHasMore] = useState(true)
+            const loadOlderMessagesPreservingScroll = useCallback(() => {
+                const shouldContinue = loadCount === 0
+                loadCount += 1
+                setIsLoadingMore(true)
+                return new Promise<OlderHistoryLoadResult>((resolve) => {
+                    setTimeout(() => {
+                        setIsLoadingMore(false)
+                        if (!shouldContinue) {
+                            setHasMore(false)
+                        }
+                        resolve(shouldContinue ? 'loaded' : 'terminal-stop')
+                    }, 0)
+                })
+            }, [])
+
+            return (
+                <I18nProvider>
+                    <HappyChatProvider value={{
+                        api: {} as never,
+                        sessionId: 'session-1',
+                        metadata: { path: 'repo', host: 'local' },
+                        terminalToolDisplayMode: 'detailed',
+                        disabled: false,
+                        onRefresh: vi.fn(),
+                        hasMoreMessages: hasMore,
+                        isSyncingTail: false,
+                        isLoadingMoreMessages: isLoadingMore,
+                        loadOlderMessagesPreservingScroll,
+                    }}>
+                        <ToolGroupCard
+                            block={makeGroup({
+                                id: 'tool-group:bash-1',
+                                historyState: 'needs-older-history',
+                                needsOlderHistory: true,
+                            })}
+                            metadata={{ path: 'repo', host: 'local' }}
+                        />
+                    </HappyChatProvider>
+                </I18nProvider>
+            )
+        }
+
+        const view = render(<Harness />)
+        const groupToggle = within(view.container).getByRole('button', { name: /inspect a\.ts/i })
+
+        fireEvent.click(groupToggle)
+
+        await waitFor(() => {
+            expect(loadCount).toBe(2)
+        })
+        await waitFor(() => {
+            expect(screen.getByText('Earlier tool activity is unavailable.')).toBeInTheDocument()
+        })
+    })
+
+    it('waits for an in-flight thread pagination to finish before retrying hydration', async () => {
+        const loadOlder = vi.fn(async () => 'terminal-stop' as const)
+        let releaseThreadLoad: (() => void) | null = null
+
+        function Harness() {
+            const [hasMore, setHasMore] = useState(true)
+            const [isLoadingMore, setIsLoadingMore] = useState(true)
+
+            releaseThreadLoad = () => setIsLoadingMore(false)
+
+            const loadOlderMessagesPreservingScroll = useCallback(async () => {
+                loadOlder()
+                setHasMore(false)
+                return 'terminal-stop' as const
+            }, [])
+
+            return (
+                <I18nProvider>
+                    <HappyChatProvider value={{
+                        api: {} as never,
+                        sessionId: 'session-1',
+                        metadata: { path: 'repo', host: 'local' },
+                        terminalToolDisplayMode: 'detailed',
+                        disabled: false,
+                        onRefresh: vi.fn(),
+                        hasMoreMessages: hasMore,
+                        isSyncingTail: false,
+                        isLoadingMoreMessages: isLoadingMore,
+                        loadOlderMessagesPreservingScroll,
+                    }}>
+                        <ToolGroupCard
+                            block={makeGroup({
+                                id: 'tool-group:bash-1',
+                                historyState: 'needs-older-history',
+                                needsOlderHistory: true,
+                            })}
+                            metadata={{ path: 'repo', host: 'local' }}
+                        />
+                    </HappyChatProvider>
+                </I18nProvider>
+            )
+        }
+
+        const view = render(<Harness />)
+        const groupToggle = within(view.container).getByRole('button', { name: /inspect a\.ts/i })
+
+        fireEvent.click(groupToggle)
+
+        expect(loadOlder).not.toHaveBeenCalled()
+        expect(screen.queryByText('Earlier tool activity is unavailable.')).not.toBeInTheDocument()
+
+        await act(async () => {
+            releaseThreadLoad?.()
+        })
+
+        await waitFor(() => {
+            expect(loadOlder).toHaveBeenCalledTimes(1)
+        })
+        await waitFor(() => {
+            expect(screen.getByText('Earlier tool activity is unavailable.')).toBeInTheDocument()
+        })
     })
 })
