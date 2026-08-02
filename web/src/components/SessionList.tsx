@@ -4,6 +4,7 @@ import type { ApiClient } from '@/api/client'
 import { useLongPress } from '@/hooks/useLongPress'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
+import { useFlavorCapabilities, getFlavorForkCapability } from '@/hooks/queries/useFlavorCapabilities'
 import { SessionActionMenu } from '@/components/SessionActionMenu'
 import { SessionExportDialog } from '@/components/SessionExportDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
@@ -21,7 +22,6 @@ import { getAttentionLabel, SessionAttentionIndicator } from '@/components/Sessi
 import { HoverTooltip, SESSION_ROW_TOOLTIP_FOCUS_CLASS, useSessionRowTooltipIds } from '@/components/HoverTooltip'
 import { formatRelativeTime } from '@/lib/relativeTime'
 import { formatScheduledTooltipDetail } from '@/lib/scheduledTime'
-import { getCodexImportedAt, subscribeCodexImportedSessions } from '@/lib/codexImportedSessions'
 import { formatReopenError } from '@/lib/reopenError'
 import { getSessionTitle } from '@/lib/sessionTitle'
 import type { Machine } from '@/types/api'
@@ -758,37 +758,7 @@ function SessionListSearch(props: {
     )
 }
 
-function formatCodexImportedRelativeTime(
-    value: number,
-    t: (key: string, params?: Record<string, string | number>) => string
-): string | null {
-    const ms = value < 1_000_000_000_000 ? value * 1000 : value
-    if (!Number.isFinite(ms)) return null
-    const delta = Date.now() - ms
-    if (delta < 60_000) return t('session.time.importedFromCodex.justNow')
-    const minutes = Math.floor(delta / 60_000)
-    if (minutes < 60) return t('session.time.importedFromCodex.minutesAgo', { n: minutes })
-    const hours = Math.floor(minutes / 60)
-    if (hours < 24) return t('session.time.importedFromCodex.hoursAgo', { n: hours })
-    const days = Math.floor(hours / 24)
-    if (days < 7) return t('session.time.importedFromCodex.daysAgo', { n: days })
-    return formatRelativeTime(value, t)
-}
-
-function getSessionTimeLabel(
-    session: SessionSummary,
-    t: (key: string, params?: Record<string, string | number>) => string
-): string | null {
-    const codexSessionId = session.metadata?.agentSessionId
-    const importedAt = session.metadata?.flavor === 'codex'
-        ? getCodexImportedAt(codexSessionId)
-        : null
-
-    // 中文注释：导入标记存在时优先显示“xx 前从 Codex 客户端导入”；等用户在 Hapi 里继续发消息后，再由发送逻辑清除该标记。
-    if (importedAt !== null) {
-        return formatCodexImportedRelativeTime(importedAt, t)
-    }
-
+function getSessionTimeLabel(session: SessionSummary, t: (key: string, params?: Record<string, string | number>) => string): string | null {
     return formatRelativeTime(session.updatedAt, t)
 }
 
@@ -826,12 +796,18 @@ function SessionItem(props: {
                 : t('session.action.reopenCursorChecking')
         : undefined
 
-    const { archiveSession, reopenSession, renameSession, deleteSession, isPending } = useSessionActions(
+    const { archiveSession, reopenSession, renameSession, deleteSession, forkSession, isPending } = useSessionActions(
         api,
         s.id,
         s.metadata?.flavor ?? null
     )
+    const { data: capabilities } = useFlavorCapabilities(api)
+    const sessionFlavor = s.metadata?.flavor ?? null
+    const forkSupported =
+        Boolean(sessionFlavor) &&
+        getFlavorForkCapability(capabilities, sessionFlavor).fork !== 'none'
     const [reopenError, setReopenError] = useState<string | null>(null)
+    const [forkError, setForkError] = useState<string | null>(null)
 
     const handleReopen = async () => {
         setReopenError(null)
@@ -844,6 +820,18 @@ function SessionItem(props: {
             }
         } catch (error) {
             setReopenError(formatReopenError(error))
+        }
+    }
+
+    const handleFork = async () => {
+        setForkError(null)
+        try {
+            const result = await forkSession()
+            if (result.type === 'success') {
+                onSelect(result.newSessionId)
+            }
+        } catch (error) {
+            setForkError(error instanceof Error ? error.message : 'Fork failed')
         }
     }
 
@@ -967,6 +955,8 @@ function SessionItem(props: {
                 onReopen={cursorReopenDisabledReason ? undefined : handleReopen}
                 reopenDisabledReason={cursorReopenDisabledReason}
                 onDelete={() => setDeleteOpen(true)}
+                onFork={forkSupported ? handleFork : undefined}
+                forkSupported={forkSupported}
                 anchorPoint={menuAnchorPoint}
             />
 
@@ -979,6 +969,19 @@ function SessionItem(props: {
                     confirmLabel={t('dialog.reopen.dismiss')}
                     confirmingLabel={t('dialog.reopen.dismiss')}
                     onConfirm={async () => setReopenError(null)}
+                    isPending={false}
+                />
+            ) : null}
+
+            {forkError ? (
+                <ConfirmDialog
+                    isOpen={true}
+                    onClose={() => setForkError(null)}
+                    title={t('dialog.fork.errorTitle', { defaultValue: 'Fork failed' })}
+                    description={forkError}
+                    confirmLabel={t('dialog.fork.dismiss', { defaultValue: 'OK' })}
+                    confirmingLabel={t('dialog.fork.dismiss', { defaultValue: 'OK' })}
+                    onConfirm={async () => setForkError(null)}
                     isPending={false}
                 />
             ) : null}
@@ -1062,18 +1065,24 @@ export function SessionList(props: {
     const timeRange = getSessionTimeRange(customStart, customEnd)
     const isFiltering = normalizedQuery.length > 0 || timeRange !== null
 
-    useEffect(() => {
-        // 中文注释：监听导入标记变化，让列表在“导入完成”或“用户已在 Hapi 中继续会话”后立即刷新时间文案。
-        return subscribeCodexImportedSessions(() => {
-            setCodexImportedSessionsVersion((value) => value + 1)
-        })
-    }, [])
+    // machineId → host fallback built from session metadata. Used when a
+    // machine has no friendly label yet (registered but unnamed): show the
+    // recorded host instead of the abstract 8-char machineId slice.
+    const hostByMachineId = useMemo(() => {
+        const m = new Map<string, string>()
+        for (const s of props.sessions) {
+            const mid = s.metadata?.machineId
+            const host = s.metadata?.host
+            if (mid && host && !m.has(mid)) m.set(mid, host)
+        }
+        return m
+    }, [props.sessions])
 
     const resolveMachineLabel = (machineId: string | null): string => {
-        if (machineId && machineLabelsById[machineId]) {
-            return machineLabelsById[machineId]
-        }
         if (machineId) {
+            if (machineLabelsById[machineId]) return machineLabelsById[machineId]
+            const host = hostByMachineId.get(machineId)
+            if (host) return host
             return machineId.slice(0, 8)
         }
         return t('machine.unknown')
@@ -1201,6 +1210,7 @@ export function SessionList(props: {
         return getVisibleSessionPreview(
             group.sessions,
             {
+
                 selectedSessionId,
                 limit: getGroupVisibleCount(group)
             }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { useNavigate } from '@tanstack/react-router'
+import { stopSpeaking } from '@/realtime/messageSummarySpeaker'
 import { AssistantRuntimeProvider, useAssistantApi, useAssistantState } from '@assistant-ui/react'
 import { DragDropZone } from '@/components/AssistantChat/DragDropZone'
 import type { ApiClient } from '@/api/client'
@@ -13,7 +14,7 @@ import type {
     PiModelSummary,
     SlashCommand
 } from '@/types/api'
-import type { ChatBlock, NormalizedMessage } from '@/chat/types'
+import type { ChatBlock, ModelRefusalFallbackEvent, NormalizedMessage } from '@/chat/types'
 import type { Suggestion } from '@/hooks/useActiveSuggestions'
 import { normalizeDecryptedMessage } from '@/chat/normalize'
 import { reduceChatBlocks } from '@/chat/reducer'
@@ -33,9 +34,11 @@ import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePic
 import { resolvePendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import { HappyThread } from '@/components/AssistantChat/HappyThread'
 import { QueuedMessagesBar } from '@/components/AssistantChat/QueuedMessagesBar'
+import { TodoPanel } from '@/fork-features/task-panel/TodoPanel'
 import { ScratchlistDrawer } from '@/components/AssistantChat/ScratchlistPanel'
 import { useHubScratchlist } from '@/lib/use-hub-scratchlist'
 import { ScratchlistMigrationBanner } from '@/components/AssistantChat/ScratchlistMigrationBanner'
+import { useToast } from '@/lib/toast-context'
 import { useHappyRuntime } from '@/lib/assistant-runtime'
 import type { OlderLoadOutcome } from '@/lib/message-window-store'
 import { createAttachmentAdapter } from '@/lib/attachmentAdapter'
@@ -55,7 +58,9 @@ import { CursorMigrationBanner } from '@/components/CursorMigrationBanner'
 import { TeamPanel } from '@/components/TeamPanel'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
+import { useCcSwitchProvider } from '@/hooks/mutations/useCcSwitchProvider'
 import { useCodexModels } from '@/hooks/queries/useCodexModels'
+import { useCcSwitchProviders } from '@/hooks/queries/useCcSwitchProviders'
 import { useCursorModels } from '@/hooks/queries/useCursorModels'
 import { useCursorModelsForMachine } from '@/hooks/queries/useCursorModelsForMachine'
 import {
@@ -77,6 +82,8 @@ import { useGrokModels } from '@/hooks/queries/useGrokModels'
 import { useGrokReasoningEffortOptions } from '@/hooks/queries/useGrokReasoningEffortOptions'
 import { usePiModels } from '@/hooks/queries/usePiModels'
 import { useOpencodeReasoningEffortOptions } from '@/hooks/queries/useOpencodeReasoningEffortOptions'
+import { useOmpModels } from '@/hooks/queries/useOmpModels'
+import { useOmpThinkingOptions } from '@/hooks/queries/useOmpThinkingOptions'
 import { useVoiceOptional } from '@/lib/voice-context'
 import { VoiceBackendSession, registerSessionStore, registerVoiceHooksStore, voiceHooks } from '@/realtime'
 import { isRemoteTerminalSupported } from '@/utils/terminalSupport'
@@ -377,6 +384,25 @@ export function buildGoalStateMessages(
     return messages.filter((message) => !isUninvokedScheduledMessage(message))
 }
 
+function getOutlineTitle(session: Session): string {
+    if (session.metadata?.name) {
+        return session.metadata.name
+    }
+    if (session.metadata?.summary?.text) {
+        return session.metadata.summary.text
+    }
+    if (session.metadata?.path) {
+        return session.metadata.path
+    }
+    return session.id.slice(0, 8)
+}
+
+const MODEL_REFUSAL_FALLBACK_TOAST_DURATION_MS = 5000
+
+function isModelRefusalFallbackEvent(value: unknown): value is ModelRefusalFallbackEvent {
+    return Boolean(value) && typeof value === 'object' && (value as { type?: unknown }).type === 'model-refusal-fallback'
+}
+
 function hasAbortableAgentRun(blocks: readonly ChatBlock[]): boolean {
     for (const block of blocks) {
         if (block.kind === 'tool-call') {
@@ -455,6 +481,8 @@ function SessionChatInner(props: SessionChatProps) {
     const { haptic } = usePlatform()
     const { t } = useTranslation()
     const navigate = useNavigate()
+    const { addToast } = useToast()
+    useEffect(() => stopSpeaking, [])
     const sessionInactive = !props.session.active
     const inactiveCanResume = inactiveSessionCanResume(
         props.session,
@@ -463,6 +491,7 @@ function SessionChatInner(props: SessionChatProps) {
     )
     const terminalSupported = isRemoteTerminalSupported(props.session.metadata)
     const normalizedCacheRef = useRef<Map<string, { source: DecryptedMessage; normalized: NormalizedMessage | null }>>(new Map())
+    const modelRefusalFallbackToastIdsRef = useRef<Set<string>>(new Set())
     const blocksByIdRef = useRef<Map<string, ChatBlock>>(new Map())
     const visibleGroupsRef = useRef<ToolGroupBlock[]>([])
     const [forceScrollToken, setForceScrollToken] = useState(0)
@@ -571,7 +600,10 @@ function SessionChatInner(props: SessionChatProps) {
     const codexModelsState = useCodexModels({
         api: props.api,
         machineId: props.session.metadata?.machineId ?? null,
-        enabled: agentFlavor === 'codex' && props.session.active && !controlledByUser
+        enabled: agentFlavor === 'codex'
+            && props.session.active
+            && !controlledByUser
+            && Boolean(props.session.metadata?.machineId)
     })
     const effectiveCodexServiceTier = agentFlavor === 'codex'
         ? getEffectiveCodexServiceTier(
@@ -624,6 +656,22 @@ function SessionChatInner(props: SessionChatProps) {
             label: opencodeModel.name ?? opencodeModel.modelId
         }))
     }, [agentFlavor, opencodeModelsState.availableModels])
+    const ompModelsState = useOmpModels({
+        api: props.api,
+        sessionId: props.session.id,
+        enabled: agentFlavor === 'omp' && props.session.active && !controlledByUser
+    })
+    const ompThinkingState = useOmpThinkingOptions({
+        api: props.api,
+        sessionId: props.session.id,
+        enabled: agentFlavor === 'omp' && props.session.active && !controlledByUser
+    })
+    const ompModelOptions = useMemo(() => agentFlavor === 'omp'
+        ? ompModelsState.availableModels.map((ompModel) => ({
+            value: `${ompModel.provider}/${ompModel.modelId}`,
+            label: `${ompModel.name} (${ompModel.provider})`
+        }))
+        : undefined, [agentFlavor, ompModelsState.availableModels])
     const grokModelsState = useGrokModels({
         api: props.api,
         sessionId: props.session.id,
@@ -651,6 +699,16 @@ function SessionChatInner(props: SessionChatProps) {
         enabled: agentFlavor === 'cursor' && props.session.active
     })
     const sessionMachineId = props.session.metadata?.machineId ?? null
+    const ccSwitchProvidersState = useCcSwitchProviders({
+        api: props.api,
+        machineId: sessionMachineId,
+        enabled: agentFlavor === 'claude' && Boolean(sessionMachineId)
+    })
+    const { switchProvider: switchCcSwitchProvider } = useCcSwitchProvider({
+        api: props.api,
+        machineId: sessionMachineId,
+        sessionId: props.session.id
+    })
     const machineCursorModelsState = useCursorModelsForMachine({
         api: props.api,
         machineId: sessionMachineId,
@@ -790,6 +848,7 @@ function SessionChatInner(props: SessionChatProps) {
         setPermissionMode,
         setCollaborationMode,
         setModel,
+        setResumeWithSessionModel,
         setModelReasoningEffort,
         setEffort,
         setServiceTier
@@ -896,6 +955,7 @@ function SessionChatInner(props: SessionChatProps) {
 
     useEffect(() => {
         normalizedCacheRef.current.clear()
+        modelRefusalFallbackToastIdsRef.current.clear()
         blocksByIdRef.current.clear()
         visibleGroupsRef.current = []
         setOutlineOpen(false)
@@ -943,6 +1003,29 @@ function SessionChatInner(props: SessionChatProps) {
         }
         return normalized
     }, [visibleMessages])
+
+    useEffect(() => {
+        const displayedIds = modelRefusalFallbackToastIdsRef.current
+        for (const message of normalizedMessages) {
+            if (message.role !== 'event') continue
+            if (!isModelRefusalFallbackEvent(message.content)) continue
+            if (displayedIds.has(message.id)) continue
+
+            displayedIds.add(message.id)
+            const event = message.content
+            addToast({
+                title: t('toast.modelRefusalFallback.title'),
+                body: t('toast.modelRefusalFallback.body', {
+                    originalModel: event.originalModel,
+                    message: event.message
+                }),
+                sessionId: props.session.id,
+                url: `/sessions/${props.session.id}`,
+                variant: 'warning',
+                durationMs: MODEL_REFUSAL_FALLBACK_TOAST_DURATION_MS
+            })
+        }
+    }, [addToast, normalizedMessages, props.session.id, t])
 
     const goalStateSourceMessages = useMemo(
         () => buildGoalStateMessages(props.messages),
@@ -1011,6 +1094,25 @@ function SessionChatInner(props: SessionChatProps) {
         }
     }, [setPermissionMode, props.onRefresh, haptic])
 
+    const handleCcSwitchProviderChange = useCallback(async (providerId: string) => {
+        try {
+            const restartedSessionId = await switchCcSwitchProvider(providerId)
+            haptic.notification('success')
+            if (restartedSessionId !== props.session.id) {
+                navigate({
+                    to: '/sessions/$sessionId',
+                    params: { sessionId: restartedSessionId },
+                    replace: true
+                })
+            } else {
+                props.onRefresh()
+            }
+        } catch (e) {
+            haptic.notification('error')
+            console.error('Failed to switch cc-switch provider:', e)
+        }
+    }, [switchCcSwitchProvider, props.onRefresh, props.session.id, haptic, navigate])
+
     const handleCollaborationModeChange = useCallback(async (mode: CodexCollaborationMode) => {
         try {
             await setCollaborationMode(mode)
@@ -1041,6 +1143,12 @@ function SessionChatInner(props: SessionChatProps) {
                 setModel,
                 setModelReasoningEffort
             })
+            if (agentFlavor === 'omp') {
+                await Promise.all([
+                    ompModelsState.refetch(),
+                    ompThinkingState.refetch()
+                ])
+            }
             haptic.notification('success')
             props.onRefresh()
         } catch (e) {
@@ -1051,11 +1159,41 @@ function SessionChatInner(props: SessionChatProps) {
         agentFlavor,
         codexModelsState.models,
         props.session.modelReasoningEffort,
+        ompModelsState,
+        ompThinkingState,
         setModelReasoningEffort,
         setModel,
         props.onRefresh,
         haptic
     ])
+
+    const handleOmpModelCycle = useCallback(async () => {
+        if (!props.api) return
+        try {
+            const result = await props.api.cycleSessionOmpModel(props.session.id)
+            if (!result.success) throw new Error(result.error ?? 'Failed to cycle OMP model')
+            await Promise.all([
+                ompModelsState.refetch(),
+                ompThinkingState.refetch()
+            ])
+            haptic.notification('success')
+            props.onRefresh()
+        } catch (error) {
+            haptic.notification('error')
+            console.error('Failed to cycle OMP model:', error)
+        }
+    }, [props.api, props.session.id, props.onRefresh, haptic, ompModelsState, ompThinkingState])
+
+    const handleResumeWithSessionModelChange = useCallback(async (enabled: boolean) => {
+        try {
+            await setResumeWithSessionModel(enabled)
+            haptic.notification('success')
+            props.onRefresh()
+        } catch (e) {
+            haptic.notification('error')
+            console.error('Failed to set resume model setting:', e)
+        }
+    }, [setResumeWithSessionModel, props.onRefresh, haptic])
 
     const handleCursorBaseModelChange = useCallback(async (baseKey: string | null) => {
         if (!cursorPicker) {
@@ -1112,13 +1250,16 @@ function SessionChatInner(props: SessionChatProps) {
     const handleEffortChange = useCallback(async (effort: string | null) => {
         try {
             await setEffort(effort)
+            if (agentFlavor === 'omp') {
+                await ompThinkingState.refetch()
+            }
             haptic.notification('success')
             props.onRefresh()
         } catch (e) {
             haptic.notification('error')
             console.error('Failed to set effort:', e)
         }
-    }, [setEffort, props.onRefresh, haptic])
+    }, [agentFlavor, ompThinkingState, setEffort, props.onRefresh, haptic])
 
     const handleServiceTierChange = useCallback(async (serviceTier: string | null) => {
         try {
@@ -1315,58 +1456,54 @@ function SessionChatInner(props: SessionChatProps) {
                         onOutlineOpenChange={setOutlineOpen}
                     />
 
-                    <div className={outlineOpen ? 'max-sm:hidden' : undefined}>
-                        {codexCollaborationModeSupported && codexModelsState.error ? (
-                            <div className="px-3 pb-2">
-                                <div className="mx-auto w-full max-w-content rounded-md bg-[var(--app-subtle-bg)] p-3 text-sm text-red-600">
-                                    {t('session.codexModelsLoadFailed')}: {codexModelsState.error}
-                                </div>
+                    {codexCollaborationModeSupported && codexModelsState.error ? (
+                        <div className="px-3 pb-2">
+                            <div className="mx-auto w-full max-w-content rounded-md bg-[var(--app-subtle-bg)] p-3 text-sm text-red-600">
+                                {t('session.codexModelsLoadFailed')}: {codexModelsState.error}
+                            </div>
                             </div>
                         ) : null}
 
-                        {/*
-                         * tiann/hapi#893: one-time banner shown on first
-                         * v2-load when localStorage entries got migrated to
-                         * the hub. Sits above the drawer so the operator
-                         * sees it whether or not the drawer is open.
-                         * Auto-renders nothing unless `migrationStatus ===
-                         * 'completed'`.
-                         */}
-                        <ScratchlistMigrationBanner
-                            migrationStatus={scratchlist.migrationStatus}
-                            onDismiss={scratchlist.dismissMigrationBanner}
-                        />
+                    {/*
+                     * One-time banner shown after local scratchlist entries
+                     * migrate into the hub-backed store.
+                     */}
+                    <ScratchlistMigrationBanner
+                        migrationStatus={scratchlist.migrationStatus}
+                        onDismiss={scratchlist.dismissMigrationBanner}
+                    />
 
-                        <div className="px-3">
-                            {/*
-                             * Scratchlist drawer - composer-controlled. Only
-                             * mounted when the operator clicks the notepad icon
-                             * in the composer toolbar. State lives in the
-                             * useScratchlist hook above (so the toolbar counter
-                             * and the drawer share one source of truth).
-                             */}
-                            {scratchlistMode ? (
-                                <ScratchlistDrawerHost
-                                    sessionId={props.session.id}
-                                    api={props.api}
-                                    entries={scratchlist.entries}
-                                    onMove={scratchlist.move}
-                                    onDelete={scratchlist.remove}
-                                    onSend={props.onSend}
-                                    onExitScratchlistMode={() => setScratchlistMode(false)}
-                                />
-                            ) : null}
-                            <QueuedMessagesBar
+                    <div className="px-3">
+                        <TodoPanel sessionId={props.session.id} todos={props.session.todos} />
+                        {/*
+                         * Scratchlist drawer - composer-controlled. Only
+                         * mounted when the operator clicks the notepad icon
+                         * in the composer toolbar. State lives in the
+                         * useScratchlist hook above (so the toolbar counter
+                         * and the drawer share one source of truth).
+                         */}
+                        {scratchlistMode ? (
+                            <ScratchlistDrawerHost
                                 sessionId={props.session.id}
                                 api={props.api}
-                                onEdit={({ pendingSchedule: restored }) => {
-                                    // Restore the schedule so the clock button re-activates
-                                    setPendingSchedule(restored)
-                                }}
+                                entries={scratchlist.entries}
+                                onMove={scratchlist.move}
+                                onDelete={scratchlist.remove}
+                                onSend={props.onSend}
+                                onExitScratchlistMode={() => setScratchlistMode(false)}
                             />
-                        </div>
+                        ) : null}
+                        <QueuedMessagesBar
+                            sessionId={props.session.id}
+                            api={props.api}
+                            onEdit={({ pendingSchedule: restored }) => {
+                                // Restore the schedule so the clock button re-activates
+                                setPendingSchedule(restored)
+                            }}
+                        />
+                    </div>
 
-                        <HappyComposer
+                    <HappyComposer
                         key={`composer-${props.session.id}`}
                         sessionId={props.session.id}
                         disabled={props.isSending}
@@ -1376,9 +1513,18 @@ function SessionChatInner(props: SessionChatProps) {
                         permissionMode={props.session.permissionMode}
                         collaborationMode={codexCollaborationModeSupported ? props.session.collaborationMode : undefined}
                         threadGoal={reduced.latestGoal}
-                        model={props.session.model}
+                        model={agentFlavor === 'omp'
+                            ? props.session.model ?? (ompModelsState.currentModel
+                                ? `${ompModelsState.currentModel.provider}/${ompModelsState.currentModel.modelId}`
+                                : null)
+                            : props.session.model}
                         modelReasoningEffort={agentFlavor === 'codex' || agentFlavor === 'opencode' ? props.session.modelReasoningEffort : undefined}
-                        effort={props.session.effort}
+                        effort={agentFlavor === 'omp'
+                            ? props.session.metadata?.ompThinking?.configured
+                                ?? ompThinkingState.state?.configured
+                                ?? props.session.effort
+                            : props.session.effort}
+                        resumeWithSessionModel={props.session.resumeWithSessionModel}
                         agentFlavor={agentFlavor}
                         availableModelOptions={
                             agentFlavor === 'codex'
@@ -1393,6 +1539,8 @@ function SessionChatInner(props: SessionChatProps) {
                                     )
                                     : agentFlavor === 'opencode'
                                         ? opencodeModelOptions
+                                        : agentFlavor === 'omp'
+                                            ? ompModelOptions
                                         : agentFlavor === 'grok'
                                             ? grokModelOptions
                                         // Pi uses its own provider-qualified picker (piModels prop).
@@ -1413,10 +1561,15 @@ function SessionChatInner(props: SessionChatProps) {
                                     : undefined
                         }
                         availableEffortOptions={
-                            agentFlavor === 'grok' && grokEffortState.options.length > 0
+                            agentFlavor === 'omp' && ompThinkingState.options.length > 0
+                                ? ompThinkingState.options
+                                : agentFlavor === 'grok' && grokEffortState.options.length > 0
                                 ? grokEffortState.options
                                 : undefined
                         }
+                        ompThinkingState={agentFlavor === 'omp'
+                            ? props.session.metadata?.ompThinking ?? ompThinkingState.state ?? undefined
+                            : undefined}
                         active={props.session.active}
                         allowSendWhenInactive
                         thinking={props.session.thinking}
@@ -1432,6 +1585,13 @@ function SessionChatInner(props: SessionChatProps) {
                                 : undefined
                         }
                         onPermissionModeChange={handlePermissionModeChange}
+                        ccSwitchProviders={agentFlavor === 'claude' && ccSwitchProvidersState.available
+                            ? ccSwitchProvidersState.providers
+                            : undefined}
+                        currentCcSwitchProviderId={props.session.metadata?.ccSwitchProviderId ?? ccSwitchProvidersState.currentProviderId}
+                        onCcSwitchProviderChange={agentFlavor === 'claude' && ccSwitchProvidersState.available && props.session.active && !controlledByUser
+                            ? (providerId) => { void handleCcSwitchProviderChange(providerId) }
+                            : undefined}
                         selectedModelBase={
                             agentFlavor === 'cursor' && cursorPicker?.mode === 'dual'
                                 ? cursorSelectedBaseValue
@@ -1469,8 +1629,16 @@ function SessionChatInner(props: SessionChatProps) {
                                             ? (props.session.active && !controlledByUser && !grokModelsState.error
                                                 ? handleModelChange
                                                 : undefined)
-                                        : handleModelChange
+                                        : agentFlavor === 'omp'
+                                            ? (props.session.active && !controlledByUser && !ompModelsState.error
+                                                ? handleModelChange
+                                                : undefined)
+                                            : handleModelChange
                         }
+                        onCycleModel={agentFlavor === 'omp' && props.session.active && !controlledByUser
+                            ? handleOmpModelCycle
+                            : undefined}
+                        onResumeWithSessionModelChange={agentFlavor === 'claude' ? handleResumeWithSessionModelChange : undefined}
                         onModelEffortChange={
                             agentFlavor === 'cursor'
                                 && props.session.active
@@ -1489,8 +1657,9 @@ function SessionChatInner(props: SessionChatProps) {
                                 : undefined
                         }
                         onEffortChange={
-                            agentFlavor === 'grok'
-                                ? (props.session.active && !controlledByUser && grokEffortState.options.length > 0
+                            agentFlavor === 'grok' || agentFlavor === 'omp'
+                                ? (props.session.active && !controlledByUser
+                                    && (agentFlavor === 'omp' ? ompThinkingState.options.length > 0 : grokEffortState.options.length > 0)
                                     ? handleEffortChange
                                     : undefined)
                                 : handleEffortChange
@@ -1518,8 +1687,7 @@ function SessionChatInner(props: SessionChatProps) {
                         onScratchlistToggle={handleScratchlistToggle}
                         sendError={props.sendError ?? null}
                         onClearSendError={props.onClearSendError}
-                        />
-                    </div>
+                    />
                 </DragDropZone>
             </AssistantRuntimeProvider>
 

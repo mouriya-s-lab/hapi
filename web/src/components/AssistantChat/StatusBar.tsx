@@ -6,7 +6,7 @@ import {
 } from '@hapi/protocol'
 import type { PermissionModeTone } from '@hapi/protocol'
 import { useMemo } from 'react'
-import type { AgentState, CodexCollaborationMode, PermissionMode } from '@/types/api'
+import type { AgentState, CodexCollaborationMode, OmpThinkingState, PermissionMode } from '@/types/api'
 import type { ConversationStatus } from '@/realtime/types'
 import type { ThreadGoal } from '@/types/api'
 import { getContextBudgetTokens } from '@/chat/modelConfig'
@@ -147,6 +147,7 @@ export function StatusBar(props: {
     contextWindow?: number | null
     model?: string | null
     modelReasoningEffort?: string | null
+    ompThinkingState?: OmpThinkingState
     serviceTier?: string | null
     permissionMode?: PermissionMode
     collaborationMode?: CodexCollaborationMode
@@ -207,6 +208,11 @@ export function StatusBar(props: {
     const codexReasoningLabel = shouldShowCodexReasoningLabel(props.agentFlavor)
         ? formatCodexReasoningLabel(props.modelReasoningEffort)
         : null
+    const ompThinkingLabel = props.agentFlavor === 'omp' && props.ompThinkingState?.configured
+        ? props.ompThinkingState.configured === 'auto' && props.ompThinkingState.resolved
+            ? `auto → ${props.ompThinkingState.resolved}`
+            : props.ompThinkingState.configured
+        : null
     const codexFastMode = shouldShowCodexFastBadge(props.agentFlavor, props.serviceTier)
     const goalLabel = props.agentFlavor === 'codex' && props.threadGoal
         ? props.threadGoal.status === 'active'
@@ -246,6 +252,11 @@ export function StatusBar(props: {
                 {codexReasoningLabel ? (
                     <span className="whitespace-nowrap text-xs text-[var(--app-hint)]">
                         {codexReasoningLabel}
+                    </span>
+                ) : null}
+                {ompThinkingLabel ? (
+                    <span className="whitespace-nowrap text-xs text-[var(--app-hint)]">
+                        {ompThinkingLabel}
                     </span>
                 ) : null}
                 {codexFastMode ? (

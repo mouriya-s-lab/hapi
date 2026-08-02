@@ -227,6 +227,23 @@ export function getHistoryCoverageRetryDelay(deadline: number, now: number): num
     return Math.max(0, deadline - now) + 16
 }
 
+export async function loadUntilVisibleBoundaryChanges(options: {
+    getVisibleBoundary: () => string | null
+    hasMoreMessages: () => boolean
+    loadOlder: () => Promise<boolean>
+}): Promise<boolean> {
+    const initialBoundary = options.getVisibleBoundary()
+    let loadedAny = false
+    while (options.hasMoreMessages() && options.getVisibleBoundary() === initialBoundary) {
+        const loaded = await options.loadOlder()
+        if (!loaded) {
+            break
+        }
+        loadedAny = true
+    }
+    return loadedAny
+}
+
 function NewMessagesIndicator(props: { count: number; onClick: () => void }) {
     const { t } = useTranslation()
     if (props.count === 0) {
@@ -477,18 +494,19 @@ export function HappyThread(props: {
 
     // Smart scroll state: enabled only while the user is intentionally at the bottom.
     const autoScrollEnabledRef = useRef(true)
-    useEffect(() => {
+    useLayoutEffect(() => {
         onViewModeChangeRef.current = props.onViewModeChange
-    }, [props.onViewModeChange])
-    useEffect(() => {
         hasMoreMessagesRef.current = props.hasMoreMessages
-    }, [props.hasMoreMessages])
-    useEffect(() => {
         isSyncingTailRef.current = props.isSyncingTail
-    }, [props.isSyncingTail])
-    useEffect(() => {
+        isLoadingMoreRef.current = props.isLoadingMoreMessages
         onLoadMoreRef.current = props.onLoadMore
-    }, [props.onLoadMore])
+    }, [
+        props.hasMoreMessages,
+        props.isLoadingMoreMessages,
+        props.isSyncingTail,
+        props.onLoadMore,
+        props.onViewModeChange
+    ])
     useEffect(() => {
         onCancelLoadMoreRef.current = props.onCancelLoadMore
     }, [props.onCancelLoadMore])
@@ -524,6 +542,7 @@ export function HappyThread(props: {
 
     const settlePendingLoad = useCallback((result: OlderHistoryLoadResult) => {
         const resolve = pendingLoadResolveRef.current
+        pendingScrollRef.current = null
         pendingLoadResolveRef.current = null
         pendingLoadPromiseRef.current = null
         resolve?.(result)
@@ -921,6 +940,7 @@ export function HappyThread(props: {
         scrollToBottom()
     }, [props.forceScrollToken, scrollToBottom])
 
+
     const needsViewportCoverage = useCallback((): boolean => {
         const viewport = viewportRef.current
         const sentinel = topSentinelRef.current
@@ -1169,6 +1189,18 @@ export function HappyThread(props: {
         return await loadOlderFromConsumer() === 'loaded'
     }, [loadOlderFromConsumer])
 
+    const loadOlderUntilVisible = useCallback(async (): Promise<boolean> => {
+        const viewport = viewportRef.current
+        if (!viewport) {
+            return false
+        }
+        return loadUntilVisibleBoundaryChanges({
+            getVisibleBoundary: () => viewport.querySelector<HTMLElement>(MESSAGE_ANCHOR_SELECTOR)?.id ?? null,
+            hasMoreMessages: () => hasMoreMessagesRef.current,
+            loadOlder: loadOlderForOutline
+        })
+    }, [loadOlderForOutline])
+
     const handleOutlineSelect = useCallback(async (item: ConversationOutlineItem) => {
         const target = await locateOutlineTargetMessage({
             targetMessageId: item.targetMessageId,
@@ -1299,9 +1331,6 @@ export function HappyThread(props: {
         clearFailureRetryTimer
     ])
 
-    useEffect(() => {
-        isLoadingMoreRef.current = props.isLoadingMoreMessages
-    }, [props.isLoadingMoreMessages])
 
     const showSkeleton = props.isSyncingTail && props.rawMessagesCount === 0
     const handleShareTurn = useCallback((
@@ -1429,6 +1458,34 @@ export function HappyThread(props: {
                                         </div>
                                     ) : null}
 
+                                    {props.hasMoreMessages && !props.isSyncingTail ? (
+                                        <div className="py-1 mb-2">
+                                            <div className="mx-auto w-fit">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => {
+                                                        void loadOlderUntilVisible()
+                                                    }}
+                                                    disabled={props.isLoadingMoreMessages || props.isSyncingTail}
+                                                    aria-busy={props.isLoadingMoreMessages}
+                                                    className="gap-1.5 text-xs opacity-80 hover:opacity-100"
+                                                >
+                                                    {props.isLoadingMoreMessages ? (
+                                                        <>
+                                                            <Spinner size="sm" label={null} className="text-current" />
+                                                            {t('misc.loading')}
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <span aria-hidden="true">↑</span>
+                                                            {t('session.outline.loadOlder')}
+                                                        </>
+                                                    )}
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    ) : null}
                                     {import.meta.env.DEV && props.normalizedMessagesCount === 0 && props.rawMessagesCount > 0 ? (
                                         <div className="mb-2 rounded-md bg-amber-500/10 p-2 text-xs">
                                             Message normalization returned 0 items for {props.rawMessagesCount} messages (see `web/src/chat/normalize.ts`).

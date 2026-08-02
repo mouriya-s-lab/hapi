@@ -21,7 +21,7 @@ function getNamespace(token: string): string | null {
 
 export function SettingsNav(props: { activeId?: string; mobile?: boolean }) {
     const navigate = useNavigate()
-    const { token } = useAppContext()
+    const { token, user } = useAppContext()
     const { t, locale } = useTranslation()
     const { appearance } = useAppearance()
     const { fontScale } = useFontScale()
@@ -34,9 +34,16 @@ export function SettingsNav(props: { activeId?: string; mobile?: boolean }) {
         voice: t('settings.hub.voice.summary'),
         machines: t('settings.hub.machines.summary'),
         storage: t('settings.storage.summary'),
+        account: t('settings.fork.account.description'),
+        users: t('settings.fork.users.description'),
+        fork: t('settings.fork.summary'),
         about: `v${__APP_VERSION__}`,
     }
-    const visibleCategories = settingsCategories.filter((category) => category.id !== 'storage' || getNamespace(token) === 'default')
+    const namespace = getNamespace(token)
+    const visibleCategories = settingsCategories.filter(
+        (category) => (category.id !== 'storage' || namespace === 'default')
+            && (category.id !== 'users' || user.role === 'admin')
+    )
 
     return (
         <nav aria-label={t('settings.title')} className={props.mobile ? 'divide-y divide-[var(--app-divider)]' : 'space-y-1 p-3'}>

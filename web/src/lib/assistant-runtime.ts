@@ -6,6 +6,7 @@ import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePic
 import { resolvePendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import { safeStringify } from '@hapi/protocol'
 import { renderEventLabel } from '@/chat/presentation'
+import { filterVisibleBlocksForFlavor } from '@/fork-features/omp-product/eventVisibility'
 import type { ChatBlock, CliOutputBlock, CodexReview, UsageData } from '@/chat/types'
 import type { AgentEvent, ToolCallBlock } from '@/chat/types'
 import type { ToolGroupBlock, VisibleChatBlock } from '@/chat/toolGroups'
@@ -39,6 +40,16 @@ export type HappyChatMessageMetadata = {
     usage?: UsageData
     model?: string | null
     review?: CodexReview
+    /**
+     * Raw hub-DB message id (unprefixed) for user-text blocks. The
+     * assistant-ui `message.id` is the composed threadMessageId
+     * `${kind}:${block.id}` (see `assignThreadMessageIdsWithStableWrappers`),
+     * which cannot be used against hub's `/api/sessions/:id/fork`
+     * because that endpoint matches on the raw hub messageId. Callers
+     * that need to talk to hub about a specific stored message (rewind
+     * / fork-at-message) MUST read this field, not `message.id`.
+     */
+    hubMessageId?: string
     /**
      * Distinct turn count when this block carries an aggregated response
      * group footer. Single-turn blocks omit this field so the existing
@@ -189,6 +200,7 @@ function turnFingerprint(
         `m=${model ?? ''}`,
         `i=${usage.input_tokens}`,
         `o=${usage.output_tokens}`,
+        `r=${usage.reasoning_output_tokens ?? ''}`,
         `cc=${usage.cache_creation_input_tokens ?? ''}`,
         `cr=${usage.cache_read_input_tokens ?? ''}`,
         `t=${usage.service_tier ?? ''}`,
@@ -211,6 +223,10 @@ function addUsage(target: UsageData, addend: UsageData): UsageData {
     return {
         input_tokens: target.input_tokens + addend.input_tokens,
         output_tokens: target.output_tokens + addend.output_tokens,
+        reasoning_output_tokens: sumOptional(
+            target.reasoning_output_tokens,
+            addend.reasoning_output_tokens
+        ),
         cache_creation_input_tokens: sumOptional(
             target.cache_creation_input_tokens,
             addend.cache_creation_input_tokens
@@ -219,6 +235,7 @@ function addUsage(target: UsageData, addend: UsageData): UsageData {
             target.cache_read_input_tokens,
             addend.cache_read_input_tokens
         ),
+        cost_usd: sumOptional(target.cost_usd, addend.cost_usd),
         // service_tier dedup follows the rule documented in the plan: pick
         // the first turn's tier when the group is mixed. We keep it on the
         // target so downstream label logic sees a stable value.
@@ -378,7 +395,8 @@ function toThreadMessageLike(
                     localId: block.localId,
                     originalText: block.originalText,
                     attachments: block.attachments,
-                    invokedAt: block.invokedAt
+                    invokedAt: block.invokedAt,
+                    hubMessageId: block.id
                 } satisfies HappyChatMessageMetadata
             }
         }
@@ -411,6 +429,28 @@ function toThreadMessageLike(
                 type: 'tool-call',
                 toolCallId: block.id,
                 toolName: 'GeneratedImage',
+                argsText: '',
+                artifact: block
+            }],
+            metadata: {
+                custom: {
+                    kind: 'tool',
+                    toolCallId: block.id,
+                    invokedAt: block.invokedAt ?? null
+                } satisfies HappyChatMessageMetadata
+            }
+        }
+    }
+
+    if (block.kind === 'generated-file') {
+        return {
+            role: 'assistant',
+            id: threadMessageId,
+            createdAt: new Date(block.createdAt),
+            content: [{
+                type: 'tool-call',
+                toolCallId: block.id,
+                toolName: 'GeneratedFile',
                 argsText: '',
                 artifact: block
             }],
@@ -618,6 +658,12 @@ export function useHappyRuntime(props: {
     pendingScheduleRef?: React.RefObject<PendingSchedule | null>
 }) {
     const isRunning = props.isRunning ?? props.session.thinking
+    const flavor = props.session.metadata?.flavor
+
+    const visibleBlocks = useMemo(
+        () => filterVisibleBlocksForFlavor(props.blocks, flavor),
+        [flavor, props.blocks]
+    )
 
     // Compute response-group aggregates once per block list so we can
     // inject the summed metadata onto each group's first visible block.
@@ -629,15 +675,15 @@ export function useHappyRuntime(props: {
     )
     const blocksWithThreadIds = useMemo(
         () => assignThreadMessageIdsWithStableWrappers(
-            props.blocks,
+            visibleBlocks,
             threadIdWrapperCacheRef.current
         ),
-        [props.blocks]
+        [visibleBlocks]
     )
 
     const aggregates = useMemo(
-        () => aggregateResponseGroups(props.blocks),
-        [props.blocks]
+        () => aggregateResponseGroups(visibleBlocks),
+        [visibleBlocks]
     )
     const responseGroupTimestamps = useMemo(
         () => getResponseGroupTimestamps(props.blocks),

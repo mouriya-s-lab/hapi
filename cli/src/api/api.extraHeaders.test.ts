@@ -138,6 +138,7 @@ describe('API extra headers integration', () => {
             modelReasoningEffort: null,
             effort: null,
             serviceTier: null,
+            resumeWithSessionModel: false,
             permissionMode: undefined,
             collaborationMode: undefined
         })

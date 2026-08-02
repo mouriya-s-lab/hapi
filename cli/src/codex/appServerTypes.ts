@@ -133,7 +133,50 @@ export interface ThreadResumeResponse {
     [key: string]: unknown;
 }
 
+/**
+ * thread/fork — forks a thread at head or through an explicit last turn.
+ * Used by fork-features/session-fork to clone a codex session into a new thread
+ * that hapi can then resume independently.
+ */
 export interface ThreadForkParams extends Omit<ThreadResumeParams, 'history' | 'path'> {
+    lastTurnId?: string;
+}
+
+export interface ThreadReadResponse {
+    thread: {
+        id: string;
+        cwd: string;
+        modelProvider: string;
+        turns: Array<{ id: string; [key: string]: unknown }>;
+        [key: string]: unknown;
+    };
+}
+
+export interface ThreadListParams {
+    cursor?: string | null;
+    limit?: number | null;
+    archived?: boolean | null;
+    sortKey?: 'created_at' | 'updated_at';
+    sortDirection?: 'asc' | 'desc';
+    cwd?: string | string[] | null;
+    useStateDbOnly?: boolean;
+    searchTerm?: string | null;
+}
+
+export interface ThreadListItem {
+    id: string;
+    cwd: string;
+    name?: string | null;
+    preview?: string | null;
+    createdAt: number;
+    updatedAt: number;
+    parentThreadId?: string | null;
+    [key: string]: unknown;
+}
+
+export interface ThreadListResponse {
+    data: ThreadListItem[];
+    nextCursor?: string | null;
 }
 
 export interface ThreadForkResponse {

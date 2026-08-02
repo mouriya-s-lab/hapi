@@ -17,6 +17,14 @@ describe('MCP URL request user input', () => {
             .toBeNull()
     })
 
+    it('recognizes opaque OMP transient request markers without inventing form data', () => {
+        expect(parseRequestUserInputInput({ ompTransientRequest: true })).toEqual({
+            questions: [],
+            url: null,
+            transientRequest: true
+        })
+    })
+
     it('reports popup failures instead of treating the URL as opened', () => {
         const open = vi.spyOn(window, 'open').mockReturnValue(null)
         expect(openRequestUserInputUrl('https://example.com/login')).toBe(false)
@@ -47,12 +55,31 @@ describe('MCP URL request user input', () => {
             question: 'Comment',
             required: false,
             multiple: false,
-            options: []
+            options: [],
+            placeholder: null,
+            initialValue: ''
         })
         expect(isRequestUserInputQuestionAnswered(parsed.questions[0]!, {
             selected: [],
             userNote: ''
         })).toBe(true)
+    })
+
+    it('preserves host-provided placeholder and editor prefill values', () => {
+        const parsed = parseRequestUserInputInput({
+            questions: [{
+                id: 'value',
+                question: 'Edit value',
+                options: [],
+                placeholder: 'Type here',
+                initialValue: 'existing text'
+            }]
+        })
+
+        expect(parsed.questions[0]).toMatchObject({
+            placeholder: 'Type here',
+            initialValue: 'existing text'
+        })
     })
 
     it('requires an actual selection for required choice questions', () => {

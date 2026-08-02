@@ -52,6 +52,175 @@ describe('getEventPresentation — agent errors', () => {
     })
 })
 
+describe('getEventPresentation — OMP extension UI', () => {
+    it('presents extension URLs', () => {
+        expect(getEventPresentation({
+            type: 'omp-extension-ui',
+            method: 'open_url',
+            url: 'https://example.com/oauth'
+        })).toEqual({ icon: '↗', text: 'OMP requested URL: https://example.com/oauth' })
+
+    })
+})
+
+describe('getEventPresentation — OMP TTSR', () => {
+    it('shows rule names without exposing the raw rule frame', () => {
+        const result = getEventPresentation({
+            type: 'omp-session-event',
+            eventType: 'ttsr_triggered',
+            frame: {
+                type: 'ttsr_triggered',
+                rules: [{
+                    name: 'ts-no-tiny-functions',
+                    path: 'SECRET_PATH',
+                    content: 'SECRET_RULE_BODY',
+                    condition: 'SECRET_CONDITION',
+                    scope: ['SECRET_SCOPE']
+                }]
+            }
+        })
+
+        expect(result).toEqual({
+            icon: '⚠️',
+            text: 'Injecting rule: ts-no-tiny-functions'
+        })
+        expect(result.text).not.toMatch(/SECRET_(?:PATH|RULE_BODY|CONDITION|SCOPE)/)
+    })
+
+    it('handles events without named rules', () => {
+        expect(getEventPresentation({
+            type: 'omp-session-event',
+            eventType: 'ttsr_triggered',
+            frame: {
+                type: 'ttsr_triggered',
+                rules: []
+            }
+        })).toEqual({
+            icon: '⚠️',
+            text: 'Injecting rule'
+        })
+    })
+
+    it('shows multiple rule names and summarizes overflow', () => {
+        expect(getEventPresentation({
+            type: 'omp-session-event',
+            eventType: 'ttsr_triggered',
+            frame: {
+                type: 'ttsr_triggered',
+                rules: [
+                    { name: 'rule-one' },
+                    { name: 'rule-two' },
+                    { name: 'rule-three' },
+                    { name: 'rule-four' },
+                    { name: 'rule-five' }
+                ]
+            }
+        })).toEqual({
+            icon: '⚠️',
+            text: 'Injecting 5 rules: rule-one, rule-two, rule-three, rule-four · +1 more'
+        })
+    })
+})
+
+describe('getEventPresentation — OMP compaction', () => {
+    it('shows the compaction strategy and trigger while starting', () => {
+        expect(getEventPresentation({
+            type: 'omp-compaction',
+            phase: 'started',
+            action: 'snapcompact',
+            reason: 'threshold'
+        })).toEqual({
+            icon: '◷',
+            text: 'Compacting conversation · snapcompact · threshold'
+        })
+    })
+
+    it('shows archive metrics from the sanitized event', () => {
+        expect(getEventPresentation({
+            type: 'omp-compaction',
+            phase: 'finished',
+            action: 'snapcompact',
+            outcome: 'completed',
+            willRetry: false,
+            result: {
+                shortSummary: 'Archived conversation history',
+                tokensBefore: 182_000,
+                archive: {
+                    frameCount: 2,
+                    totalChars: 217_555,
+                    truncatedChars: 1_024
+                }
+            }
+        })).toEqual({
+            icon: '✓',
+            text: 'Conversation compacted · snapcompact · 218k chars archived · 2 frames · 1k chars dropped · 182k tokens before'
+        })
+    })
+
+    it('renders legacy frames readably without exposing their base64 or source text', () => {
+        const result = getEventPresentation({
+            type: 'omp-compaction',
+            phase: 'finished',
+            frame: {
+                type: 'auto_compaction_end',
+                action: 'snapcompact',
+                aborted: false,
+                willRetry: false,
+                result: {
+                    tokensBefore: 182_000,
+                    preserveData: {
+                        snapcompact: {
+                            frames: [{ data: 'iVBORw0KGgo=', mimeType: 'image/png' }],
+                            totalChars: 217_555,
+                            truncatedChars: 0,
+                            text: 'archived conversation source'
+                        }
+                    }
+                }
+            }
+        })
+
+        expect(result).toEqual({
+            icon: '✓',
+            text: 'Conversation compacted · snapcompact · 218k chars archived · 1 frame · 182k tokens before'
+        })
+        expect(result.text).not.toContain('iVBORw0KGgo')
+        expect(result.text).not.toContain('archived conversation source')
+    })
+
+    it('shows the fallback reason from a sanitized shake event', () => {
+        expect(getEventPresentation({
+            type: 'omp-compaction',
+            phase: 'finished',
+            action: 'shake',
+            outcome: 'skipped',
+            willRetry: false,
+            message: 'Auto-shake found nothing eligible to drop; falling back to context-full compaction.'
+        })).toEqual({
+            icon: '–',
+            text: 'Conversation compaction skipped · shake · Auto-shake found nothing eligible to drop; falling back to context-full compaction.'
+        })
+    })
+
+    it('shows the fallback reason when a legacy shake compaction was skipped', () => {
+        expect(getEventPresentation({
+            type: 'omp-compaction',
+            phase: 'finished',
+            frame: {
+                type: 'auto_compaction_end',
+                action: 'shake',
+                aborted: false,
+                skipped: true,
+                errorMessage: 'Auto-shake found nothing eligible to drop; falling back to context-full compaction.'
+            }
+        })).toEqual({
+            icon: '–',
+            text: 'Conversation compaction skipped · shake · Auto-shake found nothing eligible to drop; falling back to context-full compaction.'
+        })
+    })
+
+})
+
 describe('getEventPresentation — limit-warning', () => {
     it('formats five_hour warning', () => {
         const result = getEventPresentation({
@@ -182,6 +351,19 @@ describe('getEventPresentation — recap (away_summary)', () => {
 
         expect(result.icon).toBe('💭')
         expect(result.text).toBe('recap: Building the login flow, next: wire up the submit handler.')
+    })
+})
+
+describe('getEventPresentation — model refusal fallback', () => {
+    it('formats the original model switch warning', () => {
+        const result = getEventPresentation({
+            type: 'model-refusal-fallback',
+            originalModel: 'claude-fable-5[1m]',
+            message: 'Switched to Opus 4.8 (1M context).'
+        })
+
+        expect(result.icon).toBe('⚠️')
+        expect(result.text).toContain('claude-fable-5[1m]')
     })
 })
 

@@ -32,6 +32,7 @@ function makeExport(
             modelReasoningEffort: null,
             effort: null,
             serviceTier: null,
+            resumeWithSessionModel: false,
             permissionMode: 'default',
             collaborationMode: 'default'
         },

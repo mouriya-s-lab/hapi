@@ -9,6 +9,14 @@ import GrokMono from '@lobehub/icons/es/Grok/components/Mono'
 import KimiMono from '@lobehub/icons/es/Kimi/components/Mono'
 import OpenCodeMono from '@lobehub/icons/es/OpenCode/components/Mono'
 import type { IconType } from '@lobehub/icons/es/types'
+import { forwardRef, type SVGProps } from 'react'
+
+const OmpLogo = forwardRef<SVGSVGElement, SVGProps<SVGSVGElement> & { size?: string | number }>(({ size = '1em', ...props }, ref) => (
+    <svg ref={ref} {...props} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M8 15V9l4 4 4-4v6" />
+    </svg>
+))
 
 // Brand logos per agent flavor. Color variant where it stays visible on both
 // light and dark surfaces (claude/codex/gemini); Mono (currentColor) where the
@@ -22,6 +30,7 @@ const FLAVOR_LOGOS: Record<string, IconType> = {
     grok: GrokMono,
     kimi: KimiMono,
     opencode: OpenCodeMono,
+    omp: OmpLogo,
 }
 
 // Letter-badge fallback for flavors without a brand logo in @lobehub/icons

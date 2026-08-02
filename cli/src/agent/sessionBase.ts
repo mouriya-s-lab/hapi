@@ -10,13 +10,17 @@ import type {
 } from '@/api/types';
 import { logger } from '@/ui/logger';
 
-export type AgentSessionBaseOptions<Mode> = {
+type ConsumableQueue = {
+    onBatchConsumed: ((localIds: string[]) => void) | null;
+};
+
+export type AgentSessionBaseOptions<Mode, Queue extends ConsumableQueue = MessageQueue2<Mode>> = {
     api: ApiClient;
     client: ApiSessionClient;
     path: string;
     logPath: string;
     sessionId: string | null;
-    messageQueue: MessageQueue2<Mode>;
+    messageQueue: Queue;
     onModeChange: (mode: 'local' | 'remote') => void;
     mode?: 'local' | 'remote';
     sessionLabel: string;
@@ -30,12 +34,12 @@ export type AgentSessionBaseOptions<Mode> = {
     collaborationMode?: SessionCollaborationMode;
 };
 
-export class AgentSessionBase<Mode> {
+export class AgentSessionBase<Mode, Queue extends ConsumableQueue = MessageQueue2<Mode>> {
     readonly path: string;
     readonly logPath: string;
     readonly api: ApiClient;
     readonly client: ApiSessionClient;
-    readonly queue: MessageQueue2<Mode>;
+    readonly queue: Queue;
     protected readonly _onModeChange: (mode: 'local' | 'remote') => void;
 
     sessionId: string | null;
@@ -54,7 +58,7 @@ export class AgentSessionBase<Mode> {
     protected serviceTier?: string | null;
     protected collaborationMode?: SessionCollaborationMode;
 
-    constructor(opts: AgentSessionBaseOptions<Mode>) {
+    constructor(opts: AgentSessionBaseOptions<Mode, Queue>) {
         this.path = opts.path;
         this.api = opts.api;
         this.client = opts.client;
