@@ -17,6 +17,7 @@ import { mcpCommand } from './mcp'
 import { notifyCommand } from './notify'
 import { hubCommand } from './hub'
 import { pingPeerCommand } from './pingPeer'
+import { agentCommand } from '../../../fork-features/agent-orchestration/cli'
 import type { CommandContext, CommandDefinition } from './types'
 
 // Gemini CLI was sunset (Google stopped serving the consumer Gemini CLI on
@@ -54,7 +55,8 @@ const COMMANDS: CommandDefinition[] = [
     resumeCommand,
     runnerCommand,
     notifyCommand,
-    pingPeerCommand
+    pingPeerCommand,
+    agentCommand
 ]
 
 const commandMap = new Map<string, CommandDefinition>()
