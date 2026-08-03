@@ -21,6 +21,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/use-translation', () => ({
     useTranslation: () => ({ t: (key: string) => key })
 }))
+vi.mock('@/lib/toast-context', () => ({
+    useToast: () => ({ addToast: vi.fn() })
+}))
 vi.mock('@/hooks/usePlatform', () => ({
     usePlatform: () => ({ haptic: { notification: mocks.notification } })
 }))

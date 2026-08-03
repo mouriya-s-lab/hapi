@@ -195,6 +195,35 @@ describe('SessionList time filter', () => {
         expect(screen.queryByRole('button', { name: /Old session/ })).toBeNull()
     })
 
+    it('highlights today without requiring hover or session activity', () => {
+        const old = makeSession({
+            id: 'old',
+            updatedAt: new Date(2020, 0, 1).getTime(),
+            metadata: { path: '/work/old', name: 'Old session' }
+        })
+
+        renderWithProviders(
+            <SessionList
+                sessions={[old]}
+                selectedSessionId={null}
+                onSelect={vi.fn()}
+                onNewSession={vi.fn()}
+                onRefresh={vi.fn()}
+                isLoading={false}
+                renderHeader={false}
+                api={null}
+            />
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Filter sessions by last activity' }))
+        const today = screen.getByRole('button', { name: new Date(2026, 6, 18).toLocaleDateString() })
+        const anotherDay = screen.getByRole('button', { name: new Date(2026, 6, 17).toLocaleDateString() })
+
+        expect(today).toHaveClass('bg-[var(--app-subtle-bg)]')
+        expect(today).toHaveAttribute('aria-current', 'date')
+        expect(anotherDay).not.toHaveAttribute('aria-current')
+    })
+
     it('uses the first calendar click as start and the second as end', () => {
         const session = makeSession({
             id: 'session-1',
@@ -217,7 +246,10 @@ describe('SessionList time filter', () => {
 
         const filterButton = screen.getByRole('button', { name: 'Filter sessions by last activity' })
         fireEvent.click(filterButton)
-        fireEvent.click(screen.getByRole('button', { name: new Date(2026, 6, 1).toLocaleDateString() }))
+        const startDate = screen.getByRole('button', { name: new Date(2026, 6, 1).toLocaleDateString() })
+        fireEvent.click(startDate)
+        expect(startDate).toHaveClass('bg-[var(--app-button)]', 'text-[var(--app-button-text)]')
+        expect(startDate).not.toHaveClass('text-white')
         expect(screen.getByText('Select end date')).toBeInTheDocument()
         fireEvent.click(screen.getByRole('button', { name: `${new Date(2026, 6, 18).toLocaleDateString()}, has session activity` }))
 

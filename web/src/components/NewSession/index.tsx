@@ -1,6 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { ApiClient } from '@/api/client'
-import type { CodexLocalSessionSummary, Machine } from '@/types/api'
+import type { CodexDuplicateSessionGroup, CodexLocalSessionSummary, Machine } from '@/types/api'
 import type { CodexCollaborationMode, GrokPermissionMode } from '@hapi/protocol'
 import { codexModelAdvertisesFastTier } from '@/components/AssistantChat/codexFastMode'
 import { usePlatform } from '@/hooks/usePlatform'
@@ -39,6 +39,8 @@ import type { AgentType, LaunchEffort, CodexReasoningEffort, NewSessionServiceTi
 import { ActionButtons } from './ActionButtons'
 import { AgentSelector } from './AgentSelector'
 import { CollaborationModeSelector } from './CollaborationModeSelector'
+import { CodexImportActions } from './CodexImportActions'
+import { clearBatchImportedCodexSelection, resolveCodexImportRedirectSessionId } from './codexImportMerge'
 import { DirectorySection } from './DirectorySection'
 import { GrokPermissionModeSelector } from './GrokPermissionModeSelector'
 import { FastModeSelector } from './FastModeSelector'
@@ -61,50 +63,13 @@ import {
 import { SessionTypeSelector } from './SessionTypeSelector'
 import { YoloToggle } from './YoloToggle'
 import { CodexSessionSyncDialog } from '@/components/CodexSessionSyncDialog'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { formatRunnerSpawnError } from '../../utils/formatRunnerSpawnError'
 import { markCodexSessionsImported } from '@/lib/codexImportedSessions'
+import { useToast } from '@/lib/toast-context'
 
 
 
-
-function CodexImportSelectButton(props: {
-    selectedSession: CodexLocalSessionSummary | null
-    isLoading: boolean
-    isDisabled: boolean
-    error: string | null
-    onOpen: () => void
-    onClear: () => void
-}) {
-    const { t } = useTranslation()
-    return (
-        <div className="flex flex-col gap-2 px-3 py-3">
-            <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                    <div className="text-xs font-medium text-[var(--app-hint)]">{t('codexSync.newSessionInline.title')}</div>
-                    <div className="truncate text-[11px] text-[var(--app-hint)]">
-                        {props.selectedSession ? props.selectedSession.title : t('codexSync.newSessionInline.description')}
-                    </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                    {props.selectedSession ? (
-                        <button type="button" className="text-xs text-[var(--app-link)]" onClick={props.onClear} disabled={props.isDisabled}>
-                            {t('codexSync.newSessionInline.clear')}
-                        </button>
-                    ) : null}
-                    <button
-                        type="button"
-                        className="rounded-md border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-2 py-1.5 text-xs text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)] disabled:opacity-50"
-                        onClick={props.onOpen}
-                        disabled={props.isDisabled || props.isLoading}
-                    >
-                        {props.isLoading ? t('codexSync.confirm.loading') : t('codexSync.newSessionInline.choose')}
-                    </button>
-                </div>
-            </div>
-            {props.error ? <div className="text-xs text-red-600">{props.error}</div> : null}
-        </div>
-    )
-}
 
 export function NewSession(props: {
     api: ApiClient
@@ -118,8 +83,9 @@ export function NewSession(props: {
 }) {
     const { haptic } = usePlatform()
     const { t } = useTranslation()
+    const { addToast } = useToast()
     const { spawnSession, isPending, error: spawnError } = useSpawnSession(props.api)
-    const { sessions } = useSessions(props.api)
+    const { sessions, refetch: refetchSessions } = useSessions(props.api)
     const { getRecentPaths, addRecentPath, getLastUsedMachineId, setLastUsedMachineId } = useRecentPaths()
 
     const [machineId, setMachineId] = useState<string | null>(props.initialMachineId ?? null)
@@ -150,7 +116,14 @@ export function NewSession(props: {
     const [isCodexImportDialogOpen, setIsCodexImportDialogOpen] = useState(false)
     const [isCreating, setIsCreating] = useState(false)
     const createInFlightRef = useRef(false)
-    const isFormDisabled = Boolean(isCreating || isPending || props.isLoading || isImportingCodexSession)
+    const [isBulkImportingCodexSessions, setIsBulkImportingCodexSessions] = useState(false)
+    const [isRestartingCodexDesktop, setIsRestartingCodexDesktop] = useState(false)
+    const [pendingDuplicateSessionIds, setPendingDuplicateSessionIds] = useState<string[]>([])
+    const [pendingDuplicateHapiSessionIds, setPendingDuplicateHapiSessionIds] = useState<string[]>([])
+    const [duplicateSessionGroups, setDuplicateSessionGroups] = useState<CodexDuplicateSessionGroup[]>([])
+    const [isDuplicateMergeConfirmOpen, setIsDuplicateMergeConfirmOpen] = useState(false)
+    const [isMergingDuplicateSessions, setIsMergingDuplicateSessions] = useState(false)
+    const isFormDisabled = Boolean(isCreating || isPending || props.isLoading || isImportingCodexSession || isBulkImportingCodexSessions)
     const worktreeInputRef = useRef<HTMLInputElement>(null)
     const preserveRestoredDraftRef = useRef(false)
 
@@ -767,6 +740,200 @@ export function NewSession(props: {
         }
     }, [agent, machineId, props.api, trimmedDirectory, t])
 
+    const normalizeCodexScriptError = useCallback((message: string | null | undefined, fallback: string): string => {
+        const raw = (message ?? '').trim()
+        if (!raw) return fallback
+        if (/执行超时|timed\s*out|timeout/i.test(raw)) return t('codexSync.error.timeout')
+        if (/当前会话仍处于活跃状态，请等待会话结束后重试|Active Hapi process already has this Codex thread/i.test(raw)) {
+            return t('codexSync.error.active')
+        }
+        if (/未安装\/找不到codex客户端|unable to find codex launcher|找不到.*codex/i.test(raw)) {
+            return t('codexSync.restart.failed.notFound')
+        }
+        return raw
+    }, [t])
+
+    const formatCodexImportFailure = useCallback((reason: string): string => {
+        if (
+            reason === t('codexSync.error.timeout')
+            || reason === t('codexSync.error.active')
+            || reason === t('codexSync.restart.failed.notFound')
+        ) {
+            return reason
+        }
+        return t('codexSync.failed.bodyWithReason', { reason })
+    }, [t])
+
+    const handleRestartCodexDesktop = useCallback(async () => {
+        setIsRestartingCodexDesktop(true)
+        try {
+            const status = await props.api.getCodexDesktopStatus()
+            if (!status.codexClientAvailable) throw new Error(t('codexSync.restart.failed.notFound'))
+
+            const result = await props.api.restartCodexDesktop()
+            if (!result.success) {
+                throw new Error(normalizeCodexScriptError(result.error, t('codexSync.restart.failed.body')))
+            }
+            addToast({
+                title: t('codexSync.restart.started.title'),
+                body: t('codexSync.restart.started.body'),
+                sessionId: '',
+                url: ''
+            })
+        } catch (restartError) {
+            addToast({
+                title: t('codexSync.restart.failed.title'),
+                body: normalizeCodexScriptError(
+                    restartError instanceof Error ? restartError.message : null,
+                    t('codexSync.restart.failed.body')
+                ),
+                sessionId: '',
+                url: ''
+            })
+        } finally {
+            setIsRestartingCodexDesktop(false)
+        }
+    }, [addToast, normalizeCodexScriptError, props.api, t])
+
+    const closeDuplicateMergeDialog = useCallback(() => {
+        setIsDuplicateMergeConfirmOpen(false)
+        setPendingDuplicateSessionIds([])
+        setPendingDuplicateHapiSessionIds([])
+        setDuplicateSessionGroups([])
+    }, [])
+
+    const handleBulkImportCodexSessions = useCallback(async (sessionIds: string[]) => {
+        if (isBulkImportingCodexSessions || isLoadingCodexImportSessions) return
+
+        setIsBulkImportingCodexSessions(true)
+        try {
+            const result = await props.api.syncCodexSession({
+                sessionIds,
+                cwd: trimmedDirectory || null,
+                machineId: codexImportMachineId ?? machineId
+            })
+            if (!result.success) {
+                throw new Error(normalizeCodexScriptError(result.error, t('codexSync.failed.body')))
+            }
+
+            markCodexSessionsImported(sessionIds)
+            setSelectedCodexImportSessionId((current) =>
+                clearBatchImportedCodexSelection(current, sessionIds)
+            )
+            setIsCodexImportDialogOpen(false)
+            addToast({
+                title: t('codexSync.success.title'),
+                body: t('codexSync.success.body', { n: result.syncedCount ?? sessionIds.length }),
+                sessionId: '',
+                url: ''
+            })
+            await refetchSessions()
+
+            closeDuplicateMergeDialog()
+            setPendingDuplicateHapiSessionIds(result.hapiSessionIds ?? [])
+            try {
+                const duplicateResult = await props.api.getCodexDuplicateSessions({ sessionIds })
+                if (!duplicateResult.success) {
+                    throw new Error(normalizeCodexScriptError(
+                        duplicateResult.error,
+                        t('codexSync.duplicates.detect.failed.body')
+                    ))
+                }
+                if (duplicateResult.duplicates.length > 0) {
+                    setPendingDuplicateSessionIds(sessionIds)
+                    setPendingDuplicateHapiSessionIds(result.hapiSessionIds ?? [])
+                    setDuplicateSessionGroups(duplicateResult.duplicates)
+                    setIsDuplicateMergeConfirmOpen(true)
+                }
+            } catch (duplicateError) {
+                addToast({
+                    title: t('codexSync.duplicates.detect.failed.title'),
+                    body: normalizeCodexScriptError(
+                        duplicateError instanceof Error ? duplicateError.message : null,
+                        t('codexSync.duplicates.detect.failed.body')
+                    ),
+                    sessionId: '',
+                    url: ''
+                })
+            }
+        } catch (importError) {
+            const reason = normalizeCodexScriptError(
+                importError instanceof Error ? importError.message : null,
+                t('dialog.error.default')
+            )
+            addToast({
+                title: t('codexSync.failed.title'),
+                body: formatCodexImportFailure(reason),
+                sessionId: '',
+                url: ''
+            })
+        } finally {
+            setIsBulkImportingCodexSessions(false)
+        }
+    }, [
+        addToast,
+        closeDuplicateMergeDialog,
+        codexImportMachineId,
+        formatCodexImportFailure,
+        isBulkImportingCodexSessions,
+        isLoadingCodexImportSessions,
+        machineId,
+        normalizeCodexScriptError,
+        props.api,
+        refetchSessions,
+        t,
+        trimmedDirectory
+    ])
+
+    const handleMergeDuplicateSessions = useCallback(async () => {
+        if (isMergingDuplicateSessions || pendingDuplicateSessionIds.length === 0) return
+
+        setIsMergingDuplicateSessions(true)
+        try {
+            const result = await props.api.mergeCodexDuplicateSessions({ sessionIds: pendingDuplicateSessionIds })
+            if (!result.success) {
+                throw new Error(normalizeCodexScriptError(result.error, t('codexSync.duplicates.merge.failed.body')))
+            }
+            addToast({
+                title: t('codexSync.duplicates.merge.success.title'),
+                body: t('codexSync.duplicates.merge.success.body'),
+                sessionId: '',
+                url: ''
+            })
+            const redirectSessionId = resolveCodexImportRedirectSessionId(
+                result.merged,
+                pendingDuplicateHapiSessionIds
+            )
+            closeDuplicateMergeDialog()
+            await refetchSessions()
+            if (redirectSessionId) props.onSuccess(redirectSessionId)
+        } catch (mergeError) {
+            addToast({
+                title: t('codexSync.duplicates.merge.failed.title'),
+                body: normalizeCodexScriptError(
+                    mergeError instanceof Error ? mergeError.message : null,
+                    t('codexSync.duplicates.merge.failed.body')
+                ),
+                sessionId: '',
+                url: ''
+            })
+            throw mergeError
+        } finally {
+            setIsMergingDuplicateSessions(false)
+        }
+    }, [
+        addToast,
+        closeDuplicateMergeDialog,
+        isMergingDuplicateSessions,
+        normalizeCodexScriptError,
+        pendingDuplicateHapiSessionIds,
+        pendingDuplicateSessionIds,
+        props.api,
+        props.onSuccess,
+        refetchSessions,
+        t
+    ])
+
     const selectedCodexImportSession = useMemo(
         () => codexImportSessions.find((session) => session.id === selectedCodexImportSessionId) ?? null,
         [codexImportSessions, selectedCodexImportSessionId]
@@ -1126,12 +1293,12 @@ export function NewSession(props: {
                 onAgentChange={handleAgentChange}
             />
             {agent === 'codex' ? (
-                <CodexImportSelectButton
+                <CodexImportActions
                     selectedSession={selectedCodexImportSession}
                     isLoading={isLoadingCodexImportSessions}
                     isDisabled={isFormDisabled}
                     error={codexImportError}
-                    onOpen={() => {
+                    onChooseHistory={() => {
                         setIsCodexImportDialogOpen(true)
                         void loadCodexImportSessions()
                     }}
@@ -1284,17 +1451,33 @@ export function NewSession(props: {
                 sessions={codexImportSessions}
                 currentCodexSessionId={selectedCodexImportSessionId}
                 currentWorkDirectory={trimmedDirectory}
-                selectionMode="single"
-                onSelectOnly={(session) => {
-                    handleSelectCodexImportSession(session)
-                    setIsCodexImportDialogOpen(false)
+                selectionMode="multiple"
+                onConfirm={async (sessionIds) => {
+                    if (sessionIds.length === 1) {
+                        const session = codexImportSessions.find((candidate) => candidate.id === sessionIds[0])
+                        if (session) {
+                            handleSelectCodexImportSession(session)
+                            setIsCodexImportDialogOpen(false)
+                        }
+                        return
+                    }
+                    await handleBulkImportCodexSessions(sessionIds)
                 }}
-                onConfirm={async () => {}}
-                onRestartCodexDesktop={async () => { await loadCodexImportSessions() }}
+                onRestartCodexDesktop={handleRestartCodexDesktop}
                 onArchiveSession={handleArchiveCodexImportSession}
-                isPending={false}
-                isRestartingCodexDesktop={false}
+                isPending={isBulkImportingCodexSessions}
+                isRestartingCodexDesktop={isRestartingCodexDesktop}
                 isLoading={isLoadingCodexImportSessions}
+            />
+            <ConfirmDialog
+                isOpen={isDuplicateMergeConfirmOpen && duplicateSessionGroups.length > 0}
+                onClose={closeDuplicateMergeDialog}
+                title={t('codexSync.duplicates.confirm.title')}
+                description={t('codexSync.duplicates.confirm.description')}
+                confirmLabel={t('codexSync.duplicates.confirm.confirm')}
+                confirmingLabel={t('codexSync.duplicates.confirm.confirming')}
+                onConfirm={handleMergeDuplicateSessions}
+                isPending={isMergingDuplicateSessions}
             />
         </div>
     )

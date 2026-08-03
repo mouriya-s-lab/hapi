@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, test, vi } from 'vitest';
@@ -46,6 +46,9 @@ describe('listCursorModels stale ACP lock', () => {
         } else {
             process.env.HAPI_HOME = previousHome;
         }
+        // Remove the per-file temp home so runs don't leak dirs into the system
+        // temp dir (the test creates it under tmpdir() but never cleaned it up).
+        rmSync(testHome, { recursive: true, force: true });
     });
 
     test('runs cold ACP probe after clearing a stale cross-process lock', async () => {

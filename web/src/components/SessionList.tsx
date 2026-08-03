@@ -600,6 +600,7 @@ function SessionDateRangePicker(props: {
     const { t } = useTranslation()
     const initialDate = parseLocalDate(props.start) ?? new Date()
     const [visibleMonth, setVisibleMonth] = useState(() => new Date(initialDate.getFullYear(), initialDate.getMonth(), 1))
+    const today = formatDateValue(new Date())
     const firstWeekday = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), 1).getDay()
     const daysInMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 0).getDate()
     const weekdays = Array.from({ length: 7 }, (_, day) => (
@@ -646,6 +647,7 @@ function SessionDateRangePicker(props: {
                 {Array.from({ length: daysInMonth }, (_, index) => {
                     const date = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), index + 1)
                     const value = formatDateValue(date)
+                    const isToday = value === today
                     const isEndpoint = value === props.start || value === props.end
                     const isInRange = Boolean(props.start && props.end && value > props.start && value < props.end)
                     const hasSessionActivity = props.sessionActivityDates.has(value)
@@ -659,11 +661,13 @@ function SessionDateRangePicker(props: {
                             type="button"
                             onClick={() => selectDate(value)}
                             aria-label={activityLabel}
+                            aria-current={isToday ? 'date' : undefined}
                             title={hasSessionActivity ? activityLabel : undefined}
                             className={cn(
                                 'h-8 rounded-lg text-xs transition-colors',
-                                isEndpoint && 'bg-[var(--app-link)] text-white',
+                                isEndpoint && 'bg-[var(--app-button)] text-[var(--app-button-text)]',
                                 isInRange && 'bg-[var(--app-link)]/15 text-[var(--app-link)]',
+                                !isEndpoint && !isInRange && isToday && 'bg-[var(--app-subtle-bg)]',
                                 !isEndpoint && !isInRange && hasSessionActivity && 'text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)]',
                                 !isEndpoint && !isInRange && !hasSessionActivity && 'text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)]'
                             )}
