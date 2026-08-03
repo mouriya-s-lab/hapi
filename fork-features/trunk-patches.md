@@ -414,6 +414,24 @@ Each upstream sync must remove these hooks if native registration or extension
 surfaces appear. Do not move parser, replay, route, or dialog implementation
 back into upstream-owned directories.
 
+## HAPI agent session orchestration (2026-08-03)
+
+The command client, authenticated Hub routes, scope/status derivation, message
+projection, long-poll waits, and tests live in
+`fork-features/agent-orchestration/`. Upstream exposes no external CLI-command
+or authenticated route registration API, and its runner stop gateway is
+private, so only the closed mount tables and one narrow adapter remain here.
+
+| Files | Missing upstream seam | Why it cannot move out | Runtime path | Sync verification |
+|---|---|---|---|---|
+| `cli/src/commands/registry.ts` | No external command registration API | The fork-owned `hapi agent` command must enter the existing CLI dispatch table | session Bash → `hapi agent` → fork-owned client | Run `hapi agent --help`, then complete start → prompt → read → stop inside a live session |
+| `hub/src/web/server.ts` | No authenticated route registration API | Scope enforcement and hub-side waits must mount after the existing auth/execution middleware | CLI REST → auth/namespace → fork-owned route → SyncEngine | Cold-start a Hub and exercise all `/api/agent/*` endpoints |
+| `hub/src/sync/syncEngine.ts` | Runner stop gateway is private | Fork-owned stop handling needs one narrow typed adapter without exposing generic RPC dispatch | `hapi agent stop` → scope guard → runner StopSession RPC → session-end | Stop a live child, read `dead`, and confirm it leaves the active scoped list |
+
+Every upstream sync must re-check for native CLI command registration,
+authenticated route mounting, and a public runner stop adapter. Remove each
+trunk hook as soon as an equivalent seam exists.
+
 ## Verification record
 
 | Date | Operation | Result |

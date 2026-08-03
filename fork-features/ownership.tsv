@@ -1,3 +1,4 @@
+.agents/skills/hapi-agent/SKILL.md	fork-owned	#256	hapi agent orchestration skill
 .claude/rules/hapi-fork-cd-release.rule.md	fork-owned	#179	origin-only delta; fork commits 33352055,d698e6df
 .dockerignore	fork-owned	#179	origin-only delta; fork commits 6da30689
 .github/workflows/publish-image.yml	fork-owned	#179	origin-only delta; fork commits 85e0f8f1,bc97f3cc,8edeeef3,0661377c,ccf37a01,54c4ac4f,6da30689
@@ -55,7 +56,7 @@ cli/src/codex/utils/terminalEventGuard.ts	upstream-fix	#179	origin-only delta; f
 cli/src/commands/agentCommandOptions.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/commands/agentCommandOptions.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
 cli/src/commands/omp.ts	fork-owned	#172	origin-only delta; fork commits 3686370a
-cli/src/commands/registry.ts	trunk-patch	#172	origin-only delta; fork commits 3686370a
+cli/src/commands/registry.ts	trunk-patch	#172,#256	closed CLI command table mounts OMP and hapi agent fork commands
 cli/src/commands/resume.test.ts	trunk-patch	#174	origin-only delta; fork commits 413e76cc
 cli/src/commands/resume.ts	trunk-patch	#172	origin-only delta; fork commits 3686370a
 cli/src/configuration.ts	upstream-sync	#180	merge-base 87f5c78a; changed only on upstream/main
@@ -152,6 +153,13 @@ e2e/model-refusal-toast.spec.ts	fork-owned	#179	origin-only delta; fork commits 
 e2e/session-id.spec.ts	fork-owned	#179	origin-only delta; fork commits 291c8db0
 e2e/session-list.spec.ts	fork-owned	#179	origin-only delta; fork commits 3582e989
 e2e/tool-file-preview.spec.ts	fork-owned	#177	origin-only delta; fork commits e2a200a8,f00c8228,e737b4b3
+fork-features/agent-orchestration/cli.test.ts	fork-owned	#256	hapi agent CLI argument contract coverage
+fork-features/agent-orchestration/cli.ts	fork-owned	#256	hapi agent command parser and authenticated hub client
+fork-features/agent-orchestration/domain.test.ts	fork-owned	#256	scope, status, projection, and low-noise contract coverage
+fork-features/agent-orchestration/domain.ts	fork-owned	#256	scope, status, session, and message projections
+fork-features/agent-orchestration/hub.test.ts	fork-owned	#256	prompt consumption and stalled-state coverage
+fork-features/agent-orchestration/hub.ts	fork-owned	#256	authenticated orchestration routes and hub-side waits
+fork-features/agent-orchestration/protocol.ts	fork-owned	#256	typed CLI and hub orchestration contract
 fork-features/generate-ownership.py	fork-owned	#169	#169 closing PR inventory implementation
 fork-features/multi-user/cliAdapter.test.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
 fork-features/multi-user/cliAdapter.ts	fork-owned	#171	origin-only delta; fork commits a6f9e3f9
@@ -221,7 +229,7 @@ hub/src/sync/rpcGateway.test.ts	upstream-sync	#180	merge-base 87f5c78a; changed 
 hub/src/sync/rpcGateway.ts	trunk-patch	#173	both refs changed; fork commits 8d828436,51929072,9e76994b,3994ee9a,fc7d7b4a,b4c31e88,a8815d47,bfa252da,c853bcbf,c58622c2,e009becc,fc377386,d840284a
 hub/src/sync/sessionCache.ts	trunk-patch	#173,#181	origin-only delta; fork commits 17fee65e,44f2bce5,85743eb7,413e76cc
 hub/src/sync/sessionModel.test.ts	trunk-patch	#173	both refs changed; fork commits 44f2bce5,17e79d08,413e76cc,89c7f579
-hub/src/sync/syncEngine.ts	trunk-patch	#173	both refs changed; fork commits 8d828436,17e79d08,51929072,9e76994b,3994ee9a,fc7d7b4a,b4c31e88,a8815d47,bfa252da,c853bcbf,c58622c2,e009becc,fc377386,d840284a,413e76cc,3582e989,3686370a
+hub/src/sync/syncEngine.ts	trunk-patch	#173,#256	closed sync engine; provider/usage adapters plus narrow runner stop adapter for hapi agent
 hub/src/telegram/sessionView.test.ts	trunk-patch	#174	origin-only delta; fork commits 413e76cc
 hub/src/web/routes/cli.ts	trunk-patch	#171	origin-only delta; fork commits a6f9e3f9
 hub/src/web/routes/git.test.ts	trunk-patch	#176	origin-only delta; fork commits 3edb7db8,b4c31e88,bfa252da,d28853c7
@@ -230,7 +238,7 @@ hub/src/web/routes/machines.test.ts	trunk-patch	#173	origin-only delta; fork com
 hub/src/web/routes/machines.ts	trunk-patch	#173	origin-only delta; fork commits 51929072,3994ee9a,fc7d7b4a,a8815d47,c853bcbf
 hub/src/web/routes/sessions.test.ts	trunk-patch	#173	both refs changed; fork commits 51929072,9e76994b,c58622c2,bec12318,413e76cc
 hub/src/web/routes/sessions.ts	trunk-patch	#173	both refs changed; fork commits 51929072,9e76994b,c58622c2,bec12318,413e76cc,7e0010b8
-hub/src/web/server.ts	trunk-patch	#171	origin-only delta; fork commits a6f9e3f9,f3c58338
+hub/src/web/server.ts	trunk-patch	#171,#256	closed authenticated Hono app mounts multi-user, session-fork, history-import, and hapi agent routes
 hub/tsconfig.json	trunk-patch	#171	origin-only delta; fork commits a6f9e3f9,f3c58338
 package.json	trunk-patch	#171	origin-only delta; fork commits a6f9e3f9
 shared/package.json	trunk-patch	#176	origin-only delta; fork commits 3edb7db8

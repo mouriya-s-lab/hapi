@@ -841,6 +841,10 @@ async uploadScratchlistAttachment(
         await this.rpcGateway.abortSession(sessionId)
     }
 
+    async stopSessionOnMachine(machineId: string, sessionId: string): Promise<void> {
+        await this.rpcGateway.stopSessionOnMachine(machineId, sessionId)
+    }
+
     async restartSession(sessionId: string, namespace: string, ccSwitchProviderId?: string): Promise<ResumeSessionResult> {
         const access = this.sessionCache.resolveSessionAccess(sessionId, namespace)
         if (!access.ok) {

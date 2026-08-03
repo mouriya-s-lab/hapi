@@ -40,6 +40,7 @@ import { mountMultiUserGateway, mountMultiUserPostAuth } from '../../../fork-fea
 import type { MultiUserGatewayStore } from '../../../fork-features/multi-user/gatewayStore'
 import { createExecutionMiddleware, mountExecutionRoutes } from '../../../fork-features/multi-user/executionMount'
 import { resolveGatewayCliNamespace } from '../../../fork-features/multi-user/cliAdapter'
+import { mountAgentOrchestrationRoutes } from '../../../fork-features/agent-orchestration/hub'
 
 // Normalise upstream close codes before forwarding to the browser client.
 // Codes 1005/1006/1015 are reserved and cannot be sent in a close frame;
@@ -280,6 +281,7 @@ function createWebApp(options: {
     app.route('/api', createPushRoutes(options.store, options.vapidPublicKey))
     app.route('/api', createDevicesRoutes(options.store))
     app.route('/api', createVoiceRoutes())
+    mountAgentOrchestrationRoutes(app, options.getSyncEngine)
 
     // fork-features/session-fork: POST /api/sessions/:id/fork +
     // GET /api/flavors/capabilities. Trunk patch — full handler lives
