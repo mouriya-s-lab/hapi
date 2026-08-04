@@ -142,7 +142,8 @@ export default defineConfig({
                 theme_color: '#ffffff',
                 background_color: '#ffffff',
                 display: 'standalone',
-                orientation: 'portrait',
+                // 不设 orientation：安装态 PWA 要跟随系统自动旋转（平板横屏）。
+                // upstream 此处锁了 'portrait'，同步时不要把锁带回来。
                 scope: base,
                 start_url: base,
                 icons: [

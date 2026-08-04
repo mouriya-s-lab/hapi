@@ -57,10 +57,20 @@ export function TerminalView(props: {
 
         const fitAddon = new FitAddon()
         const webLinksAddon = new WebLinksAddon()
-        const canvasAddon = new CanvasAddon()
         terminal.loadAddon(fitAddon)
         terminal.loadAddon(webLinksAddon)
-        terminal.loadAddon(canvasAddon)
+        // Android 上不用 canvas 渲染器：xterm 已弃用 CanvasAddon，而 Android
+        // Chromium 的 canvas 加速光栅化会在部分 GPU 驱动上直接崩掉浏览器
+        // （小米平板 + Edge 实测闪退）。Android 走 xterm 默认 DOM 渲染器。
+        let canvasAddon: CanvasAddon | null = null
+        if (!/Android/i.test(navigator.userAgent)) {
+            try {
+                canvasAddon = new CanvasAddon()
+                terminal.loadAddon(canvasAddon)
+            } catch {
+                canvasAddon = null
+            }
+        }
         terminal.open(container)
 
         const observer = new ResizeObserver(() => {
@@ -107,7 +117,7 @@ export function TerminalView(props: {
             observer.disconnect()
             fitAddon.dispose()
             webLinksAddon.dispose()
-            canvasAddon.dispose()
+            canvasAddon?.dispose()
             terminal.dispose()
         })
 
