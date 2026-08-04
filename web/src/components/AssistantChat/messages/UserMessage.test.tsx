@@ -55,7 +55,9 @@ vi.mock('@tanstack/react-router', () => ({
 }))
 
 vi.mock('@/components/AssistantChat/messages/MessageActions', () => ({
-    MessageActions: () => null
+    MessageActions: ({ copyText }: { copyText?: string }) => (
+        copyText ? <button type="button" aria-label="Copy">Copy</button> : null
+    )
 }))
 vi.mock('@/hooks/queries/useFlavorCapabilities', () => ({
     useFlavorCapabilities: () => ({ data: state.capabilities }),
@@ -152,6 +154,13 @@ afterEach(() => {
     state.hubMessageId = 'msg-42'
     state.text = 'source user prompt'
     state.flavor = 'codex'
+})
+
+describe('HappyUserMessage actions', () => {
+    it('renders one copy action for a text message', () => {
+        render(<HappyUserMessage />)
+        expect(screen.getAllByRole('button', { name: 'Copy' })).toHaveLength(1)
+    })
 })
 
 describe('HappyUserMessage rewind button (#62 c5)', () => {
