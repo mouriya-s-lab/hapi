@@ -7,10 +7,7 @@ import { MessageStatusIndicator } from '@/components/AssistantChat/messages/Mess
 import { MessageAttachments } from '@/components/AssistantChat/messages/MessageAttachments'
 import { UserBubbleContent, getUserBubbleClassName, shouldShowMessageStatus } from '@/components/AssistantChat/messages/user-bubble'
 import { CliOutputBlock } from '@/components/CliOutputBlock'
-import { CopyIcon, CheckIcon } from '@/components/icons'
-import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { getConversationMessageAnchorId } from '@/chat/outline'
-import { MessageTimestamp } from '@/components/AssistantChat/messages/MessageTimestamp'
 import { MessageActions } from '@/components/AssistantChat/messages/MessageActions'
 import {
     useFlavorCapabilities,
@@ -42,7 +39,6 @@ function RewindIcon(props: { className?: string }) {
 
 export function HappyUserMessage() {
     const ctx = useHappyChatContext()
-    const { copied, copy } = useCopyToClipboard()
     const [rewindError, setRewindError] = useState<string | null>(null)
     const navigate = useNavigate()
     const sessionFlavor = ctx.metadata?.flavor ?? null
@@ -157,7 +153,6 @@ export function HappyUserMessage() {
                 <div className="ml-auto w-full max-w-[92%]">
                     <CliOutputBlock text={cliText} />
                     <MessageActions align="end" copyText={cliText} messageElementId={elementId} />
-                    <MessageTimestamp className="mt-1 block text-right text-[10px] leading-none text-[var(--app-hint)]" />
                 </div>
             </MessagePrimitive.Root>
         )
@@ -178,23 +173,11 @@ export function HappyUserMessage() {
                         {hasText ? <UserBubbleContent text={text} /> : null}
                         {hasAttachments ? <MessageAttachments attachments={attachments} /> : null}
                     </div>
-                    {(hasText || showStatus) && (
+                    {showStatus ? (
                         <div className="happy-message-actions-first-line flex shrink-0 items-center gap-1">
-                            {hasText && (
-                                <button
-                                    type="button"
-                                    title="Copy"
-                                    className="rounded-md p-0.5 opacity-60 transition-[opacity,background-color] hover:bg-[var(--app-chat-user-chip-bg)] sm:opacity-0 sm:group-hover/msg:opacity-100"
-                                    onClick={() => copy(text)}
-                                >
-                                    {copied
-                                        ? <CheckIcon className="h-3.5 w-3.5 text-green-500" />
-                                        : <CopyIcon className="h-3.5 w-3.5 text-[var(--app-hint)]" />}
-                                </button>
-                            )}
-                            {showStatus ? <MessageStatusIndicator status={status} onRetry={onRetry} /> : null}
+                            <MessageStatusIndicator status={status} onRetry={onRetry} />
                         </div>
-                    )}
+                    ) : null}
                 </div>
                 <div className="flex justify-end items-center gap-2">
                     {canRewind && (
@@ -209,7 +192,7 @@ export function HappyUserMessage() {
                             <RewindIcon className="h-3.5 w-3.5" />
                         </button>
                     )}
-                    <MessageTimestamp className="text-[10px] leading-none text-[var(--app-hint)]" />
+                    <MessageActions align="end" copyText={hasText ? text : undefined} messageElementId={elementId} />
                 </div>
                 {rewindError && (
                     <div className="mt-0.5 text-right text-[10px] text-red-500" role="alert">
@@ -217,22 +200,7 @@ export function HappyUserMessage() {
                     </div>
                 )}
             </div>
-            <MessageActions
-                align="end"
-                copyText={hasText ? text : undefined}
-                messageElementId={elementId}
-                showFork={showFork}
-                showRewind={showRewind}
-                historyActionPending={ctx.historyActionPending}
-                onFork={showCurrentFork
-                    ? () => ctx.onForkConversation!()
-                    : showHistoricalFork && localId
-                        ? () => ctx.onForkConversation!(localId)
-                        : undefined}
-                onRewind={showRewind && localId
-                    ? () => ctx.onRewindConversation!(localId)
-                    : undefined}
-            />
+
         </MessagePrimitive.Root>
     )
 }
