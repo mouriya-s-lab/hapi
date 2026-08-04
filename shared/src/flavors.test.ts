@@ -53,6 +53,11 @@ describe('hasCapability', () => {
         expect(hasCapability('grok', Capabilities.Effort)).toBe(true)
     })
 
+    test('omp supports native model-change and thinking through effort', () => {
+        expect(hasCapability('omp', Capabilities.ModelChange)).toBe(true)
+        expect(hasCapability('omp', Capabilities.Effort)).toBe(true)
+    })
+
     test('unknown flavor returns false', () => {
         expect(hasCapability('unknown-flavor', Capabilities.ModelChange)).toBe(false)
     })
@@ -73,6 +78,7 @@ describe('getFlavorLabel', () => {
         expect(getFlavorLabel('pi')).toBe('Pi')
         expect(getFlavorLabel('kimi')).toBe('Kimi')
         expect(getFlavorLabel('grok')).toBe('Grok Build')
+        expect(getFlavorLabel('omp')).toBe('Oh My Pi')
     })
 
     test('unknown flavor returns Unknown', () => {
@@ -95,6 +101,7 @@ describe('isKnownFlavor', () => {
         expect(isKnownFlavor('pi')).toBe(true)
         expect(isKnownFlavor('kimi')).toBe(true)
         expect(isKnownFlavor('grok')).toBe(true)
+        expect(isKnownFlavor('omp')).toBe(true)
     })
 
     test('returns false for unknown/null/undefined', () => {
@@ -126,6 +133,7 @@ describe('convenience functions', () => {
         expect(supportsEffort('gemini')).toBe(false)
         expect(supportsEffort('pi')).toBe(true)
         expect(supportsEffort('grok')).toBe(true)
+        expect(supportsEffort('omp')).toBe(true)
         expect(supportsEffort('kimi')).toBe(false)
         expect(supportsEffort(null)).toBe(false)
     })

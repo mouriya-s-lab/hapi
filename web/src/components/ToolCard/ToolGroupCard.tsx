@@ -5,6 +5,7 @@ import { getCodexCommandActions, type CodexCommandAction } from '@/chat/codexCom
 import type { SessionMetadataSummary } from '@/types/api'
 import { useHappyChatContext } from '@/components/AssistantChat/context'
 import { getToolTimingDetails, ToolDetailDialogContent, ToolStatusIcon, ToolTimingSummary, toolStatusColorClass } from '@/components/ToolCard/ToolCard'
+import { extractImagesFromResult, ToolResultImages } from '@/components/ToolCard/views/_results'
 import { getToolPresentation } from '@/components/ToolCard/knownTools'
 import { formatGroupedHeaderSubtitle, formatGroupedHeaderTitle, safeGroupedLabelValue } from '@/components/ToolCard/groupedPresentation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -293,10 +294,14 @@ export function ToolGroupCard(props: {
         ? null
         : subtitle ?? t('toolGroup.toolCount', { n: props.block.tools.length })
     const fileCount = props.block.summary.fileTargets.length
+    const toolsWithImages = useMemo(
+        () => props.block.tools.filter((tool) => extractImagesFromResult(tool.tool.result).length > 0),
+        [props.block.tools]
+    )
 
     return (
-        <Card className="overflow-hidden rounded-[20px] bg-[var(--app-tool-group-bg)] shadow-none">
-            <CardHeader className={cn('space-y-0 p-3', subtitle ? 'pb-2' : null)}>
+        <Card className="overflow-clip rounded-[20px] bg-[var(--app-tool-group-bg)] shadow-none">
+            <CardHeader className={cn('space-y-0 p-3', subtitle ? 'pb-2' : null, open && 'sticky top-0 z-10 rounded-t-[20px] bg-[var(--app-tool-group-bg)]')}>
                 <button
                     type="button"
                     onClick={() => setOpen((value) => !value)}
@@ -362,36 +367,38 @@ export function ToolGroupCard(props: {
                 </button>
             </CardHeader>
 
-            {open ? (
+            {open || toolsWithImages.length > 0 ? (
                 <CardContent className="px-3 pb-3 pt-1">
-                    <div className="flex flex-col gap-2">
-                        {props.block.presentationMode === 'codex-exploration' ? (
-                            <CodexExplorationRows tools={props.block.tools} onSelect={setSelectedToolId} />
-                        ) : props.block.tools.map((tool) => {
-                            const timing = getToolTimingDetails(tool.tool, now)
-                            return (
-                                <button
-                                    key={tool.id}
-                                    type="button"
-                                    className="flex items-center gap-3 rounded-[16px] border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-left transition-colors hover:bg-[var(--app-subtle-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]"
-                                    onClick={() => setSelectedToolId(tool.id)}
-                                >
-                                    <span className={cn('shrink-0', toolStatusColorClass(tool.tool.state))}>
-                                        <ToolStatusIcon state={tool.tool.state} />
-                                    </span>
-                                    <RowLabel block={tool} metadata={props.metadata} />
-                                    <div className="flex shrink-0 items-center gap-2">
-                                        {timing.durationMs != null ? (
-                                            <span className="font-mono text-xs text-[var(--app-hint)]">
-                                                {formatDuration(timing.durationMs)}
-                                            </span>
-                                        ) : null}
-                                        <RowStatusBadge block={tool} />
-                                    </div>
-                                </button>
-                            )
-                        })}
-                    </div>
+                    {open ? (
+                        <div className="flex flex-col gap-2">
+                            {props.block.presentationMode === 'codex-exploration' ? (
+                                <CodexExplorationRows tools={props.block.tools} onSelect={setSelectedToolId} />
+                            ) : props.block.tools.map((tool) => {
+                                const timing = getToolTimingDetails(tool.tool, now)
+                                return (
+                                    <button
+                                        key={tool.id}
+                                        type="button"
+                                        className="flex items-center gap-3 rounded-[16px] border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-left transition-colors hover:bg-[var(--app-subtle-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]"
+                                        onClick={() => setSelectedToolId(tool.id)}
+                                    >
+                                        <span className={cn('shrink-0', toolStatusColorClass(tool.tool.state))}>
+                                            <ToolStatusIcon state={tool.tool.state} />
+                                        </span>
+                                        <RowLabel block={tool} metadata={props.metadata} />
+                                        <div className="flex shrink-0 items-center gap-2">
+                                            {timing.durationMs != null ? (
+                                                <span className="font-mono text-xs text-[var(--app-hint)]">
+                                                    {formatDuration(timing.durationMs)}
+                                                </span>
+                                            ) : null}
+                                            <RowStatusBadge block={tool} />
+                                        </div>
+                                    </button>
+                                )
+                            })}
+                        </div>
+                    ) : null}
 
                     {isHydratingHistory ? (
                         <div className="mt-3 text-xs text-[var(--app-hint)]">
@@ -403,6 +410,15 @@ export function ToolGroupCard(props: {
                             {t('toolGroup.historyUnavailable')}
                         </div>
                     ) : null}
+
+                    {toolsWithImages.length > 0 ? (
+                        <div className={cn('flex flex-col gap-3', open ? 'mt-3' : null)}>
+                            {toolsWithImages.map((tool) => (
+                                <ToolResultImages key={tool.id} result={tool.tool.result} input={tool.tool.input} />
+                            ))}
+                        </div>
+                    ) : null}
+
                 </CardContent>
             ) : null}
 
@@ -417,7 +433,11 @@ export function ToolGroupCard(props: {
                             <DialogHeader className="text-left">
                                 <DialogTitle>{selectedPresentation.title}</DialogTitle>
                             </DialogHeader>
-                            <ToolDetailDialogContent block={selectedTool} metadata={props.metadata} />
+                            <ToolDetailDialogContent
+                                block={selectedTool}
+                                metadata={props.metadata}
+                                onClose={() => setSelectedToolId(null)}
+                            />
                         </>
                     ) : null}
                 </DialogContent>

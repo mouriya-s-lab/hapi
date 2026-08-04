@@ -7,7 +7,7 @@ import {
 import type { PermissionModeTone } from '@hapi/protocol'
 import * as Popover from '@radix-ui/react-popover'
 import { useMemo } from 'react'
-import type { AgentState, CodexCollaborationMode, PermissionMode } from '@/types/api'
+import type { AgentState, CodexCollaborationMode, OmpThinkingState, PermissionMode, ThreadGoal } from '@/types/api'
 import type { ConversationStatus } from '@/realtime/types'
 import { getContextBudgetTokens } from '@/chat/modelConfig'
 import {
@@ -68,7 +68,7 @@ function getConnectionStatus(
 
     if (!active) {
         return {
-            text: t('misc.offline'),
+            text: 'offline',
             color: 'text-[#999]',
             dotColor: 'bg-[#999]',
             isPulsing: false
@@ -104,7 +104,7 @@ function getConnectionStatus(
     }
 
     return {
-        text: t('misc.online'),
+            text: 'online',
         color: 'text-[#34C759]',
         dotColor: 'bg-[#34C759]',
         isPulsing: false
@@ -187,6 +187,10 @@ export function shouldShowCodexFastBadge(
 ): boolean {
     return agentFlavor === 'codex' && isFastServiceTier(serviceTier)
 }
+/** Cursor native ACP does not emit usage_update; hide the bar to avoid empty/misleading UI. */
+export function shouldShowComposerStatusBar(agentFlavor: string | null | undefined): boolean {
+    return agentFlavor !== 'cursor'
+}
 
 export function StatusBar(props: {
     active: boolean
@@ -206,9 +210,11 @@ export function StatusBar(props: {
     model?: string | null
     modelReasoningEffort?: string | null
     effort?: string | null
+    ompThinkingState?: OmpThinkingState
     serviceTier?: string | null
     permissionMode?: PermissionMode
     collaborationMode?: CodexCollaborationMode
+    threadGoal?: ThreadGoal | null
     agentFlavor?: string | null
     voiceStatus?: ConversationStatus
 }) {
@@ -273,6 +279,16 @@ export function StatusBar(props: {
         : null
     const compactReasoningLabel = displaysReasoning
         ? formatCompactReasoningLabel(reasoningEffort)
+        : null
+    const ompThinkingLabel = props.agentFlavor === 'omp' && props.ompThinkingState?.configured
+        ? props.ompThinkingState.configured === 'auto' && props.ompThinkingState.resolved
+            ? `auto → ${props.ompThinkingState.resolved}`
+            : props.ompThinkingState.configured
+        : null
+    const goalLabel = props.agentFlavor === 'codex' && props.threadGoal
+        ? props.threadGoal.status === 'active'
+            ? 'goal'
+            : `goal ${props.threadGoal.status === 'budgetLimited' ? 'limited' : props.threadGoal.status}`
         : null
     const codexFastMode = shouldShowCodexFastBadge(props.agentFlavor, props.serviceTier)
 
@@ -354,6 +370,16 @@ export function StatusBar(props: {
                     <span className="whitespace-nowrap text-xs text-[var(--app-hint)]">
                         <span className="sm:hidden">{compactReasoningLabel}</span>
                         <span className="hidden sm:inline">{reasoningLabel}</span>
+                    </span>
+                ) : null}
+                {ompThinkingLabel ? (
+                    <span className="whitespace-nowrap text-xs text-[var(--app-hint)]">
+                        {ompThinkingLabel}
+                    </span>
+                ) : null}
+                {goalLabel ? (
+                    <span className="whitespace-nowrap text-xs text-[var(--app-hint)]">
+                        {goalLabel}
                     </span>
                 ) : null}
                 {codexFastMode ? (

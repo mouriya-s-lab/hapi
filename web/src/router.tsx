@@ -13,6 +13,7 @@ import {
     useSearch,
 } from '@tanstack/react-router'
 import { getScrollRestorationKey } from '@/lib/scrollRestorationKey'
+import { usePreserveSidebarScroll } from '@/hooks/usePreserveSidebarScroll'
 import { App } from '@/App'
 import { SessionChat } from '@/components/SessionChat'
 import { SessionList } from '@/components/SessionList'
@@ -23,6 +24,8 @@ import { useAppContext } from '@/lib/app-context'
 import { useAppGoBack } from '@/hooks/useAppGoBack'
 import { isTelegramApp } from '@/hooks/useTelegram'
 import { useSidebarResize } from '@/hooks/useSidebarResize'
+import { useHideArchivedSessions } from '@/hooks/useHideArchivedSessions'
+import { filterVisibleSessions } from '@/lib/sessionListFilters'
 import { useMessages } from '@/hooks/queries/useMessages'
 import { useMachines } from '@/hooks/queries/useMachines'
 import { useMachineLabels } from '@/hooks/useMachineLabels'
@@ -61,9 +64,14 @@ import SettingsVoiceAdvancedPage from '@/routes/settings/voice-advanced'
 import SettingsMachinesPage from '@/routes/settings/machines'
 import SettingsAboutPage from '@/routes/settings/about'
 import SettingsStoragePage from '@/routes/settings/storage'
+import ForkSettingsPage from '@/fork-features/settings/ForkSettingsPage'
+import { ResourceGrantsSettingsPage } from '@/fork-features/multi-user/ResourceGrantsSettingsSection'
 import SharePage from '@/routes/share'
 import { setSharePendingTransfer } from '@/lib/sharePendingState'
 import { deleteShareTransfer } from '@/lib/shareTransfer'
+import UsersSettingsPage from '@/fork-features/multi-user/UsersSettingsPage'
+import UserSettingsPage from '@/fork-features/multi-user/UserSettingsPage'
+import AccountSettingsPage from '@/fork-features/multi-user/AccountSettingsPage'
 
 
 function BackIcon(props: { className?: string }) {
@@ -148,10 +156,22 @@ function SessionsPage() {
     const { api } = useAppContext()
     const navigate = useNavigate()
     const pathname = useLocation({ select: location => location.pathname })
+    const sidebarScrollRef = useRef<HTMLDivElement>(null)
+    // Keep the persistent sidebar from jumping when Router's per-route scroll
+    // restoration fires on navigation (issue #31).
+    usePreserveSidebarScroll(sidebarScrollRef, pathname)
     const matchRoute = useMatchRoute()
     const { t } = useTranslation()
     const { addToast } = useToast()
     const { sessions, isLoading, error, refetch } = useSessions(api)
+    const { hideArchivedSessions } = useHideArchivedSessions()
+    // Hide user-archived sessions from the list when the preference is on.
+    // `sessions` (unfiltered) is still used for selected-session resolution so an
+    // archived-but-currently-open session keeps resolving.
+    const visibleSessions = useMemo(
+        () => filterVisibleSessions(sessions, hideArchivedSessions),
+        [sessions, hideArchivedSessions]
+    )
     const { machines } = useMachines(api, true)
     const handleRefresh = useCallback(() => {
         return (async () => {
@@ -219,7 +239,7 @@ function SessionsPage() {
                         </div>
                     ) : null}
                     <SessionList
-                        sessions={sessions}
+                        sessions={visibleSessions}
                         selectedSessionId={selectedSessionId}
                         onSelect={(sessionId) => navigate({
                             to: '/sessions/$sessionId',
@@ -477,8 +497,6 @@ function SessionPage() {
         isSessionThinking: session?.thinking ?? false,
         onSuccess: (sentSessionId) => {
             clearDraftsAfterSend(sentSessionId, sessionId)
-            // 中文注释：一旦用户已经在 Hapi 内继续这个 Codex 会话，就清除"刚从 Codex 导入"的标记。
-            clearCodexImportedSession(session?.metadata?.codexSessionId)
             // A successful send supersedes any previously-rendered error
             // for that session.  Other sessions' errors stay put.
             setSendErrors((prev) => {
@@ -1121,6 +1139,21 @@ const settingsStorageRoute = createRoute({
     component: SettingsStoragePage,
 })
 
+const settingsForkRoute = createRoute({
+    getParentRoute: () => settingsRoute,
+    path: 'fork',
+    component: ForkSettingsPage,
+})
+
+const settingsForkGrantsRoute = createRoute({
+    getParentRoute: () => settingsRoute,
+    path: 'fork/grants',
+    component: ResourceGrantsSettingsPage,
+})
+
+const settingsAccountRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'account', component: AccountSettingsPage })
+const settingsUsersRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'users', component: UsersSettingsPage })
+const settingsUserRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'users/$accountId', component: UserSettingsPage })
 // Web Share Target landing route. Service worker (`web/src/sw.ts`)
 // intercepts the manifest's `POST /share` and 303-redirects here with an
 // IDB transfer id. `error=ingest` is set when the SW failed to write IDB.
@@ -1163,6 +1196,11 @@ export const routeTree = rootRoute.addChildren([
         settingsMachinesRoute,
         settingsStorageRoute,
         settingsAboutRoute,
+        settingsForkRoute,
+        settingsForkGrantsRoute,
+        settingsAccountRoute,
+        settingsUsersRoute,
+        settingsUserRoute,
     ]),
     shareRoute,
 ])

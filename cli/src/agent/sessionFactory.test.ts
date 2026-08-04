@@ -84,6 +84,7 @@ function createSession(): Session {
         modelReasoningEffort: null,
         effort: null,
         serviceTier: null,
+        resumeWithSessionModel: false,
         permissionMode: undefined,
         collaborationMode: undefined
     }
@@ -153,6 +154,11 @@ describe('bootstrapExistingSession', () => {
                 machineId: 'machine-1',
                 startedAt: 123,
             },
+            ompSession: {
+                id: 'omp-thread-1',
+                file: '/sessions/omp-thread-1.jsonl',
+                name: 'OMP thread'
+            },
             summary: {
                 text: 'resume me',
                 updatedAt: 100
@@ -191,6 +197,11 @@ describe('bootstrapExistingSession', () => {
                 state: 'resuming',
                 machineId: 'machine-1',
                 startedAt: 123,
+            },
+            ompSession: {
+                id: 'omp-thread-1',
+                file: '/sessions/omp-thread-1.jsonl',
+                name: 'OMP thread'
             },
             summary: {
                 text: 'resume me',

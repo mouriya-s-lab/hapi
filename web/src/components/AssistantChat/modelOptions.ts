@@ -138,6 +138,10 @@ export function getModelOptionsForFlavor(
     if (flavor === 'pi') {
         return withCurrentModelOption([{ value: null, label: 'Default' }], currentModel)
     }
+    // OMP discovers provider-qualified models through its own native catalog.
+    if (flavor === 'omp') {
+        return []
+    }
     return getClaudeModelOptions(currentModel)
 }
 
@@ -185,6 +189,9 @@ export function getNextModelForFlavor(
     // Pi model list is provided dynamically via piModels prop — pressing
     // Ctrl/Cmd+M must not fall through to the Claude preset cycler.
     if (flavor === 'pi') {
+        return normalizeCurrentModel(currentModel)
+    }
+    if (flavor === 'omp') {
         return normalizeCurrentModel(currentModel)
     }
     return getNextClaudeComposerModel(currentModel)

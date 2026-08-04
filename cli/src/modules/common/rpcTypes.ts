@@ -1,4 +1,4 @@
-import type { AgentFlavor } from '@hapi/protocol'
+import type { AgentFlavor, ClaudeLaunch } from '@hapi/protocol'
 
 export interface SpawnSessionOptions {
     machineId?: string
@@ -20,6 +20,8 @@ export interface SpawnSessionOptions {
     worktreeName?: string
     /** Claude: spawn with --fork-session after --resume. */
     forkSession?: boolean
+    claudeLaunch?: ClaudeLaunch
+    ccSwitchProviderId?: string
 }
 
 export type SpawnSessionResult =

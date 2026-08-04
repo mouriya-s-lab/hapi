@@ -1,9 +1,11 @@
 import { logger } from '@/ui/logger';
-import type { AgentSessionBase } from './sessionBase';
-
 export type LoopLauncher<TSession> = (session: TSession) => Promise<'switch' | 'exit'>;
 
-export async function runLocalRemoteSession<TSession extends AgentSessionBase<any>>(opts: {
+type LocalRemoteSession = {
+    onModeChange(mode: 'local' | 'remote'): void;
+};
+
+export async function runLocalRemoteSession<TSession extends LocalRemoteSession>(opts: {
     session: TSession;
     startingMode?: 'local' | 'remote';
     logTag: string;
@@ -24,7 +26,7 @@ export async function runLocalRemoteSession<TSession extends AgentSessionBase<an
     });
 }
 
-export async function runLocalRemoteLoop<TSession extends AgentSessionBase<any>>(opts: {
+export async function runLocalRemoteLoop<TSession extends LocalRemoteSession>(opts: {
     session: TSession;
     startingMode?: 'local' | 'remote';
     logTag: string;

@@ -64,7 +64,11 @@ function hostMatchesCertificate(host: string, cert: PeerCertificate): boolean {
     }
 
     if (hostIsIp) {
-        return commonName === host
+        return Array.isArray(commonName) ? commonName.includes(host) : commonName === host
+    }
+
+    if (Array.isArray(commonName)) {
+        return commonName.some(name => dnsNameMatchesHost(host, name))
     }
 
     return dnsNameMatchesHost(host, commonName)

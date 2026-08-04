@@ -3,11 +3,42 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/utils'
 
 const toastVariants = cva(
-    'pointer-events-auto w-full max-w-sm rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] text-[var(--app-fg)] shadow-lg',
+    'pointer-events-auto w-full max-w-sm rounded-lg border shadow-lg',
     {
         variants: {
             variant: {
-                default: 'border-[var(--app-border)] bg-[var(--app-bg)]'
+                default: 'border-[var(--app-border)] bg-[var(--app-bg)] text-[var(--app-fg)]',
+                warning: 'border-[var(--app-badge-warning-border)] bg-[var(--app-badge-warning-bg)] text-[var(--app-badge-warning-text)]'
+            }
+        },
+        defaultVariants: {
+            variant: 'default'
+        }
+    }
+)
+
+const toastBodyVariants = cva(
+    'mt-1 text-xs',
+    {
+        variants: {
+            variant: {
+                default: 'text-[var(--app-hint)]',
+                warning: 'text-[var(--app-badge-warning-text)] opacity-90'
+            }
+        },
+        defaultVariants: {
+            variant: 'default'
+        }
+    }
+)
+
+const toastCloseVariants = cva(
+    'text-xs',
+    {
+        variants: {
+            variant: {
+                default: 'text-[var(--app-hint)] hover:text-[var(--app-fg)]',
+                warning: 'text-[var(--app-badge-warning-text)] opacity-70 hover:opacity-100'
             }
         },
         defaultVariants: {
@@ -30,16 +61,16 @@ export function Toast({ title, body, onClose, className, variant, ...props }: To
     }
 
     return (
-        <div className={cn(toastVariants({ variant }), className)} role="status" {...props}>
+        <div className={cn(toastVariants({ variant }), className)} role="status" data-toast-variant={variant ?? 'default'} {...props}>
             <div className="flex items-start gap-3 p-3">
                 <div className="min-w-0 flex-1">
                     <div className="text-sm font-semibold leading-5">{title}</div>
-                    <div className="mt-1 text-xs text-[var(--app-hint)]">{body}</div>
+                    <div className={cn(toastBodyVariants({ variant }))}>{body}</div>
                 </div>
                 {onClose ? (
                     <button
                         type="button"
-                        className="text-xs text-[var(--app-hint)] hover:text-[var(--app-fg)]"
+                        className={cn(toastCloseVariants({ variant }))}
                         onClick={handleClose}
                         aria-label="Dismiss"
                     >

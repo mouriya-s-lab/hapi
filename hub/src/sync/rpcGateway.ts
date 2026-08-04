@@ -1,4 +1,4 @@
-import type { AgentFlavor, CodexCollaborationMode, PermissionMode } from '@hapi/protocol/types'
+import type { AgentFlavor, ClaudeLaunch, CodexCollaborationMode, PermissionMode } from '@hapi/protocol/types'
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import {
     ArchiveCodexSessionRpcResponseSchema,
@@ -11,29 +11,46 @@ import type {
     CommandResponse,
     CursorModelSummary,
     CursorModelsResponse,
+    CycleOmpModelResponse,
+    MachineCreateDirectoryResponse,
     CursorChatStoreStatus,
     DeleteUploadResponse,
     DirectoryEntry,
     FileReadResponse,
+    FileWriteResponse,
+    GeneratedFileResponse,
     GeneratedImageResponse,
     GrokModelsResponse,
     GrokReasoningEffortResponse,
+    ListCcSwitchProvidersResponse,
+    ValidateCcSwitchProviderResponse,
     ListDirectoryResponse,
+    StatFilesResponse,
     ListCodexSessionsRpcResponse,
     ArchiveCodexSessionRpcResponse,
     OpencodeModelsResponse,
     OpencodeModelSummary,
     OpencodeReasoningEffortResponse,
+    OmpModelsResponse,
+    OmpThinkingOptionsResponse,
+    OmpLoginProvidersResponse,
+    StartOmpLoginResponse,
+    RespondOmpLoginInputResponse,
+    GetOmpExtensionUiResponse,
     PathExistsResponse,
     SlashCommandsResponse,
-    StatFilesResponse,
-    UploadFileResponse
+    UploadFileResponse,
+    ListImportableSessionsRequest,
+    ListImportableSessionsResponse,
+    ImportProviderSessionRequest,
+    ImportProviderSessionResponse
 } from '@hapi/protocol/apiTypes'
 import type { Server } from 'socket.io'
 import type { RpcRegistry } from '../socket/rpcRegistry'
 
 const DEFAULT_RPC_TIMEOUT_MS = 30_000
 const MODEL_LIST_RPC_TIMEOUT_MS = 120_000
+const HISTORY_IMPORT_RPC_TIMEOUT_MS = 10 * 60_000
 
 /**
  * tiann/hapi#916: thrown by {@link RpcGateway.rpcCall} when the target CLI is
@@ -58,7 +75,9 @@ export class RpcTargetMissingError extends Error {
 
 export type RpcCommandResponse = CommandResponse
 export type RpcReadFileResponse = FileReadResponse
+export type RpcWriteFileResponse = FileWriteResponse
 export type RpcGeneratedImageResponse = GeneratedImageResponse
+export type RpcGeneratedFileResponse = GeneratedFileResponse
 export type RpcUploadFileResponse = UploadFileResponse
 export type RpcDeleteUploadResponse = DeleteUploadResponse
 export type RpcDirectoryEntry = DirectoryEntry
@@ -77,6 +96,12 @@ export type RpcListOpencodeModelsResponse = OpencodeModelsResponse
 export type RpcListGrokModelsResponse = GrokModelsResponse
 export type RpcListGrokReasoningEffortOptionsResponse = GrokReasoningEffortResponse
 export type RpcListOpencodeReasoningEffortOptionsResponse = OpencodeReasoningEffortResponse
+export type RpcListOmpModelsResponse = OmpModelsResponse
+export type RpcListOmpThinkingOptionsResponse = OmpThinkingOptionsResponse
+export type RpcListOmpLoginProvidersResponse = OmpLoginProvidersResponse
+export type RpcStartOmpLoginResponse = StartOmpLoginResponse
+export type RpcRespondOmpLoginInputResponse = RespondOmpLoginInputResponse
+export type RpcGetOmpExtensionUiResponse = GetOmpExtensionUiResponse
 
 export class RpcGateway {
     constructor(
@@ -164,6 +189,8 @@ export class RpcGateway {
         effort?: string,
         permissionMode?: PermissionMode,
         serviceTier?: string,
+        claudeLaunch?: ClaudeLaunch,
+        ccSwitchProviderId?: string,
         existingSessionId?: string,
         collaborationMode?: CodexCollaborationMode,
         forkSession?: boolean
@@ -187,6 +214,8 @@ export class RpcGateway {
                     serviceTier,
                     existingSessionId,
                     sessionId: existingSessionId,
+claudeLaunch,
+                    ccSwitchProviderId,
                     collaborationMode,
                     forkSession: forkSession === true
                 }
@@ -224,12 +253,37 @@ export class RpcGateway {
         }
     }
 
+/**
+     * Trigger a provider-native session fork on the target machine.
+     * Used by fork-features/session-fork to clone a session into a new
+     * provider session id. Returns the raw RPC result (typed by the caller
+     * via ForkSpawnResult); status code mapping happens in hubForkController.
+     */
+    async forkProviderSessionOnMachine(
+        machineId: string,
+        request: { flavor: string; payload: unknown }
+    ): Promise<unknown> {
+        return await this.machineRpc(machineId, RPC_METHODS.ForkSpawnSession, request)
+    }
+
     async listMachineDirectory(machineId: string, path: string, includeHidden?: boolean): Promise<RpcListDirectoryResponse> {
         const result = await this.machineRpc(machineId, RPC_METHODS.ListMachineDirectory, { path, includeHidden }) as RpcListDirectoryResponse | unknown
         if (!result || typeof result !== 'object') {
             return { success: false, error: 'Unexpected list-directory result' }
         }
         return result as RpcListDirectoryResponse
+    }
+
+    async createMachineDirectory(machineId: string, parentPath: string, name: string): Promise<MachineCreateDirectoryResponse> {
+        const result = await this.machineRpc(
+            machineId,
+            RPC_METHODS.CreateMachineDirectory,
+            { parentPath, name }
+        ) as MachineCreateDirectoryResponse | unknown
+        if (!result || typeof result !== 'object') {
+            return { success: false, error: 'Unexpected create-directory result' }
+        }
+        return result as MachineCreateDirectoryResponse
     }
 
     async checkPathsExist(machineId: string, paths: string[]): Promise<Record<string, boolean>> {
@@ -280,8 +334,16 @@ export class RpcGateway {
         return await this.sessionRpc(sessionId, RPC_METHODS.ReadFile, { path }) as RpcReadFileResponse
     }
 
+    async writeSessionFile(sessionId: string, path: string, content: string, expectedHash: string): Promise<RpcWriteFileResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.WriteFile, { path, content, expectedHash }) as RpcWriteFileResponse
+    }
+
     async readGeneratedImage(sessionId: string, imageId: string): Promise<RpcGeneratedImageResponse> {
         return await this.sessionRpc(sessionId, RPC_METHODS.ReadGeneratedImage, { id: imageId }) as RpcGeneratedImageResponse
+    }
+
+    async readGeneratedFile(sessionId: string, fileId: string): Promise<RpcGeneratedFileResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.ReadGeneratedFile, { id: fileId }) as RpcGeneratedFileResponse
     }
 
     async listDirectory(sessionId: string, path: string): Promise<RpcListDirectoryResponse> {
@@ -324,6 +386,10 @@ export class RpcGateway {
         return await this.machineRpc(machineId, RPC_METHODS.ListCodexModels, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListCodexModelsResponse
     }
 
+    async listCodexModelsForSession(sessionId: string): Promise<RpcListCodexModelsResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.ListCodexModels, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListCodexModelsResponse
+    }
+
     async listCodexSessionsForMachine(machineId: string, cwd?: string | null, sessionIds?: string[]): Promise<RpcListCodexSessionsResponse> {
         const result = await this.machineRpc(machineId, RPC_METHODS.ListCodexSessions, { cwd: cwd ?? null, sessionIds }, MODEL_LIST_RPC_TIMEOUT_MS)
         return ListCodexSessionsRpcResponseSchema.parse(result)
@@ -342,8 +408,85 @@ export class RpcGateway {
         return await this.machineRpc(machineId, RPC_METHODS.ListCursorModels, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListCursorModelsResponse
     }
 
+    async listCcSwitchProvidersForMachine(machineId: string): Promise<ListCcSwitchProvidersResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ListCcSwitchProviders, {}, MODEL_LIST_RPC_TIMEOUT_MS) as ListCcSwitchProvidersResponse
+    }
+
+    async validateCcSwitchProviderForMachine(machineId: string, providerId: string): Promise<ValidateCcSwitchProviderResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ValidateCcSwitchProvider, { providerId }) as ValidateCcSwitchProviderResponse
+    }
+
+    async listImportableSessions(machineId: string, request: ListImportableSessionsRequest): Promise<ListImportableSessionsResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ListImportableSessions, request, MODEL_LIST_RPC_TIMEOUT_MS) as ListImportableSessionsResponse
+    }
+
+    async importProviderSession(machineId: string, request: ImportProviderSessionRequest): Promise<ImportProviderSessionResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ImportProviderSession, request, HISTORY_IMPORT_RPC_TIMEOUT_MS) as ImportProviderSessionResponse
+    }
+
     async listOpencodeModelsForSession(sessionId: string): Promise<RpcListOpencodeModelsResponse> {
         return await this.sessionRpc(sessionId, RPC_METHODS.ListOpencodeModels, {}) as RpcListOpencodeModelsResponse
+    }
+
+    async listOmpModelsForSession(sessionId: string): Promise<RpcListOmpModelsResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.ListOmpModels, {}) as RpcListOmpModelsResponse
+    }
+    async listOmpModelsForMachine(machineId: string, cwd: string): Promise<RpcListOmpModelsResponse> {
+        return await this.machineRpc(
+            machineId,
+            RPC_METHODS.ListOmpModels,
+            { cwd },
+            MODEL_LIST_RPC_TIMEOUT_MS
+        ) as RpcListOmpModelsResponse
+    }
+
+
+    async listOmpThinkingOptionsForSession(sessionId: string): Promise<RpcListOmpThinkingOptionsResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.ListOmpThinkingOptions, {}) as RpcListOmpThinkingOptionsResponse
+    }
+
+    async cycleOmpModelForSession(sessionId: string): Promise<CycleOmpModelResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.CycleOmpModel, {}) as CycleOmpModelResponse
+    }
+
+
+    async listOmpLoginProvidersForMachine(machineId: string): Promise<RpcListOmpLoginProvidersResponse> {
+        return await this.machineRpc(
+            machineId,
+            RPC_METHODS.ListOmpLoginProviders,
+            {}
+        ) as RpcListOmpLoginProvidersResponse
+    }
+
+    async startOmpLoginForMachine(machineId: string, providerId: string): Promise<RpcStartOmpLoginResponse> {
+        return await this.machineRpc(
+            machineId,
+            RPC_METHODS.StartOmpLogin,
+            { providerId }
+        ) as RpcStartOmpLoginResponse
+    }
+
+    async respondOmpLoginInputForMachine(
+        machineId: string,
+        flowId: string,
+        value: string
+    ): Promise<RpcRespondOmpLoginInputResponse> {
+        return await this.machineRpc(
+            machineId,
+            RPC_METHODS.RespondOmpLoginInput,
+            { flowId, value }
+        ) as RpcRespondOmpLoginInputResponse
+    }
+
+    async getOmpExtensionUiRequestForSession(
+        sessionId: string,
+        requestId: string
+    ): Promise<RpcGetOmpExtensionUiResponse> {
+        return await this.sessionRpc(
+            sessionId,
+            RPC_METHODS.GetOmpExtensionUiRequest,
+            { requestId }
+        ) as RpcGetOmpExtensionUiResponse
     }
 
     async listOpencodeModelsForCwd(machineId: string, cwd: string): Promise<RpcListOpencodeModelsResponse> {

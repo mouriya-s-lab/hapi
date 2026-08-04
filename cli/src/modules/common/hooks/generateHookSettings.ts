@@ -1,5 +1,6 @@
+import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { writeFileSync, mkdirSync, unlinkSync, existsSync } from 'node:fs';
+import { writeFileSync, mkdirSync, unlinkSync, existsSync, readFileSync } from 'node:fs';
 import { configuration } from '@/configuration';
 import { logger } from '@/ui/logger';
 import { getHappyCliCommand } from '@/utils/spawnHappyCLI';
@@ -12,7 +13,9 @@ type HookCommandConfig = {
     }>;
 };
 
-type HookSettings = {
+type ClaudeSettings = Record<string, unknown>;
+
+type HookSettings = ClaudeSettings & {
     hooksConfig?: {
         enabled?: boolean;
     };
@@ -53,7 +56,34 @@ function shellJoin(parts: string[]): string {
     return parts.map(shellQuote).join(' ');
 }
 
-export function buildHookSettings(command: string, hooksEnabled?: boolean, trackPermissionMode?: boolean): HookSettings {
+function readMachineClaudeSettings(): ClaudeSettings {
+    const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
+    const settingsPath = join(configDir, 'settings.json');
+
+    if (!existsSync(settingsPath)) {
+        return {};
+    }
+
+    const parsed = JSON.parse(readFileSync(settingsPath, 'utf8')) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error(`Claude settings must be a JSON object: ${settingsPath}`);
+    }
+
+    return parsed as ClaudeSettings;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : {};
+}
+
+export function buildHookSettings(
+    machineSettings: ClaudeSettings,
+    command: string,
+    hooksEnabled?: boolean,
+    trackPermissionMode?: boolean
+): HookSettings {
     const commandHook = {
         hooks: [
             {
@@ -62,17 +92,29 @@ export function buildHookSettings(command: string, hooksEnabled?: boolean, track
             }
         ]
     };
+    const existingHooks = asRecord(machineSettings.hooks);
+    const existingSessionStart = Array.isArray(existingHooks.SessionStart)
+        ? existingHooks.SessionStart
+        : [];
     const hooks: HookSettings['hooks'] = {
-        SessionStart: [{ matcher: '*', ...commandHook }]
+        ...existingHooks,
+        SessionStart: [
+            ...existingSessionStart,
+            { matcher: '*', ...commandHook }
+        ]
     };
     if (trackPermissionMode) {
         hooks.UserPromptSubmit = [commandHook];
         hooks.PreToolUse = [{ matcher: '*', ...commandHook }];
     }
 
-    const settings: HookSettings = { hooks };
+    const settings: HookSettings = {
+        ...machineSettings,
+        hooks
+    };
     if (hooksEnabled !== undefined) {
         settings.hooksConfig = {
+            ...asRecord(machineSettings.hooksConfig),
             enabled: hooksEnabled
         };
     }
@@ -100,7 +142,12 @@ export function generateHookSettingsFile(
     ]);
     const hookCommand = shellJoin([command, ...args]);
 
-    const settings = buildHookSettings(hookCommand, options.hooksEnabled, options.trackPermissionMode);
+    const settings = buildHookSettings(
+        readMachineClaudeSettings(),
+        hookCommand,
+        options.hooksEnabled,
+        options.trackPermissionMode
+    );
 
     writeFileSync(filepath, JSON.stringify(settings, null, 4));
     logger.debug(`[${options.logLabel}] Created hook settings file: ${filepath}`);

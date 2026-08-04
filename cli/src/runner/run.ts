@@ -15,6 +15,7 @@ import { spawnHappyCLI } from '@/utils/spawnHappyCLI';
 import { writeRunnerState, RunnerLocallyPersistedState, readRunnerState, acquireRunnerLock, releaseRunnerLock } from '@/persistence';
 import { getCliArgs } from '@/utils/cliArgs';
 import { getProcessStartMarker, isProcessAlive, isWindows, killProcess, killProcessByChildProcess, killProcessTreeByPid } from '@/utils/process';
+import { getCcSwitchProviderLaunchEnv } from '@/modules/common/ccSwitch';
 import { PERMISSION_MODES } from '@hapi/protocol/modes';
 import { withRetry } from '@/utils/time';
 import { isRetryableConnectionError } from '@/utils/errorUtils';
@@ -28,6 +29,7 @@ import { buildMachineMetadata } from '@/agent/sessionFactory';
 import { resolveWorkspaceRoots } from '@/utils/workspaceRoot';
 import { hashRunnerCliApiToken, hashRunnerExtraHeaders } from './runnerIdentity';
 import { scheduleCursorModelsPrewarm } from '@/modules/common/cursorModelsPrewarm';
+import { detectOmpMachineAvailability } from '../../../fork-features/omp-host-integration/machine';
 
 export async function startRunner(options: { workspaceRoots?: string[] } = {}): Promise<void> {
   // We don't have cleanup function at the time of server construction
@@ -563,13 +565,17 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
           logger.debug('[RUNNER RUN] Child stderr tail', trimmed);
         };
 
+        const providerEnv = agent === 'claude' && options.ccSwitchProviderId
+          ? getCcSwitchProviderLaunchEnv(options.ccSwitchProviderId)
+          : {};
         happyProcess = spawnHappyCLI(args, {
           cwd: spawnDirectory,
           detached: true,  // Sessions stay alive when runner stops
           stdio: ['ignore', 'pipe', 'pipe'],  // Capture stdout/stderr for debugging
           env: {
             ...process.env,
-            ...extraEnv
+            ...extraEnv,
+            ...providerEnv
           }
         });
 
@@ -988,11 +994,21 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
     const workspaceRoots = resolveWorkspaceRoots(options.workspaceRoots);
     logger.debug(`[RUNNER RUN] Workspace roots: ${workspaceRoots?.join(', ') ?? '(not set)'}`);
 
+    const ompAvailability = await detectOmpMachineAvailability();
+    if (ompAvailability.available) {
+      logger.debug(`[RUNNER RUN] OMP ${ompAvailability.version.raw} available`);
+    } else {
+      logger.debug(`[RUNNER RUN] OMP unavailable: ${ompAvailability.error}`);
+    }
+
     // Get or create machine (with retry for transient connection errors)
     const machine = await withRetry(
       () => api.getOrCreateMachine({
         machineId,
-        metadata: buildMachineMetadata({ workspaceRoots }),
+        metadata: buildMachineMetadata({
+          workspaceRoots,
+          ompAvailable: ompAvailability.available
+        }),
         runnerState: initialRunnerState
       }),
       {
@@ -1009,7 +1025,10 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
     logger.debug(`[RUNNER RUN] Machine registered: ${machine.id}`);
 
     // Create realtime machine session
-    const apiMachine = api.machineSyncClient(machine, { workspaceRoots });
+    const apiMachine = api.machineSyncClient(machine, {
+      workspaceRoots,
+      ompAvailable: ompAvailability.available
+    });
 
     // Set RPC handlers
     apiMachine.setRPCHandlers({
@@ -1322,9 +1341,18 @@ export function buildCliArgs(
             ? 'opencode'
             : agent === 'pi'
               ? 'pi'
-              : 'claude';
+              : agent === 'omp'
+                ? 'omp'
+                : 'claude';
   const args = [agentCommand];
-  if (options.resumeSessionId) {
+  if (agent === 'claude' && options.claudeLaunch) {
+    if (!options.resumeSessionId) throw new Error('Claude fork launch requires resumeSessionId')
+    if (options.claudeLaunch.type === 'resume-at') {
+      args.push('--resume', options.claudeLaunch.sourceSessionId)
+      args.push('--fork-session', '--resume-session-at', options.claudeLaunch.providerMessageId)
+    }
+    args.push('--session-id', options.resumeSessionId)
+  } else if (options.resumeSessionId) {
     if (agent === 'codex') {
       args.push('resume', options.resumeSessionId);
     } else if (agent === 'cursor') {
@@ -1360,7 +1388,7 @@ export function buildCliArgs(
   if (options.model) {
     args.push('--model', options.model);
   }
-  if (options.effort && (agent === 'claude' || agent === 'grok' || agent === 'pi')) {
+  if (options.effort && (agent === 'claude' || agent === 'grok' || agent === 'pi' || agent === 'omp')) {
     args.push('--effort', options.effort);
   }
   if (options.modelReasoningEffort && (agent === 'codex' || agent === 'opencode')) {

@@ -35,11 +35,16 @@ export type SessionSummaryMetadata = {
     name?: string
     path: string
     machineId?: string
+    /** Session-recorded host name. Falls back to displaying an unfriendly-named
+     *  machine's `host` when the sidebar has no `machineLabelsById` entry. */
+    host?: string
     summary?: { text: string }
     flavor?: string | null
     worktree?: WorktreeMetadata
     agentSessionId?: string
     lifecycleState?: string
+    /** Present when the session was explicitly archived via the session menu. */
+    archivedAt?: number
 }
 
 export type SessionSummary = {
@@ -116,12 +121,19 @@ const AGENT_SESSION_ID_FIELD_BY_FLAVOR = {
     grok: 'grokSessionId',
     cursor: 'cursorSessionId',
     kimi: 'kimiSessionId',
-    pi: 'piSessionId'
+    pi: 'piSessionId',
+    omp: 'ompSession'
 } as const satisfies Record<AgentFlavor, keyof Metadata>
 
 function getSummaryAgentSessionId(metadata: Metadata): string | undefined {
     const flavor = metadata.flavor
     if (isKnownFlavor(flavor)) {
+        // OMP stores its native id nested on `metadata.ompSession.id` rather
+        // than as a top-level string field like the other flavors.
+        if (flavor === 'omp') {
+            const ompId = metadata.ompSession?.id
+            return typeof ompId === 'string' && ompId.trim() ? ompId.trim() : undefined
+        }
         const flavorField = AGENT_SESSION_ID_FIELD_BY_FLAVOR[flavor]
         const flavorSessionId = metadata[flavorField]
         return typeof flavorSessionId === 'string' && flavorSessionId.trim()
@@ -137,6 +149,7 @@ function getSummaryAgentSessionId(metadata: Metadata): string | undefined {
         ?? metadata.grokSessionId
         ?? metadata.cursorSessionId
         ?? metadata.kimiSessionId
+        ?? metadata.ompSession?.id
         ?? undefined
 }
 
@@ -147,11 +160,13 @@ export function toSessionSummary(session: Session): SessionSummary {
         name: session.metadata.name,
         path: session.metadata.path,
         machineId: session.metadata.machineId ?? undefined,
+        host: session.metadata.host,
         summary: session.metadata.summary ? { text: session.metadata.summary.text } : undefined,
         flavor: session.metadata.flavor ?? null,
         worktree: session.metadata.worktree,
-        agentSessionId: getSummaryAgentSessionId(session.metadata),
-        lifecycleState: session.metadata.lifecycleState
+agentSessionId: getSummaryAgentSessionId(session.metadata),
+        lifecycleState: session.metadata.lifecycleState,
+        archivedAt: session.metadata.archivedAt
     } : null
 
     const todoProgress = session.todos?.length ? {

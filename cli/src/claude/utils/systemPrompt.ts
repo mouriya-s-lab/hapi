@@ -1,12 +1,15 @@
 import { trimIdent } from "@/utils/trimIdent";
 import { shouldIncludeCoAuthoredBy } from "./claudeSettings";
+import { DISPLAY_IMAGE_PROMPT_CLAUDE, DISPLAY_VIDEO_PROMPT_CLAUDE, SEND_FILE_PROMPT_CLAUDE } from "@/modules/common/displayImagePrompt";
 
 /**
  * Base system prompt shared across all configurations
  */
 const BASE_SYSTEM_PROMPT = (() => trimIdent(`
     Use the title tool sparingly. For a new chat, call the tool "mcp__hapi__change_title" once after the user's initial request is clear, and set a concise task title. Do not rename the chat for routine progress, substeps, implementation details, or a slightly better wording. Rename only when the user's primary objective changes substantially and the existing title would be misleading.
-    When you create or find a local image file that the user should see, call the tool "mcp__hapi__display_image" with the image path so HAPI can show it inline.
+    ${DISPLAY_IMAGE_PROMPT_CLAUDE}
+    ${DISPLAY_VIDEO_PROMPT_CLAUDE}
+    ${SEND_FILE_PROMPT_CLAUDE}
     When the user cites another HAPI session as [title](/sessions/<id>) (or a bare /sessions/<id>), extract that <id>. Call "mcp__hapi__inspect_peer" with sessionIdPrefix=<id> to read that session's metadata and recent messages. Call "mcp__hapi__ping_peer" with sessionIdPrefix=<id> and a message to nudge or hand off. Do not reinvent JWT+curl. Shell fallbacks: \`hapi inspect-peer <id>\` / \`hapi ping-peer <id> <message>\`.
 `))();
 

@@ -9,6 +9,7 @@ import { getConversationMessageAnchorId } from '@/chat/outline'
 import { CodexReviewCard } from '@/components/AssistantChat/messages/CodexReviewCard'
 import { MessageActions } from '@/components/AssistantChat/messages/MessageActions'
 import { useHappyChatContext } from '@/components/AssistantChat/context'
+import { SpeakSummaryButton } from '@/components/AssistantChat/messages/SpeakSummaryButton'
 
 const TOOL_COMPONENTS = {
     Fallback: HappyToolMessage
@@ -78,15 +79,20 @@ export function HappyAssistantMessage() {
                 : codexReview
                     ? <CodexReviewCard review={codexReview} />
                     : <MessagePrimitive.Content components={MESSAGE_PART_COMPONENTS} />}
-            <MessageActions
-                align="start"
-                copyText={copyText || undefined}
-                metadata={metadata}
-                messageElementId={elementId}
-                showFork={showForkCurrent}
-                historyActionPending={ctx.historyActionPending}
-                onFork={showForkCurrent ? () => ctx.onForkConversation!() : undefined}
-            />
+<div className="flex items-center gap-1">
+                <MessageActions
+                    align="start"
+                    copyText={copyText || undefined}
+                    metadata={metadata}
+                    messageElementId={elementId}
+                    showFork={showForkCurrent}
+                    historyActionPending={ctx.historyActionPending}
+                    onFork={showForkCurrent ? () => ctx.onForkConversation!() : undefined}
+                />
+                {!isCliOutput && !codexReview && copyText ? (
+                    <SpeakSummaryButton messageId={messageId} text={copyText} />
+                ) : null}
+            </div>
         </MessagePrimitive.Root>
     )
 }

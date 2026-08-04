@@ -1,4 +1,4 @@
-import type { Machine, MachinePatch } from '@hapi/protocol/types'
+import type { Machine, MachineMetadata, MachinePatch } from '@hapi/protocol/types'
 import { MachineHealthSchema, MachineMetadataSchema, RunnerStateSchema } from '@hapi/protocol/schemas'
 import type { Store } from '../store'
 import { clampAliveTime } from './aliveTime'
@@ -14,6 +14,31 @@ const METADATA_RETRY_ATTEMPTS = 5
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function reconcileOmpCapabilityOnRegistration(
+    rawStoredMetadata: unknown,
+    rawRegistrationMetadata: unknown
+): MachineMetadata | null {
+    const registration = MachineMetadataSchema.safeParse(rawRegistrationMetadata)
+    if (!registration.success) {
+        return null
+    }
+
+    const registeredOmp = registration.data.capabilities?.omp === true
+    const stored = MachineMetadataSchema.safeParse(rawStoredMetadata)
+    if (stored.success && (stored.data.capabilities?.omp === true) === registeredOmp) {
+        return null
+    }
+
+    const metadata = stored.success ? stored.data : registration.data
+    return {
+        ...metadata,
+        capabilities: {
+            ...metadata.capabilities,
+            omp: registeredOmp
+        }
+    }
 }
 
 function parseMachineHealth(value: unknown): Machine['health'] {
@@ -79,6 +104,21 @@ export class MachineCache {
 
     getOrCreateMachine(id: string, metadata: unknown, runnerState: unknown, namespace: string): Machine {
         const stored = this.store.machines.getOrCreateMachine(id, metadata, runnerState, namespace)
+        const runnerRegistration = RunnerStateSchema.safeParse(runnerState).success
+        const reconciledMetadata = runnerRegistration
+            ? reconcileOmpCapabilityOnRegistration(stored.metadata, metadata)
+            : null
+        if (reconciledMetadata) {
+            const update = this.store.machines.updateMachineMetadata(
+                stored.id,
+                reconciledMetadata,
+                stored.metadataVersion,
+                namespace
+            )
+            if (update.result !== 'success') {
+                throw new Error('Failed to reconcile machine capabilities during registration')
+            }
+        }
         return this.refreshMachine(stored.id) ?? (() => { throw new Error('Failed to load machine') })()
     }
 
