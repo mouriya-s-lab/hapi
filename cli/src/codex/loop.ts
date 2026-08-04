@@ -11,6 +11,9 @@ import type { CodexCollaborationMode, CodexPermissionMode } from '@hapi/protocol
 
 export type PermissionMode = CodexPermissionMode;
 
+/** Codex response style. Omit from mode to inherit config.toml / thread default. */
+export type CodexPersonality = 'friendly' | 'pragmatic' | 'none';
+
 export interface EnhancedMode {
     permissionMode: PermissionMode;
     model?: string;
@@ -22,6 +25,8 @@ export interface EnhancedMode {
      * `'fast'` enables Fast mode, `null` selects the standard tier explicitly.
      */
     serviceTier?: string | null;
+    /** When set, forwarded to app-server thread/turn params. */
+    personality?: CodexPersonality;
 }
 
 interface LoopOptions {

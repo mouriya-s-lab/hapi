@@ -62,6 +62,29 @@ export interface ModelListResponse {
     [key: string]: unknown;
 }
 
+export interface SkillsListParams {
+    cwds: string[];
+    forceReload?: boolean;
+}
+
+export interface SkillMetadata {
+    name: string;
+    description: string;
+    path: string;
+    scope: string;
+    enabled: boolean;
+    [key: string]: unknown;
+}
+
+export interface SkillsListResponse {
+    data?: Array<{
+        cwd: string;
+        skills: SkillMetadata[];
+        errors?: unknown[];
+    }>;
+    [key: string]: unknown;
+}
+
 export interface CollaborationModeListItem {
     name?: string;
     mode?: 'plan' | 'default' | string | null;
@@ -139,7 +162,15 @@ export interface ThreadResumeResponse {
  * that hapi can then resume independently.
  */
 export interface ThreadForkParams extends Omit<ThreadResumeParams, 'history' | 'path'> {
-    lastTurnId?: string;
+    /** Inclusive terminal turn for the fork (stable). */
+    lastTurnId?: string | null;
+    /** Exclusive: copy history strictly before this turn (experimental). */
+    beforeTurnId?: string | null;
+}
+
+export interface ThreadReadParams {
+    threadId: string;
+    includeTurns?: boolean;
 }
 
 export interface ThreadReadResponse {
@@ -147,9 +178,15 @@ export interface ThreadReadResponse {
         id: string;
         cwd: string;
         modelProvider: string;
-        turns: Array<{ id: string; [key: string]: unknown }>;
+        turns?: Array<{
+            id?: string;
+            status?: string;
+            items?: ResponseItem[];
+            [key: string]: unknown;
+        }>;
         [key: string]: unknown;
     };
+    [key: string]: unknown;
 }
 
 export interface ThreadListParams {
@@ -259,6 +296,8 @@ export interface TurnStartParams {
     personality?: string;
     outputSchema?: unknown;
     collaborationMode?: CollaborationMode;
+    /** Optional client identity echoed back as userMessage.clientId. */
+    clientUserMessageId?: string;
 }
 
 export interface TurnStartResponse {

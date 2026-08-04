@@ -4,6 +4,7 @@ import type { ApiClient } from '@/api/client'
 import type { Machine, MachineDirectoryEntry } from '@/types/api'
 import { queryKeys } from '@/lib/query-keys'
 import { useTranslation } from '@/lib/use-translation'
+import { SelectControl } from '@/components/ui/select-control'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 
 function FolderIcon(props: { className?: string }) {
@@ -53,11 +54,27 @@ function RefreshIcon(props: { className?: string }) {
     )
 }
 
+function CheckboxBlankIcon(props: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className={props.className}>
+            <path d="M4 3H20C20.5523 3 21 3.44772 21 4V20C21 20.5523 20.5523 21 20 21H4C3.44772 21 3 20.5523 3 20V4C3 3.44772 3.44772 3 4 3ZM5 5V19H19V5H5Z" />
+        </svg>
+    )
+}
+
 function CopyIcon(props: { className?: string }) {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}>
             <rect x="9" y="9" width="13" height="13" rx="2" />
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </svg>
+    )
+}
+
+function CheckboxCheckedIcon(props: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className={props.className}>
+            <path d="M4 3H20C20.5523 3 21 3.44772 21 4V20C21 20.5523 20.5523 21 20 21H4C3.44772 21 3 20.5523 3 20V4C3 3.44772 3.44772 3 4 3ZM5 5V19H19V5H5ZM11.0026 16L6.75999 11.7574L8.17421 10.3431L11.0026 13.1716L16.6595 7.51472L18.0737 8.92893L11.0026 16Z" />
         </svg>
     )
 }
@@ -160,6 +177,16 @@ function buildBreadcrumbs(currentPath: string, root: string): { label: string; p
     return crumbs
 }
 
+const SHOW_HIDDEN_STORAGE_KEY = 'hapi:workspaceBrowserShowHidden'
+
+function readShowHidden(): boolean {
+    try {
+        return localStorage.getItem(SHOW_HIDDEN_STORAGE_KEY) === '1'
+    } catch {
+        return false
+    }
+}
+
 export function WorkspaceBrowser(props: {
     api: ApiClient
     machines: Machine[]
@@ -178,6 +205,7 @@ export function WorkspaceBrowser(props: {
     const [entries, setEntries] = useState<MachineDirectoryEntry[]>([])
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [showHidden, setShowHidden] = useState<boolean>(readShowHidden)
     const [isCreatingDirectory, setIsCreatingDirectory] = useState(false)
     const [newDirectoryName, setNewDirectoryName] = useState('')
 
@@ -211,12 +239,12 @@ export function WorkspaceBrowser(props: {
         [selectedMachine?.metadata?.workspaceRoots]
     )
 
-    const loadDirectory = useCallback(async (path: string) => {
+    const loadDirectory = useCallback(async (path: string, includeHiddenOverride?: boolean) => {
         if (!machineId) return
         setIsLoading(true)
         setError(null)
         try {
-            const result = await api.listMachineDirectory(machineId, path)
+            const result = await api.listMachineDirectory(machineId, path, { includeHidden: includeHiddenOverride ?? showHidden })
             if (result.success && result.entries) {
                 setEntries(result.entries)
                 setCurrentPath(path)
@@ -233,7 +261,7 @@ export function WorkspaceBrowser(props: {
         } finally {
             setIsLoading(false)
         }
-    }, [api, machineId, queryClient])
+    }, [api, machineId, queryClient, showHidden])
 
     useEffect(() => {
         if (workspaceRoots.length === 0) {
@@ -277,6 +305,16 @@ export function WorkspaceBrowser(props: {
         if (currentPath) void loadDirectory(currentPath)
     }, [currentPath, loadDirectory])
 
+    const handleToggleHidden = useCallback(() => {
+        const next = !showHidden
+        setShowHidden(next)
+        try {
+            localStorage.setItem(SHOW_HIDDEN_STORAGE_KEY, next ? '1' : '0')
+        } catch {
+        }
+        if (currentPath) void loadDirectory(currentPath, next)
+    }, [showHidden, currentPath, loadDirectory])
+
     const handleStartSession = useCallback(() => {
         if (!machineId || !currentPath) return
         props.onStartSession(machineId, currentPath)
@@ -313,11 +351,12 @@ export function WorkspaceBrowser(props: {
     const machineSelector = (
         <div className="flex items-center gap-2">
             <MachineIcon className="h-4 w-4 text-[var(--app-hint)] shrink-0" />
-            <select
+            <SelectControl
                 value={machineId ?? ''}
                 onChange={e => setMachineId(e.target.value || null)}
                 disabled={machinesLoading}
-                className="flex-1 bg-transparent text-sm text-[var(--app-fg)] outline-none"
+                containerClassName="flex-1"
+                className="bg-transparent text-sm text-[var(--app-fg)] outline-none"
             >
                 {machines.map(m => (
                     <option key={m.id} value={m.id}>
@@ -328,7 +367,7 @@ export function WorkspaceBrowser(props: {
                 {machines.length === 0 && (
                     <option value="">{machinesLoading ? t('loading') : t('misc.noMachines')}</option>
                 )}
-            </select>
+            </SelectControl>
         </div>
     )
 
@@ -371,17 +410,17 @@ export function WorkspaceBrowser(props: {
 
                 {workspaceRoots.length > 1 && (
                     <div className="mt-2">
-                        <select
+                        <SelectControl
                             value={selectedRoot ?? ''}
                             onChange={(e) => setSelectedRoot(e.target.value || null)}
-                            className="w-full bg-transparent text-xs text-[var(--app-hint)] outline-none"
+                            className="bg-transparent text-xs text-[var(--app-hint)] outline-none"
                         >
                             {workspaceRoots.map((root) => (
                                 <option key={root} value={root}>
                                     {root}
                                 </option>
                             ))}
-                        </select>
+                        </SelectControl>
                     </div>
                 )}
 
@@ -408,15 +447,31 @@ export function WorkspaceBrowser(props: {
                                 </button>
                             </span>
                         ))}
-                        <button
-                            type="button"
-                            onClick={handleRefresh}
-                            disabled={isLoading}
-                            className="ml-auto shrink-0 p-0.5 rounded hover:bg-[var(--app-subtle-bg)] text-[var(--app-hint)] hover:text-[var(--app-fg)] transition-colors"
-                            title={t('browse.refresh')}
-                        >
-                            <RefreshIcon className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-                        </button>
+                        <div className="ml-auto shrink-0 flex items-center gap-1">
+                            <button
+                                type="button"
+                                onClick={handleToggleHidden}
+                                aria-pressed={showHidden}
+                                disabled={isLoading}
+                                className="shrink-0 flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)] transition-colors disabled:pointer-events-none disabled:opacity-50"
+                            >
+                                {showHidden ? (
+                                    <CheckboxCheckedIcon className="h-3.5 w-3.5 text-[var(--app-link)] shrink-0" />
+                                ) : (
+                                    <CheckboxBlankIcon className="h-3.5 w-3.5 shrink-0" />
+                                )}
+                                {t('browse.showHidden')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleRefresh}
+                                disabled={isLoading}
+                                className="shrink-0 p-0.5 rounded hover:bg-[var(--app-subtle-bg)] text-[var(--app-hint)] hover:text-[var(--app-fg)] transition-colors"
+                                title={t('browse.refresh')}
+                            >
+                                <RefreshIcon className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                            </button>
+                        </div>
                     </div>
                 )}
             </div>

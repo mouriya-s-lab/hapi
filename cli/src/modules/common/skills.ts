@@ -1,4 +1,4 @@
-import { access, open, readdir, readFile } from 'fs/promises';
+import { access, open, readdir, readFile, stat } from 'fs/promises';
 import { basename, dirname, join, resolve } from 'path';
 import { homedir } from 'os';
 import { parse as parseYaml } from 'yaml';
@@ -106,6 +106,10 @@ async function pathExists(path: string): Promise<boolean> {
     }
 }
 
+async function isDirectory(path: string): Promise<boolean> {
+    return await stat(path).then((info) => info.isDirectory()).catch(() => false);
+}
+
 async function listProjectSkillsRoots(workingDirectory?: string, flavor?: string): Promise<string[]> {
     if (!workingDirectory) {
         return [];
@@ -163,27 +167,29 @@ function extractSkillSummary(skillDir: string, fileContent: string): SkillSummar
 
 async function listTopLevelSkillDirs(skillsRoot: string, options: { includeCodexSystem?: boolean } = {}): Promise<string[]> {
     try {
-        const entries = await readdir(skillsRoot, { withFileTypes: true });
+        const entries = await readdir(skillsRoot);
         const result: string[] = [];
 
         for (const entry of entries) {
-            if (!entry.isDirectory()) {
+            const entryPath = join(skillsRoot, entry);
+            if (!await isDirectory(entryPath)) {
                 continue;
             }
 
-            if (entry.name.startsWith('.')) {
-                if (options.includeCodexSystem && entry.name === '.system') {
-                    const systemEntries = await readdir(join(skillsRoot, entry.name), { withFileTypes: true }).catch(() => []);
+            if (entry.startsWith('.')) {
+                if (options.includeCodexSystem && entry === '.system') {
+                    const systemEntries = await readdir(entryPath).catch(() => []);
                     for (const systemEntry of systemEntries) {
-                        if (systemEntry.isDirectory() && !systemEntry.name.startsWith('.')) {
-                            result.push(join(skillsRoot, entry.name, systemEntry.name));
+                        const systemEntryPath = join(entryPath, systemEntry);
+                        if (!systemEntry.startsWith('.') && await isDirectory(systemEntryPath)) {
+                            result.push(systemEntryPath);
                         }
                     }
                 }
                 continue;
             }
 
-            result.push(join(skillsRoot, entry.name));
+            result.push(entryPath);
         }
 
         return result;

@@ -2,6 +2,7 @@ import type { AgentType, CodexReasoningEffort } from './types'
 import { CODEX_REASONING_EFFORT_OPTIONS } from './types'
 import { useTranslation } from '@/lib/use-translation'
 import { getCodexComposerReasoningEffortOptions } from '@/components/AssistantChat/codexReasoningEffortOptions'
+import { SelectControl } from '@/components/ui/select-control'
 
 export function ReasoningEffortSelector(props: {
     agent: AgentType
@@ -31,18 +32,18 @@ export function ReasoningEffortSelector(props: {
                 {t('newSession.reasoningEffort')}{' '}
                 <span className="font-normal">({t('newSession.model.optional')})</span>
             </label>
-            <select
+            <SelectControl
                 value={props.value}
                 onChange={(e) => props.onChange(e.target.value as CodexReasoningEffort)}
                 disabled={props.isDisabled}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--app-divider)] bg-[var(--app-bg)] text-[var(--app-text)] focus:outline-none focus:ring-2 focus:ring-[var(--app-link)] disabled:opacity-50"
+                className="py-2 pl-3 text-sm rounded-lg border border-[var(--app-divider)] bg-[var(--app-bg)] text-[var(--app-text)] focus:outline-none focus:ring-2 focus:ring-[var(--app-link)] disabled:opacity-50"
             >
                 {options.map((option) => (
                     <option key={option.value} value={option.value}>
                         {option.label}
                     </option>
                 ))}
-            </select>
+            </SelectControl>
         </div>
     )
 }

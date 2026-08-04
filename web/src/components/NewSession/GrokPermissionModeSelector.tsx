@@ -4,6 +4,7 @@ import {
 } from '@hapi/protocol'
 import { useTranslation } from '@/lib/use-translation'
 import type { AgentType } from './types'
+import { SelectControl } from '@/components/ui/select-control'
 
 export function GrokPermissionModeSelector(props: {
     agent: AgentType
@@ -21,11 +22,11 @@ export function GrokPermissionModeSelector(props: {
             <label className="text-xs font-medium text-[var(--app-hint)]">
                 {t('misc.permissionMode')}
             </label>
-            <select
+            <SelectControl
                 value={props.value}
                 onChange={(event) => props.onChange(event.target.value as GrokPermissionMode)}
                 disabled={props.isDisabled}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--app-divider)] bg-[var(--app-bg)] text-[var(--app-text)] focus:outline-none focus:ring-2 focus:ring-[var(--app-link)] disabled:opacity-50"
+                className="py-2 pl-3 text-sm rounded-lg border border-[var(--app-divider)] bg-[var(--app-bg)] text-[var(--app-text)] focus:outline-none focus:ring-2 focus:ring-[var(--app-link)] disabled:opacity-50"
             >
                 {getPermissionModeOptionsForFlavor('grok').map((option) => {
                     const unavailable = option.mode === 'auto'
@@ -36,7 +37,7 @@ export function GrokPermissionModeSelector(props: {
                         </option>
                     )
                 })}
-            </select>
+            </SelectControl>
             {props.autoPermissionModeSupported === false ? (
                 <span className="text-xs text-[var(--app-hint)]">
                     {t('newSession.grokAutoUnavailableDesc')}

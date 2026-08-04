@@ -8,6 +8,7 @@ import { getSessionListStatusModeOptions, useSessionListStatusMode } from '@/hoo
 import { useShowActiveSessionsOnly } from '@/hooks/useShowActiveSessionsOnly'
 import { MAX_SESSION_PREVIEW_LIMIT, MIN_SESSION_PREVIEW_LIMIT, normalizeSessionPreviewLimit, useSessionPreviewLimit } from '@/hooks/useSessionPreviewLimit'
 import { useThemeColors, type ThemeColorKeyId } from '@/hooks/useThemeColors'
+import { useSessionHeaderMetadata, type SessionHeaderMetadataKey } from '@/hooks/useSessionHeaderMetadata'
 import { SettingsChoiceGroup, SettingsFieldLabel, SettingsPageContent, SettingsRow, SettingsSection, SettingsSwitch } from '@/components/settings/SettingsPrimitives'
 
 function MinusIcon() {
@@ -135,6 +136,19 @@ export default function SettingsDisplayPage() {
     const { terminalFontSize, setTerminalFontSize } = useTerminalFontSize()
     const { sessionListStatusMode, setSessionListStatusMode } = useSessionListStatusMode()
     const { showActiveSessionsOnly, setShowActiveSessionsOnly } = useShowActiveSessionsOnly()
+    const { preferences: sessionHeaderMetadata, setPreference: setSessionHeaderMetadata } = useSessionHeaderMetadata()
+    const sessionHeaderOptions: ReadonlyArray<{ key: SessionHeaderMetadataKey; labelKey: string }> = [
+        { key: 'showLabels', labelKey: 'settings.display.sessionHeader.showLabels' },
+        { key: 'agent', labelKey: 'settings.display.sessionHeader.agent' },
+        { key: 'machine', labelKey: 'settings.display.sessionHeader.machine' },
+        { key: 'lastActive', labelKey: 'settings.display.sessionHeader.lastActive' },
+        { key: 'model', labelKey: 'settings.display.sessionHeader.model' },
+        { key: 'reasoning', labelKey: 'settings.display.sessionHeader.reasoning' },
+        { key: 'fastMode', labelKey: 'settings.display.sessionHeader.fastMode' },
+        { key: 'createdAt', labelKey: 'settings.display.sessionHeader.createdAt' },
+        { key: 'updatedAt', labelKey: 'settings.display.sessionHeader.updatedAt' },
+        { key: 'worktree', labelKey: 'settings.display.sessionHeader.worktree' },
+    ]
 
     return (
         <SettingsPageContent description={t('settings.display.description')}>
@@ -165,6 +179,17 @@ export default function SettingsDisplayPage() {
                     options={getSessionListStatusModeOptions().map((option) => ({ value: option.value, label: t(option.labelKey) }))}
                     onChange={setSessionListStatusMode}
                 />
+            </SettingsSection>
+
+            <SettingsSection title={t('settings.display.sessionHeader')} description={t('settings.display.sessionHeader.description')}>
+                {sessionHeaderOptions.map((option) => (
+                    <SettingsSwitch
+                        key={option.key}
+                        label={t(option.labelKey)}
+                        checked={sessionHeaderMetadata[option.key]}
+                        onChange={(checked) => setSessionHeaderMetadata(option.key, checked)}
+                    />
+                ))}
             </SettingsSection>
         </SettingsPageContent>
     )

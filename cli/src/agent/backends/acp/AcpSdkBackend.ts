@@ -389,6 +389,23 @@ export class AcpSdkBackend implements AgentBackend {
     }
 
     /**
+     * Low-level extension RPC for agent-specific methods (e.g. Grok `_x.ai/*`).
+     * Keep method names and schemas in the agent adapter — not here.
+     */
+    async sendExtensionRequest<T = unknown>(
+        method: string,
+        params: Record<string, unknown>,
+        options?: { timeoutMs?: number }
+    ): Promise<T> {
+        if (!this.transport) {
+            throw new Error('ACP transport not initialized');
+        }
+        return await this.transport.sendRequest(method, params, {
+            timeoutMs: options?.timeoutMs
+        }) as T;
+    }
+
+    /**
      * Returns the per-session models metadata captured from session/new (or
      * session/load, or session/set_model). Returns undefined if the agent did
      * not include the optional `models` block in its response.
@@ -602,6 +619,68 @@ export class AcpSdkBackend implements AgentBackend {
 
     onStderrError(handler: (error: AcpStderrError) => void): void {
         this.stderrErrorHandler = handler;
+    }
+
+    /**
+     * Runs `fn` with `session/update` notifications temporarily prevented
+     * from reaching whatever `messageHandler` is currently installed (i.e.
+     * the last prompt() turn's handler), restoring it once `fn` settles.
+     *
+     * Needed for out-of-band calls that don't go through `prompt()` at all —
+     * e.g. OpenCode's /compact bridge, which triggers native compaction via
+     * a raw HTTP request to the agent subprocess instead of `session/prompt`.
+     * The agent keeps streaming `session/update` notifications (thought
+     * chunks etc.) over the same ACP transport while that HTTP call runs,
+     * and `handleSessionUpdate` forwards them unconditionally — with no
+     * prompt() turn in flight to own them, they'd otherwise land on the
+     * previous turn's now-stale `messageHandler` and render as a duplicate
+     * assistant message alongside whatever the caller explicitly displays
+     * from the HTTP response.
+     *
+     * `captureAvailableCommands` / `forwardSessionInfoUpdate` /
+     * `captureUsageUpdate` in `handleSessionUpdate` are untouched by this —
+     * only the `messageHandler.handleUpdate` forwarding is suppressed.
+     *
+     * Session-agnostic: this is a pure prompt()-adjacent utility with no
+     * Gemini/OpenCode-specific behavior, so it's safe on the shared
+     * AcpSdkBackend class — nothing calls it unless a caller opts in.
+     *
+     * The `this.messageHandler === null` guard on restore is defense in
+     * depth: normal serialization (compact and prompts run through the same
+     * single dequeue loop — see opencodeRemoteLauncher.ts) means `fn` should
+     * never overlap with a real prompt() turn, but if `disconnect()` or a
+     * new `prompt()` did run concurrently and changed `messageHandler`
+     * during `fn`, this avoids clobbering whatever it set.
+     *
+     * Restoring the handler waits for the same quiet-drain `prompt()` already
+     * uses before installing a *new* handler for the next turn (see its
+     * `PRE_PROMPT_UPDATE_QUIET_PERIOD_MS`/`_DRAIN_TIMEOUT_MS` call) — the
+     * same class of race, just on the way back in instead of the way out.
+     * Aborting `fn()` client-side (e.g. OpenCode's compact bridge aborting
+     * its HTTP call) does not necessarily stop the agent from continuing the
+     * operation server-side: `session/update` is a separate notification
+     * channel from that HTTP request's lifecycle (confirmed while building
+     * the /compact bridge — see runCompactOperation's doc comment). Without
+     * this wait, late notifications from a still-running server-side
+     * operation would immediately leak into whichever handler gets restored
+     * (or into a brand new one prompt() installs right after) the instant
+     * `fn()` returns. `messageHandler` stays null (suppression still in
+     * effect) for the whole drain, so nothing leaks during it either.
+     */
+    async suppressUpdatesDuring<T>(fn: () => Promise<T>): Promise<T> {
+        const previousHandler = this.messageHandler;
+        this.messageHandler = null;
+        try {
+            return await fn();
+        } finally {
+            await this.waitForSessionUpdateQuiet(
+                AcpSdkBackend.PRE_PROMPT_UPDATE_QUIET_PERIOD_MS,
+                AcpSdkBackend.PRE_PROMPT_UPDATE_DRAIN_TIMEOUT_MS
+            );
+            if (this.messageHandler === null) {
+                this.messageHandler = previousHandler;
+            }
+        }
     }
 
     /**

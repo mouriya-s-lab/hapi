@@ -3,21 +3,71 @@ import { bootstrapExistingSession, bootstrapSession } from '@/agent/sessionFacto
 import { registerKillSessionHandler } from '@/claude/registerKillSessionHandler';
 import { registerLocalHandoffHandler } from '@/agent/localHandoff';
 import { createRunnerLifecycle, createModeChangeHandler, setControlledByUser } from '@/agent/runnerLifecycle';
-import { formatMessageWithAttachments } from '@/utils/attachmentFormatter';
+import { formatAttachmentsForClaude, formatMessageWithAttachments } from '@/utils/attachmentFormatter';
 import { getInvokedCwd } from '@/utils/invokedCwd';
 import { PiTransport } from './piTransport';
 import { PiSession } from './session';
 import { parsePiModels, parsePiCommands, sendPiRpcAndWait, wireTransportEvents } from './loop';
 import { PiThinkingLevelSchema, SetSessionConfigPayloadSchema } from './schemas';
 import type { PiThinkingLevel } from './types';
-import type { SlashCommandsResponse } from '@hapi/protocol/apiTypes';
-import type { ListPiModelsResponse } from '@hapi/protocol/apiTypes';
+import type { ListPiModelsResponse, PiCommandSummary, SlashCommand, SlashCommandsResponse } from '@hapi/protocol/apiTypes';
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
+import type { ListSkillsResponse, SkillSummary } from '@/modules/common/skills';
+import type { AttachmentMetadata } from '@/api/types';
 
 // Grace period before force-draining prompts buffered during Pi startup when no
 // get_state response arrives. Comfortably above the 10s Pi RPC timeout so a slow
 // but healthy startup still flips ready via get_state first (issue #1143).
 const PI_READY_FALLBACK_MS = 30_000;
+
+function getPiSkillName(commandName: string): string {
+    return commandName.startsWith('skill:') ? commandName.slice('skill:'.length) : commandName;
+}
+
+export function buildPiCommandInventory(commands: readonly PiCommandSummary[]): {
+    skills: SkillSummary[];
+    slashCommands: SlashCommand[];
+} {
+    const skills: SkillSummary[] = [];
+    const slashCommands: SlashCommand[] = [];
+
+    for (const command of commands) {
+        if (command.source === 'skill') {
+            const name = getPiSkillName(command.name);
+            if (name) skills.push({ name, description: command.description });
+            continue;
+        }
+        slashCommands.push({
+            name: command.name,
+            description: command.description,
+            source: command.source === 'prompt' ? 'user' : 'plugin',
+        });
+    }
+
+    return { skills, slashCommands };
+}
+
+export function rewritePiSkillPrompt(message: string, commands: readonly PiCommandSummary[]): string {
+    const match = /^(\s*)\$([a-z0-9]+(?:-[a-z0-9]+)*)(?=\s|$)/.exec(message);
+    if (!match) return message;
+
+    const command = commands.find(candidate =>
+        candidate.source === 'skill' && getPiSkillName(candidate.name) === match[2]
+    );
+    return `${match[1]}/${command?.name ?? `skill:${match[2]}`}${message.slice(match[0].length)}`;
+}
+
+export function formatPiUserMessage(
+    message: string,
+    attachments: AttachmentMetadata[] | undefined,
+    commands: readonly PiCommandSummary[],
+): string {
+    const skillPrompt = rewritePiSkillPrompt(message, commands);
+    if (skillPrompt === message) return formatMessageWithAttachments(message, attachments);
+
+    const attachmentText = formatAttachmentsForClaude(attachments);
+    return attachmentText ? `${skillPrompt}\n\n${attachmentText}` : skillPrompt;
+}
 
 export async function runPi(opts: {
     startedBy?: 'runner' | 'terminal';
@@ -70,6 +120,7 @@ export async function runPi(opts: {
         startedBy,
         startingMode,
         model: opts.model,
+        expectedNativeSessionId: opts.resumeSessionId,
     });
 
     const transportArgs = ['--mode', 'rpc'];
@@ -101,6 +152,19 @@ export async function runPi(opts: {
         if (cleanupInitiated) return;
         cleanupInitiated = true;
         await lifecycle.cleanupAndExit();
+    };
+
+    // Install the completion hook before transport.start(). Pi can synchronously
+    // report an invalid --session during the first get_state send; installing it
+    // later would leave runPi awaiting a promise that can no longer be resolved.
+    let resolveCleanupCompletion!: () => void;
+    const cleanupCompletion = new Promise<void>((resolve) => {
+        resolveCleanupCompletion = resolve;
+    });
+    const originalCleanupAndExit = lifecycle.cleanupAndExit.bind(lifecycle);
+    lifecycle.cleanupAndExit = async (codeOverride?: number) => {
+        resolveCleanupCompletion();
+        await originalCleanupAndExit(codeOverride);
     };
 
     // Pending user-message localIds in FIFO order
@@ -150,7 +214,21 @@ export async function runPi(opts: {
         }
     }
 
-    wireTransportEvents(transport, piSession, pendingLocalIds);
+    const failNativeStartup = (error: Error) => {
+        // A wrapper socket can already be active while Pi rejects --session.
+        // End this process immediately so the hub's Pi-ready wait fails and
+        // an archived HAPI row is restored rather than shown as reopened.
+        logger.debug(`[pi] Native startup failed: ${error.message}`);
+        lifecycle.markCrash(error);
+        lifecycle.setExitCode(1);
+        lifecycle.setArchiveReason(error.message.slice(0, 200));
+        lifecycle.setSessionEndReason('error');
+        void safeCleanup();
+    };
+
+    wireTransportEvents(transport, piSession, pendingLocalIds, {
+        onStartupFailure: failNativeStartup,
+    });
 
     // --- Session config RPC ---
     //
@@ -285,38 +363,45 @@ export async function runPi(opts: {
         }
     );
 
-    // --- Slash commands (Pi skills/commands) ---
+    const getPiCommands = async (): Promise<PiCommandSummary[]> => {
+        if (piSession.cachedPiCommands.length > 0) return piSession.cachedPiCommands;
+        try {
+            const data = await sendPiRpcAndWait(piSession, transport, { type: 'get_commands' });
+            const commands = parsePiCommands(data);
+            if (commands.length > 0) piSession.cachedPiCommands = commands;
+            return commands;
+        } catch {
+            return [];
+        }
+    };
+
+    // --- Pi commands and skills ---
     apiSession.rpcHandlerManager.registerHandler<{ agent?: string }, SlashCommandsResponse>(
         RPC_METHODS.ListSlashCommands,
         async () => {
-            let commands = piSession.cachedPiCommands;
-            if (commands.length === 0) {
-                try {
-                    const data = await sendPiRpcAndWait(piSession, transport, { type: 'get_commands' });
-                    commands = parsePiCommands(data);
-                    if (commands.length > 0) {
-                        piSession.cachedPiCommands = commands;
-                    }
-                } catch {
-                    // Fall through to return empty
-                }
-            }
+            const { slashCommands } = buildPiCommandInventory(await getPiCommands());
             return {
                 success: true,
-                commands: commands.map((cmd) => ({
-                    name: cmd.name,
-                    description: cmd.description,
-                    source: cmd.source === 'skill' ? 'plugin' as const
-                        : cmd.source === 'prompt' ? 'user' as const
-                        : 'plugin' as const,
-                })),
+                commands: slashCommands,
             };
+        }
+    );
+
+    apiSession.rpcHandlerManager.registerHandler<Record<string, never>, ListSkillsResponse>(
+        RPC_METHODS.ListSkills,
+        async () => {
+            const { skills } = buildPiCommandInventory(await getPiCommands());
+            return { success: true, skills };
         }
     );
 
     // --- User message handler ---
     apiSession.onUserMessage((message, localId) => {
-        const formattedText = formatMessageWithAttachments(message.content.text, message.content.attachments);
+        const formattedText = formatPiUserMessage(
+            message.content.text,
+            message.content.attachments,
+            piSession.cachedPiCommands,
+        );
         // Gate the send behind Pi startup readiness. A prompt POSTed immediately
         // after spawn (supported handoff pattern — hapi-ping-peer, intake
         // scripts) would otherwise reach Pi before its initial get_state finishes
@@ -380,7 +465,10 @@ export async function runPi(opts: {
     // This degrades to pre-fix behaviour (send anyway) instead of something
     // worse. markReady is idempotent, so a real get_state that lands first wins.
     const readyFallback = setTimeout(() => {
-        if (!piSession.isReady) {
+        if (piSession.isReady) return;
+        if (piSession.expectedNativeSessionId) {
+            failNativeStartup(new Error(`Pi native resume did not become ready within ${PI_READY_FALLBACK_MS}ms`));
+        } else {
             logger.debug('[pi] get_state ready signal not seen within grace — draining buffered messages');
             piSession.markReady();
         }
@@ -417,14 +505,8 @@ export async function runPi(opts: {
             })();
         }
 
-        // Block until cleanup is triggered by error/close handler
-        await new Promise<void>((resolve) => {
-            const origCleanup = lifecycle.cleanupAndExit.bind(lifecycle);
-            lifecycle.cleanupAndExit = async (codeOverride?: number) => {
-                resolve();
-                await origCleanup(codeOverride);
-            };
-        });
+        // Block until cleanup is triggered by error/close handler.
+        await cleanupCompletion;
     } catch (error) {
         crashed = true;
         lifecycle.markCrash(error);

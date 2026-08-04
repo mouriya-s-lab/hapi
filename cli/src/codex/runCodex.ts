@@ -1,6 +1,6 @@
 import { logger } from '@/ui/logger';
 import { randomUUID } from 'node:crypto';
-import { loop, type EnhancedMode, type PermissionMode } from './loop';
+import { loop, type CodexPersonality, type EnhancedMode, type PermissionMode } from './loop';
 import { MessageQueue2 } from '@/utils/MessageQueue2';
 import { hashObject } from '@/utils/deterministicJson';
 import { registerKillSessionHandler } from '@/claude/registerKillSessionHandler';
@@ -74,7 +74,8 @@ export async function runCodex(opts: {
         modelReasoningEffort: mode.modelReasoningEffort,
         collaborationMode: mode.collaborationMode,
         proactiveMultiAgent: mode.proactiveMultiAgent,
-        serviceTier: mode.serviceTier
+        serviceTier: mode.serviceTier,
+        personality: mode.personality
     }));
 
     const codexCliOverrides = parseCodexCliOverrides(opts.codexArgs);
@@ -100,6 +101,8 @@ export async function runCodex(opts: {
     // thread immediately runs with the right tier; otherwise seed from the
     // persisted session. A persisted/absent `null` stays untouched (omitted).
     let currentServiceTier: string | null | undefined = opts.serviceTier ?? sessionInfo.serviceTier ?? undefined;
+    /** In-session override only. Undefined = omit app-server field (inherit Codex config/thread). */
+    let currentPersonality: CodexPersonality | undefined;
 
     const lifecycle = createRunnerLifecycle({
         session,
@@ -146,6 +149,7 @@ export async function runCodex(opts: {
         collaborationMode?: EnhancedMode['collaborationMode'];
         serviceTier?: string | null;
         proactiveMultiAgent?: boolean;
+        personality?: CodexPersonality;
     } | undefined): void => {
         if (!updates) return;
         if (updates.permissionMode !== undefined) {
@@ -165,6 +169,9 @@ export async function runCodex(opts: {
         }
         if (updates.proactiveMultiAgent !== undefined) {
             currentProactiveMultiAgent = updates.proactiveMultiAgent;
+        }
+        if (updates.personality !== undefined) {
+            currentPersonality = updates.personality;
         }
         applyCurrentConfigToSession();
     };
@@ -207,7 +214,8 @@ export async function runCodex(opts: {
                     model: currentModel,
                     modelReasoningEffort: currentModelReasoningEffort ?? undefined,
                     serviceTier: currentServiceTier,
-                    proactiveMultiAgent: currentProactiveMultiAgent
+                    proactiveMultiAgent: currentProactiveMultiAgent,
+                    personality: currentPersonality
                 });
                 if (slash.kind === 'goal') {
                     if (slash.message) {
@@ -227,7 +235,8 @@ export async function runCodex(opts: {
                         model: currentModel,
                         modelReasoningEffort: currentModelReasoningEffort ?? undefined,
                         collaborationMode: currentCollaborationMode,
-                        serviceTier: currentServiceTier
+                        serviceTier: currentServiceTier,
+                        personality: currentPersonality
                     }, localId);
                     return;
                 }
@@ -267,7 +276,8 @@ export async function runCodex(opts: {
                     modelReasoningEffort: currentModelReasoningEffort ?? undefined,
                     collaborationMode: currentCollaborationMode,
                     proactiveMultiAgent: currentProactiveMultiAgent,
-                    serviceTier: currentServiceTier
+                    serviceTier: currentServiceTier,
+                    personality: currentPersonality
                 };
                 if (isolatedCommandText) {
                     messageQueue.pushIsolateAndClear(isolatedCommandText, enhancedMode, localId);
@@ -282,7 +292,8 @@ export async function runCodex(opts: {
                     modelReasoningEffort: currentModelReasoningEffort ?? undefined,
                     collaborationMode: currentCollaborationMode,
                     proactiveMultiAgent: currentProactiveMultiAgent,
-                    serviceTier: currentServiceTier
+                    serviceTier: currentServiceTier,
+                    personality: currentPersonality
                 };
                 messageQueue.push(formatMessageWithAttachments(message.content.text, message.content.attachments), enhancedMode, localId);
             }

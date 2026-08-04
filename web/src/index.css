@@ -310,11 +310,33 @@ body {
     height: 100%;
 }
 
+/* Chat viewports own vertical scrolling; keep transiently oversized messages
+ * from creating a second document scrollbar without locking non-chat routes. */
+html:has(.chat-scroll-y),
+html:has(.chat-scroll-y) body,
+html:has(.chat-scroll-y) #root {
+    overflow: hidden;
+}
+
 .app-scroll-y {
     overflow-y: auto;
     overscroll-behavior-y: contain;
     -webkit-overflow-scrolling: touch;
     touch-action: pan-y;
+}
+
+/* On touch-first devices, keep the chat scrollbar from shifting centered content. */
+@media (hover: none) and (pointer: coarse) {
+    .chat-scroll-y {
+        scrollbar-gutter: stable both-edges;
+    }
+
+    .chat-scroll-content {
+        padding-inline: max(
+            0.125rem,
+            calc(0.75rem - var(--chat-scroll-gutter-inline, 0px))
+        );
+    }
 }
 
 @media (hover: hover) and (pointer: fine) {

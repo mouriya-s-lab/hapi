@@ -1,11 +1,19 @@
-import { useEffect, useRef } from 'react'
-import { getDraft, saveDraft, clearDraft } from '@/lib/composer-drafts'
+import { useEffect, useRef, useState } from 'react'
+import { clearDraft, getDraft, saveDraft } from '@/lib/composer-drafts'
 import { consumeForkedFromText } from '@/lib/fork-restore'
 import {
     getDraftAttachments,
     saveDraftAttachments,
     type AttachmentDraftInput,
 } from '@/lib/composer-attachment-drafts'
+
+export type ComposerDraftHydration = {
+    /** Session represented by this status; prevents a previous session's ready state leaking across a key change. */
+    sessionId: string | undefined
+    complete: boolean
+    /** True when this hydration found and applied a persisted text or attachment draft. */
+    restoredAny: boolean
+}
 
 /**
  * Manages draft save/restore lifecycle for a composer.
@@ -17,10 +25,9 @@ import {
  * - The `draftReady` guard prevents saving before the initial restore completes,
  *   avoiding the case where the runtime's empty initial text overwrites a real draft.
  *
- * Fork-restore takes precedence over draft because a fork always starts a
- * brand-new session id — any draft under that id would be either empty or
- * stale-from-a-prior-fork of the same shape, and either way "the message
- * the user just clicked rewind on" is the intended prefill.
+ * Fork-restore takes precedence over a persisted draft because it is the text
+ * the user just rewound from. The returned status is session-keyed so consumers
+ * can wait for hydration and avoid overwriting restored content after remount.
  */
 export function useComposerDraft(
     sessionId: string | undefined,
@@ -29,7 +36,7 @@ export function useComposerDraft(
     canRestoreAttachments: boolean,
     setText: (text: string) => void,
     addAttachment: (file: File) => Promise<void>,
-): void {
+): ComposerDraftHydration {
     const composerTextRef = useRef(composerText)
     composerTextRef.current = composerText
     const attachmentsRef = useRef(attachments)
@@ -37,37 +44,87 @@ export function useComposerDraft(
 
     const draftReadyRef = useRef(false)
     const attachmentsReadyRef = useRef(false)
+    const [hydration, setHydration] = useState<ComposerDraftHydration>(() => ({
+        sessionId,
+        complete: sessionId === undefined,
+        restoredAny: false,
+    }))
 
     useEffect(() => {
-        if (!sessionId) return
+        if (!sessionId) {
+            setHydration({ sessionId: undefined, complete: true, restoredAny: false })
+            return
+        }
+
+        draftReadyRef.current = false
+        attachmentsReadyRef.current = false
+        setHydration({ sessionId, complete: false, restoredAny: false })
 
         let disposed = false
         const frame = requestAnimationFrame(() => {
             const forkedFrom = consumeForkedFromText(sessionId)
-            if (forkedFrom && !composerTextRef.current) {
-                clearDraft(sessionId)
-                setText(forkedFrom)
-            } else {
-                const draft = getDraft(sessionId)
-                if (draft && !composerTextRef.current) {
-                    setText(draft)
-                }
+            const draft = forkedFrom ? null : getDraft(sessionId)
+            const restoredText = !composerTextRef.current ? forkedFrom || draft : null
+            const restoreText = Boolean(restoredText)
+            if (restoreText) {
+                if (forkedFrom) clearDraft(sessionId)
+                // Mark before the external composer store gets its render so a
+                // consumer never mistakes this persisted replacement for empty.
+                setHydration({ sessionId, complete: !canRestoreAttachments, restoredAny: true })
+                setText(restoredText!)
             }
             draftReadyRef.current = true
-            if (canRestoreAttachments) {
-                void getDraftAttachments(sessionId).then(async (files) => {
-                    if (!disposed && attachmentsRef.current.length === 0) {
-                        for (const file of files) {
-                            if (disposed) break
+
+            if (!canRestoreAttachments) {
+                if (!restoreText) setHydration({ sessionId, complete: true, restoredAny: false })
+                return
+            }
+
+            void getDraftAttachments(sessionId).then(async (files) => {
+                // The promise belongs to this session's effect. A later keyed
+                // session can already be hydrating when it settles, so never
+                // publish old status or rehydrate old files after disposal.
+                if (disposed) return
+                const restoreAttachments = attachmentsRef.current.length === 0 && files.length > 0
+                // Text is already known to be restored; attachment presence by
+                // itself is not. An upload can fail, so only successful adds
+                // contribute to restoredAny in the final completion update.
+                setHydration((current) => current.sessionId === sessionId
+                    ? {
+                        sessionId,
+                        complete: false,
+                        restoredAny: restoreText || current.restoredAny,
+                    }
+                    : current)
+                let restoredAttachment = false
+                if (restoreAttachments) {
+                    for (const file of files) {
+                        if (disposed) break
+                        try {
                             await addAttachment(file)
+                            restoredAttachment = true
+                        } catch {
+                            // Continue restoring remaining files; one failed
+                            // attachment must not discard a successful sibling.
                         }
                     }
-                }).catch(() => {
-                    // Attachment draft restoration is best effort.
-                }).finally(() => {
-                    if (!disposed) attachmentsReadyRef.current = true
-                })
-            }
+                }
+                return restoredAttachment
+            }).catch(() => {
+                // Attachment draft read is best effort.
+                return false
+            }).then((restoredAttachment) => {
+                if (!disposed) {
+                    attachmentsReadyRef.current = true
+                    setHydration((current) => current.sessionId === sessionId
+                        ? {
+                            ...current,
+                            complete: true,
+                            restoredAny: current.restoredAny || Boolean(restoredAttachment),
+                        }
+                        : current)
+                }
+            })
         })
 
         return () => {
@@ -83,4 +140,6 @@ export function useComposerDraft(
             attachmentsReadyRef.current = false
         }
     }, [sessionId, canRestoreAttachments]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    return hydration
 }

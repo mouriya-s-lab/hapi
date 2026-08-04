@@ -13,7 +13,7 @@ vi.mock('@assistant-ui/react', () => ({
         Viewport: ({ children }: PropsWithChildren) => <>{children}</>,
         Messages: () => <div id="stable-visible-message" data-testid="stable-visible-message" />,
     },
-    useAssistantState<T>(selector: (state: { thread: { extras: undefined } }) => T): T {
+    useAuiState<T>(selector: (state: { thread: { extras: undefined } }) => T): T {
         return selector({ thread: { extras: undefined } })
     },
 }))

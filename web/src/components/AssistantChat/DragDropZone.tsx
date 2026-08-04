@@ -1,5 +1,5 @@
 import { useCallback } from 'react'
-import { useAssistantApi } from '@assistant-ui/react'
+import { useAui } from '@assistant-ui/react'
 import { useDragOver } from '@/hooks/useDragOver'
 import { useTranslation } from '@/lib/use-translation'
 
@@ -10,7 +10,7 @@ export function DragDropZone({
     children: React.ReactNode
     disabled?: boolean
 }) {
-    const api = useAssistantApi()
+    const api = useAui()
     const isDragging = useDragOver()
     const { t } = useTranslation()
 

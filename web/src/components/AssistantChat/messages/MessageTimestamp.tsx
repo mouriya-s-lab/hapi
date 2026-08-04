@@ -1,4 +1,4 @@
-import { useAssistantState } from '@assistant-ui/react'
+import { useAuiState } from '@assistant-ui/react'
 import { formatMessageTimestamp, formatMessageTimestampTitle } from '@/chat/presentation'
 import { cn } from '@/lib/utils'
 
@@ -7,7 +7,7 @@ type MessageTimestampProps = {
 }
 
 export function MessageTimestamp(props: MessageTimestampProps) {
-    const createdAt = useAssistantState(({ message }) => message.createdAt)
+    const createdAt = useAuiState((s) => s.message.createdAt)
 
     return (
         <time

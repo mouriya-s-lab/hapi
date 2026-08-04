@@ -1,4 +1,5 @@
 import { MODEL_OPTIONS } from '@/components/NewSession/types'
+import { CURSOR_AUTO_MODEL_LABEL } from '@/lib/cursorModelOptions'
 import { getClaudeComposerModelOptions, getNextClaudeComposerModel } from './claudeModelOptions'
 import type { ClaudeComposerModelOption } from './claudeModelOptions'
 
@@ -120,7 +121,7 @@ export function getModelOptionsForFlavor(
         return []
     }
     if (flavor === 'cursor') {
-        return withCurrentModelOption([{ value: null, label: 'Default' }], currentModel)
+        return withCurrentModelOption([{ value: null, label: CURSOR_AUTO_MODEL_LABEL }], currentModel)
     }
     // Kimi has no predefined model list — show just the auto/default option.
     if (flavor === 'kimi') {

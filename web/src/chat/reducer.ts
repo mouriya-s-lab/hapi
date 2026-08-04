@@ -37,6 +37,13 @@ export type LatestUsage = {
     cacheRead: number
     contextSize: number
     contextWindow: number | null
+    /**
+     * Model reported by the usage-bearing message itself. Local-mode Claude
+     * sessions often have session.model = null (the model is picked inside the
+     * TUI), so this is the only model signal available for the context-window
+     * heuristic when the usage carries no explicit context_window.
+     */
+    model: string | null
     timestamp: number
 }
 
@@ -193,6 +200,7 @@ export function reduceChatBlocks(
                 cacheRead: msg.usage.cache_read_input_tokens ?? 0,
                 contextSize: calculateContextSize(msg.usage),
                 contextWindow: msg.usage.context_window ?? null,
+                model: msg.model ?? null,
                 timestamp: msg.createdAt
             }
             break

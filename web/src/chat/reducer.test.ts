@@ -330,6 +330,36 @@ describe('reduceChatBlocks', () => {
         })
     })
 
+    it('carries the usage message model for the context-window heuristic', () => {
+        // Local-mode Claude transcripts have no context_window in usage and
+        // session.model is often null, so latestUsage.model is the only
+        // signal the status bar has to resolve a plausible window.
+        const messages: NormalizedMessage[] = [
+            {
+                id: 'local-turn',
+                localId: null,
+                createdAt: 1_700_000_000_000,
+                role: 'agent',
+                content: [],
+                isSidechain: false,
+                model: 'claude-fable-5',
+                usage: {
+                    input_tokens: 2,
+                    output_tokens: 50,
+                    cache_read_input_tokens: 250_000
+                }
+            }
+        ] as NormalizedMessage[]
+
+        const reduced = reduceChatBlocks(messages, null)
+
+        expect(reduced.latestUsage).toMatchObject({
+            contextSize: 250_002,
+            contextWindow: null,
+            model: 'claude-fable-5'
+        })
+    })
+
     it('keeps active goals visible across later normal user messages', () => {
         const reduced = reduceChatBlocks([
             goalMessage('goal-active', 'active', 1),

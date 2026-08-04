@@ -1,5 +1,6 @@
 import { useTranslation } from '@/lib/use-translation'
 import type { NewSessionServiceTier } from './types'
+import { SelectControl } from '@/components/ui/select-control'
 
 export type { NewSessionServiceTier }
 
@@ -21,15 +22,15 @@ export function FastModeSelector(props: {
                 {t('newSession.fastMode')}{' '}
                 <span className="font-normal">({t('newSession.model.optional')})</span>
             </label>
-            <select
+            <SelectControl
                 value={props.value}
                 onChange={(e) => props.onChange(e.target.value as NewSessionServiceTier)}
                 disabled={props.isDisabled}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--app-divider)] bg-[var(--app-bg)] text-[var(--app-text)] focus:outline-none focus:ring-2 focus:ring-[var(--app-link)] disabled:opacity-50"
+                className="py-2 pl-3 text-sm rounded-lg border border-[var(--app-divider)] bg-[var(--app-bg)] text-[var(--app-text)] focus:outline-none focus:ring-2 focus:ring-[var(--app-link)] disabled:opacity-50"
             >
                 <option value="standard">{t('misc.fastModeStandard')}</option>
                 <option value="fast">{t('misc.fastModeFast')}</option>
-            </select>
+            </SelectControl>
         </div>
     )
 }

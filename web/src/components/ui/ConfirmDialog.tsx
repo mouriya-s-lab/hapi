@@ -19,6 +19,7 @@ type ConfirmDialogProps = {
     onConfirm: () => Promise<void>
     isPending: boolean
     destructive?: boolean
+    centerTitle?: boolean
 }
 
 export function ConfirmDialog(props: ConfirmDialogProps) {
@@ -32,7 +33,8 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
         confirmingLabel,
         onConfirm,
         isPending,
-        destructive = false
+        destructive = false,
+        centerTitle = false
     } = props
 
     const [error, setError] = useState<string | null>(null)
@@ -61,8 +63,14 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
             <DialogContent className="max-w-sm">
-                <DialogHeader>
-                    <DialogTitle>{title}</DialogTitle>
+                <DialogHeader className={centerTitle ? 'pr-0' : undefined}>
+                    <DialogTitle
+                        className={centerTitle
+                            ? 'min-h-6 px-10 text-center leading-6'
+                            : undefined}
+                    >
+                        {title}
+                    </DialogTitle>
                     <DialogDescription className="mt-2 whitespace-pre-line">
                         {description}
                     </DialogDescription>

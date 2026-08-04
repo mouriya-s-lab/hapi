@@ -27,6 +27,10 @@ describe('getBuiltinSlashCommands', () => {
         )
     })
 
+    it.each(['pi', 'kimi'])('does not fall back to Claude commands for %s', (flavor) => {
+        expect(getBuiltinSlashCommands(flavor)).toEqual([])
+    })
+
     it('includes debug only in Cursor permission modes', () => {
         expect(getPermissionModesForFlavor('cursor')).toContain('debug')
         expect(getPermissionModesForFlavor('claude')).not.toContain('debug')

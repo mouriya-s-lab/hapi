@@ -18,6 +18,8 @@ export interface SessionHookData {
     cwd?: string;
     hook_event_name?: string;
     source?: string;
+    /** Present on UserPromptSubmit/PreToolUse hooks; absent on SessionStart. */
+    permission_mode?: unknown;
     [key: string]: unknown;
 }
 

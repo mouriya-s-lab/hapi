@@ -14,6 +14,12 @@ describe('getContextBudgetTokens', () => {
         expect(getContextBudgetTokens('claude-opus-4-8[1m]', 'claude')).toBe(990_000)
     })
 
+    it('uses the large budget for Fable even under its bare id (1M window)', () => {
+        expect(getContextBudgetTokens('claude-fable-5', 'claude')).toBe(990_000)
+        expect(getContextBudgetTokens('fable', 'claude')).toBe(990_000)
+        expect(getContextBudgetTokens('fable[1m]', 'claude')).toBe(990_000)
+    })
+
     it('uses Codex app-server context window with headroom', () => {
         expect(getContextBudgetTokens('gpt-5.4', 'codex')).toBe(248_400)
     })

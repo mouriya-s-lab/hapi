@@ -19,11 +19,15 @@ export function createCodexForkClient(appServerClient: CodexAppServerClient): Co
             }
 
             const source = await appServerClient.readThread({ threadId: args.threadId, includeTurns: true })
-            const targetTurnIndex = source.thread.turns.length - args.tailOffset - 1
+            const turns = source.thread.turns
+            if (!turns) {
+                throw new Error('codex thread/fork: response missing thread.turns')
+            }
+            const targetTurnIndex = turns.length - args.tailOffset - 1
             if (targetTurnIndex < 0) {
                 throw new Error(`codex thread/fork: tailOffset ${args.tailOffset} exceeds source turn history`)
             }
-            const lastTurnId = source.thread.turns[targetTurnIndex]?.id
+            const lastTurnId = turns[targetTurnIndex]?.id
             if (!lastTurnId) {
                 throw new Error(`codex thread/fork: source turn ${targetTurnIndex} missing id`)
             }

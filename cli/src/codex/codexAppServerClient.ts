@@ -9,15 +9,18 @@ import type {
     InitializeResponse,
     ModelListParams,
     ModelListResponse,
+    SkillsListParams,
+    SkillsListResponse,
     ThreadStartParams,
     ThreadStartResponse,
     ThreadResumeParams,
     ThreadResumeResponse,
     ThreadForkParams,
-    ThreadReadResponse,
     ThreadListParams,
     ThreadListResponse,
     ThreadForkResponse,
+    ThreadReadParams,
+    ThreadReadResponse,
     TurnStartParams,
     TurnStartResponse,
     TurnInterruptParams,
@@ -248,6 +251,13 @@ export class CodexAppServerClient extends JsonLineParser {
         return response as ModelListResponse;
     }
 
+    async listSkills(params: SkillsListParams): Promise<SkillsListResponse> {
+        const response = await this.sendRequest('skills/list', params, {
+            timeoutMs: 30_000
+        });
+        return response as SkillsListResponse;
+    }
+
     async listCollaborationModes(): Promise<CollaborationModeListResponse> {
         const response = await this.sendRequest('collaborationMode/list', {}, {
             timeoutMs: 30_000
@@ -288,7 +298,18 @@ export class CodexAppServerClient extends JsonLineParser {
         return response as ThreadForkResponse;
     }
 
-    async readThread(params: { threadId: string; includeTurns: true }, options?: { signal?: AbortSignal }): Promise<ThreadReadResponse> {
+    async supportsMethod(method: 'thread/fork' | 'thread/rollback'): Promise<boolean> {
+        try {
+            await this.sendRequest(method, { threadId: '__hapi_capability_probe__' }, { timeoutMs: 30_000 });
+            return true;
+        } catch (error) {
+            return !/method not found|unknown method|unsupported/i.test(
+                error instanceof Error ? error.message : String(error)
+            );
+        }
+    }
+
+    async readThread(params: ThreadReadParams, options?: { signal?: AbortSignal }): Promise<ThreadReadResponse> {
         const response = await this.sendRequest('thread/read', params, {
             signal: options?.signal,
             timeoutMs: CodexAppServerClient.DEFAULT_TIMEOUT_MS

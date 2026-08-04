@@ -5,6 +5,8 @@ const BASE_URL = `http://localhost:${PORT}`
 
 export default defineConfig({
     testDir: './e2e',
+    // Ignore fork-local peer-stack specs if present (HAPI_PEER_*); not shipped upstream.
+    testIgnore: ['**/peer/**'],
     timeout: 30_000,
     expect: { timeout: 5_000 },
     fullyParallel: false,

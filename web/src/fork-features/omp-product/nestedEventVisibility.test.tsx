@@ -72,7 +72,8 @@ function props(artifact: ToolCallBlock): ToolCallMessagePartProps {
         artifact,
         status: { type: 'complete' },
         addResult: () => undefined,
-        resume: () => undefined
+        resume: () => undefined,
+        respondToApproval: () => undefined
     }
 }
 

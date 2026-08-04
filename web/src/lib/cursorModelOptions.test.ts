@@ -3,6 +3,7 @@ import {
     buildCursorEffortPickerOptions,
     buildCursorModelCatalog,
     buildFlatCursorModelPickerOptions,
+    CURSOR_AUTO_MODEL_LABEL,
     cursorCatalogHasMultiVariantBases,
     shouldUseCursorDualPickers,
     cursorEffortPickerLabel,
@@ -56,7 +57,7 @@ describe('buildCursorModelCatalog', () => {
     it('groups exact ACP wire variants by raw base id and sorts model bases', () => {
         const catalog = buildCursorModelCatalog([...acpModels])
         expect(catalog.baseOptions.map((o) => o.label)).toEqual([
-            'Default',
+            CURSOR_AUTO_MODEL_LABEL,
             'claude-opus-4-8',
             'composer-2.5',
         ])
@@ -102,7 +103,7 @@ describe('picker labels and modes', () => {
         ], { defaultValue: 'auto' })
         expect(cursorCatalogHasMultiVariantBases(catalog)).toBe(false)
         expect(buildFlatCursorModelPickerOptions(catalog, { defaultValue: 'auto' })).toEqual([
-            { value: 'auto', label: 'Default' },
+            { value: 'auto', label: CURSOR_AUTO_MODEL_LABEL },
             {
                 value: 'claude-opus-4-7[thinking=true,context=300k,effort=xhigh,fast=false]',
                 label: 'claude-opus-4-7 · thinking=true,context=300k,effort=xhigh,fast=false'
@@ -129,7 +130,7 @@ describe('picker labels and modes', () => {
             { modelId: 'composer-2.5[fast=false]', name: 'Composer 2.5' },
         ], { defaultValue: 'auto' })
         expect(buildFlatCursorModelPickerOptions(catalog, { defaultValue: 'auto' })).toEqual([
-            { value: 'auto', label: 'Default' },
+            { value: 'auto', label: CURSOR_AUTO_MODEL_LABEL },
             { value: 'composer-2.5[fast=true]', label: 'fast=true' },
             { value: 'composer-2.5[fast=false]', label: 'fast=false' },
         ])

@@ -1,6 +1,7 @@
 import type { AgentType } from './types'
 import { MODEL_OPTIONS } from './types'
 import { useTranslation } from '@/lib/use-translation'
+import { SelectControl } from '@/components/ui/select-control'
 
 export function ModelSelector(props: {
     agent: AgentType
@@ -26,18 +27,18 @@ export function ModelSelector(props: {
                     <span className="font-normal">({t('newSession.model.optional')})</span>
                 ) : null}
             </label>
-            <select
+            <SelectControl
                 value={props.model}
                 onChange={(e) => props.onModelChange(e.target.value)}
                 disabled={props.isDisabled || props.isLoading}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--app-divider)] bg-[var(--app-bg)] text-[var(--app-text)] focus:outline-none focus:ring-2 focus:ring-[var(--app-link)] disabled:opacity-50"
+                className="py-2 pl-3 text-sm rounded-lg border border-[var(--app-divider)] bg-[var(--app-bg)] text-[var(--app-text)] focus:outline-none focus:ring-2 focus:ring-[var(--app-link)] disabled:opacity-50"
             >
                 {options.map((option) => (
                     <option key={option.value} value={option.value}>
                         {option.label}
                     </option>
                 ))}
-            </select>
+            </SelectControl>
             {props.error ? (
                 <div className="text-xs text-red-600">
                     {props.error}

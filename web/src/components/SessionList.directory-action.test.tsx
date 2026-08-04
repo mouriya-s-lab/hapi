@@ -120,9 +120,11 @@ describe('SessionList directory action', () => {
         const listContent = projectHeader.parentElement?.parentElement
         expect(listContent).not.toHaveClass('pt-1')
 
+        fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
         const searchInput = screen.getByPlaceholderText(/Search sessions/)
-        const searchWrapper = searchInput.parentElement?.parentElement
-        expect(searchWrapper).toHaveClass('pb-1')
+        const headerRow = searchInput.parentElement?.parentElement
+        expect(headerRow).toHaveClass('px-2')
+        expect(headerRow).toHaveClass('py-1')
     })
 
     it('hides the directory action for sessions without path metadata', () => {
@@ -182,6 +184,7 @@ describe('SessionList time filter', () => {
         expect(screen.getByRole('button', { name: /Recent session/ })).toBeInTheDocument()
         expect(screen.getByRole('button', { name: /Old session/ })).toBeInTheDocument()
 
+        fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
         fireEvent.click(screen.getByRole('button', { name: 'Filter sessions by last activity' }))
         const emptyDate = screen.getByRole('button', { name: new Date(2026, 6, 17).toLocaleDateString() })
         const activeDate = screen.getByRole('button', { name: `${new Date(2026, 6, 18).toLocaleDateString()}, has session activity` })
@@ -215,6 +218,7 @@ describe('SessionList time filter', () => {
             />
         )
 
+        fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
         fireEvent.click(screen.getByRole('button', { name: 'Filter sessions by last activity' }))
         const today = screen.getByRole('button', { name: new Date(2026, 6, 18).toLocaleDateString() })
         const anotherDay = screen.getByRole('button', { name: new Date(2026, 6, 17).toLocaleDateString() })
@@ -244,6 +248,7 @@ describe('SessionList time filter', () => {
             />
         )
 
+        fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
         const filterButton = screen.getByRole('button', { name: 'Filter sessions by last activity' })
         fireEvent.click(filterButton)
         const startDate = screen.getByRole('button', { name: new Date(2026, 6, 1).toLocaleDateString() })
@@ -255,6 +260,41 @@ describe('SessionList time filter', () => {
 
         expect(filterButton).toHaveAttribute('aria-expanded', 'false')
         expect(filterButton).toHaveAttribute('title', '2026-07-01 – 2026-07-18')
+    })
+
+    it('returns focus to the search input after clearing the date range', () => {
+        const session = makeSession({
+            id: 'session-1',
+            updatedAt: Date.now(),
+            metadata: { path: '/work/hapi', name: 'Session' }
+        })
+
+        renderWithProviders(
+            <SessionList
+                sessions={[session]}
+                selectedSessionId={null}
+                onSelect={vi.fn()}
+                onNewSession={vi.fn()}
+                onRefresh={vi.fn()}
+                isLoading={false}
+                renderHeader={false}
+                api={null}
+            />
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
+        const input = screen.getByPlaceholderText('Search sessions…')
+        const filterButton = screen.getByRole('button', { name: 'Filter sessions by last activity' })
+        fireEvent.click(filterButton)
+        fireEvent.click(screen.getByRole('button', { name: new Date(2026, 6, 1).toLocaleDateString() }))
+        fireEvent.click(screen.getByRole('button', { name: `${new Date(2026, 6, 18).toLocaleDateString()}, has session activity` }))
+
+        // The footer Clear button unmounts with the range; focus must not drop to body.
+        fireEvent.click(filterButton)
+        fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+
+        expect(input).toHaveFocus()
+        expect(filterButton).toHaveAttribute('title', 'Filter sessions by last activity')
     })
 })
 
@@ -348,9 +388,9 @@ describe('SessionList collapse behavior', () => {
         ]
         const { rerender } = render(renderSessionList(baseSessions))
 
-        expect(getProjectPanel().getAttribute('data-open')).toBe('true')
-
-        fireEvent.click(screen.getByTitle('/work/hapi'))
+        // The running session is pinned in the "in progress" section; the
+        // directory group now only holds inactive sessions and starts
+        // collapsed.
         expect(getProjectPanel().getAttribute('data-open')).toBeNull()
 
         rerender(renderSessionList([
@@ -370,9 +410,7 @@ describe('SessionList collapse behavior', () => {
     it('auto-expands the path again when the selected session changes', async () => {
         const sessions = [
             makeSession({
-                id: 'session-running',
-                active: true,
-                thinking: true,
+                id: 'session-first',
                 updatedAt: 100,
                 metadata: { path: '/work/hapi', name: 'Running task', flavor: 'codex' },
             }),
@@ -384,14 +422,83 @@ describe('SessionList collapse behavior', () => {
         ]
         const { rerender } = render(renderSessionList(sessions))
 
-        fireEvent.click(screen.getByTitle('/work/hapi'))
+        // Inactive-only groups start collapsed; selecting a session inside
+        // one auto-expands it.
         expect(getProjectPanel().getAttribute('data-open')).toBeNull()
 
-        rerender(renderSessionList(sessions, 'session-next'))
+        rerender(renderSessionList([
+            ...sessions,
+            makeSession({
+                id: 'session-running',
+                active: true,
+                thinking: true,
+                updatedAt: 110,
+                metadata: { path: '/work/hapi', name: 'Running task', flavor: 'codex' },
+            }),
+        ], 'session-next'))
 
         await waitFor(() => {
             expect(getProjectPanel().getAttribute('data-open')).toBe('true')
         })
+    })
+
+    it('keeps the running section open while searching even when collapsed', () => {
+        const sessions = [
+            makeSession({
+                id: 'session-running',
+                active: true,
+                thinking: true,
+                updatedAt: 100,
+                metadata: { path: '/work/hapi', name: 'Running task', flavor: 'codex' },
+            }),
+            makeSession({
+                id: 'session-idle',
+                updatedAt: 50,
+                metadata: { path: '/work/hapi', name: 'Idle task', flavor: 'codex' },
+            }),
+        ]
+        render(renderSessionList(sessions))
+
+        const runningPanel = () => screen.getByTitle('In progress').nextElementSibling
+
+        expect(runningPanel()?.getAttribute('data-open')).toBe('true')
+        expect(screen.getByTitle('In progress').getAttribute('aria-expanded')).toBe('true')
+
+        fireEvent.click(screen.getByTitle('In progress'))
+        expect(runningPanel()?.getAttribute('data-open')).toBeNull()
+        expect(screen.getByTitle('In progress').getAttribute('aria-expanded')).toBe('false')
+
+        fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
+        fireEvent.change(screen.getByPlaceholderText('Search sessions…'), {
+            target: { value: 'Running' },
+        })
+
+        expect(runningPanel()?.getAttribute('data-open')).toBe('true')
+        // The section stays reported open while searching even though the
+        // underlying collapsed state is still set.
+        expect(screen.getByTitle('In progress').getAttribute('aria-expanded')).toBe('true')
+    })
+
+    it('toggles the running section with the keyboard', () => {
+        const sessions = [
+            makeSession({
+                id: 'session-running',
+                active: true,
+                thinking: true,
+                updatedAt: 100,
+                metadata: { path: '/work/hapi', name: 'Running task', flavor: 'codex' },
+            }),
+        ]
+        render(renderSessionList(sessions))
+
+        const header = screen.getByRole('button', { name: /In progress/ })
+        expect(header.getAttribute('aria-expanded')).toBe('true')
+
+        fireEvent.keyDown(header, { key: 'Enter' })
+        expect(header.getAttribute('aria-expanded')).toBe('false')
+
+        fireEvent.keyDown(header, { key: ' ' })
+        expect(header.getAttribute('aria-expanded')).toBe('true')
     })
 
     it('keeps the previous selected path open when selection moves', async () => {
@@ -431,6 +538,7 @@ describe('SessionList collapse behavior', () => {
         }))
 
         render(renderSessionList(sessions, null))
+        fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
         fireEvent.change(screen.getByPlaceholderText('Search sessions…'), {
             target: { value: 'Matching task' },
         })
@@ -544,5 +652,126 @@ describe('SessionList collapse behavior', () => {
         expect(screen.getByRole('button', { name: /Task 7/ })).toBeInTheDocument()
         expect(screen.queryByRole('button', { name: /Task 8/ })).toBeNull()
         expect(screen.getByRole('button', { name: 'Expand 1' })).toBeInTheDocument()
+    })
+})
+
+describe('SessionList search toggle', () => {
+    it('expands on icon click and keeps filtering after collapsing on blur', () => {
+        const sessions = [
+            makeSession({
+                id: 'session-match',
+                updatedAt: 100,
+                metadata: { path: '/work/hapi', name: 'Matching task', flavor: 'codex' },
+            }),
+            makeSession({
+                id: 'session-other',
+                updatedAt: 90,
+                metadata: { path: '/work/hapi', name: 'Other task', flavor: 'codex' },
+            }),
+        ]
+
+        renderWithProviders(
+            <SessionList
+                sessions={sessions}
+                selectedSessionId={null}
+                onSelect={vi.fn()}
+                onNewSession={vi.fn()}
+                onRefresh={vi.fn()}
+                isLoading={false}
+                renderHeader={false}
+                api={null}
+            />
+        )
+
+        // Collapsed by default: only the toggle icon is rendered.
+        expect(screen.queryByPlaceholderText('Search sessions…')).toBeNull()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
+        const input = screen.getByPlaceholderText('Search sessions…')
+        expect(input).toHaveFocus()
+
+        fireEvent.change(input, { target: { value: 'Matching' } })
+        expect(screen.getByRole('button', { name: /Matching task/ })).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: /Other task/ })).toBeNull()
+
+        // Blur collapses back to the icon; the query stays applied.
+        fireEvent.blur(input)
+        expect(screen.queryByPlaceholderText('Search sessions…')).toBeNull()
+        expect(screen.getByRole('button', { name: 'Search sessions' })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /Matching task/ })).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: /Other task/ })).toBeNull()
+    })
+
+    it('stays expanded with focus on the input after clearing the query', () => {
+        renderWithProviders(
+            <SessionList
+                sessions={[makeSession({
+                    id: 'session-1',
+                    updatedAt: 100,
+                    metadata: { path: '/work/hapi', name: 'Task', flavor: 'codex' },
+                })]}
+                selectedSessionId={null}
+                onSelect={vi.fn()}
+                onNewSession={vi.fn()}
+                onRefresh={vi.fn()}
+                isLoading={false}
+                renderHeader={false}
+                api={null}
+            />
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
+        const input = screen.getByPlaceholderText('Search sessions…')
+        fireEvent.change(input, { target: { value: 'Task' } })
+
+        // The clear button unmounts itself; focus must return to the input so a
+        // later outside click still collapses the search via the wrapper blur.
+        fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
+
+        expect(input).toHaveFocus()
+        expect(input).toHaveValue('')
+        expect(screen.getByPlaceholderText('Search sessions…')).toBeInTheDocument()
+    })
+
+    it('keeps header actions visible when sessions become empty while search is expanded', () => {
+        const renderList = (sessions: SessionSummary[]) => (
+            <QueryClientProvider client={new QueryClient({
+                defaultOptions: {
+                    queries: { retry: false },
+                    mutations: { retry: false },
+                }
+            })}>
+                <ToastProvider>
+                    <I18nProvider>
+                        <SessionList
+                            sessions={sessions}
+                            selectedSessionId={null}
+                            onSelect={vi.fn()}
+                            onNewSession={vi.fn()}
+                            onRefresh={vi.fn()}
+                            isLoading={false}
+                            renderHeader={false}
+                            headerActions={<button type="button">Refresh</button>}
+                            api={null}
+                        />
+                    </I18nProvider>
+                </ToastProvider>
+            </QueryClientProvider>
+        )
+        const { rerender } = render(renderList([
+            makeSession({
+                id: 'session-1',
+                updatedAt: 100,
+                metadata: { path: '/work/hapi', name: 'Task', flavor: 'codex' },
+            }),
+        ]))
+
+        fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
+        expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull()
+
+        rerender(renderList([]))
+
+        expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: 'Search sessions' })).toBeNull()
     })
 })

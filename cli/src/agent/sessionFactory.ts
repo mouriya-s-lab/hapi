@@ -112,6 +112,7 @@ function pickExistingSessionMetadata(metadata: Metadata | null | undefined): Par
     if (metadata.cursorSessionProtocol !== undefined) preserved.cursorSessionProtocol = metadata.cursorSessionProtocol
     if (metadata.kimiSessionId !== undefined) preserved.kimiSessionId = metadata.kimiSessionId
     if (metadata.piSessionId !== undefined) preserved.piSessionId = metadata.piSessionId
+    if (metadata.piResumeAttempt !== undefined) preserved.piResumeAttempt = metadata.piResumeAttempt
     if (metadata.preferredPermissionMode !== undefined) preserved.preferredPermissionMode = metadata.preferredPermissionMode
     if (metadata.ompSession !== undefined) preserved.ompSession = metadata.ompSession
     if (metadata.ompThinking !== undefined) preserved.ompThinking = metadata.ompThinking
@@ -123,6 +124,27 @@ function pickExistingSessionMetadata(metadata: Metadata | null | undefined): Par
     if (metadata.piAvailableModels !== undefined) preserved.piAvailableModels = metadata.piAvailableModels
     // Preserve provider-qualified Pi model selection (disambiguates duplicate modelIds).
     if (metadata.piSelectedModel !== undefined) preserved.piSelectedModel = metadata.piSelectedModel
+    if (metadata.conversationHistoryPoints !== undefined) {
+        preserved.conversationHistoryPoints = metadata.conversationHistoryPoints
+    }
+    if (metadata.conversationHistoryIndexes !== undefined) {
+        preserved.conversationHistoryIndexes = metadata.conversationHistoryIndexes
+    }
+    if (metadata.conversationHistoryTurns !== undefined) {
+        preserved.conversationHistoryTurns = metadata.conversationHistoryTurns
+    }
+    if (metadata.conversationHistoryDiverged !== undefined) {
+        preserved.conversationHistoryDiverged = metadata.conversationHistoryDiverged
+    }
+    if (metadata.forkedFrom !== undefined) {
+        preserved.forkedFrom = metadata.forkedFrom
+    }
+    if (metadata.capabilities?.conversationHistory !== undefined) {
+        preserved.capabilities = {
+            ...preserved.capabilities,
+            conversationHistory: metadata.capabilities.conversationHistory
+        }
+    }
 
     return preserved
 }
@@ -310,17 +332,20 @@ export async function bootstrapExistingSession(options: {
         workingDirectory: options.workingDirectory,
         machineId
     })
-    const metadata = {
-        ...baseMetadata,
-        ...pickExistingSessionMetadata(sessionInfo.metadata),
-        ...options.metadataOverrides
+    const buildUpdatedMetadata = (current: Metadata | null | undefined): Metadata => {
+        const preserved = pickExistingSessionMetadata(current)
+        return {
+            ...baseMetadata,
+            ...preserved,
+            ...options.metadataOverrides,
+            capabilities: {
+                ...baseMetadata.capabilities,
+                ...preserved.capabilities,
+                ...options.metadataOverrides?.capabilities
+            }
+        }
     }
-
-    const buildUpdatedMetadata = (current: Metadata): Metadata => ({
-        ...baseMetadata,
-        ...pickExistingSessionMetadata(current),
-        ...options.metadataOverrides
-    })
+    const metadata = buildUpdatedMetadata(sessionInfo.metadata)
 
     const session = api.sessionSyncClient(sessionInfo)
     session.updateMetadata(buildUpdatedMetadata)

@@ -499,7 +499,7 @@ describe('ApiMachineClient SpawnHappySession handler', () => {
 
         client.setRPCHandlers({
             spawnSession,
-            stopSession: vi.fn(async () => true),
+            stopSession: vi.fn(async () => 'stopped' as const),
             requestShutdown: vi.fn()
         })
 
@@ -513,12 +513,41 @@ describe('ApiMachineClient SpawnHappySession handler', () => {
 
             expect(result).toEqual({ type: 'success', sessionId: 'session-1' })
             expect(spawnSession).toHaveBeenCalledWith(expect.objectContaining({
-                directory: workspaceRoot,
+                directory: realpathSync.native(workspaceRoot),
                 agent: 'codex',
                 serviceTier: 'fast',
                 collaborationMode: 'plan'
             }))
         } finally {
+            client.shutdown()
+        }
+    })
+
+    it('rejects directories outside workspace roots before spawning', async () => {
+        const machine = makeMachine('machine-spawn-2')
+        const client = new ApiMachineClient('cli-token', machine, [workspaceRoot])
+        const spawnSession = vi.fn(async () => ({ type: 'success' as const, sessionId: 'session-2' }))
+        const outsideRoot = mkdtempSync(join(tmpdir(), 'hapi-machine-spawn-outside-'))
+
+        client.setRPCHandlers({
+            spawnSession,
+            stopSession: vi.fn(async () => 'stopped' as const),
+            requestShutdown: vi.fn()
+        })
+
+        try {
+            const result = await callSpawnHappySession(client, machine.id, {
+                directory: outsideRoot,
+                agent: 'codex'
+            })
+
+            expect(result).toEqual({
+                type: 'error',
+                errorMessage: 'Directory is outside this machine\'s workspace roots'
+            })
+            expect(spawnSession).not.toHaveBeenCalled()
+        } finally {
+            rmSync(outsideRoot, { recursive: true, force: true })
             client.shutdown()
         }
     })
@@ -580,5 +609,62 @@ describe('ApiMachineClient keepAlive lifecycle', () => {
 
         expect(emit).toHaveBeenCalledTimes(1)
         expect(priv.keepAliveInterval).toBeNull()
+    })
+})
+
+describe('ApiMachineClient list-directory handler', () => {
+    let workspaceRoot: string
+
+    beforeEach(() => {
+        ioMock.mockReset()
+        workspaceRoot = mkdtempSync(join(tmpdir(), 'hapi-machine-ls-'))
+        mkdirSync(join(workspaceRoot, 'visible-dir'))
+        mkdirSync(join(workspaceRoot, '.hidden-dir'))
+        writeFileSync(join(workspaceRoot, 'plain.txt'), 'x')
+        writeFileSync(join(workspaceRoot, '.hidden-file'), 'x')
+    })
+
+    afterEach(() => {
+        rmSync(workspaceRoot, { recursive: true, force: true })
+    })
+
+    async function callListDirectory(client: ApiMachineClient, machineId: string, params: { path: string; includeHidden?: boolean }): Promise<unknown> {
+        const manager = (client as unknown as { rpcHandlerManager: { handleRequest: (req: { method: string; params: string }) => Promise<string> } }).rpcHandlerManager
+        const raw = await manager.handleRequest({
+            method: `${machineId}:list-directory`,
+            params: JSON.stringify(params)
+        })
+        return JSON.parse(raw) as unknown
+    }
+
+    function entryNames(result: unknown): string[] {
+        const entries = (result as { success: boolean; entries?: { name: string }[] }).entries ?? []
+        return entries.map((entry) => entry.name).sort()
+    }
+
+    it('filters dot-prefixed entries by default', async () => {
+        const machine = makeMachine('machine-ls-1')
+        const client = new ApiMachineClient('cli-token', machine, [workspaceRoot])
+
+        try {
+            const result = await callListDirectory(client, machine.id, { path: workspaceRoot })
+            expect((result as { success: boolean }).success).toBe(true)
+            expect(entryNames(result)).toEqual(['plain.txt', 'visible-dir'])
+        } finally {
+            client.shutdown()
+        }
+    })
+
+    it('includes dot-prefixed entries when includeHidden is true', async () => {
+        const machine = makeMachine('machine-ls-2')
+        const client = new ApiMachineClient('cli-token', machine, [workspaceRoot])
+
+        try {
+            const result = await callListDirectory(client, machine.id, { path: workspaceRoot, includeHidden: true })
+            expect((result as { success: boolean }).success).toBe(true)
+            expect(entryNames(result)).toEqual(['.hidden-dir', '.hidden-file', 'plain.txt', 'visible-dir'])
+        } finally {
+            client.shutdown()
+        }
     })
 })

@@ -50,7 +50,7 @@ describe('startHappyServer inline media MCP', () => {
         const server = await startHappyServer(sessionClient)
         cleanups.push(server.stop)
         expect(metadata.hapiMcpUrl).toBe(server.url)
-        expect(server.toolNames).toEqual(['change_title', 'display_image', 'ping_peer', 'display_video', 'send_file'])
+        expect(server.toolNames).toEqual(['change_title', 'display_image', 'ping_peer', 'inspect_peer', 'display_video', 'send_file'])
 
         const client = new Client({ name: 'inline-media-integration-test', version: '1.0.0' })
         await client.connect(new StreamableHTTPClientTransport(new URL(server.url)))
@@ -240,6 +240,7 @@ describe('startHappyServer skill_lookup', () => {
             'change_title',
             'display_image',
             'ping_peer',
+            'inspect_peer',
             'display_video',
             'send_file'
         ])
@@ -259,18 +260,24 @@ describe('startHappyServer skill_lookup', () => {
         await mcp.connect(new StreamableHTTPClientTransport(new URL(server.url)))
         const tools = await mcp.listTools()
 
-        expect(server.toolNames).toEqual(['display_image', 'ping_peer', 'display_video', 'send_file'])
-        expect(tools.tools.map((tool) => tool.name)).toEqual(['display_image', 'ping_peer', 'display_video', 'send_file'])
+        expect(server.toolNames).toEqual(['display_image', 'ping_peer', 'inspect_peer', 'display_video', 'send_file'])
+        expect(tools.tools.map((tool) => tool.name)).toEqual([
+            'display_image',
+            'ping_peer',
+            'inspect_peer',
+            'display_video',
+            'send_file'
+        ])
     })
-
 })
 
 describe('toClaudeAllowedHapiMcpTools', () => {
-    it('keeps ping_peer registered but out of Claude --allowedTools', () => {
+    it('keeps ping_peer and inspect_peer registered but out of Claude --allowedTools', () => {
         expect(toClaudeAllowedHapiMcpTools([
             'change_title',
             'display_image',
             'ping_peer',
+            'inspect_peer',
             'skill_lookup'
         ])).toEqual([
             'mcp__hapi__change_title',

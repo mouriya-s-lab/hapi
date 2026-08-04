@@ -4,7 +4,7 @@ import { AgentState, SessionEffort, SessionModel } from '@/api/types';
 import { EnhancedMode, PermissionMode } from './loop';
 import { MessageQueue2 } from '@/utils/MessageQueue2';
 import { hashObject } from '@/utils/deterministicJson';
-import { extractSDKMetadataAsync } from '@/claude/sdk/metadataExtractor';
+import { classifyClaudeSlashCatalog, extractSDKMetadata } from '@/claude/sdk/metadataExtractor';
 import { parseSpecialCommand } from '@/parsers/specialCommands';
 import { getEnvironmentInfo } from '@/ui/doctor';
 import { startHappyServer, toClaudeAllowedHapiMcpTools } from '@/claude/utils/startHappyServer';
@@ -18,10 +18,16 @@ import { createModeChangeHandler, createRunnerLifecycle, setControlledByUser } f
 import { isPermissionModeAllowedForFlavor } from '@hapi/protocol';
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 import { PermissionModeSchema } from '@hapi/protocol/schemas';
-import { formatMessageWithAttachments } from '@/utils/attachmentFormatter';
+import { formatAttachmentsForClaude, formatMessageWithAttachments } from '@/utils/attachmentFormatter';
 import { normalizeClaudeSessionModel } from './model';
 import { normalizeClaudeSessionEffort } from './effort';
+import { normalizeHookPermissionMode } from './utils/hookPermissionMode';
 import { getInvokedCwd } from '@/utils/invokedCwd';
+import {
+    CLAUDE_CONVERSATION_HISTORY,
+    toConversationHistoryCapabilities
+} from '@hapi/protocol/conversationHistory';
+import { listSkills, type SkillSummary } from '@/modules/common/skills';
 
 export interface StartOptions {
     model?: string
@@ -74,28 +80,74 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
     const { api, session, sessionInfo } = bootstrap;
     logger.debug(`Session created: ${sessionInfo.id}`);
 
-    // Extract SDK metadata in background and update session when ready
-    extractSDKMetadataAsync(async (sdkMetadata) => {
-        logger.debug('[start] SDK metadata extracted, updating session:', sdkMetadata);
-        try {
-            // Update session metadata with tools and slash commands
-            session.updateMetadata((currentMetadata) => ({
-                ...currentMetadata,
-                tools: sdkMetadata.tools,
-                slashCommands: sdkMetadata.slashCommands
-            }));
-            logger.debug('[start] Session metadata updated with SDK capabilities');
-        } catch (error) {
-            logger.debug('[start] Failed to update session metadata:', error);
+    const currentSessionRef: { current: Session | null } = { current: null };
+    let resolveSessionReady!: (session: Session) => void;
+    const sessionReady = new Promise<Session>((resolve) => {
+        resolveSessionReady = resolve;
+    });
+    let nativeSkills: SkillSummary[] | null = null;
+
+    const loadCatalog = async () => {
+        const [sdkMetadata, discoveredSkills] = await Promise.all([
+            extractSDKMetadata({ cwd: workingDirectory, claudeArgs: options.claudeArgs }),
+            listSkills(workingDirectory, { flavor: 'claude' })
+        ]);
+        return {
+            sdkMetadata,
+            catalog: classifyClaudeSlashCatalog(
+                sdkMetadata.slashCommands,
+                discoveredSkills,
+                sdkMetadata.skills
+            )
+        };
+    };
+    let catalogPromise: ReturnType<typeof loadCatalog> | null = null;
+    const getCatalog = (): ReturnType<typeof loadCatalog> => {
+        if (!catalogPromise) {
+            catalogPromise = loadCatalog().then((result) => {
+                const { sdkMetadata, catalog } = result;
+                logger.debug('[start] SDK metadata extracted, updating session:', sdkMetadata);
+                if (sdkMetadata.slashCommands === undefined) {
+                    catalogPromise = null;
+                    if (sdkMetadata.tools !== undefined) {
+                        session.updateMetadata((currentMetadata) => ({
+                            ...currentMetadata,
+                            tools: sdkMetadata.tools
+                        }));
+                    }
+                    return result;
+                }
+                nativeSkills = catalog.skills;
+                currentSessionRef.current?.setNativeSkillNames(catalog.skills.map((skill) => skill.name));
+                session.updateMetadata((currentMetadata) => ({
+                    ...currentMetadata,
+                    tools: sdkMetadata.tools,
+                    slashCommands: catalog.commands
+                }));
+                logger.debug('[start] Session metadata updated with SDK capabilities');
+                return result;
+            }).catch((error) => {
+                catalogPromise = null;
+                throw error;
+            });
         }
+        return catalogPromise;
+    };
+    session.rpcHandlerManager.registerHandler(RPC_METHODS.ListSkills, async () => {
+        const result = await getCatalog();
+        return result.sdkMetadata.slashCommands === undefined
+            ? { success: false, error: 'Claude skill catalog unavailable' }
+            : { success: true, skills: result.catalog.skills };
+    });
+
+    // Extract SDK metadata in background and update session when ready
+    void getCatalog().catch((error) => {
+        logger.debug('[start] Failed to update session metadata:', error);
     });
 
     // Start HAPI MCP server
     const happyServer = await startHappyServer(session);
     logger.debug(`[START] HAPI MCP server started at ${happyServer.url}`);
-
-    // Variable to track current session instance (updated via onSessionReady callback)
-    const currentSessionRef: { current: Session | null } = { current: null };
 
     const formatFailureReason = (message: string): string => {
         const maxLength = 200;
@@ -118,6 +170,27 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
                     currentSession.onSessionFound(sessionId);
                 }
             }
+
+            // Inherit the mode the user picked inside the interactive TUI
+            // (shift+tab) so a later local→remote switch keeps it. Only the
+            // local settings file registers the hooks that carry
+            // permission_mode, but gate on local mode anyway so a remote SDK
+            // process can never fight with web/RPC-driven state.
+            const hookPermissionMode = normalizeHookPermissionMode(data.permission_mode);
+            if (
+                hookPermissionMode
+                && currentSession?.mode === 'local'
+                && hookPermissionMode !== currentPermissionMode
+            ) {
+                logger.debug(`[START] Inheriting permission mode from local Claude: ${currentPermissionMode} -> ${hookPermissionMode}`);
+                currentPermissionMode = hookPermissionMode;
+                syncSessionModes();
+                currentSession.pushKeepAlive();
+                session.sendSessionEvent({
+                    type: 'permission-mode-changed',
+                    mode: hookPermissionMode
+                });
+            }
         }
     });
     logger.debug(`[START] Hook server started on port ${hookServer.port}`);
@@ -126,7 +199,18 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
         filenamePrefix: 'session-hook',
         logLabel: 'generateHookSettings'
     });
-    logger.debug(`[START] Generated hook settings file: ${hookSettingsPath}`);
+    // The interactive TUI gets a separate settings file that also forwards
+    // UserPromptSubmit/PreToolUse (their payloads carry permission_mode), so a
+    // mode picked via shift+tab is inherited on local→remote switch. The
+    // remote SDK process keeps the SessionStart-only file: these extra hooks
+    // block Claude per prompt/tool call, and remote mode state is owned by the
+    // hub/RPC path.
+    const localHookSettingsPath = generateHookSettingsFile(hookServer.port, hookServer.token, {
+        filenamePrefix: 'session-hook-local',
+        logLabel: 'generateHookSettings',
+        trackPermissionMode: true
+    });
+    logger.debug(`[START] Generated hook settings files: ${hookSettingsPath}, ${localHookSettingsPath}`);
 
     // Print log file path
     const logPath = logger.logFilePath;
@@ -141,12 +225,41 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
             happyServer.stop();
             hookServer.stop();
             cleanupHookSettingsFile(hookSettingsPath, 'generateHookSettings');
+            cleanupHookSettingsFile(localHookSettingsPath, 'generateHookSettings');
         }
     });
 
     lifecycle.registerProcessHandlers();
     registerKillSessionHandler(session.rpcHandlerManager, lifecycle);
     registerLocalHandoffHandler(session.rpcHandlerManager, lifecycle);
+
+    const conversationHistory = toConversationHistoryCapabilities(CLAUDE_CONVERSATION_HISTORY)
+    session.updateMetadata((metadata) => ({
+        ...metadata,
+        path: metadata?.path ?? workingDirectory,
+        host: metadata?.host ?? 'unknown',
+        capabilities: {
+            ...metadata?.capabilities,
+            ...(conversationHistory ? { conversationHistory } : {})
+        }
+    }))
+
+    session.rpcHandlerManager.registerHandler(RPC_METHODS.ForkConversation, async (payload: unknown) => {
+        if (payload && typeof payload === 'object' && 'messageLocalId' in payload && (payload as { messageLocalId?: unknown }).messageLocalId) {
+            throw new Error('Historical fork is not supported for Claude')
+        }
+        const nativeSessionId = currentSessionRef.current?.sessionId
+            ?? session.getMetadata()?.claudeSessionId
+            ?? sessionInfo.metadata?.claudeSessionId
+            ?? null
+        if (!nativeSessionId) {
+            throw new Error('Claude session id is not ready')
+        }
+        return { nativeSessionId, forkSession: true as const }
+    })
+    session.rpcHandlerManager.registerHandler(RPC_METHODS.RewindConversation, async () => {
+        throw new Error('Rewind is not supported for Claude')
+    })
 
     // Set initial agent state
     const startingMode = options.startingMode ?? (startedBy === 'runner' ? 'remote' : 'local');
@@ -187,7 +300,11 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
         sessionInstance.setEffort(currentEffort);
         logger.debug(`[loop] Synced session config for keepalive: permissionMode=${currentPermissionMode}, model=${currentModel ?? 'auto'}, effort=${currentEffort ?? 'auto'}`);
     };
-    session.onUserMessage((message, localId) => {
+    type UserMessageHandler = Parameters<typeof session.onUserMessage>[0];
+    type UserMessageArgs = Parameters<UserMessageHandler>;
+    const deferredMessages: UserMessageArgs[] = [];
+    let messagePipelineReady = false;
+    const handleUserMessage: UserMessageHandler = (message, localId) => {
         const sessionPermissionMode = currentSessionRef.current?.getPermissionMode();
         if (sessionPermissionMode && isPermissionModeAllowedForFlavor(sessionPermissionMode, 'claude')) {
             currentPermissionMode = sessionPermissionMode as PermissionMode;
@@ -258,8 +375,14 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
         // Check for special commands before processing
         const specialCommand = parseSpecialCommand(message.content.text);
 
-        // Format message text with attachments for Claude
-        const formattedText = formatMessageWithAttachments(message.content.text, message.content.attachments);
+        // Native slash skills must stay at the start of the prompt. Regular
+        // messages keep the existing attachment-first format.
+        const attachmentText = formatAttachmentsForClaude(message.content.attachments);
+        const expandedText = currentSessionRef.current?.expandSkillReference(message.content.text, attachmentText)
+            ?? message.content.text;
+        const formattedText = expandedText !== message.content.text
+            ? expandedText
+            : formatMessageWithAttachments(message.content.text, message.content.attachments);
 
         if (specialCommand.type === 'compact') {
             logger.debug('[start] Detected /compact command');
@@ -347,9 +470,27 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
         };
         messageQueue.push(formattedText, enhancedMode, localId);
         logger.debugLargeJson('User message pushed to queue:', message)
+    };
+    session.onUserMessage((...args) => {
+        if (!messagePipelineReady) {
+            deferredMessages.push(args);
+            return;
+        }
+        handleUserMessage(...args);
+    });
+    void Promise.allSettled([sessionReady, getCatalog()]).then(() => {
+        messagePipelineReady = true;
+        for (const args of deferredMessages.splice(0)) {
+            handleUserMessage(...args);
+        }
     });
 
     session.onCancelQueuedMessage((localId) => {
+        const deferredIndex = deferredMessages.findIndex(([, id]) => id === localId);
+        if (deferredIndex >= 0) {
+            deferredMessages.splice(deferredIndex, 1);
+            return true;
+        }
         const removed = messageQueue.cancelByLocalId(localId);
         logger.debug(`[claude] cancelByLocalId(${localId}): ${removed ? 'removed' : 'not found (best-effort)'}`);
         return removed;
@@ -424,6 +565,10 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
             onModeChange: createModeChangeHandler(session),
             onSessionReady: (sessionInstance) => {
                 currentSessionRef.current = sessionInstance;
+                resolveSessionReady(sessionInstance);
+                if (nativeSkills) {
+                    sessionInstance.setNativeSkillNames(nativeSkills.map((skill) => skill.name));
+                }
                 syncSessionModes();
             },
             mcpServers: {
@@ -437,7 +582,8 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
             claudeArgs: options.claudeArgs,
             startedBy,
             resumeSessionId: options.resumeSessionId,
-            hookSettingsPath
+            hookSettingsPath,
+            localHookSettingsPath
         });
     } catch (error) {
         loopError = error;

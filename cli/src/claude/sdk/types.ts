@@ -59,6 +59,7 @@ export interface SDKSystemMessage extends SDKMessage {
     model?: string
     cwd?: string
     tools?: string[]
+    skills?: string[]
     slash_commands?: string[]
     /**
      * Present on `subtype: 'status'` messages that report a /compact outcome.
@@ -181,6 +182,7 @@ export interface CanCallToolCallback {
  */
 export interface QueryOptions {
     abort?: AbortSignal
+    additionalArgs?: string[]
     additionalDirectories?: string[]
     allowedTools?: string[]
     appendSystemPrompt?: string
@@ -193,6 +195,10 @@ export interface QueryOptions {
     permissionMode?: ClaudePermissionMode
     continue?: boolean
     resume?: string
+    /**
+     * When resuming, branch with `--fork-session` instead of taking over the
+     * existing Claude session id.
+     */
     forkSession?: boolean
     resumeSessionAt?: string
     sessionId?: string

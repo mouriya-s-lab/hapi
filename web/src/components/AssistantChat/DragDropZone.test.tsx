@@ -4,7 +4,7 @@ import { render, fireEvent } from '@testing-library/react'
 const addAttachment = vi.fn()
 
 vi.mock('@assistant-ui/react', () => ({
-    useAssistantApi: () => ({
+    useAui: () => ({
         composer: () => ({ addAttachment }),
     }),
 }))

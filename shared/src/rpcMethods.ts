@@ -48,6 +48,8 @@ export const RPC_METHODS = {
     ListGrokModels: 'listGrokModels',
     ListGrokReasoningEffortOptions: 'listGrokReasoningEffortOptions',
     ListOpencodeReasoningEffortOptions: 'listOpencodeReasoningEffortOptions',
+    ForkConversation: 'fork-conversation',
+    RewindConversation: 'rewind-conversation',
     ListCcSwitchProviders: 'listCcSwitchProviders',
     ValidateCcSwitchProvider: 'validateCcSwitchProvider',
     ListImportableSessions: 'listImportableSessions',

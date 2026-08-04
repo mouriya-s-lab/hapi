@@ -10,7 +10,7 @@ const BASE_SYSTEM_PROMPT = (() => trimIdent(`
     ${DISPLAY_IMAGE_PROMPT_CLAUDE}
     ${DISPLAY_VIDEO_PROMPT_CLAUDE}
     ${SEND_FILE_PROMPT_CLAUDE}
-    To message another HAPI session (peer handoff / nudge), call "mcp__hapi__ping_peer" with sessionIdPrefix and message - do not reinvent JWT+curl. Shell fallback: \`hapi ping-peer <prefix> <message>\`.
+    When the user cites another HAPI session as [title](/sessions/<id>) (or a bare /sessions/<id>), extract that <id>. Call "mcp__hapi__inspect_peer" with sessionIdPrefix=<id> to read that session's metadata and recent messages. Call "mcp__hapi__ping_peer" with sessionIdPrefix=<id> and a message to nudge or hand off. Do not reinvent JWT+curl. Shell fallbacks: \`hapi inspect-peer <id>\` / \`hapi ping-peer <id> <message>\`.
 `))();
 
 /**

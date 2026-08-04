@@ -1,6 +1,6 @@
 import '@assistant-ui/react-markdown/styles/dot.css'
 
-import type { ComponentPropsWithoutRef, MouseEvent, ReactNode } from 'react'
+import type { ComponentPropsWithoutRef, ComponentType, MouseEvent, ReactNode } from 'react'
 import { useState, useCallback, useEffect, useMemo, createContext, useContext } from 'react'
 import {
     MarkdownTextPrimitive,
@@ -766,7 +766,15 @@ function Image(props: ComponentPropsWithoutRef<'img'>) {
     return <img {...props} className={cn('aui-md-img my-3 max-w-full rounded-xl', props.className)} />
 }
 
-export const defaultComponents = memoizeMarkdownComponents({
+type DefaultComponentsMap = {
+    [key: string]: ComponentType<any>
+    code: ComponentType<any>
+    pre: ComponentType<any>
+    CodeHeader: ComponentType<any>
+    SyntaxHighlighter: ComponentType<any>
+}
+
+export const defaultComponents: DefaultComponentsMap = memoizeMarkdownComponents({
     SyntaxHighlighter,
     CodeHeader,
     pre: Pre,
@@ -793,7 +801,7 @@ export const defaultComponents = memoizeMarkdownComponents({
     th: Th,
     td: Td,
     img: Image,
-} as const)
+} as const) as unknown as DefaultComponentsMap
 
 export function MarkdownText() {
     return (

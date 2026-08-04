@@ -608,6 +608,7 @@ export class Store {
         this.migrateFromV14ToV15()
     }
 
+
     private getSessionColumnNames(): Set<string> {
         const rows = this.db.prepare('PRAGMA table_info(sessions)').all() as Array<{ name: string }>
         return new Set(rows.map((row) => row.name))

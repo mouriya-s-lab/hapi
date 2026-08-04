@@ -314,6 +314,7 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
                 message: string;
                 mode: EnhancedMode;
                 isolate: boolean;
+                hash: string;
                 items: Array<{ message: string; localId?: string }>;
             } | null = null;
 
@@ -386,6 +387,11 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
                         mcpServers: session.mcpServers,
                         hookSettingsPath: session.hookSettingsPath,
                         canCallTool: permissionHandler.handleToolCall,
+                        bootstrapMode: {
+                            permissionMode: session.getPermissionMode() ?? 'default',
+                            model: session.getModel() ?? undefined,
+                            effort: session.getEffort() ?? undefined,
+                        },
                         isAborted: (toolCallId: string) => {
                             return permissionHandler.isAborted(toolCallId);
                         },
@@ -401,6 +407,13 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
                             if (pending) {
                                 let p = pending;
                                 pending = null;
+                                // Seed the mode gate from the parked batch. Without this,
+                                // an attempt that starts from `pending` keeps modeHash=null,
+                                // so the next mode switch fails the hash check and its
+                                // messages are fed into a process spawned with the old
+                                // --permission-mode (e.g. auto silently running as default).
+                                modeHash = p.hash;
+                                mode = p.mode;
                                 permissionHandler.handleModeChange(p.mode.permissionMode);
                                 // Re-resolve the selected-model seed hint for every turn, not
                                 // just the first: a single claudeRemote() call keeps accepting
@@ -410,7 +423,7 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
                                 sdkToLogConverter.updateSelectedModel(p.mode.model ?? null);
                                 inFlightMessage = { items: p.items, mode: p.mode, isolate: p.isolate };
                                 deliveredMessageThisAttempt = true;
-                                return p;
+                                return { ...p, message: session.expandSkillReference(p.message) };
                             }
 
                             let msg = await session.queue.waitForMessagesAndGetAsString(controller.signal);
@@ -441,7 +454,7 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
                                 inFlightMessage = { items: msg.items, mode: msg.mode, isolate: msg.isolate };
                                 deliveredMessageThisAttempt = true;
                                 return {
-                                    message: msg.message,
+                                    message: session.expandSkillReference(msg.message),
                                     mode: msg.mode
                                 };
                             }

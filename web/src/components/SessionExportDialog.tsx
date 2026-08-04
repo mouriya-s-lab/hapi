@@ -101,8 +101,10 @@ export function SessionExportDialog(props: SessionExportDialogProps) {
     return (
         <Dialog open={props.isOpen} onOpenChange={(open) => !open && handleClose()}>
             <DialogContent className="max-w-sm">
-                <DialogHeader>
-                    <DialogTitle>{t('session.export.title')}</DialogTitle>
+                <DialogHeader className="pr-0">
+                    <DialogTitle className="min-h-6 px-10 text-center leading-6">
+                        {t('session.export.title')}
+                    </DialogTitle>
                     <DialogDescription className="mt-2">
                         {t('session.export.description')}
                     </DialogDescription>

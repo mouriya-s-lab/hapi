@@ -241,6 +241,41 @@ describe('appServerConfig', () => {
         expect('serviceTier' in nullParams).toBe(false);
     });
 
+    it('forwards personality only when explicitly set on the mode', () => {
+        const omitted = buildTurnStartParams({
+            threadId: 'thread-1',
+            message: 'hello',
+            cwd: '/workspace/project',
+            mode: { permissionMode: 'default', model: 'gpt-5.5', collaborationMode: 'default' }
+        });
+        expect('personality' in omitted).toBe(false);
+
+        const set = buildTurnStartParams({
+            threadId: 'thread-1',
+            message: 'hello',
+            cwd: '/workspace/project',
+            mode: {
+                permissionMode: 'default',
+                model: 'gpt-5.5',
+                collaborationMode: 'default',
+                personality: 'pragmatic'
+            }
+        });
+        expect(set.personality).toBe('pragmatic');
+
+        const thread = buildThreadStartParams({
+            cwd: '/workspace/project',
+            mode: {
+                permissionMode: 'default',
+                model: 'gpt-5.5',
+                collaborationMode: 'default',
+                personality: 'friendly'
+            },
+            mcpServers
+        });
+        expect(thread.personality).toBe('friendly');
+    });
+
     it('builds turn params with mode defaults', () => {
         const params = buildTurnStartParams({
             threadId: 'thread-1',
@@ -526,6 +561,37 @@ describe('appServerConfig', () => {
             { type: 'text', text: 'please inspect ' },
             { type: 'mention', name: 'index.ts', path: 'src/index.ts' },
             { type: 'text', text: ' now' }
+        ]);
+    });
+
+    it('builds a structured leading skill input from the native catalog', () => {
+        expect(buildUserInputFromMessage('$hapi inspect @"README.md"', [{
+            name: 'hapi',
+            path: '/home/user/.agents/skills/hapi/SKILL.md',
+            description: 'Manage HAPI',
+            scope: 'user',
+            enabled: true
+        }])).toEqual([
+            { type: 'skill', name: 'hapi', path: '/home/user/.agents/skills/hapi/SKILL.md' },
+            { type: 'text', text: ' inspect ' },
+            { type: 'mention', name: 'README.md', path: 'README.md' }
+        ]);
+    });
+
+    it('keeps unknown and disabled skill references as text', () => {
+        const skills = [{
+            name: 'disabled-skill',
+            path: '/skills/disabled/SKILL.md',
+            description: 'Disabled',
+            scope: 'user' as const,
+            enabled: false
+        }];
+
+        expect(buildUserInputFromMessage('$unknown run', skills)).toEqual([
+            { type: 'text', text: '$unknown run' }
+        ]);
+        expect(buildUserInputFromMessage('$disabled-skill run', skills)).toEqual([
+            { type: 'text', text: '$disabled-skill run' }
         ]);
     });
 

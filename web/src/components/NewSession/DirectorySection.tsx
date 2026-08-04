@@ -90,7 +90,7 @@ export function DirectorySection(props: {
                         type="button"
                         onClick={props.onChooseFolder}
                         disabled={props.isDisabled}
-                        className="shrink-0 flex items-center gap-1 rounded-md border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-2 py-2 text-xs text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)] transition-colors disabled:opacity-50"
+                        className="self-stretch shrink-0 flex items-center gap-1 rounded-md border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-2 py-2 text-xs text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)] transition-colors disabled:opacity-50"
                         title={t('newSession.browse')}
                     >
                         <FolderIcon className="h-3.5 w-3.5" />

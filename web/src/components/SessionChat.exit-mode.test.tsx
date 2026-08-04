@@ -31,7 +31,7 @@ const mockSessionId = 'sess-test'
 
 const setText = vi.fn()
 vi.mock('@assistant-ui/react', () => ({
-    useAssistantApi: () => ({
+    useAui: () => ({
         composer: () => ({ setText }),
     }),
 }))

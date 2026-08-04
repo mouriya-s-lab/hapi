@@ -297,6 +297,7 @@ export function query(config: {
     const {
         prompt,
         options: {
+            additionalArgs = [],
             additionalDirectories = [],
             allowedTools = [],
             appendSystemPrompt,
@@ -345,11 +346,12 @@ export function query(config: {
     if (continueConversation) args.push('--continue')
     if (resume) args.push('--resume', resume)
     if (forkSession) args.push('--fork-session')
-    if (resumeSessionAt) args.push('--resume-session-at', resumeSessionAt)
-    if (sessionId) args.push('--session-id', sessionId)
+    args.push(...additionalArgs)
     if (settingsPath) args.push('--settings', settingsPath)
     if (allowedTools.length > 0) args.push('--allowedTools', allowedTools.join(','))
     if (disallowedTools.length > 0) args.push('--disallowedTools', disallowedTools.join(','))
+    if (resumeSessionAt) args.push('--resume-session-at', resumeSessionAt)
+    if (sessionId) args.push('--session-id', sessionId)
     if (additionalDirectories.length > 0) args.push('--add-dir', ...additionalDirectories)
     if (strictMcpConfig) args.push('--strict-mcp-config')
     if (permissionMode) args.push('--permission-mode', permissionMode)

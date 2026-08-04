@@ -44,7 +44,9 @@ export function useSlashCommands(
             return await api.getSlashCommands(sessionId)
         },
         enabled: Boolean(api && sessionId),
-        staleTime: Infinity,
+        staleTime: 30_000,
+        refetchInterval: 30_000,
+        refetchOnWindowFocus: 'always',
         gcTime: 30 * 60 * 1000,
         retry: false, // Don't retry RPC failures
     })

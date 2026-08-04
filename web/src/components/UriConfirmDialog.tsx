@@ -38,8 +38,10 @@ export function UriConfirmDialog(props: UriConfirmDialogProps) {
     return (
         <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onCancel()}>
             <DialogContent className="max-w-md">
-                <DialogHeader>
-                    <DialogTitle>{t('dialog.uri.title')}</DialogTitle>
+                <DialogHeader className="pr-0">
+                    <DialogTitle className="min-h-6 px-10 text-center leading-6">
+                        {t('dialog.uri.title')}
+                    </DialogTitle>
                 </DialogHeader>
                 <DialogDescription className="mt-2">
                     {t('dialog.uri.description')}

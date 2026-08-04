@@ -17,13 +17,13 @@ vi.mock('@/components/AssistantChat/ComposerButtons', () => ({
 vi.mock('@assistant-ui/react', async () => {
     const React = await import('react')
     return {
-        useAssistantApi: () => ({
+        useAui: () => ({
             composer: () => ({
                 send: vi.fn(),
                 setText: vi.fn()
             })
         }),
-        useAssistantState: (selector: (state: unknown) => unknown) => selector({
+        useAuiState: (selector: (state: unknown) => unknown) => selector({
             composer: {
                 text: '',
                 attachments: []

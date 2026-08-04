@@ -218,6 +218,19 @@ describe('buildCliArgs', () => {
         expect(args[0]).toBe('pi')
     })
 
+    it('reuses the original HAPI row for Pi native resume', () => {
+        const args = buildCliArgs('pi', {
+            directory: '/tmp',
+            resumeSessionId: 'pi-native-session-1',
+            existingSessionId: 'hapi-session-pi-1',
+        })
+
+        expect(args).toContain('--session-id')
+        expect(args).toContain('pi-native-session-1')
+        expect(args).toContain('--existing-session-id')
+        expect(args).toContain('hapi-session-pi-1')
+    })
+
     it('still passes --resume for claude when resumeSessionId is provided', () => {
         // Guard against accidentally swallowing claude's --resume when
         // the pi branch was added.
@@ -227,6 +240,21 @@ describe('buildCliArgs', () => {
         })
         expect(args).toContain('--resume')
         expect(args).toContain('some-claude-session-id')
+    })
+
+    it('passes --fork-session and --existing-session-id for Claude message-level fork', () => {
+        const args = buildCliArgs('claude', {
+            directory: '/tmp',
+            resumeSessionId: 'claude-source-id',
+            existingSessionId: 'hapi-child-id',
+            forkSession: true,
+        })
+        expect(args).toContain('--resume')
+        expect(args).toContain('claude-source-id')
+        expect(args).toContain('--fork-session')
+        expect(args.indexOf('--fork-session')).toBeGreaterThan(args.indexOf('--resume'))
+        expect(args).toContain('--existing-session-id')
+        expect(args).toContain('hapi-child-id')
     })
 
     it('passes --effort for pi agent', () => {

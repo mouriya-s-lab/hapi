@@ -59,8 +59,10 @@ export function RenameSessionDialog(props: RenameSessionDialogProps) {
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
             <DialogContent className="max-w-sm">
-                <DialogHeader>
-                    <DialogTitle>{t('dialog.rename.title')}</DialogTitle>
+                <DialogHeader className="pr-0">
+                    <DialogTitle className="min-h-6 px-10 text-center leading-6">
+                        {t('dialog.rename.title')}
+                    </DialogTitle>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-4">
                     <input

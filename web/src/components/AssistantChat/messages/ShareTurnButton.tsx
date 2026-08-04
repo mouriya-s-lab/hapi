@@ -1,4 +1,4 @@
-import { useAssistantState } from '@assistant-ui/react'
+import { useAuiState } from '@assistant-ui/react'
 import { useOptionalHappyChatContext } from '@/components/AssistantChat/context'
 import { useTranslation } from '@/lib/use-translation'
 
@@ -30,7 +30,7 @@ export function ShareTurnButton(props: {
 }) {
     const ctx = useOptionalHappyChatContext()
     const { t } = useTranslation()
-    const fallbackUserText = useAssistantState(({ message, thread }) => {
+    const fallbackUserText = useAuiState(({ message, thread }) => {
         const currentIndex = thread.messages.findIndex((candidate) => candidate.id === message.id)
         if (currentIndex < 0) return ''
         for (let index = currentIndex; index >= 0; index -= 1) {

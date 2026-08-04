@@ -6,7 +6,7 @@ import { logger } from '@/ui/logger';
 import { getHappyCliCommand } from '@/utils/spawnHappyCLI';
 
 type HookCommandConfig = {
-    matcher: string;
+    matcher?: string;
     hooks: Array<{
         type: 'command';
         command: string;
@@ -21,6 +21,8 @@ type HookSettings = ClaudeSettings & {
     };
     hooks: {
         SessionStart: HookCommandConfig[];
+        UserPromptSubmit?: HookCommandConfig[];
+        PreToolUse?: HookCommandConfig[];
     };
 };
 
@@ -28,6 +30,14 @@ export type HookSettingsOptions = {
     filenamePrefix: string;
     logLabel: string;
     hooksEnabled?: boolean;
+    /**
+     * Also forward UserPromptSubmit and PreToolUse hooks. Unlike SessionStart,
+     * their payloads carry `permission_mode`, letting HAPI track the mode the
+     * user picks inside the interactive TUI (shift+tab). Keep this off for the
+     * remote SDK process: these hooks block Claude while the forwarder runs,
+     * and remote permission state is owned by the hub/RPC path anyway.
+     */
+    trackPermissionMode?: boolean;
 };
 
 function shellQuote(value: string): string {
@@ -68,11 +78,20 @@ function asRecord(value: unknown): Record<string, unknown> {
         : {};
 }
 
-function buildHookSettings(
+export function buildHookSettings(
     machineSettings: ClaudeSettings,
     command: string,
-    hooksEnabled?: boolean
+    hooksEnabled?: boolean,
+    trackPermissionMode?: boolean
 ): HookSettings {
+    const commandHook = {
+        hooks: [
+            {
+                type: 'command' as const,
+                command
+            }
+        ]
+    };
     const existingHooks = asRecord(machineSettings.hooks);
     const existingSessionStart = Array.isArray(existingHooks.SessionStart)
         ? existingHooks.SessionStart
@@ -81,17 +100,13 @@ function buildHookSettings(
         ...existingHooks,
         SessionStart: [
             ...existingSessionStart,
-            {
-                matcher: '*',
-                hooks: [
-                    {
-                        type: 'command',
-                        command
-                    }
-                ]
-            }
+            { matcher: '*', ...commandHook }
         ]
     };
+    if (trackPermissionMode) {
+        hooks.UserPromptSubmit = [commandHook];
+        hooks.PreToolUse = [{ matcher: '*', ...commandHook }];
+    }
 
     const settings: HookSettings = {
         ...machineSettings,
@@ -130,7 +145,8 @@ export function generateHookSettingsFile(
     const settings = buildHookSettings(
         readMachineClaudeSettings(),
         hookCommand,
-        options.hooksEnabled
+        options.hooksEnabled,
+        options.trackPermissionMode
     );
 
     writeFileSync(filepath, JSON.stringify(settings, null, 4));

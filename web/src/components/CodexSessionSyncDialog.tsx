@@ -8,6 +8,7 @@ import {
     DialogDescription
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { SelectControl } from '@/components/ui/select-control'
 import { useTranslation } from '@/lib/use-translation'
 import { readCodexImportedSessions, subscribeCodexImportedSessions } from '@/lib/codexImportedSessions'
 
@@ -290,8 +291,8 @@ export function CodexSessionSyncDialog(props: {
                     {sessions.length > 0 ? (
                         <label className="block min-w-0 text-xs text-[var(--app-hint)]">
                             <span className="mb-1 block">{t('codexSync.confirm.cwdFilter')}</span>
-                            <select
-                                className="h-8 w-full rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-2 text-xs text-[var(--app-fg)] outline-none focus:ring-2 focus:ring-[var(--app-link)]"
+                            <SelectControl
+                                className="h-8 rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] pl-2 text-xs text-[var(--app-fg)] outline-none focus:ring-2 focus:ring-[var(--app-link)]"
                                 value={workdirFilter}
                                 disabled={isPending || isLoading || workdirOptions.length === 0}
                                 onChange={(event) => setWorkdirFilter(event.target.value)}
@@ -304,7 +305,7 @@ export function CodexSessionSyncDialog(props: {
                                         {directory}
                                     </option>
                                 ))}
-                            </select>
+                            </SelectControl>
                         </label>
                     ) : null}
 

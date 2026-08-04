@@ -1,3 +1,13 @@
+/** Renamed ACP wire bases → live Cursor CLI sku family (e.g. grok-4.5 → cursor-grok-4.5). */
+const CURSOR_LEGACY_MODEL_BASE_ALIASES: Readonly<Record<string, string>> = {
+    'grok-4.5': 'cursor-grok-4.5',
+};
+
+export function resolveCursorLegacyModelBase(baseId: string): string {
+    const trimmed = baseId.trim();
+    return CURSOR_LEGACY_MODEL_BASE_ALIASES[trimmed] ?? trimmed;
+}
+
 /** ACP wire ids use bracket params; CLI `agent --list-models` slugs do not. */
 export function isCursorAcpWireModelId(modelId: string): boolean {
     const trimmed = modelId.trim();
@@ -51,7 +61,7 @@ export function cursorCliSkuBaseId(slug: string): string {
     return base;
 }
 
-function parseWireParams(modelId: string): Record<string, string> {
+export function parseCursorWireParams(modelId: string): Record<string, string> {
     const variant = modelId.includes('[') ? modelId.slice(modelId.indexOf('[') + 1).replace(/\]$/, '') : '';
     if (!variant) {
         return {};
@@ -105,7 +115,7 @@ function inferSkuParamHints(slug: string): Record<string, string> {
 
 function scoreWireAgainstSku(slug: string, wireId: string): number {
     const hints = inferSkuParamHints(slug);
-    const params = parseWireParams(wireId);
+    const params = parseCursorWireParams(wireId);
     let score = 0;
 
     for (const [key, value] of Object.entries(hints)) {
@@ -145,6 +155,138 @@ export function findBestCliSkuForAcpWire(
     return best;
 }
 
+function syntheticSkuFromWireParams(base: string, params: Record<string, string>): string {
+    const effort = params.reasoning ?? params.effort ?? 'medium';
+    let sku = resolveCursorLegacyModelBase(base);
+
+    if (effort === 'extra-high' || effort === 'xhigh') {
+        sku += '-extra-high';
+    } else if (effort === 'high') {
+        sku += '-high';
+    } else if (effort === 'low') {
+        sku += '-low';
+    } else if (effort === 'medium') {
+        sku += '-medium';
+    } else if (effort === 'none') {
+        sku += '-none';
+    }
+
+    if (params.fast === 'true') {
+        sku += '-fast';
+    }
+
+    return sku;
+}
+
+function pseudoWireFromSku(sku: string): string {
+    const base = cursorCliSkuBaseId(sku);
+    const hints = inferSkuParamHints(sku);
+    const parts = Object.entries(hints).map(([key, value]) => `${key}=${value}`);
+    return `${base}[${parts.join(',')}]`;
+}
+
+function pickBestCatalogSku(
+    requestedSku: string,
+    available: readonly { modelId: string }[]
+): string | null {
+    const skuBase = cursorCliSkuBaseId(requestedSku);
+    const candidates = available.filter((entry) => {
+        const modelId = entry.modelId.trim();
+        return modelId && !isCursorAcpWireModelId(modelId) && cursorCliSkuBaseId(modelId) === skuBase;
+    });
+    if (candidates.length === 0) {
+        return null;
+    }
+    if (candidates.length === 1) {
+        return candidates[0].modelId;
+    }
+
+    const exact = candidates.find((entry) => entry.modelId === requestedSku);
+    if (exact) {
+        return exact.modelId;
+    }
+
+    const pseudoWire = pseudoWireFromSku(requestedSku);
+    const requestedFast = inferSkuParamHints(requestedSku).fast;
+    const sameSpeed = candidates.filter(
+        (entry) => inferSkuParamHints(entry.modelId).fast === requestedFast
+    );
+    const rankedCandidates = sameSpeed.length > 0 ? sameSpeed : candidates;
+
+    let best = rankedCandidates[0].modelId;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    for (const entry of rankedCandidates) {
+        const score = scoreWireAgainstSku(entry.modelId, pseudoWire);
+        if (score > bestScore) {
+            bestScore = score;
+            best = entry.modelId;
+        }
+    }
+    return best;
+}
+
+/** Parse model ids from Cursor `Cannot use this model` stderr (Available models: …). */
+export function parseCursorAvailableModelsFromRejection(text: string): string[] {
+    const match = text.match(/Available models:\s*([^\n]*)/i);
+    if (!match) {
+        return [];
+    }
+
+    let catalog = match[1].trim();
+    const tipIdx = catalog.search(/\s+Tip:/i);
+    if (tipIdx !== -1) {
+        catalog = catalog.slice(0, tipIdx).trim();
+    }
+
+    return catalog
+        .split(',')
+        .map((part) => part.trim())
+        .filter((part) => part.length > 0 && part.toLowerCase() !== 'auto');
+}
+
+/**
+ * Remap a stale hub/ACP wire id onto a live Cursor catalog entry.
+ * Returns null when no catalog candidate matches.
+ */
+export function remapStaleCursorModelId(
+    requested: string,
+    available: readonly { modelId: string }[]
+): string | null {
+    const trimmed = requested.trim();
+    if (!trimmed) {
+        return null;
+    }
+
+    const exact = available.find((entry) => entry.modelId === trimmed);
+    const legacyWire = isCursorAcpWireModelId(trimmed)
+        && resolveCursorLegacyModelBase(cursorModelBaseId(trimmed)) !== cursorModelBaseId(trimmed);
+    if (exact && !legacyWire) {
+        return trimmed;
+    }
+
+    if (isCursorAcpWireModelId(trimmed)) {
+        const wireBase = cursorModelBaseId(trimmed);
+        if (resolveCursorLegacyModelBase(wireBase) === wireBase) {
+            return null;
+        }
+        const syntheticSku = syntheticSkuFromWireParams(
+            wireBase,
+            parseCursorWireParams(trimmed)
+        );
+        return pickBestCatalogSku(syntheticSku, available)
+            ?? matchCliSkuToAcpWireId(syntheticSku, available);
+    }
+
+    const legacyBase = resolveCursorLegacyModelBase(cursorCliSkuBaseId(trimmed));
+    if (legacyBase !== cursorCliSkuBaseId(trimmed)) {
+        const rewritten = trimmed.replace(cursorCliSkuBaseId(trimmed), legacyBase);
+        return pickBestCatalogSku(rewritten, available)
+            ?? matchCliSkuToAcpWireId(rewritten, available);
+    }
+
+    return null;
+}
+
 /**
  * Map UI/CLI model id (wire or slug) onto an ACP configOptions wire id.
  */
@@ -163,6 +305,9 @@ export function matchCliSkuToAcpWireId(
     }
 
     if (isCursorAcpWireModelId(trimmed)) {
+        if (resolveCursorLegacyModelBase(cursorModelBaseId(trimmed)) !== cursorModelBaseId(trimmed)) {
+            return remapStaleCursorModelId(trimmed, available);
+        }
         return null;
     }
 

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { SelectControl } from '@/components/ui/select-control'
 import {
     DEFAULT_VOICE_CHARACTER,
     DEFAULT_VOICE_IDENTITY,
@@ -197,13 +198,13 @@ export function VoicePersonaControls(props: {
                         <span className="mb-1 block text-sm text-[var(--app-fg)]">
                             {props.t('settings.voice.character.preset.label')}
                         </span>
-                        <select value={prefs.preset}
+                        <SelectControl value={prefs.preset}
                             onChange={(e) => setPreset(e.target.value as VoicePersonalityPresetId)}
-                            className="w-full rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-2 py-2 text-sm text-[var(--app-fg)]">
+                            className="rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] py-2 pl-2 text-sm text-[var(--app-fg)]">
                             {VOICE_PERSONALITY_PRESETS.map((preset) => (
                                 <option key={preset.id} value={preset.id}>{props.t(preset.labelKey)}</option>
                             ))}
-                        </select>
+                        </SelectControl>
                         <p className="mt-1 text-xs text-[var(--app-hint)]">
                             {props.t(getVoicePersonalityPreset(prefs.preset).descriptionKey)}
                         </p>

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { toSessionSummary, type Session } from '@hapi/protocol'
 import type { SessionSummary } from '@/types/api'
 import {
     deduplicateSessionsByAgentId,
@@ -7,6 +8,7 @@ import {
     getSessionTimeRange,
     getNextSessionVisibleCount,
     getPreviousSessionVisibleCount,
+    getPullToRefreshState,
     getSessionDedupKey,
     getWorktreeSessionLabel,
     getVisibleSessionPreview,
@@ -230,6 +232,40 @@ describe('prepareSidebarSessions', () => {
 
         const result = prepareSidebarSessions(sessions)
         expect(result.map(session => session.id)).toEqual(['real'])
+    })
+
+    it('keeps an archived Pi session with a native session id and no title', () => {
+        const piSession: Session = {
+            id: 'archived-pi',
+            namespace: 'default',
+            seq: 1,
+            createdAt: 50,
+            active: false,
+            activeAt: 0,
+            updatedAt: 100,
+            metadata: {
+                path: '/work/hapi',
+                host: 'local',
+                flavor: 'pi',
+                piSessionId: 'pi-session-1',
+                lifecycleState: 'archived'
+            },
+            metadataVersion: 1,
+            agentState: null,
+            agentStateVersion: 0,
+            thinking: false,
+            thinkingAt: 0,
+            model: null,
+            modelReasoningEffort: null,
+            effort: null,
+            serviceTier: null,
+            resumeWithSessionModel: false
+        }
+
+        const summary = toSessionSummary(piSession)
+
+        expect(summary.metadata?.agentSessionId).toBe('pi-session-1')
+        expect(prepareSidebarSessions([summary]).map(session => session.id)).toEqual(['archived-pi'])
     })
 
     it('keeps the selected inactive stub visible', () => {
@@ -468,5 +504,14 @@ describe('expandSelectedSessionCollapseOverrides', () => {
         })
 
         expect(result.has('sessions::machine-1::/work/hapi')).toBe(false)
+    })
+})
+
+describe('getPullToRefreshState', () => {
+    it('requires a deliberate pull past the trigger distance', () => {
+        expect(getPullToRefreshState(15)).toBe('idle')
+        expect(getPullToRefreshState(16)).toBe('pulling')
+        expect(getPullToRefreshState(63)).toBe('pulling')
+        expect(getPullToRefreshState(64)).toBe('ready')
     })
 })

@@ -17,6 +17,7 @@ import { mcpCommand } from './mcp'
 import { notifyCommand } from './notify'
 import { hubCommand } from './hub'
 import { pingPeerCommand } from './pingPeer'
+import { inspectPeerCommand } from './inspectPeer'
 import { agentCommand } from '../../../fork-features/agent-orchestration/cli'
 import type { CommandContext, CommandDefinition } from './types'
 
@@ -56,6 +57,7 @@ const COMMANDS: CommandDefinition[] = [
     runnerCommand,
     notifyCommand,
     pingPeerCommand,
+    inspectPeerCommand,
     agentCommand
 ]
 

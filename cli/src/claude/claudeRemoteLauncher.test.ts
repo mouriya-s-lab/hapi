@@ -11,6 +11,7 @@ import type { EnhancedMode } from './loop'
 const harness = vi.hoisted(() => ({
     callCount: 0,
     claudeArgsPerCall: [] as (string[] | undefined)[],
+    initialMessages: [] as string[],
     triggerSwitch: null as (() => void) | null,
     switchAfterCall: 2
 }))
@@ -30,6 +31,7 @@ vi.mock('./claudeRemote', () => ({
             // never fires and the --resume flag is never actually used.
             return
         }
+        harness.initialMessages.push(initial.message)
 
         // Mirrors claudeRemote()'s /clear contract: it reports the context as
         // discarded and returns before spawning Claude, so onSessionFound
@@ -139,6 +141,7 @@ describe('claudeRemoteLauncher resume anchor', () => {
     afterEach(() => {
         harness.callCount = 0
         harness.claudeArgsPerCall = []
+        harness.initialMessages = []
         harness.triggerSwitch = null
         harness.switchAfterCall = 2
         vi.clearAllMocks()
@@ -245,6 +248,54 @@ describe('claudeRemoteLauncher resume anchor', () => {
             expect(harness.callCount).toBe(1)
             expect(harness.claudeArgsPerCall[0]).toBeUndefined()
             expect(session.sessionId).toBe('captured-session-id')
+        } finally {
+            session.stopKeepAlive()
+        }
+    })
+
+    it('sends an advertised $skill through Claude native slash invocation', async () => {
+        const client = createClientStub()
+        const { session, queue } = createSession(client, undefined)
+
+        try {
+            session.setNativeSkillNames(['hapi'])
+            expect(session.expandSkillReference('$unknown inspect')).toBe('$unknown inspect')
+            expect(session.expandSkillReference('ask $hapi')).toBe('ask $hapi')
+            queue.push('$hapi inspect', { permissionMode: 'default' }, 'local-1')
+            harness.switchAfterCall = 1
+            harness.triggerSwitch = () => {
+                client.rpcHandlers.get(RPC_METHODS.Switch)?.()
+            }
+
+            await claudeRemoteLauncher(session as any)
+
+            expect(harness.initialMessages).toEqual(['/hapi inspect'])
+        } finally {
+            session.stopKeepAlive()
+        }
+    })
+
+    it('keeps an advertised $skill first when attachments are present', async () => {
+        const client = createClientStub()
+        const { session, queue } = createSession(client, undefined)
+
+        try {
+            session.setNativeSkillNames(['hapi'])
+            const prompt = session.expandSkillReference(
+                '$hapi inspect',
+                '@C:\\Users\\Jane Doe\\input.txt'
+            )
+            queue.push(prompt, { permissionMode: 'default' }, 'local-1')
+            harness.switchAfterCall = 1
+            harness.triggerSwitch = () => {
+                client.rpcHandlers.get(RPC_METHODS.Switch)?.()
+            }
+
+            await claudeRemoteLauncher(session as any)
+
+            expect(harness.initialMessages).toEqual([
+                '/hapi inspect\n\n@C:\\Users\\Jane Doe\\input.txt'
+            ])
         } finally {
             session.stopKeepAlive()
         }

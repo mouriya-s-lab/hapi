@@ -60,7 +60,7 @@ for (const viewport of [
                 }
             }
             const mediaGrid = page.getByRole('dialog').locator('.hapi-share-media-grid')
-            await expect(mediaGrid).toHaveCSS('display', 'grid')
+            await expect(mediaGrid).toHaveCSS('display', 'flex')
             const imageTops = await mediaGrid.locator('img').evaluateAll((images) => images.map((image) => image.getBoundingClientRect().top))
             expect(imageTops).toHaveLength(2)
             expect(Math.abs(imageTops[0] - imageTops[1])).toBeLessThan(1)
@@ -190,6 +190,86 @@ test('keeps code and image controls interactive in preview', async ({ page }, te
     await page.keyboard.press('Escape')
     await expect(page.getByRole('dialog', { name: 'HAPI landscape export fixture' })).toHaveCount(0)
     await expect(dialog).toBeVisible()
+})
+
+test('preserves the desktop source width but keeps mobile export width stable', async ({ page }, testInfo) => {
+    await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 5 })
+    })
+    await page.setViewportSize({ width: 1440, height: 1600 })
+    await page.goto('/e2e-fixtures/share-turn-fixture.html?wide=1')
+    const sourceWidth = await page.getByTestId('source-turn').evaluate((element) => element.getBoundingClientRect().width)
+    expect(sourceWidth).toBe(1080)
+    await page.getByRole('button', { name: 'Open share preview' }).click()
+
+    const preview = page.getByRole('dialog').locator('.hapi-share-preview-root')
+    const previewWidth = await preview.evaluate((element) => element.getBoundingClientRect().width)
+    expect(previewWidth).toBeGreaterThan(650)
+    expect(previewWidth).toBeLessThanOrEqual(720)
+    const inlineCode = preview.locator('.aui-md-code').last()
+    await expect(inlineCode).toHaveCSS('display', 'inline')
+
+    const desktopDownloadPromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Download' }).click()
+    const desktopDownload = await desktopDownloadPromise
+    const desktopPath = testInfo.outputPath('source-width-desktop.png')
+    await desktopDownload.saveAs(desktopPath)
+    expect(pngSize(await readFile(desktopPath)).width).toBe(2240)
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.reload()
+    await page.getByRole('button', { name: 'Open share preview' }).click()
+    const mobileDownloadPromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Download' }).click()
+    const mobileDownload = await mobileDownloadPromise
+    const mobilePath = testInfo.outputPath('source-width-mobile.png')
+    await mobileDownload.saveAs(mobilePath)
+    expect(pngSize(await readFile(mobilePath)).width).toBe(1920)
+})
+
+test('keeps a landscape touch device on the fixed mobile export path', async ({ page }, testInfo) => {
+    await page.addInitScript(() => {
+        const nativeMatchMedia = window.matchMedia.bind(window)
+        window.matchMedia = (query: string) => {
+            if (query !== '(pointer: coarse)') return nativeMatchMedia(query)
+            return {
+                matches: true,
+                media: query,
+                onchange: null,
+                addListener: () => undefined,
+                removeListener: () => undefined,
+                addEventListener: () => undefined,
+                removeEventListener: () => undefined,
+                dispatchEvent: () => false,
+            }
+        }
+    })
+    await page.setViewportSize({ width: 844, height: 390 })
+    await page.goto('/e2e-fixtures/share-turn-fixture.html?wide=1')
+    await page.getByRole('button', { name: 'Open share preview' }).click()
+
+    const downloadPromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Download' }).click()
+    const download = await downloadPromise
+    const path = testInfo.outputPath('landscape-touch-mobile.png')
+    await download.saveAs(path)
+    expect(pngSize(await readFile(path)).width).toBe(1920)
+})
+
+test('allows three or more attachments to wrap instead of shrinking into one row', async ({ page }) => {
+    await page.goto('/e2e-fixtures/share-turn-fixture.html')
+    await page.getByTestId('source-turn').evaluate((source) => {
+        const grid = source.querySelector<HTMLElement>('.hapi-share-media-grid')
+        const firstAttachment = grid?.querySelector<HTMLButtonElement>('button')
+        if (!grid || !firstAttachment) throw new Error('Missing attachment fixture')
+        grid.appendChild(firstAttachment.cloneNode(true))
+        grid.dataset.hapiImageCount = '3'
+    })
+    await page.getByRole('button', { name: 'Open share preview' }).click()
+
+    const mediaGrid = page.getByRole('dialog').locator('.hapi-share-media-grid')
+    await expect(mediaGrid).toHaveCSS('flex-wrap', 'wrap')
+    await expect(mediaGrid.locator(':scope > button')).toHaveCount(3)
 })
 
 test('uses a prepared PNG while native share still has click activation', async ({ page }) => {

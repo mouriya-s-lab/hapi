@@ -39,7 +39,7 @@ vi.mock('@assistant-ui/react', () => ({
             </div>
         )
     },
-    useAssistantState: (selector: (state: unknown) => unknown) =>
+    useAuiState: (selector: (state: unknown) => unknown) =>
         selector({
             message: {
                 role: 'user',

@@ -75,7 +75,15 @@ export function getContextBudgetTokens(model: string | null | undefined, flavor?
             return DEFAULT_CLAUDE_CONTEXT_WINDOW_TOKENS
         }
         if (isClaudeModelPreset(trimmedModel) || trimmedModel.startsWith('claude-')) {
-            return trimmedModel.endsWith('[1m]')
+            // Fable ships with a 1M window even under its bare id: the SDK
+            // result message reports modelUsage["claude-fable-5"].contextWindow
+            // = 1,000,000, so the "[1m]" suffix check alone would undercount
+            // local-mode sessions (their transcript usage carries no
+            // context_window and falls through to this heuristic).
+            const isFable = trimmedModel === 'fable'
+                || trimmedModel === 'fable[1m]'
+                || trimmedModel.startsWith('claude-fable')
+            return trimmedModel.endsWith('[1m]') || isFable
                 ? LARGE_CLAUDE_CONTEXT_WINDOW_TOKENS
                 : DEFAULT_CLAUDE_CONTEXT_WINDOW_TOKENS
         }

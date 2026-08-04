@@ -49,6 +49,7 @@ import { inactiveSessionCanResume } from '@/lib/sessionResume'
 import { markSessionSeen } from '@/lib/sessionLastSeen'
 import { useSessionBrowserTitle } from '@/hooks/useSessionBrowserTitle'
 import { clearCodexImportedSession } from '@/lib/codexImportedSessions'
+import { migrateSuppressedSendError } from '@/lib/suppressed-send-error'
 import FilesPage from '@/routes/sessions/files'
 import FilePage from '@/routes/sessions/file'
 import TerminalPage from '@/routes/sessions/terminal'
@@ -108,26 +109,6 @@ function PlusIcon(props: { className?: string }) {
         >
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
-    )
-}
-
-function RefreshIcon(props: { className?: string }) {
-    return (
-        <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={props.className}
-        >
-            <path d="M21 12a9 9 0 1 1-2.64-6.36L21 8" />
-            <path d="M21 3v5h-5" />
         </svg>
     )
 }
@@ -193,15 +174,9 @@ function SessionsPage() {
     )
     const { machines } = useMachines(api, true)
     const handleRefresh = useCallback(() => {
-        void (async () => {
+        return (async () => {
             try {
                 await refetch()
-                addToast({
-                    title: t('sessions.refresh.success.title'),
-                    body: t('sessions.refresh.success.body'),
-                    sessionId: '',
-                    url: ''
-                })
             } catch (error) {
                 addToast({
                     title: t('sessions.refresh.failed.title'),
@@ -221,6 +196,12 @@ function SessionsPage() {
         }
         return byId
     }, [machines])
+    // Workspace browsing is opt-in per runner (`--workspace-root`); only show
+    // browse affordances when at least one machine reported roots.
+    const canBrowse = useMemo(
+        () => machines.some(m => (m.metadata?.workspaceRoots?.length ?? 0) > 0),
+        [machines]
+    )
     const sessionMatch = matchRoute({ to: '/sessions/$sessionId', fuzzy: true })
     const selectedSessionId = sessionMatch && sessionMatch.sessionId !== 'new' ? sessionMatch.sessionId : null
     const selectedSession = useMemo(
@@ -251,49 +232,7 @@ function SessionsPage() {
                 className={`${isSessionsIndex ? 'flex' : 'hidden split:flex'} w-full shrink-0 flex-col bg-[var(--app-bg)]`}
                 style={{ '--sidebar-w': `${sidebar.width}px` } as React.CSSProperties}
             >
-                <div className="session-list-scrollbar-offset shrink-0 bg-[var(--app-bg)] pt-[env(safe-area-inset-top)]">
-                    <div className="mx-auto flex w-full max-w-content items-center justify-end px-2 py-2">
-                        <div className="flex items-center gap-2">
-                            <button
-                                type="button"
-                                onClick={handleRefresh}
-                                disabled={isLoading}
-                                aria-label={t('button.refresh')}
-                                aria-busy={isLoading}
-                                className="p-1.5 rounded-full text-[var(--app-hint)] hover:text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)] transition-colors disabled:opacity-60 disabled:cursor-wait"
-                                title={t('button.refresh')}
-                            >
-                                <RefreshIcon className={`h-5 w-5 ${isLoading ? 'animate-spin' : ''}`} />
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => navigate({ to: '/browse' })}
-                                className="p-1.5 rounded-full text-[var(--app-hint)] hover:text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)] transition-colors"
-                                title={t('browse.nav')}
-                            >
-                                <FolderOpenIcon className="h-5 w-5" />
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => navigate({ to: '/settings' })}
-                                className="p-1.5 rounded-full text-[var(--app-hint)] hover:text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)] transition-colors"
-                                title={t('settings.title')}
-                            >
-                                <SettingsIcon className="h-5 w-5" />
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => navigate({ to: '/sessions/new' })}
-                                className="session-list-new-button flex h-9 w-9 items-center justify-center rounded-full text-[var(--app-link)] transition-colors"
-                                title={t('sessions.new')}
-                            >
-                                <PlusIcon className="h-5 w-5" />
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="flex min-h-0 flex-1 flex-col">
+                <div className="flex min-h-0 flex-1 flex-col pt-[env(safe-area-inset-top)]">
                     {error ? (
                         <div className="mx-auto w-full max-w-content px-3 py-2">
                             <div className="text-sm text-red-600">{error}</div>
@@ -308,10 +247,40 @@ function SessionsPage() {
                         })}
                         onNewSession={() => navigate({ to: '/sessions/new' })}
                         onNewSessionInDirectory={handleNewSessionInDirectory}
-                        onBrowse={() => navigate({ to: '/browse' })}
+                        onBrowse={canBrowse ? () => navigate({ to: '/browse' }) : undefined}
                         onRefresh={handleRefresh}
                         isLoading={isLoading}
                         renderHeader={false}
+                        headerActions={(
+                            <div className="flex items-center gap-2">
+                                {canBrowse && (
+                                    <button
+                                        type="button"
+                                        onClick={() => navigate({ to: '/browse' })}
+                                        className="p-1.5 rounded-full text-[var(--app-hint)] hover:text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)] transition-colors"
+                                        title={t('browse.nav')}
+                                    >
+                                        <FolderOpenIcon className="h-5 w-5" />
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => navigate({ to: '/settings' })}
+                                    className="p-1.5 rounded-full text-[var(--app-hint)] hover:text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)] transition-colors"
+                                    title={t('settings.title')}
+                                >
+                                    <SettingsIcon className="h-5 w-5" />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => navigate({ to: '/sessions/new' })}
+                                    className="session-list-new-button flex h-9 w-9 items-center justify-center rounded-full text-[var(--app-link)] transition-colors"
+                                    title={t('sessions.new')}
+                                >
+                                    <PlusIcon className="h-5 w-5" />
+                                </button>
+                            </div>
+                        )}
                         api={api}
                         machineLabelsById={machineLabelsById}
                         machinesById={machinesById}
@@ -421,6 +390,8 @@ function SessionPage() {
         message: string
         code: string | null
         scheduledAt: number | null
+        mutationStarted: boolean
+        restoreSuppressed: boolean
     }
     const [sendErrors, setSendErrors] = useState<Record<string, RawSendError>>({})
     const [reopeningSessionId, setReopeningSessionId] = useState<string | null>(null)
@@ -431,6 +402,17 @@ function SessionPage() {
             const next = { ...prev }
             delete next[sessionId]
             return next
+        })
+    }, [sessionId])
+
+    const suppressSendErrorRestore = useCallback((id: number) => {
+        setSendErrors((prev) => {
+            const current = prev[sessionId]
+            if (!current || current.id !== id || current.restoreSuppressed) return prev
+            return {
+                ...prev,
+                [sessionId]: { ...current, restoreSuppressed: true }
+            }
         })
     }, [sessionId])
 
@@ -495,6 +477,8 @@ function SessionPage() {
             text: rawSendError.text,
             message: rawSendError.message,
             scheduledAt: rawSendError.scheduledAt,
+            mutationStarted: rawSendError.mutationStarted,
+            restoreSuppressed: rawSendError.restoreSuppressed,
             action: rawSendError.code === 'session_inactive' && canOfferInactiveReopen
                 ? {
                     label: t('chat.sendError.sessionInactive.action'),
@@ -532,7 +516,9 @@ function SessionPage() {
                     text: info.text,
                     message,
                     code,
-                    scheduledAt: info.scheduledAt
+                    scheduledAt: info.scheduledAt,
+                    mutationStarted: info.mutationStarted,
+                    restoreSuppressed: false,
                 }
             }))
         },
@@ -572,6 +558,14 @@ function SessionPage() {
             }
         },
         onSessionResolved: (resolvedSessionId) => {
+            // A direct retry retains its old alert with restoreSuppressed=true.
+            // Move it to the target session before navigation so the mutation's
+            // onSuccess/onError can clear or replace the same record.
+            setSendErrors((previous) => migrateSuppressedSendError(
+                previous,
+                sessionId,
+                resolvedSessionId,
+            ))
             void (async () => {
                 if (api) {
                     if (session) {
@@ -645,8 +639,8 @@ function SessionPage() {
     const getAutocompleteSuggestions = useCallback(async (query: string) => {
         if (query.startsWith('@')) {
             const search = query.slice(1)
-            // v1: plain-text expansion (same grammar as Copy reference).
-            // v2: segmented rich composer with inline session tokens (#1215).
+            // v1: plain-text expansion (same grammar as Copy reference) — #1213.
+            // v2: segmented rich composer with inline session tokens — #1215.
             // Match via sessionMatchesQuery (share/sidebar); label/insert via getSessionTitle.
             const sessionHits = matchSessionsForMention(allSessions, search, {
                 excludeId: sessionId,
@@ -663,6 +657,8 @@ function SessionPage() {
                     description: s.active
                         ? `Session · ${idPrefix} · active`
                         : `Session · ${idPrefix}`,
+                    // Rich composer atom; textarea path still inserts `text` prose.
+                    sessionMention: { id: s.id, title: title || idPrefix },
                 }
             })
 
@@ -769,6 +765,7 @@ function SessionPage() {
             availableSlashCommands={slashCommands}
             sendError={sendError}
             onClearSendError={clearSendError}
+            onSuppressSendErrorRestore={suppressSendErrorRestore}
             initialOutlineOpen={outline}
             onInitialOutlineConsumed={handleInitialOutlineConsumed}
         />

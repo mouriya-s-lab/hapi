@@ -3,6 +3,7 @@ import type { SessionSummary } from '@/types/api'
 import {
     buildSessionReferencePath,
     buildSessionReferenceText,
+    formatSessionMentionTooltip,
     matchSessionsForMention,
     parseSessionPathHref,
 } from './sessionReference'
@@ -55,6 +56,27 @@ describe('buildSessionReferenceText', () => {
     it('omits title when empty after normalization', () => {
         expect(buildSessionReferenceText('   \n\t  ', 'abc-def')).toBe(
             'See HAPI session /sessions/abc-def for context'
+        )
+    })
+
+    it('keeps combining and ZWJ title graphemes only when they fit the UTF-16 limit', () => {
+        const prefix = 'a'.repeat(119)
+        const combining = `${prefix}e\u0301x`
+        const family = `${prefix}👨\u200D👩\u200D👧\u200D👦x`
+
+        expect(buildSessionReferenceText(combining, 'combining')).toBe(
+            `See session ${JSON.stringify(prefix)} (/sessions/combining) for context`
+        )
+        expect(buildSessionReferenceText(family, 'family')).toBe(
+            `See session ${JSON.stringify(prefix)} (/sessions/family) for context`
+        )
+
+        const fittingFamilyPrefix = 'a'.repeat(120 - '👨\u200D👩\u200D👧\u200D👦'.length)
+        expect(buildSessionReferenceText(
+            `${fittingFamilyPrefix}👨\u200D👩\u200D👧\u200D👦x`,
+            'fitting-family'
+        )).toBe(
+            `See session ${JSON.stringify(`${fittingFamilyPrefix}👨\u200D👩\u200D👧\u200D👦`)} (/sessions/fitting-family) for context`
         )
     })
 })
@@ -184,5 +206,75 @@ describe('parseSessionPathHref', () => {
     it('rejects dotted tails that look like filenames', () => {
         expect(parseSessionPathHref('/sessions/chat.tsx')).toBeNull()
         expect(parseSessionPathHref('web/src/routes/sessions/chat.tsx')).toBeNull()
+    })
+})
+
+describe('formatSessionMentionTooltip', () => {
+    it('uses full title, active status, ago, short id, and worktree path over metadata path', () => {
+        const tip = formatSessionMentionTooltip(
+            {
+                id: 'abcdef12-3456',
+                title: 'Peer #1215: a very long session title for chip truncation',
+                active: true,
+                path: '/home/me/coding/hapi',
+                worktreePath: '/home/me/coding/hapi/worktrees/session-mention-rich-composer',
+                relativeTime: '5m ago',
+            },
+            'fallback',
+            'abcdef12-3456'
+        )
+        expect(tip.title).toBe('Peer #1215: a very long session title for chip truncation')
+        expect(tip.lines[0]).toBe('Session · abcdef12 · Active')
+        expect(tip.lines[1]).toBe('5m ago')
+        expect(tip.lines[2]).toBe('/home/me/coding/hapi/worktrees/session-mention-rich-composer')
+        expect(tip.ariaLabel).toContain('5m ago')
+    })
+
+    it('prefers thinking / attention labels over bare Active', () => {
+        expect(
+            formatSessionMentionTooltip(
+                {
+                    id: 'abc',
+                    title: 'Busy',
+                    active: true,
+                    thinking: true,
+                },
+                'Busy',
+                'abc'
+            ).lines[0]
+        ).toBe('Session · abc · Thinking')
+
+        expect(
+            formatSessionMentionTooltip(
+                {
+                    id: 'abc',
+                    title: 'Needs you',
+                    active: true,
+                    attentionLabel: 'Needs input',
+                },
+                'Needs you',
+                'abc'
+            ).lines[0]
+        ).toBe('Session · abc · Needs input')
+    })
+
+    it('labels archived sessions and falls back when session is unknown', () => {
+        expect(
+            formatSessionMentionTooltip(
+                {
+                    id: 'zzz-archived',
+                    title: 'Old notes',
+                    active: false,
+                    lifecycleState: 'archived',
+                },
+                'Old notes',
+                'zzz-archived'
+            ).lines[0]
+        ).toBe('Session · zzz-arch · Archived')
+
+        const unknown = formatSessionMentionTooltip(null, 'Chip Title', 'deadbeef-0001')
+        expect(unknown.title).toBe('Chip Title')
+        expect(unknown.lines).toEqual(['Session · deadbeef'])
+        expect(unknown.lines[0]).not.toContain('Active')
     })
 })

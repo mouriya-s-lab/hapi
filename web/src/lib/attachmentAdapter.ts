@@ -26,7 +26,10 @@ export function createAttachmentAdapter(api: ApiClient, sessionId: string): Atta
     }
 
     return {
-        accept: '*/*',
+        // assistant-ui uses the exact "*" sentinel for an allow-all adapter.
+        // "*/*" is forwarded to MIME matching and rejects every file before
+        // this adapter's add() method can run.
+        accept: '*',
 
         async *add({ file }): AsyncGenerator<PendingAttachment> {
             const restored = getRestoredUploadMetadata(file)
@@ -110,7 +113,16 @@ export function createAttachmentAdapter(api: ApiClient, sessionId: string): Atta
                 // Generate preview URL for images under 5MB
                 let previewUrl: string | undefined
                 if (isImageMimeType(contentType) && file.size <= MAX_PREVIEW_BYTES) {
-                    previewUrl = await fileToDataUrl(file)
+                    try {
+                        previewUrl = await fileToDataUrl(file)
+                    } catch {
+                        // Preview generation is optional after the upload has succeeded.
+                    }
+                }
+
+                if (cancelledAttachmentIds.has(id)) {
+                    await deleteUpload(result.path)
+                    return
                 }
 
                 yield {
