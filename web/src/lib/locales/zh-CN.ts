@@ -934,6 +934,8 @@ export default {
   'settings.about.website': '官方网站',
   'settings.about.appVersion': '应用版本',
   'settings.about.protocolVersion': '协议版本',
+  'settings.about.update': '应用更新',
+  'settings.about.updateDescription': '重新加载 HAPI，以应用最新可用的 PWA 版本。',
 
   // Browse / Workspace
   'browse.title': '浏览',
