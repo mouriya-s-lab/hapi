@@ -401,12 +401,27 @@ body {
 }
 
 /*
- * Keep message layout fully realized while scrolling. `content-visibility: auto`
- * made Chromium replace rough intrinsic heights as older messages entered view,
- * which could change scrollTop and bounce the chat away from the user's target.
+ * Skip layout/paint for offscreen messages so mobile Safari can rasterize the
+ * scroller fast enough (without this, long sessions blank out to white tiles
+ * while scrolling). `contain-intrinsic-size: auto` keeps the last-rendered
+ * height once a message has been realized, and native scroll anchoring (left
+ * enabled) absorbs the estimate-to-real height swap on first render, so the
+ * viewport does not bounce away from the user's target.
  */
 .happy-thread-messages > * {
-    overflow-anchor: none;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 160px;
+}
+
+/*
+ * A single assistant turn renders as one .happy-message that can span dozens
+ * of screens (every tool card of the turn), so top-level clipping alone still
+ * paints the whole turn once any part of it is visible. Clip the per-block
+ * wrappers inside a message too.
+ */
+.happy-thread-messages .happy-message > * {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 90px;
 }
 
 /* Markdown styles */

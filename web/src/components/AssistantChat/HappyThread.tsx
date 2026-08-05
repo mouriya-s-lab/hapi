@@ -1471,17 +1471,14 @@ export function HappyThread(props: {
                                                     aria-busy={props.isLoadingMoreMessages}
                                                     className="gap-1.5 text-xs opacity-80 hover:opacity-100"
                                                 >
-                                                    {props.isLoadingMoreMessages ? (
-                                                        <>
+                                                    <span aria-hidden="true" className="inline-flex w-4 shrink-0 items-center justify-center">
+                                                        {props.isLoadingMoreMessages ? (
                                                             <Spinner size="sm" label={null} className="text-current" />
-                                                            {t('misc.loading')}
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <span aria-hidden="true">↑</span>
-                                                            {t('session.outline.loadOlder')}
-                                                        </>
-                                                    )}
+                                                        ) : (
+                                                            '↑'
+                                                        )}
+                                                    </span>
+                                                    {t('session.outline.loadOlder')}
                                                 </Button>
                                             </div>
                                         </div>
