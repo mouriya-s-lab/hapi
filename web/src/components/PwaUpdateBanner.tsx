@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
-import { usePlatform } from '@/hooks/usePlatform'
+import { PwaReloadButton } from '@/fork-features/pwa-update/PwaReloadButton'
 import { usePwaUpdateContext } from '@/lib/pwa-update-context'
 import { useTranslation } from '@/lib/use-translation'
 import { useVoiceOptional } from '@/lib/voice-context'
@@ -46,9 +46,8 @@ function useIncomingChanges(needRefresh: boolean): IncomingChanges {
 
 export function PwaUpdateBanner({ topClassName }: { topClassName?: string } = {}) {
     const { t } = useTranslation()
-    const { needRefresh, reload } = usePwaUpdateContext()
+    const { needRefresh } = usePwaUpdateContext()
     const isOnline = useOnlineStatus()
-    const { haptic } = usePlatform()
     const incomingChanges = useIncomingChanges(needRefresh)
 
     if (!needRefresh) {
@@ -73,16 +72,7 @@ export function PwaUpdateBanner({ topClassName }: { topClassName?: string } = {}
                         {t('pwa.update.body')}
                     </p>
                 </div>
-                <button
-                    type="button"
-                    onClick={() => {
-                        haptic.impact('light')
-                        reload()
-                    }}
-                    className="shrink-0 px-4 py-2 bg-[var(--app-fg)] text-[var(--app-bg)] rounded-lg text-sm font-medium active:opacity-80"
-                >
-                    {t('pwa.update.reload')}
-                </button>
+                <PwaReloadButton />
             </div>
 
             {incomingChanges.status === 'loading' && (

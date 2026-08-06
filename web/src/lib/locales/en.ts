@@ -1002,6 +1002,8 @@ export default {
   'settings.about.website': 'Website',
   'settings.about.appVersion': 'App Version',
   'settings.about.protocolVersion': 'Protocol Version',
+  'settings.about.update': 'App Update',
+  'settings.about.updateDescription': 'Reload HAPI to apply the latest available PWA version.',
 
   // Browse / Workspace
   'browse.title': 'Browse',
