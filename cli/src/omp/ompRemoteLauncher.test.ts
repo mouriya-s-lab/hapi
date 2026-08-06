@@ -948,13 +948,15 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
 
         await vi.waitFor(() => expect(agentMessages).toContainEqual({
             type: 'token_count',
+            model: null,
             info: {
                 total: {
-                    inputTokens: 120,
+                    inputTokens: 130,
                     outputTokens: 30,
                     totalTokens: 160,
                     thoughtTokens: 5,
-                    cachedInputTokens: 10
+                    cachedInputTokens: 10,
+                    cacheWriteInputTokens: 0,
                 },
                 contextTokens: 4_096,
                 modelContextWindow: 128_000,

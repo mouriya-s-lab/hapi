@@ -4,6 +4,10 @@ import type { AppendMessage, AttachmentAdapter, ThreadMessageLike } from '@assis
 import { useExternalMessageConverter, useExternalStoreRuntime } from '@assistant-ui/react'
 import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import { resolvePendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
+import {
+    consumeComposerSendIntent,
+    type ComposerSendIntent,
+} from '@/lib/messageDelivery'
 import { safeStringify } from '@hapi/protocol'
 import { renderEventLabel } from '@/chat/presentation'
 import { filterVisibleBlocksForFlavor } from '@/fork-features/omp-product/eventVisibility'
@@ -12,6 +16,7 @@ import type { AgentEvent, ToolCallBlock } from '@/chat/types'
 import type { ToolGroupBlock, VisibleChatBlock } from '@/chat/toolGroups'
 import { visibleBlockRole } from '@/chat/toolGroups'
 import type { AttachmentMetadata, MessageStatus as HappyMessageStatus, Session } from '@/types/api'
+import { buildShareHiddenByMessageId } from '@/lib/shareTurnAvailability'
 
 /**
  * Aggregated metadata for a multi-turn response group, surfaced on the
@@ -61,6 +66,8 @@ export type HappyChatMessageMetadata = {
 export type HappyRuntimeExtras = Readonly<{
     messagesVersion: number
     historyVersion: number
+    runningSince: number
+    shareHiddenByMessageId: ReadonlySet<string>
 }>
 
 function formatCodexReviewText(review: CodexReview): string {
@@ -651,11 +658,22 @@ export function useHappyRuntime(props: {
     historyVersion: number
     isSending: boolean
     isRunning?: boolean
-    onSendMessage: (text: string, attachments?: AttachmentMetadata[], scheduledAt?: number | null) => void
+    onSendMessage: (
+        text: string,
+        attachments?: AttachmentMetadata[],
+        scheduledAt?: number | null,
+        intent?: ComposerSendIntent,
+    ) => void
     onAbort: () => Promise<void>
     attachmentAdapter?: AttachmentAdapter
     allowSendWhenInactive?: boolean
     pendingScheduleRef?: React.RefObject<PendingSchedule | null>
+    /**
+     * Shared one-shot ref with HappyComposer. The composer marks the next
+     * `api.composer().send()`; this adapter consumes and resets the mark as
+     * soon as assistant-ui emits the corresponding AppendMessage.
+     */
+    pendingSendIntentRef?: React.MutableRefObject<ComposerSendIntent>
 }) {
     const isRunning = props.isRunning ?? props.session.thinking
     const flavor = props.session.metadata?.flavor
@@ -727,6 +745,10 @@ export function useHappyRuntime(props: {
     })
 
     const onNew = useCallback(async (message: AppendMessage) => {
+        const intent = consumeComposerSendIntent(props.pendingSendIntentRef)
+        // Reset before any early return so an empty submission, extraction
+        // failure, or downstream exception cannot leak an explicit queue
+        // gesture into the next ordinary send.
         const { text, attachments } = extractMessageContent(message)
         if (!text && attachments.length === 0) return
         // Resolve pendingSchedule at send time (Date.now()) so preset-type schedules
@@ -734,17 +756,24 @@ export function useHappyRuntime(props: {
         // moment the user clicked the preset button.
         const sendNow = Date.now()
         const scheduledAt = resolvePendingSchedule(props.pendingScheduleRef?.current ?? null, sendNow)
-        props.onSendMessage(text, attachments.length > 0 ? attachments : undefined, scheduledAt)
-    }, [props.onSendMessage, props.pendingScheduleRef])
+        props.onSendMessage(text, attachments.length > 0 ? attachments : undefined, scheduledAt, intent)
+    }, [props.onSendMessage, props.pendingScheduleRef, props.pendingSendIntentRef])
 
     const onCancel = useCallback(async () => {
         await props.onAbort()
     }, [props.onAbort])
 
+    const runningSince = props.session.activeTurnStartedAt ?? 0
+    const shareHiddenByMessageId = useMemo(
+        () => buildShareHiddenByMessageId(convertedMessages, isRunning, runningSince),
+        [convertedMessages, isRunning, runningSince]
+    )
     const extras = useMemo<HappyRuntimeExtras>(() => ({
         messagesVersion: props.messagesVersion,
-        historyVersion: props.historyVersion
-    }), [props.messagesVersion, props.historyVersion])
+        historyVersion: props.historyVersion,
+        runningSince,
+        shareHiddenByMessageId
+    }), [props.messagesVersion, props.historyVersion, runningSince, shareHiddenByMessageId])
 
     // Memoize the adapter to avoid recreating on every render
     // useExternalStoreRuntime may use adapter identity for subscriptions

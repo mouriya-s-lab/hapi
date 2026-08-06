@@ -8,19 +8,22 @@ import { Store } from './index'
 /**
  * Schema v15 diverged across branches: upstream added
  * `session_scratchlist.attachments`, while the fork added
- * `sessions.resume_with_session_model`. V16 reconciles both shapes.
+ * `sessions.resume_with_session_model`. V16 reconciles both shapes before
+ * subsequent migrations advance the database to the current schema.
  */
-describe('Store V15→V16 migration: reconcile divergent columns', () => {
-    it('fresh DB has both v15 columns at schema v16', () => {
+describe('Store V15 migration: reconcile divergent columns', () => {
+    it('fresh DB has both v15 columns at the current schema', () => {
         const store = new Store(':memory:')
         expect(getColumns(store, 'session_scratchlist')).toContain('attachments')
         expect(getColumns(store, 'sessions')).toContain('resume_with_session_model')
-        expect(getUserVersion(store)).toBe(16)
+        expect(getColumns(store, 'usage_events')).toContain('last_input_tokens')
+        expect(getColumns(store, 'usage_scan_state')).toContain('last_seq')
+        expect(getUserVersion(store)).toBe(20)
         store.close()
     })
 
-    it('V14 DB migrates through both additions to V16', () => {
-        const dir = mkdtempSync(join(tmpdir(), 'hapi-migration-v14-to-v16-'))
+    it('V14 DB migrates through both additions to the current schema', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'hapi-migration-v14-current-'))
         const dbPath = join(dir, 'test.db')
         let store: Store | undefined
         try {
@@ -32,7 +35,9 @@ describe('Store V15→V16 migration: reconcile divergent columns', () => {
             store = new Store(dbPath)
             expect(getColumns(store, 'session_scratchlist')).toContain('attachments')
             expect(getColumns(store, 'sessions')).toContain('resume_with_session_model')
-            expect(getUserVersion(store)).toBe(16)
+            expect(getColumns(store, 'usage_events')).toContain('last_input_tokens')
+            expect(getColumns(store, 'usage_scan_state')).toContain('last_seq')
+            expect(getUserVersion(store)).toBe(20)
         } finally {
             store?.close()
             rmSync(dir, { recursive: true, force: true })
@@ -53,7 +58,9 @@ describe('Store V15→V16 migration: reconcile divergent columns', () => {
             store = new Store(dbPath)
             expect(getColumns(store, 'session_scratchlist')).toContain('attachments')
             expect(getColumns(store, 'sessions')).toContain('resume_with_session_model')
-            expect(getUserVersion(store)).toBe(16)
+            expect(getColumns(store, 'usage_events')).toContain('last_input_tokens')
+            expect(getColumns(store, 'usage_scan_state')).toContain('last_seq')
+            expect(getUserVersion(store)).toBe(20)
         } finally {
             store?.close()
             rmSync(dir, { recursive: true, force: true })
@@ -74,15 +81,17 @@ describe('Store V15→V16 migration: reconcile divergent columns', () => {
             store = new Store(dbPath)
             expect(getColumns(store, 'session_scratchlist')).toContain('attachments')
             expect(getColumns(store, 'sessions')).toContain('resume_with_session_model')
-            expect(getUserVersion(store)).toBe(16)
+            expect(getColumns(store, 'usage_events')).toContain('last_input_tokens')
+            expect(getColumns(store, 'usage_scan_state')).toContain('last_seq')
+            expect(getUserVersion(store)).toBe(20)
         } finally {
             store?.close()
             rmSync(dir, { recursive: true, force: true })
         }
     })
 
-    it('V16 DB reopen is idempotent', () => {
-        const dir = mkdtempSync(join(tmpdir(), 'hapi-migration-v16-idempotent-'))
+    it('current schema reopen is idempotent', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'hapi-migration-current-idempotent-'))
         const dbPath = join(dir, 'test.db')
         let first: Store | undefined
         let second: Store | undefined
@@ -94,7 +103,7 @@ describe('Store V15→V16 migration: reconcile divergent columns', () => {
             second = new Store(dbPath)
             expect(getColumns(second, 'session_scratchlist')).toEqual(scratchlistColumns)
             expect(getColumns(second, 'sessions')).toEqual(sessionColumns)
-            expect(getUserVersion(second)).toBe(16)
+            expect(getUserVersion(second)).toBe(20)
         } finally {
             second?.close()
             first?.close()

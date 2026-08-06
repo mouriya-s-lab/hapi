@@ -268,6 +268,29 @@ describe('ApiSessionClient lazy materialization', () => {
         client.close()
     })
 
+    it('keeps an error event when the pending droppable queue overflows during materialization', async () => {
+        socketHarness.sockets.length = 0
+        const pendingMaterialization = deferred<Session>()
+        const client = new ApiSessionClient('token', createSession(), {
+            materialize: async () => await pendingMaterialization.promise
+        })
+
+        client.notifyUserActivity()
+        client.sendSessionEvent({ type: 'error', message: 'Antigravity quota reached' })
+        for (let index = 0; index < 300; index += 1) {
+            client.sendSessionEvent({ type: 'ready' })
+        }
+
+        pendingMaterialization.resolve(createSession({ namespace: 'default' }))
+        expect(await client.materialize()).toBe(true)
+
+        const events = socketHarness.sockets[0]?.emitted
+            .filter((entry) => entry.event === 'message')
+            .map((entry) => (entry.args[0] as { message: { content: { data: { type: string; message?: string } } } }).message.content.data)
+        expect(events).toContainEqual({ type: 'error', message: 'Antigravity quota reached' })
+        client.close()
+    })
+
     it('drains in-flight materialization and initial socket delivery before closing', async () => {
         socketHarness.sockets.length = 0
         const pendingMaterialization = deferred<Session>()
@@ -371,6 +394,55 @@ describe('ApiSessionClient lazy materialization', () => {
         await flushTask
 
         expect(socket.emitted.some((entry) => entry.event === 'session-end')).toBe(true)
+        client.close()
+    })
+
+    it('reports an unconfirmed final flush when the socket cannot reconnect before the deadline', async () => {
+        socketHarness.sockets.length = 0
+        const client = new ApiSessionClient('token', createSession({ namespace: 'default' }))
+        const socket = socketHarness.sockets[0]
+        if (!socket) throw new Error('expected socket')
+        socket.connected = false
+        socket.connectImmediately = false
+        client.sendSessionDeath('cleared')
+
+        await expect(client.flush({ timeoutMs: 20 })).resolves.toBe(false)
+
+        expect(socket.connectCalls).toBeGreaterThan(0)
+        client.close()
+    })
+})
+
+describe('ApiSessionClient agy transcript messages', () => {
+    it('renders only the USER_REQUEST body, not the sections agy appends', () => {
+        socketHarness.sockets.length = 0
+        const client = new ApiSessionClient('token', createSession({ namespace: 'default' }))
+        const socket = socketHarness.sockets[0]
+        if (!socket) throw new Error('expected socket')
+
+        // The shape agy actually writes for every terminal-typed message.
+        client.sendAgySessionMessage({
+            step_index: 0,
+            source: 'USER_EXPLICIT',
+            type: 'USER_INPUT',
+            status: 'DONE',
+            created_at: '2026-08-04T00:00:00Z',
+            content: [
+                '<USER_REQUEST>',
+                'hi',
+                '</USER_REQUEST>',
+                '<ADDITIONAL_METADATA>',
+                'The current local time is: 2026-08-04T09:00:00+09:00.',
+                '</ADDITIONAL_METADATA>',
+                '<USER_SETTINGS_CHANGE>',
+                'The user changed setting `Model Selection` from None to Gemini 3.6 Flash (Low).',
+                '</USER_SETTINGS_CHANGE>',
+            ].join('\n'),
+        } as never)
+
+        const emitted = socket.emitted.find((entry) => entry.event === 'message')
+        expect(emitted).toBeDefined()
+        expect((emitted!.args[0] as any).message.content.text).toBe('hi')
         client.close()
     })
 })

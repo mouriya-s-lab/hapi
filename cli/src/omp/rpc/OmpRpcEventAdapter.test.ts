@@ -145,6 +145,7 @@ describe('OmpRpcEventAdapter', () => {
             totalTokens: 23,
             thoughtTokens: 5,
             cacheReadTokens: 3,
+            cacheCreationTokens: 2,
             costUsd: 0.035
         });
     });

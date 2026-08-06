@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import { readFileSync } from 'node:fs'
@@ -6,6 +6,23 @@ import { resolve } from 'node:path'
 import { shareTargetPathnameFromBase } from './src/lib/sharePath'
 import { execSync } from 'node:child_process'
 import { readHeadCommit, writeChangelog } from './changelog-build'
+
+function spaFallback(): Plugin {
+    return {
+        name: 'spa-fallback',
+        configureServer(server) {
+            server.middlewares.use((req, _res, next) => {
+                const url = (req.url ?? '').split('?')[0]
+                if (url === '/' || url === '' || url.includes('.') || url.startsWith('/@') || url.startsWith('/api') || url.startsWith('/socket.io') || url.startsWith('/src/')) {
+                    next()
+                    return
+                }
+                req.url = '/index.html'
+                next()
+            })
+        }
+    }
+}
 
 const base = process.env.VITE_BASE_URL || '/'
 const shareAction = shareTargetPathnameFromBase(base)
@@ -107,6 +124,7 @@ function getVendorChunkName(id: string): string | undefined {
 }
 
 export default defineConfig({
+    appType: 'spa',
     define: {
         __APP_VERSION__: JSON.stringify(appVersion),
         __APP_COMMIT__: JSON.stringify(appCommit ?? 'unavailable'),
@@ -128,6 +146,7 @@ export default defineConfig({
     plugins: [
         react(),
         changelogJsonPlugin(),
+        spaFallback(),
         VitePWA({
             // User-controlled reload avoids mid-session surprise reloads (autoUpdate reloads all tabs).
             registerType: 'prompt',
@@ -198,7 +217,11 @@ export default defineConfig({
                 }
             },
             injectManifest: {
-                globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}']
+                globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+                // The SPA entry contains the complete multi-agent control surface.
+                // Keep it available offline after adding Pi history import instead
+                // of silently dropping the entry chunk from the PWA precache.
+                maximumFileSizeToCacheInBytes: 3 * 1024 * 1024
             },
             devOptions: {
                 enabled: true,

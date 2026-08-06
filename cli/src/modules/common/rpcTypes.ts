@@ -1,9 +1,13 @@
-import type { AgentFlavor, ClaudeLaunch } from '@hapi/protocol'
+import type { AgentFlavor, ClaudeLaunch, CopilotAgentMode } from '@hapi/protocol'
 
 export interface SpawnSessionOptions {
     machineId?: string
     directory: string
     sessionId?: string
+    // Existing hub session id to reuse (reopen/resume). Distinct from the legacy
+    // `sessionId` field above (reserved/unused by spawn): when set, the CLI boots
+    // with `--hapi-session-id` so the child reuses the existing hub row (stable
+    // id) instead of minting a new one. Set only by the hub reopen/resume path.
     existingSessionId?: string
     resumeSessionId?: string
     approvedNewDirectoryCreation?: boolean
@@ -15,9 +19,11 @@ export interface SpawnSessionOptions {
     permissionMode?: string
     serviceTier?: string
     collaborationMode?: 'default' | 'plan'
+    copilotAgentMode?: CopilotAgentMode
     token?: string
     sessionType?: 'simple' | 'worktree'
     worktreeName?: string
+    startingMode?: 'remote' | 'pty'
     /** Claude: spawn with --fork-session after --resume. */
     forkSession?: boolean
     claudeLaunch?: ClaudeLaunch

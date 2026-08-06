@@ -3,6 +3,7 @@ import { logger } from '@/ui/logger';
 import { killProcessByChildProcess } from '@/utils/process';
 import { GEMINI_MODEL_PRESETS } from '@hapi/protocol';
 import { registerActiveAcpTransport, unregisterActiveAcpTransport } from './agentCliGuard';
+import { matchesAcpHttp2Cancel, matchesAcpRetryBackoff } from './acpStderrErrors';
 
 interface JsonRpcRequest {
     jsonrpc: '2.0';
@@ -61,6 +62,8 @@ export class AcpStdioTransport {
     private stderrErrorHandler: ((error: AcpStderrError) => void) | null = null;
     private buffer = '';
     private recentStderr = '';
+    private stderrParseBuffer = '';
+    private stderrPartialErrorReported = false;
     private emittedModelRejection = false;
     private nextId = 1;
     private protocolError: Error | null = null;
@@ -118,15 +121,9 @@ export class AcpStdioTransport {
             }
             const text = raw.trim();
             logger.debug(`[ACP][stderr] ${text}`);
-            this.parseStderrError(text);
-            // If this chunk alone missed a split keyword/id, retry against the window.
-            if (
-                text
-                && !/Cannot use this model:\s*\S/i.test(text)
-                && /Cannot use this model:\s*\S/i.test(this.recentStderr)
-            ) {
-                this.parseStderrError(this.stderrForCloseError() ?? this.recentStderr);
-            }
+            this.parseStderrRecords(raw);
+            this.flushActionableStderrTail();
+            this.stderrParseBuffer = this.stderrParseBuffer.slice(-AcpStdioTransport.RECENT_STDERR_WINDOW);
         });
 
         // Block new stdin writes as soon as the process exits, but defer markClosed
@@ -143,6 +140,7 @@ export class AcpStdioTransport {
         // classify the failure — Node may fire 'exit' before the last stderr 'data'.
         this.process.on('close', (code, signal) => {
             this.releaseAgentCliGuard();
+            this.flushStderrParseBuffer();
             const stderr = this.stderrForCloseError();
             let message = `ACP process exited (code=${code ?? 'null'}, signal=${signal ?? 'null'})`;
             if (stderr) {
@@ -290,10 +288,18 @@ export class AcpStdioTransport {
             }
             message = parsed as JsonRpcRequest | JsonRpcResponse | JsonRpcNotification;
         } catch (error) {
+            // Cursor `--worktree` prints `Using worktree: …` on stdout before ACP
+            // JSON-RPC. Only that known banner is noise; other parse failures stay fatal
+            // so pending requests (incl. session/prompt with infinite timeout) fail fast.
+            if (this.shouldGuardAgentCli && line.startsWith('Using worktree:')) {
+                logger.debug('[ACP] Ignoring Cursor worktree stdout banner', { line });
+                return;
+            }
+
             const protocolError = new Error('Failed to parse JSON-RPC from ACP agent');
             this.protocolError = protocolError;
             logger.debug('[ACP] Failed to parse JSON-RPC line', { line, error });
-            this.rejectAllPending(protocolError);
+            this.markClosed(protocolError);
             this.process.stdin.end();
             void killProcessByChildProcess(this.process);
             return;
@@ -421,9 +427,41 @@ export class AcpStdioTransport {
             : source;
     }
 
-    private parseStderrError(text: string): void {
+    private parseStderrRecords(raw: string): void {
+        const lines = (this.stderrParseBuffer + raw).split(/\r\n|[\r\n]/);
+        this.stderrParseBuffer = lines.pop() ?? '';
+        for (const line of lines) {
+            const text = line.trim();
+            if (text) {
+                this.parseStderrError(text, true);
+                this.stderrPartialErrorReported = false;
+            }
+        }
+    }
+
+    private flushActionableStderrTail(): void {
+        const pending = this.stderrParseBuffer.trim();
+        if (pending && this.parseStderrError(pending) === 'reported-complete') {
+            this.stderrParseBuffer = '';
+            this.stderrPartialErrorReported = false;
+        }
+    }
+
+    private flushStderrParseBuffer(): void {
+        const text = this.stderrParseBuffer.trim();
+        this.stderrParseBuffer = '';
+        if (text) {
+            this.parseStderrError(text, true);
+        }
+        this.stderrPartialErrorReported = false;
+    }
+
+    private parseStderrError(
+        text: string,
+        completeRecord = false
+    ): 'none' | 'reported-partial' | 'reported-complete' {
         if (!this.stderrErrorHandler) {
-            return;
+            return 'none';
         }
 
         const lowerText = text.toLowerCase();
@@ -436,7 +474,7 @@ export class AcpStdioTransport {
         const modelRejection = text.match(/Cannot use this model:\s*\S[\s\S]*/i);
         if (modelRejection) {
             if (this.emittedModelRejection) {
-                return;
+                return 'reported-complete';
             }
             const message = modelRejection[0].trim();
             this.emittedModelRejection = true;
@@ -445,7 +483,7 @@ export class AcpStdioTransport {
                 message,
                 raw: message
             });
-            return;
+            return 'reported-complete';
         }
 
         // Rate limit errors (429)
@@ -455,7 +493,7 @@ export class AcpStdioTransport {
                 message: 'Rate limit exceeded. Please wait before sending more requests.',
                 raw: text
             });
-            return;
+            return 'reported-complete';
         }
 
         // Model not found errors (404)
@@ -465,7 +503,7 @@ export class AcpStdioTransport {
                 message: `Model not found. Available models: ${GEMINI_MODEL_PRESETS.join(', ')}`,
                 raw: text
             });
-            return;
+            return 'reported-complete';
         }
 
         // Authentication errors (401/403)
@@ -477,7 +515,7 @@ export class AcpStdioTransport {
                 message: 'Authentication failed. Please check your credentials or run "gemini auth login".',
                 raw: text
             });
-            return;
+            return 'reported-complete';
         }
 
         // Quota exceeded
@@ -487,16 +525,44 @@ export class AcpStdioTransport {
                 message: 'API quota exceeded. Please check your billing or wait for quota reset.',
                 raw: text
             });
-            return;
+            return 'reported-complete';
+        }
+
+        if (matchesAcpRetryBackoff(text)) {
+            this.stderrErrorHandler({
+                type: 'unknown',
+                message: 'The ACP agent is retrying after an upstream failure. The turn may be stalled.',
+                raw: text
+            });
+            return 'reported-complete';
+        }
+
+        if (matchesAcpHttp2Cancel(text)) {
+            this.stderrErrorHandler({
+                type: 'unknown',
+                message: 'Upstream request was cancelled. The agent may be retrying or stalled.',
+                raw: text
+            });
+            return 'reported-complete';
+        }
+
+        // Keep cancellation errors buffered until a later chunk can classify them.
+        if (lowerText.includes('canceled') && !completeRecord) {
+            return 'none';
         }
 
         // Only report as unknown if it looks like an actual error
         if (lowerText.includes('error') || lowerText.includes('failed') || lowerText.includes('exception')) {
-            this.stderrErrorHandler({
-                type: 'unknown',
-                message: text,
-                raw: text
-            });
+            if (!this.stderrPartialErrorReported) {
+                this.stderrPartialErrorReported = true;
+                this.stderrErrorHandler({
+                    type: 'unknown',
+                    message: text,
+                    raw: text
+                });
+            }
+            return 'reported-partial';
         }
+        return 'none';
     }
 }

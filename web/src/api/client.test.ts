@@ -93,6 +93,23 @@ describe('ApiClient error mapping', () => {
         expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/sessions/session%20cursor/cursor-chat-store')
     })
 
+    it('lists and imports Pi sessions through the selected machine', async () => {
+        fetchMock
+            .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, sessions: [], machineId: 'machine-1' }), { status: 200 }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, results: [], machineId: 'machine-1' }), { status: 200 }))
+        const api = new ApiClient('test-token')
+
+        await api.getPiSessions('/tmp/project', 'machine-1')
+        await api.importPiSessions({ sessionIds: ['pi-1'], cwd: '/tmp/project', machineId: 'machine-1' })
+
+        expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/pi/sessions?cwd=%2Ftmp%2Fproject&machineId=machine-1')
+        expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/pi/import-sessions')
+        expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+            method: 'POST',
+            body: JSON.stringify({ sessionIds: ['pi-1'], cwd: '/tmp/project', machineId: 'machine-1' })
+        })
+    })
+
     it('loads the authoritative queued state for encoded session IDs', async () => {
         fetchMock.mockResolvedValueOnce(
             new Response(JSON.stringify({
@@ -116,6 +133,35 @@ describe('ApiClient error mapping', () => {
         expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
     })
 
+    it('forwards the selected delivery mode when sending a message', async () => {
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
+
+        const api = new ApiClient('test-token')
+        await api.sendMessage('session /?#', 'steer this', 'local-1', undefined, null, undefined, 'steer')
+
+        const [url, init] = fetchMock.mock.calls[0] ?? []
+        expect(url).toBe('/api/sessions/session%20%2F%3F%23/messages')
+        expect(init).toMatchObject({
+            method: 'POST',
+            body: JSON.stringify({
+                text: 'steer this',
+                localId: 'local-1',
+                deliveryMode: 'steer',
+            })
+        })
+    })
+
+    it('requests usage buckets in the viewer IANA time zone', async () => {
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
+
+        const api = new ApiClient('test-token')
+        await api.getUsageSummary('7d', 'America/New_York')
+
+        expect(fetchMock.mock.calls[0]?.[0]).toBe(
+            '/api/usage/summary?range=7d&timeZone=America%2FNew_York'
+        )
+    })
+
     it('lets fetch set the multipart boundary for transcription uploads', async () => {
         fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ text: 'hello' }), { status: 200 }))
 
@@ -126,5 +172,15 @@ describe('ApiClient error mapping', () => {
         const [, init] = fetchMock.mock.calls[0] ?? []
         expect(init?.body).toBeInstanceOf(FormData)
         expect(new Headers(init?.headers).has('content-type')).toBe(false)
+    })
+
+    it('preserves an unavailable voice backend response', async () => {
+        fetchMock.mockResolvedValueOnce(
+            new Response(JSON.stringify({ backend: null, backends: [] }), { status: 200 })
+        )
+
+        const api = new ApiClient('test-token')
+        await expect(api.fetchVoiceBackend()).resolves.toEqual({ backend: null, backends: [] })
+        expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/voice/backend')
     })
 })

@@ -10,6 +10,7 @@ import { SessionList } from './SessionList'
 afterEach(() => {
     cleanup()
     localStorage.removeItem('hapi-session-preview-limit')
+    localStorage.removeItem('hapi-pin-in-progress-sessions')
 })
 
 function makeSession(overrides: Partial<SessionSummary> & { id: string }): SessionSummary {
@@ -19,6 +20,9 @@ function makeSession(overrides: Partial<SessionSummary> & { id: string }): Sessi
         activeAt: 0,
         updatedAt: 0,
         metadata: null,
+        metadataVersion: 0,
+        agentStateVersion: 0,
+        todosUpdatedAt: 0,
         todoProgress: null,
         pendingRequestsCount: 0,
         pendingRequestKinds: [],
@@ -371,6 +375,7 @@ describe('SessionList collapse behavior', () => {
     }
 
     it('keeps a selected running path collapsed across live session-list refreshes', async () => {
+        localStorage.setItem('hapi-pin-in-progress-sessions', 'true')
         const baseSessions = [
             makeSession({
                 id: 'session-running',
@@ -405,6 +410,106 @@ describe('SessionList collapse behavior', () => {
         await waitFor(() => {
             expect(getProjectPanel().getAttribute('data-open')).toBeNull()
         })
+    })
+
+    it('leaves active sessions in directory groups when pin-in-progress is off', () => {
+        const sessions = [
+            makeSession({
+                id: 'session-running',
+                active: true,
+                thinking: true,
+                updatedAt: 100,
+                metadata: { path: '/work/hapi', name: 'Running task', flavor: 'codex' },
+            }),
+            makeSession({
+                id: 'session-idle',
+                updatedAt: 50,
+                metadata: { path: '/work/other', name: 'Other task', flavor: 'codex' },
+            }),
+        ]
+        render(renderSessionList(sessions, null))
+
+        expect(screen.queryByTitle('In progress')).toBeNull()
+        expect(screen.getByTitle('/work/hapi')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /Running task/ })).toBeInTheDocument()
+        // Active group stays expanded by default so the project glance is immediate.
+        expect(screen.getByTitle('/work/hapi').nextElementSibling?.getAttribute('data-open')).toBe('true')
+    })
+
+    it('pins active sessions into In progress when the preference is on', () => {
+        localStorage.setItem('hapi-pin-in-progress-sessions', 'true')
+        const sessions = [
+            makeSession({
+                id: 'session-running',
+                active: true,
+                thinking: true,
+                updatedAt: 100,
+                metadata: { path: '/work/hapi', name: 'Running task', flavor: 'codex' },
+            }),
+            makeSession({
+                id: 'session-idle',
+                updatedAt: 50,
+                metadata: { path: '/work/hapi', name: 'Idle task', flavor: 'codex' },
+            }),
+        ]
+        render(renderSessionList(sessions, null))
+
+        expect(screen.getByTitle('In progress')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /Running task/ })).toBeInTheDocument()
+        // Directory group retains only the inactive session.
+        expect(getProjectPanel().getAttribute('data-open')).toBeNull()
+    })
+
+    it('does not label quiet active sessions as Idle', () => {
+        const sessions = [
+            makeSession({
+                id: 'session-quiet',
+                active: true,
+                updatedAt: 100,
+                metadata: { path: '/work/hapi', name: 'Quiet task', flavor: 'codex' },
+            }),
+        ]
+        render(renderSessionList(sessions, null))
+
+        expect(screen.getByRole('button', { name: /Quiet task/ })).toBeInTheDocument()
+        expect(screen.queryByText('Idle')).toBeNull()
+        expect(screen.queryByTitle('Idle')).toBeNull()
+    })
+
+    it('keeps quiet active sessions in directory groups when pin-in-progress is on', () => {
+        localStorage.setItem('hapi-pin-in-progress-sessions', 'true')
+        const sessions = [
+            makeSession({
+                id: 'session-running',
+                active: true,
+                thinking: true,
+                updatedAt: 100,
+                metadata: { path: '/work/hapi', name: 'Running task', flavor: 'codex' },
+            }),
+            makeSession({
+                id: 'session-quiet',
+                active: true,
+                updatedAt: 90,
+                metadata: { path: '/work/hapi', name: 'Quiet task', flavor: 'codex' },
+            }),
+            makeSession({
+                id: 'session-pending',
+                active: true,
+                pendingRequestsCount: 1,
+                updatedAt: 80,
+                metadata: { path: '/work/other', name: 'Pending task', flavor: 'codex' },
+            }),
+        ]
+        render(renderSessionList(sessions, null))
+
+        expect(screen.getByTitle('In progress')).toBeInTheDocument()
+        expect(screen.getByText(/Running \(1\)/)).toBeInTheDocument()
+        expect(screen.getByText(/pending \(1\)/)).toBeInTheDocument()
+        expect(screen.queryByText(/Idle \(/)).toBeNull()
+        // Quiet active stays under its project directory, not an Idle pin bucket.
+        expect(screen.getByTitle('/work/hapi')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /Quiet task/ })).toBeInTheDocument()
+        expect(getProjectPanel().getAttribute('data-open')).toBe('true')
     })
 
     it('auto-expands the path again when the selected session changes', async () => {
@@ -443,6 +548,7 @@ describe('SessionList collapse behavior', () => {
     })
 
     it('keeps the running section open while searching even when collapsed', () => {
+        localStorage.setItem('hapi-pin-in-progress-sessions', 'true')
         const sessions = [
             makeSession({
                 id: 'session-running',
@@ -480,6 +586,7 @@ describe('SessionList collapse behavior', () => {
     })
 
     it('toggles the running section with the keyboard', () => {
+        localStorage.setItem('hapi-pin-in-progress-sessions', 'true')
         const sessions = [
             makeSession({
                 id: 'session-running',

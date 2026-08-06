@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { ToolCallBlock } from '@/chat/types'
-import { extractCodexBashDisplay, extractImagesFromResult, extractTextFromResult, getMutationResultRenderMode, getToolResultViewComponent, ToolResultImages } from '@/components/ToolCard/views/_results'
+import { extractCodexBashDisplay, extractImagesFromResult, extractTextFromResult, getMutationResultRenderMode, getToolResultViewComponent, parseNumberedFileLines, ToolResultImages } from '@/components/ToolCard/views/_results'
 import { I18nProvider } from '@/lib/i18n-context'
 
 vi.mock('@/components/MarkdownRenderer', () => ({
@@ -11,10 +11,10 @@ vi.mock('@/components/MarkdownRenderer', () => ({
 }))
 
 vi.mock('@/components/CodeBlock', () => ({
-    CodeBlock: (props: { code: string; language?: string; title?: string; className?: string; showWrapToggle?: boolean }) => (
+    CodeBlock: (props: { code: string; language?: string; title?: string; className?: string; showWrapToggle?: boolean; startLineNumber?: number }) => (
         <div className={props.className} data-show-wrap-toggle={String(props.showWrapToggle ?? true)}>
             {props.title ? <div>{props.title}</div> : null}
-            <pre data-language={props.language ?? 'text'}>
+            <pre data-language={props.language ?? 'text'} data-start-line={props.startLineNumber ?? 1}>
                 <code>{props.code}</code>
             </pre>
         </div>
@@ -290,7 +290,8 @@ describe('Codex agent result formatting', () => {
         toolName: string,
         result: unknown,
         input: unknown = {},
-        surface: 'inline' | 'dialog' = 'dialog'
+        surface: 'inline' | 'dialog' = 'dialog',
+        nativeKind: string | null = null
     ) {
         const ResultView = getToolResultViewComponent(toolName)
         const block: ToolCallBlock = {
@@ -310,7 +311,8 @@ describe('Codex agent result formatting', () => {
                 completedAt: 0,
                 execStartedAt: null,
                 execCompletedAt: null,
-                description: null
+                description: null,
+                nativeKind
             }
         }
 
@@ -426,7 +428,8 @@ describe('read file result formatting', () => {
         toolName: string,
         result: unknown,
         input: unknown = {},
-        surface: 'inline' | 'dialog' = 'dialog'
+        surface: 'inline' | 'dialog' = 'dialog',
+        nativeKind: string | null = null
     ) {
         const ResultView = getToolResultViewComponent(toolName)
         const block: ToolCallBlock = {
@@ -446,7 +449,8 @@ describe('read file result formatting', () => {
                 completedAt: 0,
                 execStartedAt: null,
                 execCompletedAt: null,
-                description: null
+                description: null,
+                nativeKind
             }
         }
 
@@ -518,6 +522,19 @@ describe('read file result formatting', () => {
         expect(container).toHaveTextContent('screenshot taken')
     })
 
+    it('offsets the gutter to the true start line for a partial numbered read (not restarting at 1)', () => {
+        const { container } = renderToolResult('Read', {
+            file: {
+                filePath: '/tmp/doc.md',
+                content: '50: alpha\n51: beta\n52: gamma'
+            }
+        }, {}, 'dialog', 'agy-numbered-read')
+        const pre = container.querySelector('pre')
+        expect(pre?.getAttribute('data-start-line')).toBe('50')
+        expect(pre?.textContent).toContain('alpha')
+        expect(pre?.textContent).not.toContain('50:')
+    })
+
     it('renders parsed Codex read command output through the toggle view', () => {
         const { container } = renderToolResult(
             'CodexBash',
@@ -536,6 +553,20 @@ describe('read file result formatting', () => {
         )
 
         expect(container.querySelector('[data-testid="file-content-toggle"]')).toHaveTextContent('const value = 1')
+    })
+
+    it('preserves numbered content for a generic Read result', () => {
+        const { container } = renderToolResult('Read', '1: first\n2: second')
+
+        expect(container.querySelector('code')?.textContent).toBe('1: first\n2: second')
+        expect(container.querySelector('pre')).toHaveAttribute('data-start-line', '1')
+    })
+
+    it('strips numbered prefixes only for AGY Read provenance', () => {
+        const { container } = renderToolResult('Read', '50: first\n51: second', {}, 'dialog', 'agy-numbered-read')
+
+        expect(container.querySelector('code')?.textContent).toBe('first\nsecond')
+        expect(container.querySelector('pre')).toHaveAttribute('data-start-line', '50')
     })
 
     it('suppresses the CodeBlock wrap toggle on the inline surface (avoids nesting a <button> in the role="button" preview)', () => {
@@ -560,5 +591,26 @@ describe('read file result formatting', () => {
 
         expect(container.querySelector('[data-show-wrap-toggle="true"]')).not.toBeNull()
         expect(container.querySelector('[data-show-wrap-toggle="false"]')).toBeNull()
+    })
+})
+
+describe('parseNumberedFileLines', () => {
+    it('extracts the start line and strips consecutive "<n>: " prefixes', () => {
+        expect(parseNumberedFileLines('50: alpha\n51: beta\n52: gamma')).toEqual({
+            startLine: 50,
+            body: 'alpha\nbeta\ngamma'
+        })
+    })
+
+    it('handles a full read starting at 1', () => {
+        expect(parseNumberedFileLines('1: a\n2: b')).toEqual({ startLine: 1, body: 'a\nb' })
+    })
+
+    it('returns null when numbering is not consecutive (avoids false positives)', () => {
+        expect(parseNumberedFileLines('1: a\n3: c')).toBeNull()
+    })
+
+    it('returns null for non-numbered content (e.g. claude read output)', () => {
+        expect(parseNumberedFileLines('just some\nplain text')).toBeNull()
     })
 })

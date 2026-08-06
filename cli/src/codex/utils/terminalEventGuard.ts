@@ -6,6 +6,7 @@ export type TerminalEventGuardInput = {
     eventThreadId?: string | null;
     currentThreadId?: string | null;
     allowMatchingThreadIdTerminalEvent?: boolean;
+    allowMismatchedTurnIdTerminalEvent?: boolean;
 };
 
 export function shouldIgnoreTerminalEvent(input: TerminalEventGuardInput): boolean {
@@ -21,11 +22,17 @@ export function shouldIgnoreTerminalEvent(input: TerminalEventGuardInput): boole
         if (!input.currentTurnId || input.eventTurnId === input.currentTurnId) {
             return false;
         }
-        return !(allowMatchingThreadIdTerminalEvent && hasMatchingThreadId);
+        return !(
+            input.allowMismatchedTurnIdTerminalEvent === true
+            && hasMatchingThreadId
+        );
     }
 
     if (input.currentTurnId) {
-        if (allowMatchingThreadIdTerminalEvent && hasMatchingThreadId) {
+        if (
+            allowMatchingThreadIdTerminalEvent &&
+            hasMatchingThreadId
+        ) {
             return false;
         }
         return true;

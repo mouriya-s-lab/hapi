@@ -7,6 +7,7 @@ import {
     useRef,
     useState,
     type ClipboardEvent as ReactClipboardEvent,
+    type FocusEvent as ReactFocusEvent,
     type FormEvent as ReactFormEvent,
     type KeyboardEvent as ReactKeyboardEvent,
     type PointerEvent as ReactPointerEvent,
@@ -72,6 +73,7 @@ type Props = {
     onMirrorChange: (state: { text: string; selection: ComposerSelection }) => void
     onKeyDown?: (e: ReactKeyboardEvent<HTMLDivElement>) => void
     onPaste?: (e: ReactClipboardEvent<HTMLDivElement>) => void
+    onFocus?: (e: ReactFocusEvent<HTMLDivElement>) => void
     onEdit?: () => void
     /** Live session meta for chip hover / aria-label (from useSessions). */
     resolveSessionMentionTooltip?: ResolveSessionMentionTooltip
@@ -109,6 +111,58 @@ const CARET_PAD = '\u200B'
 
 function stripCaretPad(text: string): string {
     return text.replaceAll(CARET_PAD, '')
+}
+
+function caretIsAfterCaretPad(root: HTMLElement): boolean {
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0) return false
+    const range = selection.getRangeAt(0)
+    if (!range.collapsed || !root.contains(range.startContainer)) return false
+
+    const { startContainer, startOffset } = range
+    if (startContainer.nodeType === Node.TEXT_NODE) {
+        const text = startContainer.textContent ?? ''
+        return startOffset > 0 && text[startOffset - 1] === CARET_PAD
+    }
+    if (startContainer.nodeType !== Node.ELEMENT_NODE || startOffset === 0) return false
+
+    const previous = startContainer.childNodes[startOffset - 1]
+    return previous?.nodeType === Node.TEXT_NODE
+        && (previous.textContent ?? '').endsWith(CARET_PAD)
+}
+
+function selectionIsAfterCaretPad(
+    root: HTMLElement,
+    mirror: string,
+    selection: ComposerSelection
+): boolean {
+    return selection.start === selection.end
+        && selection.start > 0
+        && mirror[selection.start - 1] === '\n'
+        && caretIsAfterCaretPad(root)
+}
+
+/**
+ * True for the bogus `<br>` Chromium/WebKit/Gecko park in an editor whose
+ * content was just deleted (Firefox marks it `type="_moz"`, Blink leaves it
+ * bare). It is a caret placeholder, not user content: counting it as a newline
+ * leaves a visually empty composer holding `"\n"` forever, which then persists
+ * as a draft and repaints as a real blank first line.
+ *
+ * Our own renderer never emits a naked trailing `<br>` — a real trailing
+ * newline always carries a CARET_PAD text node after it (see
+ * `renderSegmentsToEditor` / `insertLineBreakAtCaret`), so "nothing at all
+ * after this node" is exactly the filler shape.
+ */
+function isFillerLineBreak(root: HTMLElement, br: Node): boolean {
+    for (let node: Node | null = br; node && node !== root; node = node.parentNode) {
+        for (let next = node.nextSibling; next; next = next.nextSibling) {
+            if (next.nodeType !== Node.TEXT_NODE) return false
+            // Raw length, not stripCaretPad: the pad marks a deliberate break.
+            if ((next.textContent ?? '').length > 0) return false
+        }
+    }
+    return true
 }
 
 type ComposerDomSpan = {
@@ -194,6 +248,11 @@ function mapComposerEditorDom(root: HTMLElement): ComposerDomMapping {
             return
         }
         if (el.tagName === 'BR') {
+            if (isFillerLineBreak(root, node)) {
+                // Zero-width: the caret placeholder owns no mirror position.
+                spans.set(node, { start: mirrorLength, end: mirrorLength, producesOutput: false })
+                return
+            }
             pushNewlineIfNeeded()
             const start = mirrorLength
             pushText('\n')
@@ -277,6 +336,13 @@ export function insertLineBreakAtCaret(root: HTMLElement): void {
 
     root.focus()
     const range = sel.getRangeAt(0)
+    const trailingRange = range.cloneRange()
+    trailingRange.collapse(false)
+    trailingRange.setEnd(root, root.childNodes.length)
+    const trailingRoot = document.createElement('div')
+    trailingRoot.append(trailingRange.cloneContents())
+    const selectionEndsAtEditorEnd =
+        mirrorComposerSegments(segmentsFromEditor(trailingRoot)).length === 0
     range.deleteContents()
     const nl = document.createTextNode('\n')
     range.insertNode(nl)
@@ -290,6 +356,8 @@ export function insertLineBreakAtCaret(root: HTMLElement): void {
     range.collapse(true)
     sel.removeAllRanges()
     sel.addRange(range)
+    // Restore native textarea scrolling for trailing line breaks.
+    if (selectionEndsAtEditorEnd) root.scrollTop = root.scrollHeight
 }
 
 function renderSegmentsToEditor(
@@ -419,6 +487,10 @@ function mirrorOffsetFromMappedPoint(
     return mapping.mirrorLength
 }
 
+function editorDomIsEmpty(root: HTMLElement): boolean {
+    return (root.textContent ?? '').length === 0
+}
+
 /** Exported for unit tests — maps a DOM caret point into mirror-string offset. */
 export function mirrorOffsetFromPoint(root: HTMLElement, endContainer: Node, endOffset: number): number {
     const mapping = mapComposerEditorDom(root)
@@ -521,6 +593,9 @@ function setMirrorSelection(root: HTMLElement, selection: ComposerSelection) {
         if (el.tagName === 'BR') {
             const parent = el.parentNode
             if (!parent) return true
+            // Mirror mapping gives a filler br zero width; consuming one here
+            // would shift every later offset by one.
+            if (isFillerLineBreak(root, el)) return false
             if (remaining === 0) {
                 place(parent, Array.from(parent.childNodes).indexOf(el))
                 return true
@@ -577,6 +652,7 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
         onMirrorChange,
         onKeyDown,
         onPaste,
+        onFocus,
         onEdit,
         resolveSessionMentionTooltip,
     },
@@ -589,6 +665,7 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
     const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const hoveredChipRef = useRef<HTMLElement | null>(null)
     const [mentionTooltip, setMentionTooltip] = useState<MentionTooltipState | null>(null)
+    const [domIsEmpty, setDomIsEmpty] = useState(value.length === 0)
 
     const clearMentionTooltip = useCallback(() => {
         if (tooltipTimerRef.current) {
@@ -599,9 +676,15 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
         setMentionTooltip(null)
     }, [])
 
+    const renderEditorSegments = useCallback((root: HTMLElement, segments: readonly ComposerSegment[]) => {
+        renderSegmentsToEditor(root, segments, resolveSessionMentionTooltip)
+        setDomIsEmpty(editorDomIsEmpty(root))
+    }, [resolveSessionMentionTooltip])
+
     const emitFromDom = useCallback(() => {
         const root = rootRef.current
         if (!root) return
+        setDomIsEmpty(editorDomIsEmpty(root))
         const segments = segmentsFromEditor(root)
         const serialized = serializeComposerSegments(segments)
         const selection = getMirrorSelection(root)
@@ -615,7 +698,7 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
         const root = rootRef.current
         if (!root) return
         const segments = parseComposerSegments(next)
-        renderSegmentsToEditor(root, segments, resolveSessionMentionTooltip)
+        renderEditorSegments(root, segments)
         lastEmittedRef.current = next
         clearMentionTooltip()
         const mirror = mirrorComposerSegments(segments)
@@ -627,12 +710,15 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
             setMirrorSelection(root, sel)
         }
         onMirrorChange({ text: mirror, selection: sel })
-    }, [clearMentionTooltip, onMirrorChange, resolveSessionMentionTooltip])
+    }, [clearMentionTooltip, onMirrorChange, renderEditorSegments])
 
     useLayoutEffect(() => {
         if (value === lastEmittedRef.current) return
         syncFromValue(value)
     }, [value, syncFromValue])
+
+    const onFocusRef = useRef(onFocus)
+    onFocusRef.current = onFocus
 
     useEffect(() => {
         if (!autoFocus || disabled) return
@@ -643,6 +729,18 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
         } catch {
             root.focus()
         }
+        // Programmatic focus is not guaranteed to fire a DOM focus event in
+        // every engine (notably Playwright headless). Notify the parent so
+        // FUE / other first-focus hooks still run.
+        onFocusRef.current?.(
+            {
+                type: 'focus',
+                target: root,
+                currentTarget: root,
+                preventDefault() {},
+                stopPropagation() {},
+            } as ReactFocusEvent<HTMLDivElement>
+        )
     }, [autoFocus, disabled])
 
     useImperativeHandle(ref, () => ({
@@ -671,7 +769,7 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
             const selection = getMirrorSelection(root)
             const result = insertSessionMentionInComposerSegments(segments, selection, mention, prefixes)
             const serialized = serializeComposerSegments(result.segments)
-            renderSegmentsToEditor(root, result.segments, resolveSessionMentionTooltip)
+            renderEditorSegments(root, result.segments)
             lastEmittedRef.current = serialized
             setMirrorSelection(root, result.selection)
             onValueChange(serialized)
@@ -690,7 +788,7 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
             const selection = getMirrorSelection(root)
             const result = insertPlainTextInComposerSegments(segments, selection, suggestionText, prefixes)
             const serialized = serializeComposerSegments(result.segments)
-            renderSegmentsToEditor(root, result.segments, resolveSessionMentionTooltip)
+            renderEditorSegments(root, result.segments)
             lastEmittedRef.current = serialized
             setMirrorSelection(root, result.selection)
             onValueChange(serialized)
@@ -700,7 +798,7 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
             })
             return { text: serialized, selection: result.selection }
         },
-    }), [onMirrorChange, onValueChange, resolveSessionMentionTooltip, value])
+    }), [onMirrorChange, onValueChange, renderEditorSegments, value])
 
     useEffect(() => () => {
         if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current)
@@ -776,7 +874,11 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
 
     const handleInput = useCallback((_e: ReactFormEvent<HTMLDivElement>) => {
         clearMentionTooltip()
-        if (composingRef.current) return
+        if (composingRef.current) {
+            const root = rootRef.current
+            if (root) setDomIsEmpty(editorDomIsEmpty(root))
+            return
+        }
         onEdit?.()
         emitFromDom()
     }, [clearMentionTooltip, emitFromDom, onEdit])
@@ -794,7 +896,7 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
             parseComposerSegments(text),
         )
         const serialized = serializeComposerSegments(result.segments)
-        renderSegmentsToEditor(root, result.segments, resolveSessionMentionTooltip)
+        renderEditorSegments(root, result.segments)
         lastEmittedRef.current = serialized
         setMirrorSelection(root, result.selection)
         onValueChange(serialized)
@@ -803,7 +905,7 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
             selection: result.selection,
         })
         onEdit?.()
-    }, [onEdit, onMirrorChange, onValueChange, resolveSessionMentionTooltip])
+    }, [onEdit, onMirrorChange, onValueChange, renderEditorSegments])
 
     const handleCopyOrCut = useCallback((e: ReactClipboardEvent<HTMLDivElement>, cut: boolean) => {
         const root = rootRef.current
@@ -818,7 +920,7 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
         clearMentionTooltip()
         const result = deleteBackwardInComposerSegments(segments, selection)
         const serialized = serializeComposerSegments(result.segments)
-        renderSegmentsToEditor(root, result.segments, resolveSessionMentionTooltip)
+        renderEditorSegments(root, result.segments)
         lastEmittedRef.current = serialized
         setMirrorSelection(root, result.selection)
         onValueChange(serialized)
@@ -832,7 +934,7 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
         onEdit,
         onMirrorChange,
         onValueChange,
-        resolveSessionMentionTooltip,
+        renderEditorSegments,
     ])
 
     const handlePaste = useCallback((e: ReactClipboardEvent<HTMLDivElement>) => {
@@ -848,12 +950,53 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
         insertPlainClipboardText(e.clipboardData?.getData('text/plain') ?? '')
     }, [insertPlainClipboardText, onPaste])
 
+    const applyBackwardDelete = useCallback((
+        root: HTMLElement,
+        segments: readonly ComposerSegment[],
+        selection: ComposerSelection
+    ) => {
+        clearMentionTooltip()
+        const result = deleteBackwardInComposerSegments(segments, selection)
+        const serialized = serializeComposerSegments(result.segments)
+        renderEditorSegments(root, result.segments)
+        lastEmittedRef.current = serialized
+        setMirrorSelection(root, result.selection)
+        onValueChange(serialized)
+        onMirrorChange({
+            text: mirrorComposerSegments(result.segments),
+            selection: result.selection,
+        })
+        onEdit?.()
+    }, [clearMentionTooltip, onEdit, onMirrorChange, onValueChange, renderEditorSegments])
+
+    useEffect(() => {
+        const root = rootRef.current
+        if (!root) return
+        const handleBeforeInput = (event: InputEvent) => {
+            if (
+                event.inputType !== 'deleteContentBackward'
+                || event.isComposing
+                || composingRef.current
+                || !event.cancelable
+            ) return
+
+            const segments = segmentsFromEditor(root)
+            const selection = getMirrorSelection(root)
+            const mirror = mirrorComposerSegments(segments)
+            if (!selectionIsAfterCaretPad(root, mirror, selection)) return
+
+            event.preventDefault()
+            applyBackwardDelete(root, segments, selection)
+        }
+        root.addEventListener('beforeinput', handleBeforeInput)
+        return () => root.removeEventListener('beforeinput', handleBeforeInput)
+    }, [applyBackwardDelete])
+
     // No onDrop: intercepting without caretRangeFromPoint appends at EOF / no-ops
     // in-editor moves. Native CE drop + plaintext-only / paste path is enough for #1215.
 
     const handleKeyDown = useCallback((e: ReactKeyboardEvent<HTMLDivElement>) => {
-        if (e.nativeEvent.isComposing) {
-            onKeyDown?.(e)
+        if (e.nativeEvent.isComposing || composingRef.current) {
             return
         }
         if (e.key === 'Backspace' && !e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -862,24 +1005,14 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
                 const segments = segmentsFromEditor(root)
                 const selection = getMirrorSelection(root)
                 const mirror = mirrorComposerSegments(segments)
+                const afterCaretPad = selectionIsAfterCaretPad(root, mirror, selection)
                 const againstAtom =
                     selection.start === selection.end
                     && selection.start > 0
                     && mirror[selection.start - 1] === COMPOSER_MENTION_MIRROR_CHAR
-                if (againstAtom || selection.start !== selection.end) {
+                if (afterCaretPad || againstAtom || selection.start !== selection.end) {
                     e.preventDefault()
-                    clearMentionTooltip()
-                    const result = deleteBackwardInComposerSegments(segments, selection)
-                    const serialized = serializeComposerSegments(result.segments)
-                    renderSegmentsToEditor(root, result.segments, resolveSessionMentionTooltip)
-                    lastEmittedRef.current = serialized
-                    setMirrorSelection(root, result.selection)
-                    onValueChange(serialized)
-                    onMirrorChange({
-                        text: mirrorComposerSegments(result.segments),
-                        selection: result.selection,
-                    })
-                    onEdit?.()
+                    applyBackwardDelete(root, segments, selection)
                     return
                 }
             }
@@ -900,21 +1033,18 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
             emitFromDom()
         }
     }, [
+        applyBackwardDelete,
         emitFromDom,
         onEdit,
         onKeyDown,
-        onMirrorChange,
-        onValueChange,
-        resolveSessionMentionTooltip,
-        clearMentionTooltip,
     ])
 
     return (
         <div className="relative min-w-0 flex-1">
-            {(!value || value.length === 0) && placeholder ? (
+            {domIsEmpty && placeholder ? (
                 <div
                     aria-hidden
-                    className="pointer-events-none absolute inset-0 text-base leading-snug text-[var(--app-hint)]"
+                    className="pointer-events-none absolute inset-0 overflow-hidden text-ellipsis whitespace-nowrap text-base leading-snug text-[var(--app-hint)]"
                 >
                     {placeholder}
                 </div>
@@ -932,6 +1062,7 @@ export const RichComposerInput = forwardRef<RichComposerInputHandle, Props>(func
                 data-testid="rich-composer-input"
                 className={`${className ?? ''}${disabled ? ' cursor-not-allowed opacity-50' : ''}`}
                 onInput={handleInput}
+                onFocus={onFocus}
                 onKeyDown={handleKeyDown}
                 onPointerOver={handlePointerOver}
                 onPointerLeave={handlePointerLeave}

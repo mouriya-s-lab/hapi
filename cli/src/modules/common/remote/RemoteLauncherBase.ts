@@ -6,6 +6,12 @@ import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 
 export type RemoteLauncherExitReason = 'switch' | 'exit';
 
+export type LaunchOutcome = {
+    reachedReady: boolean;
+    authFailed?: boolean;
+    error?: Error;
+};
+
 export type RemoteLauncherDisplayContext = {
     messageBuffer: MessageBuffer;
     logPath?: string;
@@ -36,6 +42,7 @@ export abstract class RemoteLauncherBase {
     protected readonly logPath?: string;
     protected exitReason: RemoteLauncherExitReason | null = null;
     protected shouldExit: boolean = false;
+    protected ptyAbortController: AbortController | null = null;
     private inkInstance: ReturnType<typeof render> | null = null;
 
     protected constructor(logPath?: string) {
@@ -49,6 +56,93 @@ export abstract class RemoteLauncherBase {
     protected abstract runMainLoop(): Promise<void>;
 
     protected abstract cleanup(): Promise<void>;
+
+    protected getCurrentSessionId(): string | null {
+        return null;
+    }
+
+    protected async runRespawnLoop(opts: {
+        maxImmediateFailures?: number;
+        respawnBackoffMs?: number;
+        maxAuthRetries?: number;
+        authRetryDelayMs?: number;
+        onLaunchStart: (isNewSession: boolean) => void;
+        launchOnce: (signal: AbortSignal) => Promise<LaunchOutcome>;
+        onLaunchSuccess?: () => void;
+        onLaunchFailure?: (error: Error) => void;
+    }): Promise<void> {
+        const maxImmediateFailures = opts.maxImmediateFailures ?? 3;
+        const respawnBackoffMs = opts.respawnBackoffMs ?? 1000;
+        const maxAuthRetries = opts.maxAuthRetries ?? 8;
+        const authRetryDelayMs = opts.authRetryDelayMs ?? 1500;
+
+        let consecutiveImmediateFailures = 0;
+        let authRetries = 0;
+        let previousSessionId: string | null = null;
+
+        while (!this.exitReason) {
+            const currentSessionId = this.getCurrentSessionId();
+            const isNewSession = currentSessionId !== previousSessionId;
+            opts.onLaunchStart(isNewSession);
+            previousSessionId = currentSessionId;
+
+            const controller = new AbortController();
+            this.ptyAbortController = controller;
+
+            let reachedReady = false;
+            try {
+                const outcome = await opts.launchOnce(controller.signal);
+                reachedReady = outcome.reachedReady;
+
+                if (outcome.authFailed) {
+                    if (!this.exitReason && !controller.signal.aborted) {
+                        authRetries++;
+                        if (authRetries > maxAuthRetries) {
+                            opts.onLaunchFailure?.(new Error(`Authentication failed after ${maxAuthRetries} attempts`));
+                            this.exitReason = 'exit';
+                            break;
+                        }
+                        await new Promise((r) => setTimeout(r, authRetryDelayMs));
+                        continue;
+                    }
+                }
+
+                if (reachedReady) {
+                    consecutiveImmediateFailures = 0;
+                    authRetries = 0;
+                    opts.onLaunchSuccess?.();
+                }
+
+                if (outcome.error) {
+                    throw outcome.error;
+                }
+            } catch (e) {
+                if (this.exitReason) break;
+
+                const error = e instanceof Error ? e : new Error(String(e));
+                opts.onLaunchFailure?.(error);
+
+                if (!reachedReady) {
+                    consecutiveImmediateFailures++;
+                    if (consecutiveImmediateFailures >= maxImmediateFailures) {
+                        opts.onLaunchFailure?.(new Error(`PTY failed to start after ${maxImmediateFailures} attempts; ending session.`));
+                        this.exitReason = 'exit';
+                        break;
+                    }
+                    await new Promise((r) => setTimeout(r, respawnBackoffMs));
+                }
+                continue;
+            } finally {
+                // launchOnce may have raced PTY exit against an abort-aware queue
+                // read. Cancel the losing read before the next launch starts so it
+                // cannot steal that launch's first queued message.
+                controller.abort();
+                if (this.ptyAbortController === controller) {
+                    this.ptyAbortController = null;
+                }
+            }
+        }
+    }
 
     protected setupTerminal(handlers: RemoteLauncherTerminalHandlers): void {
         if (this.hasTTY) {

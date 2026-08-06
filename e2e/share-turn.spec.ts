@@ -86,7 +86,7 @@ test('exports a text-only user fallback alongside assistant DOM', async ({ page 
     await page.getByRole('button', { name: 'Open share preview' }).click()
 
     const dialog = page.getByRole('dialog')
-    await expect(dialog.getByText(/请导出这一轮复杂对话/)).toBeVisible()
+    await expect(dialog.getByText(/这个失败不用说吧/)).toBeVisible()
     await expect(dialog.getByText('Complex response fixture')).toBeVisible()
     await dialog.screenshot({ path: testInfo.outputPath('fallback-preview.png') })
 
@@ -137,6 +137,32 @@ test('localizes the share dialog actions in Chinese', async ({ page }) => {
     await expect(dialog.getByRole('button', { name: '复制' }).last()).toBeVisible()
     await expect(dialog.getByRole('button', { name: '分享' })).toBeVisible()
     await expect(dialog.getByRole('button', { name: '下载' })).toBeVisible()
+})
+
+test('matches configured session-header metadata in the share preview', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('hapi-session-header-metadata', JSON.stringify({
+        showLabels: false,
+        agent: false,
+        model: false,
+        reasoning: false,
+        fastMode: false,
+        machine: false,
+        lastActive: false,
+        createdAt: true,
+        updatedAt: true,
+        worktree: false,
+    })))
+    await page.goto('/e2e-fixtures/share-turn-fixture.html')
+    await page.getByRole('button', { name: 'Open share preview' }).click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByText('Aug 2, 2026, 10:00 AM', { exact: true })).toBeVisible()
+    await expect(dialog.getByText('Aug 2, 2026, 10:30 AM', { exact: true })).toBeVisible()
+    await expect(dialog.getByText('Created:', { exact: false })).toHaveCount(0)
+    await expect(dialog.getByText('codex', { exact: true })).toHaveCount(0)
+    await expect(dialog.getByText('fixture-host', { exact: false })).toHaveCount(0)
+    await expect(dialog.getByText('gpt-5.6-sol', { exact: true })).toHaveCount(0)
+    await expect(dialog.getByText('feat/share-turn-polish', { exact: false })).toHaveCount(0)
 })
 
 test('keeps code and image controls interactive in preview', async ({ page }, testInfo) => {

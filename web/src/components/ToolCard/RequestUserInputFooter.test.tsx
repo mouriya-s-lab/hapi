@@ -10,12 +10,21 @@ vi.mock('@/components/MarkdownRenderer', () => ({
     MarkdownRenderer: (props: { content: string }) => <div>{props.content}</div>
 }))
 
-function makeTool(): ChatToolCall {
+vi.mock('@/hooks/usePlatform', () => ({
+    usePlatform: () => ({
+        haptic: {
+            notification: vi.fn(),
+            selection: vi.fn()
+        }
+    })
+}))
+
+function makeTool(input: unknown = { ompTransientRequest: true }): ChatToolCall {
     return {
         id: 'tool-1',
         name: 'request_user_input',
         state: 'pending',
-        input: { ompTransientRequest: true },
+        input,
         createdAt: 1,
         startedAt: null,
         completedAt: null,
@@ -26,7 +35,7 @@ function makeTool(): ChatToolCall {
     }
 }
 
-function renderFooter(api: ApiClient) {
+function renderFooter(api: ApiClient, tool: ChatToolCall = makeTool()) {
     const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false } }
     })
@@ -36,7 +45,7 @@ function renderFooter(api: ApiClient) {
                 <RequestUserInputFooter
                     api={api}
                     sessionId="session-1"
-                    tool={makeTool()}
+                    tool={tool}
                     disabled={false}
                     onDone={vi.fn()}
                 />
@@ -115,5 +124,23 @@ describe('RequestUserInputFooter transient OMP input', () => {
         renderFooter(api)
 
         expect(await screen.findByText('OMP extension UI request is no longer pending')).toBeInTheDocument()
+    })
+})
+
+describe('RequestUserInputFooter', () => {
+    it('uses a Pi extension pure-text placeholder and prefill when initializing the request', () => {
+        renderFooter({} as ApiClient, makeTool({
+            questions: [{
+                id: 'comment',
+                question: 'Comment',
+                options: [],
+                placeholder: 'Describe the change',
+                prefill: 'Initial draft'
+            }]
+        }))
+
+        const textarea = screen.getByRole('textbox')
+        expect(textarea).toHaveAttribute('placeholder', 'Describe the change')
+        expect(textarea).toHaveValue('Initial draft')
     })
 })

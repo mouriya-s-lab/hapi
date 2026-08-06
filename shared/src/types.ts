@@ -35,6 +35,7 @@ export { AGENT_MESSAGE_PAYLOAD_TYPE } from './modes'
 
 export type {
     AgentFlavor,
+    AgyPermissionMode,
     ClaudePermissionMode,
     CodexCollaborationMode,
     CodexCollaborationModeOption,
@@ -44,6 +45,7 @@ export type {
     GrokPermissionMode,
     KimiPermissionMode,
     OmpPermissionMode,
+    CopilotPermissionMode,
     OpencodePermissionMode,
     PermissionMode,
     PermissionModeOption,
@@ -55,3 +57,4 @@ export type { ClaudeModelPreset, GeminiModelPreset } from './models'
 export type ClaudeLaunch =
     | { type: 'fresh' }
     | { type: 'resume-at'; sourceSessionId: string; providerMessageId: string }
+export type { CopilotAgentMode } from './copilotModes'

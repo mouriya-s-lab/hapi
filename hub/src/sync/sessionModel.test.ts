@@ -249,6 +249,30 @@ describe('session model', () => {
         expect(cache.getSession(newSession.id)?.metadata?.ccSwitchProviderId).toBe('provider-1')
     })
 
+    it('deduplicates agy sessions that share an agySessionId (reopen correlation)', async () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+
+        const oldSession = cache.getOrCreateSession(
+            'agy-dup-old',
+            { path: '/tmp/project', host: 'localhost', flavor: 'agy', agySessionId: 'brain-uuid-1' },
+            null,
+            'default'
+        )
+        const newSession = cache.getOrCreateSession(
+            'agy-dup-new',
+            { path: '/tmp/project', host: 'localhost', flavor: 'agy', agySessionId: 'brain-uuid-1' },
+            null,
+            'default'
+        )
+
+        await cache.deduplicateByAgentSessionId(newSession.id)
+
+        const survivors = [oldSession.id, newSession.id].filter((id) => cache.getSession(id) != null)
+        expect(survivors).toHaveLength(1)
+    })
+
     it('preserves service tier from old session when merging into resumed session', async () => {
         const store = new Store(':memory:')
         const events: SyncEvent[] = []
@@ -1980,6 +2004,110 @@ describe('session model', () => {
             engine.stop()
         }
     })
+
+    it('passes stored Copilot agent mode when respawning a resumed Copilot session', async () => {
+        const store = new Store(':memory:')
+        const engine = new SyncEngine(
+            store,
+            {} as never,
+            new RpcRegistry(),
+            { broadcast() {} } as never
+        )
+
+        try {
+            const session = engine.getOrCreateSession(
+                'session-copilot-agent-mode-resume',
+                {
+                    path: '/tmp/project',
+                    host: 'localhost',
+                    machineId: 'machine-1',
+                    flavor: 'copilot',
+                    copilotSessionId: 'copilot-thread-1'
+                },
+                null,
+                'default',
+                'gpt-5'
+            )
+            await engine.applySessionConfig(session.id, { copilotAgentMode: 'plan' })
+            engine.getOrCreateMachine(
+                'machine-1',
+                { host: 'localhost', platform: 'linux', happyCliVersion: '0.1.0' },
+                null,
+                'default'
+            )
+            engine.handleMachineAlive({ machineId: 'machine-1', time: Date.now() })
+
+            let capturedCopilotAgentMode: string | undefined
+            ;(engine as any).rpcGateway.spawnSession = async (
+                _machineId: string,
+                _directory: string,
+                _agent: string,
+                _model?: string,
+                _modelReasoningEffort?: string,
+                _yolo?: boolean,
+                _sessionType?: string,
+                _worktreeName?: string,
+                _resumeSessionId?: string,
+                _effort?: string,
+                _permissionMode?: string,
+                _serviceTier?: string,
+                _claudeLaunch?: unknown,
+                _ccSwitchProviderId?: string,
+                _existingSessionId?: string,
+                _collaborationMode?: string,
+                copilotAgentMode?: string
+            ) => {
+                capturedCopilotAgentMode = copilotAgentMode
+                return { type: 'success', sessionId: session.id }
+            }
+            ;(engine as any).waitForSessionActive = async () => true
+
+            const result = await engine.resumeSession(session.id, 'default')
+
+            expect(result).toEqual({ type: 'success', sessionId: session.id })
+            expect(capturedCopilotAgentMode).toBe('plan')
+        } finally {
+            engine.stop()
+        }
+    })
+
+    it('restores the Copilot agent mode from metadata after a hub restart', async () => {
+        const store = new Store(':memory:')
+        const firstEngine = new SyncEngine(
+            store,
+            {} as never,
+            new RpcRegistry(),
+            { broadcast() {} } as never
+        )
+        const session = firstEngine.getOrCreateSession(
+            'session-copilot-agent-mode-restart',
+            {
+                path: '/tmp/project',
+                host: 'localhost',
+                flavor: 'copilot',
+                copilotSessionId: 'copilot-thread-1'
+            },
+            null,
+            'default'
+        )
+        await firstEngine.applySessionConfig(session.id, { copilotAgentMode: 'autopilot' })
+        firstEngine.stop()
+
+        const restartedEngine = new SyncEngine(
+            store,
+            {} as never,
+            new RpcRegistry(),
+            { broadcast() {} } as never
+        )
+        try {
+            expect(restartedEngine.getSession(session.id)?.copilotAgentMode).toBe('autopilot')
+            expect(store.sessions.getSession(session.id)?.metadata).toEqual(expect.objectContaining({
+                preferredCopilotAgentMode: 'autopilot'
+            }))
+        } finally {
+            restartedEngine.stop()
+        }
+    })
     it('passes the cached permissionMode when respawning a resumed session', async () => {
         const store = new Store(':memory:')
         const engine = new SyncEngine(
@@ -3414,6 +3542,61 @@ describe('session model', () => {
         }
     })
 
+    it('does not resume a native Pi session on a same-host machine when its recorded machine is offline', async () => {
+        const store = new Store(':memory:')
+        const engine = new SyncEngine(
+            store,
+            {} as never,
+            new RpcRegistry(),
+            { broadcast() {} } as never
+        )
+
+        try {
+            const session = engine.getOrCreateSession(
+                'pi-offline-recorded-machine-resume',
+                {
+                    path: '/remote/project',
+                    host: 'shared-host-label',
+                    machineId: 'recorded-machine-offline',
+                    flavor: 'pi',
+                    piSessionId: 'pi-native-offline',
+                    lifecycleState: 'archived'
+                },
+                null,
+                'default'
+            )
+            engine.getOrCreateMachine(
+                'recorded-machine-offline',
+                { host: 'shared-host-label', platform: 'linux', happyCliVersion: '0.1.0' },
+                null,
+                'default'
+            )
+            engine.getOrCreateMachine(
+                'wrong-same-host-machine',
+                { host: 'shared-host-label', platform: 'linux', happyCliVersion: '0.1.0' },
+                { status: 'running', capabilities: { piExistingSessionResume: true } },
+                'default'
+            )
+            engine.handleMachineAlive({ machineId: 'wrong-same-host-machine', time: Date.now() })
+
+            let spawnCalled = false
+            ;(engine as any).rpcGateway.spawnSession = async () => {
+                spawnCalled = true
+                return { type: 'success', sessionId: session.id }
+            }
+
+            expect(await engine.reopenSession(session.id, 'default')).toEqual({
+                type: 'error',
+                message: 'No machine online',
+                code: 'no_machine_online'
+            })
+            expect(spawnCalled).toBe(false)
+            expect(engine.getSession(session.id)?.metadata?.lifecycleState).toBe('archived')
+        } finally {
+            engine.stop()
+        }
+    })
+
     it('resumeSession fresh-spawns when inactive cursor session has no agent id and no user messages', async () => {
         const store = new Store(':memory:')
         const engine = new SyncEngine(
@@ -3681,6 +3864,30 @@ describe('session model', () => {
             expect(store.messages.getMessages(s2.id, 100)).toHaveLength(1)
         })
 
+        it('merges duplicate when copilotSessionId collides', async () => {
+            const store = new Store(':memory:')
+            const events: SyncEvent[] = []
+            const cache = new SessionCache(store, createPublisher(events))
+
+            const s1 = cache.getOrCreateSession(
+                'copilot-tag-1',
+                { path: '/tmp/project', host: 'localhost', flavor: 'copilot', copilotSessionId: 'copilot-thread-X' },
+                null,
+                'default'
+            )
+            const s2 = cache.getOrCreateSession(
+                'copilot-tag-2',
+                { path: '/tmp/project', host: 'localhost', flavor: 'copilot', copilotSessionId: 'copilot-thread-X' },
+                null,
+                'default'
+            )
+
+            await cache.deduplicateByAgentSessionId(s2.id)
+
+            expect(cache.getSession(s1.id)).toBeUndefined()
+            expect(cache.getSession(s2.id)).toBeDefined()
+        })
+
         it('preserves sessions with different agent session IDs', async () => {
             const store = new Store(':memory:')
             const events: SyncEvent[] = []
@@ -3703,6 +3910,30 @@ describe('session model', () => {
 
             expect(cache.getSession(s1.id)).toBeDefined()
             expect(cache.getSession(s2.id)).toBeDefined()
+        })
+
+        it('does not merge the same Pi session id across different machines', async () => {
+            const store = new Store(':memory:')
+            const events: SyncEvent[] = []
+            const cache = new SessionCache(store, createPublisher(events))
+            const s1 = cache.getOrCreateSession(
+                'pi-tag-1',
+                { path: '/tmp/project', host: 'one', machineId: 'machine-1', flavor: 'pi', piSessionId: 'native-pi-id' },
+                null,
+                'default'
+            )
+            const s2 = cache.getOrCreateSession(
+                'pi-tag-2',
+                { path: '/tmp/project', host: 'two', machineId: 'machine-2', flavor: 'pi', piSessionId: 'native-pi-id' },
+                null,
+                'default'
+            )
+
+            await cache.deduplicateByAgentSessionId(s2.id)
+
+            expect(cache.getSession(s1.id)).toBeDefined()
+            expect(cache.getSession(s2.id)).toBeDefined()
+            store.close()
         })
 
         it('does not merge across namespaces', async () => {

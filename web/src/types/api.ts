@@ -1,5 +1,6 @@
 import type {
     CodexCollaborationMode,
+    CopilotAgentMode,
     DecryptedMessage as ProtocolDecryptedMessage,
     Machine,
     RunnerState,
@@ -10,6 +11,8 @@ import type {
 } from '@hapi/protocol/types'
 
 export type {
+    AgyModelsResponse,
+    AgyModelSummary,
     CodexModelsResponse,
     CodexModelSummary,
     CommandResponse,
@@ -22,6 +25,8 @@ export type {
     GitCommandResponse,
     GrokModelsResponse,
     GrokModelSummary,
+    CopilotModelsResponse,
+    CopilotModelSummary,
     GrokReasoningEffortResponse,
     GrokReasoningEffortOption,
     ListDirectoryResponse,
@@ -53,6 +58,7 @@ export type {
     AgentState,
     AttachmentMetadata,
     CodexCollaborationMode,
+    CopilotAgentMode,
     Metadata,
     OmpThinkingState,
     OmpInputMode,
@@ -88,6 +94,7 @@ export type SessionMetadataSummary = {
     machineId?: string
     tools?: string[]
     flavor?: string | null
+    startingMode?: 'local' | 'remote' | 'pty' | null
     capabilities?: {
         terminal?: boolean
         conversationHistory?: {
@@ -99,6 +106,7 @@ export type SessionMetadataSummary = {
     conversationHistoryPoints?: Record<string, true>
     conversationHistoryIndexes?: Record<string, number>
     conversationHistoryTurns?: Record<string, string>
+    conversationHistoryEntryIds?: Record<string, string>
     conversationHistoryDiverged?: boolean
     worktree?: WorktreeMetadata
 }
@@ -215,6 +223,47 @@ export type CodexLocalSessionsResponse = {
     error: string
     sessions: []
     machineId?: string
+}
+
+export type PiLocalSessionSummary = {
+    id: string
+    title: string
+    lastUserMessage?: string | null
+    cwd?: string | null
+    file: string
+    modifiedAt: number
+    model?: string | null
+    thinkingLevel?: string | null
+    leafEntryId?: string | null
+    messageCount: number
+    hapiSessionId?: string
+    importState?: 'importing' | 'complete' | 'failed' | 'diverged'
+}
+
+export type PiLocalSessionsResponse = {
+    success: true
+    sessions: PiLocalSessionSummary[]
+    machineId: string
+} | {
+    success: false
+    error: string
+    sessions: []
+    machineId?: string
+}
+
+export type PiImportResult = {
+    piSessionId: string
+    hapiSessionId?: string
+    action?: 'created' | 'updated' | 'unchanged'
+    appended?: number
+    error?: { code: string; message: string }
+}
+
+export type PiImportSessionsResponse = {
+    success: boolean
+    results: PiImportResult[]
+    machineId?: string
+    error?: string
 }
 
 

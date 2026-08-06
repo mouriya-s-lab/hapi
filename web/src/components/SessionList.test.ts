@@ -7,6 +7,7 @@ import {
     filterActiveSessionsOnly,
     getSessionTimeRange,
     getNextSessionVisibleCount,
+    getPullRefreshIndicatorRotation,
     getPreviousSessionVisibleCount,
     getPullToRefreshState,
     getSessionDedupKey,
@@ -27,6 +28,9 @@ function makeSession(overrides: Partial<SessionSummary> & { id: string }): Sessi
         activeAt: 0,
         updatedAt: 0,
         metadata: null,
+        metadataVersion: 0,
+        agentStateVersion: 0,
+        todosUpdatedAt: 0,
         todoProgress: null,
         pendingRequestsCount: 0,
         pendingRequestKinds: [],
@@ -513,5 +517,12 @@ describe('getPullToRefreshState', () => {
         expect(getPullToRefreshState(16)).toBe('pulling')
         expect(getPullToRefreshState(63)).toBe('pulling')
         expect(getPullToRefreshState(64)).toBe('ready')
+    })
+})
+
+describe('getPullRefreshIndicatorRotation', () => {
+    it('turns the pull indicator upward once refresh is ready', () => {
+        expect(getPullRefreshIndicatorRotation('pulling')).toBe(0)
+        expect(getPullRefreshIndicatorRotation('ready')).toBe(180)
     })
 })

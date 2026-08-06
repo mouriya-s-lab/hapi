@@ -16,6 +16,37 @@ function createPublisher(events: SyncEvent[]): EventPublisher {
 }
 
 describe('alive incremental events', () => {
+    it('replays durable immediate prompts on every attach until consumed', () => {
+        const store = new Store(':memory:')
+        const emitted: Array<{ body?: { t?: string; message?: { localId?: string | null } } }> = []
+        const io = {
+            of: () => ({
+                to: () => ({ emit: (_event: string, payload: unknown) => emitted.push(payload as typeof emitted[number]) })
+            })
+        }
+        const engine = new SyncEngine(store, io as never, new RpcRegistry(), { broadcast() {} } as never)
+        try {
+            const session = engine.getOrCreateSession('attach-replay', { path: '/tmp/project', host: 'localhost' }, null, 'default')
+            store.messages.addMessage(session.id, { text: 'queued before attach' }, 'queued-before-attach')
+            const invoked = store.messages.addMessage(session.id, { text: 'already consumed' }, 'already-consumed')
+            store.messages.markMessagesInvoked(session.id, ['already-consumed'], invoked.createdAt + 1)
+            store.messages.addMessage(session.id, { text: 'future scheduled' }, 'future-scheduled', Date.now() + 60_000)
+            expect(emitted).toEqual([])
+
+            engine.handleSessionAlive({ sid: session.id, time: Date.now() })
+            engine.handleSessionAlive({ sid: session.id, time: Date.now() + 1 })
+            expect(emitted.map((update) => update.body?.message?.localId)).toEqual([
+                'queued-before-attach', 'queued-before-attach'
+            ])
+
+            store.messages.markMessagesInvoked(session.id, ['queued-before-attach'], Date.now())
+            engine.handleSessionAlive({ sid: session.id, time: Date.now() + 2 })
+            expect(emitted.map((update) => update.body?.message?.localId)).toEqual([
+                'queued-before-attach', 'queued-before-attach'
+            ])
+        } finally { engine.stop() }
+    })
+
     it('includes active=true in session alive updates', () => {
         const store = new Store(':memory:')
         const events: SyncEvent[] = []
@@ -223,6 +254,13 @@ describe('alive incremental events', () => {
             expect(engine.getSession(session.id)?.activeAt).toBe(activeAtBeforeSend)
             expect(emittedSocketUpdates.length).toBeGreaterThan(0)
 
+            const received = events.find((event) => event.type === 'message-received')
+            expect(received).toBeDefined()
+            if (!received || received.type !== 'message-received') {
+                return
+            }
+            expect(engine.getSession(session.id)?.activeTurnStartedAt).toBe(received.message.createdAt)
+
             const update = events.find((event) => {
                 return event.type === 'session-updated'
                     && typeof event.data === 'object'
@@ -235,6 +273,9 @@ describe('alive incremental events', () => {
             }
 
             expect(update.data).toEqual(expect.objectContaining({ thinking: true }))
+            expect(update.data).toEqual(expect.objectContaining({
+                activeTurnStartedAt: expect.any(Number)
+            }))
             expect(update.data).not.toHaveProperty('activeAt')
             expect((update.data as { updatedAt?: unknown }).updatedAt).toEqual(expect.any(Number))
         } finally {
@@ -272,7 +313,91 @@ describe('alive incremental events', () => {
         expect(events.find((event) => event.type === 'session-updated')).toBeUndefined()
     })
 
-    it('keeps queued thinking true across false heartbeats during the grace window', () => {
+    it('starts a fresh grace window when an old local message is retried', async () => {
+        const store = new Store(':memory:')
+        const io = {
+            of: () => ({
+                to: () => ({ emit() {} })
+            })
+        }
+        const engine = new SyncEngine(
+            store,
+            io as never,
+            new RpcRegistry(),
+            { broadcast() {} } as never
+        )
+        const now = Date.now()
+        const originalNow = Date.now
+
+        try {
+            const session = engine.getOrCreateSession(
+                'session-retry-thinking-grace',
+                { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
+                { requests: {}, completedRequests: {} },
+                'default'
+            )
+
+            Date.now = () => now - 20_000
+            engine.handleSessionAlive({ sid: session.id, time: now - 20_000, thinking: false })
+            await engine.sendMessage(session.id, { text: 'retry me', localId: 'stable-local-id' })
+            const storedTurnStartedAt = engine.getSession(session.id)?.activeTurnStartedAt
+
+            Date.now = () => now
+            engine.handleSessionAlive({ sid: session.id, time: now, thinking: false })
+            expect(engine.getSession(session.id)?.thinking).toBe(false)
+
+            await engine.sendMessage(session.id, { text: 'retry me', localId: 'stable-local-id' })
+            expect(engine.getSession(session.id)?.activeTurnStartedAt).toBe(storedTurnStartedAt)
+
+            Date.now = () => now + 1_000
+            engine.handleSessionAlive({ sid: session.id, time: now + 1_000, thinking: false })
+            expect(engine.getSession(session.id)?.thinking).toBe(true)
+        } finally {
+            Date.now = originalNow
+            engine.stop()
+        }
+    })
+
+    it('keeps the active boundary after consumption before the first true heartbeat', async () => {
+        const store = new Store(':memory:')
+        const io = {
+            of: () => ({
+                to: () => ({ emit() {} })
+            })
+        }
+        const engine = new SyncEngine(
+            store,
+            io as never,
+            new RpcRegistry(),
+            { broadcast() {} } as never
+        )
+        const now = Date.now()
+
+        try {
+            const session = engine.getOrCreateSession(
+                'session-consumed-before-thinking',
+                { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
+                { requests: {}, completedRequests: {} },
+                'default'
+            )
+            engine.handleSessionAlive({ sid: session.id, time: now, thinking: false })
+            await engine.sendMessage(session.id, {
+                text: 'consume before thinking',
+                localId: 'consumed-local-id'
+            })
+            const activeTurnStartedAt = engine.getSession(session.id)?.activeTurnStartedAt
+            store.messages.markMessagesInvoked(session.id, ['consumed-local-id'], now + 500)
+
+            engine.handleSessionAlive({ sid: session.id, time: now + 1_000, thinking: false })
+
+            expect(engine.getSession(session.id)?.thinking).toBe(true)
+            expect(engine.getSession(session.id)?.activeTurnStartedAt).toBe(activeTurnStartedAt)
+        } finally {
+            engine.stop()
+        }
+    })
+
+    it('advances the queued turn boundary on the hub clock across a lagging false heartbeat', () => {
         const store = new Store(':memory:')
         const events: SyncEvent[] = []
         const cache = new SessionCache(store, createPublisher(events))
@@ -286,19 +411,33 @@ describe('alive incremental events', () => {
         )
 
         cache.handleSessionAlive({ sid: session.id, time: now, thinking: false })
+        store.messages.addMessage(
+            session.id,
+            { role: 'user', content: { type: 'text', text: 'queued next prompt' } },
+            'queued-next-local-id'
+        )
         cache.markMessageQueued(session.id, now + 10)
+        const turnStartedAt = cache.getSession(session.id)?.activeTurnStartedAt
         events.length = 0
 
         const originalNow = Date.now
         Date.now = () => now + 2_000
         try {
-            cache.handleSessionAlive({ sid: session.id, time: now + 2_000, thinking: false })
+            cache.handleSessionAlive({ sid: session.id, time: now - 3_000, thinking: false })
         } finally {
             Date.now = originalNow
         }
 
         expect(cache.getSession(session.id)?.thinking).toBe(true)
-        expect(events.find((event) => event.type === 'session-updated')).toBeUndefined()
+        expect(cache.getSession(session.id)?.activeTurnStartedAt).not.toBe(turnStartedAt)
+        expect(cache.getSession(session.id)?.activeTurnStartedAt).toBe(now + 2_000)
+        const update = events.find((event) => event.type === 'session-updated')
+        expect(update).toBeDefined()
+        if (!update || update.type !== 'session-updated') return
+        expect(update.data).toEqual(expect.objectContaining({
+            thinking: true,
+            activeTurnStartedAt: now + 2_000
+        }))
     })
 
     it('clears queued thinking after the grace window expires', () => {

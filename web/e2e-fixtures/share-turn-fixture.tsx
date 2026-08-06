@@ -5,6 +5,8 @@ import { ShareTurnDialog } from '../src/components/AssistantChat/ShareTurnDialog
 import { getUserBubbleClassName, UserBubbleContent } from '../src/components/AssistantChat/messages/user-bubble'
 import { MarkdownRenderer } from '../src/components/MarkdownRenderer'
 import { I18nProvider } from '../src/lib/i18n-context'
+import { useSessionHeaderMetadata } from '../src/hooks/useSessionHeaderMetadata'
+import { selectShareTurnMetadata } from '../src/lib/shareTurnMetadata'
 
 const fixtureImage = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`
     <svg xmlns="http://www.w3.org/2000/svg" width="480" height="240" viewBox="0 0 480 240">
@@ -73,6 +75,18 @@ function App() {
     const [snapshots, setSnapshots] = useState<Snapshot[]>([])
     const [open, setOpen] = useState(false)
     const wideSource = new URLSearchParams(window.location.search).get('wide') === '1'
+    const { preferences: headerMetadata } = useSessionHeaderMetadata()
+    const metadataItems = selectShareTurnMetadata(headerMetadata, {
+        agent: { text: 'codex', flavor: 'codex' },
+        machine: { text: `${headerMetadata.showLabels ? 'Machine: ' : ''}fixture-host` },
+        lastActive: { text: '2 minutes ago' },
+        model: { text: `${headerMetadata.showLabels ? 'Model: ' : ''}gpt-5.6-sol` },
+        reasoning: { text: `${headerMetadata.showLabels ? 'Reasoning: ' : ''}high` },
+        fastMode: { text: 'fast' },
+        createdAt: { text: `${headerMetadata.showLabels ? 'Created: ' : ''}Aug 2, 2026, 10:00 AM` },
+        updatedAt: { text: `${headerMetadata.showLabels ? 'Updated: ' : ''}Aug 2, 2026, 10:30 AM` },
+        worktree: { text: `${headerMetadata.showLabels ? 'Worktree: ' : ''}feat/share-turn-polish` },
+    })
 
     const openShare = () => {
         const searchParams = new URLSearchParams(window.location.search)
@@ -130,11 +144,7 @@ function App() {
             <ShareTurnDialog
                 isOpen={open}
                 title="Complex HAPI turn"
-                flavor="codex"
-                modelLabel="gpt-5.6-sol"
-                reasoningLabel="high"
-                showFastBadge={false}
-                worktreeBranch="feat/share-turn-polish"
+                metadataItems={metadataItems}
                 sourceSnapshots={snapshots}
                 sourceContentWidth={sourceRef.current?.getBoundingClientRect().width ?? null}
                 onClose={() => setOpen(false)}

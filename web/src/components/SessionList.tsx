@@ -15,6 +15,7 @@ import { useTranslation } from '@/lib/use-translation'
 import { DEFAULT_SESSION_PREVIEW_LIMIT, useSessionPreviewLimit } from '@/hooks/useSessionPreviewLimit'
 import { useSessionListStatusMode } from '@/hooks/useSessionListStatusMode'
 import { useShowActiveSessionsOnly } from '@/hooks/useShowActiveSessionsOnly'
+import { usePinInProgressSessions } from '@/hooks/usePinInProgressSessions'
 import { classifySessionAttention } from '@/lib/sessionAttention'
 import { getSessionLastSeenAt } from '@/lib/sessionLastSeen'
 import { HoverTooltip, SESSION_ROW_TOOLTIP_FOCUS_CLASS, useSessionRowTooltipIds } from '@/components/HoverTooltip'
@@ -47,8 +48,17 @@ type SessionGroup = {
 const RUNNING_BUCKETS = [
     { key: 'working', labelKey: 'session.item.running', colorClass: 'text-[var(--app-badge-success-text)]', pulse: true },
     { key: 'pending', labelKey: 'session.item.pending', colorClass: 'text-[var(--app-badge-warning-text)]', pulse: true },
-    { key: 'idle', labelKey: 'session.item.idle', colorClass: 'text-[var(--app-hint)]', pulse: false },
 ] as const
+
+/** Active sessions that warrant the optional pinned In progress section. Quiet actives stay in directory groups. */
+function isPinnedInProgressSession(session: SessionSummary): boolean {
+    if (!session.active) {
+        return false
+    }
+    return session.thinking
+        || (session.backgroundTaskCount ?? 0) > 0
+        || (session.pendingRequestsCount ?? 0) > 0
+}
 
 export type SessionTimeRange = {
     start: number | null
@@ -1006,6 +1016,24 @@ export function getPullToRefreshState(distancePx: number): PullToRefreshState {
     return 'idle'
 }
 
+export function getPullRefreshIndicatorRotation(state: PullToRefreshState): number {
+    return state === 'ready' ? 180 : 0
+}
+
+function PullRefreshIcon(props: { rotation: number }) {
+    return (
+        <svg
+            aria-hidden="true"
+            className="h-4 w-4 shrink-0 transition-transform duration-200"
+            viewBox="0 0 24 24"
+            fill="none"
+            style={{ transform: `rotate(${props.rotation}deg)` }}
+        >
+            <path d="M12 5v14M6 13l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+    )
+}
+
 export function SessionList(props: {
     sessions: SessionSummary[]
     onSelect: (sessionId: string) => void
@@ -1026,6 +1054,7 @@ export function SessionList(props: {
     const { sessionPreviewLimit } = useSessionPreviewLimit()
     const { sessionListStatusMode } = useSessionListStatusMode()
     const { showActiveSessionsOnly } = useShowActiveSessionsOnly()
+    const { pinInProgressSessions } = usePinInProgressSessions()
     const { machineFilter, setMachineFilter } = useSessionListMachineFilter()
     const showDetailedStatus = sessionListStatusMode === 'detailed'
     const [searchQuery, setSearchQuery] = useState('')
@@ -1121,10 +1150,12 @@ export function SessionList(props: {
         [visibleSessions, activeMachineFilter]
     )
     const runningSessions = useMemo(() => {
-        const buckets: Record<'working' | 'pending' | 'idle', SessionSummary[]> = {
+        const buckets: Record<'working' | 'pending', SessionSummary[]> = {
             working: [],
             pending: [],
-            idle: []
+        }
+        if (!pinInProgressSessions) {
+            return buckets
         }
         for (const session of machineFilteredSessions) {
             if (!session.active) {
@@ -1134,22 +1165,24 @@ export function SessionList(props: {
                 buckets.working.push(session)
             } else if ((session.pendingRequestsCount ?? 0) > 0) {
                 buckets.pending.push(session)
-            } else {
-                buckets.idle.push(session)
             }
+            // Quiet active sessions stay in directory groups (no Idle pin bucket).
         }
         const byRecent = (a: SessionSummary, b: SessionSummary) => b.updatedAt - a.updatedAt
         for (const key of Object.keys(buckets) as Array<keyof typeof buckets>) {
             buckets[key].sort(byRecent)
         }
         return buckets
-    }, [machineFilteredSessions])
+    }, [machineFilteredSessions, pinInProgressSessions])
     const runningSessionTotal = runningSessions.working.length
         + runningSessions.pending.length
-        + runningSessions.idle.length
     const groups = useMemo(
-        () => groupSessionsByDirectory(machineFilteredSessions.filter((session) => !session.active)),
-        [machineFilteredSessions]
+        () => groupSessionsByDirectory(
+            pinInProgressSessions
+                ? machineFilteredSessions.filter((session) => !isPinnedInProgressSession(session))
+                : machineFilteredSessions
+        ),
+        [machineFilteredSessions, pinInProgressSessions]
     )
     const [collapseOverrides, setCollapseOverrides] = useState<Map<string, boolean>>(
         () => new Map()
@@ -1466,7 +1499,9 @@ export function SessionList(props: {
                     aria-live="polite"
                     className="pointer-events-none absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-[var(--app-border)] bg-[var(--app-bg)]/90 px-2.5 py-1 text-xs text-[var(--app-hint)] shadow-sm backdrop-blur"
                 >
-                    {isRefreshing || props.isLoading ? <Spinner size="sm" label={null} className="text-current" /> : null}
+                    {isRefreshing || props.isLoading
+                        ? <Spinner size="sm" label={null} className="text-current" />
+                        : <PullRefreshIcon rotation={getPullRefreshIndicatorRotation(pullState)} />}
                     <span>
                         {isRefreshing
                             ? t('sessions.refresh.refreshing')

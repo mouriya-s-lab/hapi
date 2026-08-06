@@ -10,9 +10,14 @@ const harness = vi.hoisted(() => ({
     refreshSessionInfoCalls: [] as Array<{ sessionId: string; cwd: string }>,
     bridgeOptions: null as { enableChangeTitle?: boolean; skillLookup?: { workingDirectory: string; flavor: string } } | null,
     events: [] as string[],
+    cleanupEvents: [] as string[],
     setModelImpl: null as null | ((sessionId: string, modelId: string) => Promise<void>),
     setConfigOptionImpl: null as null | ((sessionId: string, configId: string, value: string) => Promise<void>),
     thoughtLevelOption: null as null | { id: string; currentValue?: string; options: Array<{ value: string; name?: string }> },
+    stderrHandler: null as null | ((error: { type: string; message: string; raw: string }) => void),
+    hangPrompt: false,
+    resolvePrompt: null as null | (() => void),
+    cancelPrompt: vi.fn(async (_sessionId: string) => {}),
     // Lets a test take full manual control of when a given prompt() call
     // resolves, instead of the fixed-one-tick setImmediate delay below —
     // needed to deterministically test ordering against /compact without
@@ -29,7 +34,10 @@ const harness = vi.hoisted(() => ({
     // registered once initialization finishes), so that race can only be
     // reproduced via the terminal UI's onExit/onSwitchToLocal callbacks,
     // not rpcHandlers.
-    newSessionImpl: null as null | (() => Promise<string>)
+    newSessionImpl: null as null | (() => Promise<string>),
+    disconnectImpl: null as null | (() => Promise<void>),
+    permissionCancelError: null as Error | null,
+    serverStopError: null as Error | null
 }));
 
 // Captures the RemoteLauncherDisplayContext (including onExit/
@@ -89,26 +97,41 @@ vi.mock('./utils/opencodeBackend', () => ({
             harness.promptContents.push(content);
             harness.events.push('prompt:start');
             harness.promptCount++;
-            if (harness.promptImpl) {
+            if (harness.hangPrompt) {
+                await new Promise<void>((resolve) => {
+                    harness.resolvePrompt = resolve;
+                });
+            } else if (harness.promptImpl) {
                 await harness.promptImpl();
             } else {
                 await new Promise<void>((resolve) => setImmediate(resolve));
             }
             harness.events.push('prompt:end');
         }),
-        cancelPrompt: vi.fn(async () => {
+        isPromptRequestInFlight: vi.fn(() =>
+            harness.events.lastIndexOf('prompt:start') > harness.events.lastIndexOf('prompt:end')
+        ),
+        cancelPrompt: vi.fn(async (sessionId: string) => {
+            await harness.cancelPrompt(sessionId);
             if (harness.cancelPromptImpl) {
                 await harness.cancelPromptImpl();
             }
         }),
         respondToPermission: vi.fn(async () => {}),
-        onStderrError: vi.fn(),
+        onStderrError: vi.fn((handler: (error: { type: string; message: string; raw: string }) => void) => {
+            harness.stderrHandler = handler;
+        }),
         setSessionInfoUpdateListener: vi.fn(),
         refreshSessionInfo: vi.fn(async (sessionId: string, cwd: string) => {
             harness.refreshSessionInfoCalls.push({ sessionId, cwd });
         }),
         onPermissionRequest: vi.fn(),
-        disconnect: vi.fn(async () => {}),
+        disconnect: vi.fn(async () => {
+            harness.cleanupEvents.push('cleanup:disconnect');
+            if (harness.disconnectImpl) {
+                await harness.disconnectImpl();
+            }
+        }),
         getSessionModelsMetadata: vi.fn(() => harness.sessionModelsMetadata),
         getThoughtLevelConfigOption: vi.fn(() => harness.thoughtLevelOption ?? undefined),
         // Real AcpSdkBackend.suppressUpdatesDuring swaps out the message
@@ -123,7 +146,7 @@ vi.mock('@/codex/utils/buildHapiMcpBridge', () => ({
     buildHapiMcpBridge: async (_client: unknown, options?: { enableChangeTitle?: boolean; skillLookup?: { workingDirectory: string; flavor: string } }) => {
         harness.bridgeOptions = options ?? null;
         return {
-            server: { stop: () => {} },
+            server: { stop: () => { harness.cleanupEvents.push('cleanup:server-stop'); if (harness.serverStopError) throw harness.serverStopError; } },
             mcpServers: {}
         };
     }
@@ -131,7 +154,7 @@ vi.mock('@/codex/utils/buildHapiMcpBridge', () => ({
 
 vi.mock('./utils/permissionHandler', () => ({
     OpencodePermissionHandler: class {
-        async cancelAll(): Promise<void> {}
+        async cancelAll(): Promise<void> { harness.cleanupEvents.push('cleanup:permission'); if (harness.permissionCancelError) throw harness.permissionCancelError; }
     }
 }));
 
@@ -141,17 +164,28 @@ vi.mock('@/ui/ink/OpencodeDisplay', () => ({
 
 const compactHarness = vi.hoisted(() => ({
     calls: [] as Array<{ baseUrl: string; sessionId: string; providerId: string; modelId: string; signal?: AbortSignal }>,
+    operationEvents: [] as string[],
     result: { ok: true } as { ok: true } | { ok: false; error: string },
-    summaryCalls: [] as Array<{ baseUrl: string; sessionId: string; signal?: AbortSignal }>,
-    summaryResult: { found: false } as { found: true; text: string } | { found: false },
+    markerSnapshotCalls: [] as Array<{ baseUrl: string; sessionId: string; signal?: AbortSignal }>,
+    markerSnapshot: { markerIds: ['before-this-request'] } as { markerIds: string[] } | null,
+    // Lets tests hold the pre-POST snapshot GET until plain Stop aborts it.
+    snapshotImpl: null as null | ((opts: { baseUrl: string; sessionId: string; signal?: AbortSignal }) => Promise<{ markerIds: string[] } | null>),
+    resultCalls: [] as Array<{ baseUrl: string; sessionId: string; markerIdsBefore: string[] | null; signal?: AbortSignal }>,
+    compactionResult: { status: 'success', text: '## Objective\n- Did the thing' } as
+        | { status: 'success'; text: string }
+        | { status: 'failed'; reason: string }
+        | { status: 'unverified'; reason: string },
     // Lets a test simulate a REST call that only settles once its signal is
     // aborted (mirroring how a real fetch() behaves under AbortSignal) —
     // needed to test that handleAbort() actually unblocks an in-flight
     // /compact instead of the default immediate-resolve behavior below.
     triggerImpl: null as null | ((opts: { baseUrl: string; sessionId: string; providerId: string; modelId: string; signal?: AbortSignal }) => Promise<{ ok: true } | { ok: false; error: string }>),
-    // Same idea, for the GET that runs right after a successful POST — this
-    // is what a PR-review round found was missing a signal entirely.
-    summaryImpl: null as null | ((opts: { baseUrl: string; sessionId: string; signal?: AbortSignal }) => Promise<{ found: true; text: string } | { found: false }>)
+    // Same idea, for semantic-result GET that runs after a successful POST.
+    resultImpl: null as null | ((opts: { baseUrl: string; sessionId: string; markerIdsBefore: string[] | null; signal?: AbortSignal }) => Promise<
+        | { status: 'success'; text: string }
+        | { status: 'failed'; reason: string }
+        | { status: 'unverified'; reason: string }
+    >)
 }));
 
 vi.mock('./utils/opencodeCompactBridge', () => ({
@@ -162,18 +196,28 @@ vi.mock('./utils/opencodeCompactBridge', () => ({
         return { providerId: combined.slice(0, idx), modelId: combined.slice(idx + 1) };
     },
     triggerOpencodeCompact: vi.fn(async (opts: { baseUrl: string; sessionId: string; providerId: string; modelId: string; signal?: AbortSignal }) => {
+        compactHarness.operationEvents.push('trigger');
         compactHarness.calls.push(opts);
         if (compactHarness.triggerImpl) {
             return compactHarness.triggerImpl(opts);
         }
         return compactHarness.result;
     }),
-    fetchCompactionSummary: vi.fn(async (opts: { baseUrl: string; sessionId: string; signal?: AbortSignal }) => {
-        compactHarness.summaryCalls.push(opts);
-        if (compactHarness.summaryImpl) {
-            return compactHarness.summaryImpl(opts);
+    captureCompactionMarkerSnapshot: vi.fn(async (opts: { baseUrl: string; sessionId: string; signal?: AbortSignal }) => {
+        compactHarness.operationEvents.push('snapshot');
+        compactHarness.markerSnapshotCalls.push(opts);
+        if (compactHarness.snapshotImpl) {
+            return compactHarness.snapshotImpl(opts);
         }
-        return compactHarness.summaryResult;
+        return compactHarness.markerSnapshot;
+    }),
+    fetchCompactionResult: vi.fn(async (opts: { baseUrl: string; sessionId: string; markerIdsBefore: string[] | null; signal?: AbortSignal }) => {
+        compactHarness.operationEvents.push('result');
+        compactHarness.resultCalls.push(opts);
+        if (compactHarness.resultImpl) {
+            return compactHarness.resultImpl(opts);
+        }
+        return compactHarness.compactionResult;
     })
 }));
 
@@ -289,7 +333,7 @@ function createSessionStub(
         sendUserMessage(_text: string) {}
     };
 
-    return { session, sessionEvents, sentAgentMessages, rpcHandlers, setModelReasoningEffort, pushKeepAlive, emitMessagesConsumedCalls, thinkingChangeCalls };
+    return { session, sessionEvents, sentAgentMessages, agentMessages: sentAgentMessages, rpcHandlers, setModelReasoningEffort, pushKeepAlive, emitMessagesConsumedCalls, thinkingChangeCalls };
 }
 
 function createCompactMode(model?: string): OpencodeMode {
@@ -297,6 +341,13 @@ function createCompactMode(model?: string): OpencodeMode {
         permissionMode: 'default' as PermissionMode,
         model,
         operation: 'compact'
+    };
+}
+
+function createClearMode(): OpencodeMode {
+    return {
+        permissionMode: 'default' as PermissionMode,
+        operation: 'clear'
     };
 }
 
@@ -309,20 +360,129 @@ describe('opencodeRemoteLauncher inline model switch', () => {
         harness.refreshSessionInfoCalls = [];
         harness.bridgeOptions = null;
         harness.events = [];
+        harness.cleanupEvents = [];
         harness.setModelImpl = null;
         harness.setConfigOptionImpl = null;
         harness.thoughtLevelOption = null;
+        harness.stderrHandler = null;
+        harness.hangPrompt = false;
+        harness.resolvePrompt = null;
+        harness.cancelPrompt.mockClear();
         compactHarness.calls = [];
+        compactHarness.operationEvents = [];
         compactHarness.result = { ok: true };
-        compactHarness.summaryCalls = [];
-        compactHarness.summaryResult = { found: false };
+        compactHarness.markerSnapshotCalls = [];
+        compactHarness.markerSnapshot = { markerIds: ['before-this-request'] };
+        compactHarness.snapshotImpl = null;
+        compactHarness.resultCalls = [];
+        compactHarness.compactionResult = { status: 'success', text: '## Objective\n- Did the thing' };
         compactHarness.triggerImpl = null;
-        compactHarness.summaryImpl = null;
+        compactHarness.resultImpl = null;
         harness.promptImpl = null;
         harness.sessionModelsMetadata = undefined;
         harness.cancelPromptImpl = null;
         harness.newSessionImpl = null;
+        harness.disconnectImpl = null;
+        harness.permissionCancelError = null;
+        harness.serverStopError = null;
         inkHarness.lastRenderProps = null;
+    });
+
+    it('reaches /clear only after the earlier prompt settles, without starting another OpenCode turn', async () => {
+        let resolvePrompt: (() => void) | null = null;
+        harness.promptImpl = () => new Promise<void>((resolve) => {
+            resolvePrompt = resolve;
+        });
+        const onClearRequested = vi.fn();
+        const onClearCleanupComplete = vi.fn(async () => {});
+        const { session } = createSessionStub([
+            { message: 'before-clear', mode: createMode() },
+            { message: '', mode: createClearMode() }
+        ]);
+
+        const launcherPromise = opencodeRemoteLauncher(session as never, { onClearRequested, onClearCleanupComplete });
+        while (!harness.events.includes('prompt:start')) {
+            await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+        expect(onClearRequested).not.toHaveBeenCalled();
+
+        resolvePrompt!();
+        await launcherPromise;
+
+        expect(harness.events).toEqual(['prompt:start', 'prompt:end']);
+        expect(harness.promptCount).toBe(1);
+        expect(onClearRequested).toHaveBeenCalledTimes(1);
+        expect(onClearCleanupComplete).toHaveBeenCalledTimes(1);
+        // The sibling compact test below intentionally inspects its first
+        // factory result; do not leave this test's backend instance behind.
+        const backendModule = await import('./utils/opencodeBackend');
+        (backendModule.createOpencodeBackend as unknown as ReturnType<typeof vi.fn>).mockClear();
+    });
+
+    it('reserves before native cleanup but does not complete the transition when cleanup fails', async () => {
+        harness.disconnectImpl = async () => {
+            throw new Error('disconnect failed');
+        };
+        const onClearRequested = vi.fn();
+        const onClearCleanupComplete = vi.fn(async () => {});
+        const onClearCleanupFailed = vi.fn(async () => {});
+        const { session } = createSessionStub([
+            { message: '', mode: createClearMode() }
+        ]);
+
+        await expect(opencodeRemoteLauncher(session as never, { onClearRequested, onClearCleanupComplete, onClearCleanupFailed })).rejects.toThrow('disconnect failed');
+        expect(onClearRequested).toHaveBeenCalledTimes(1);
+        expect(onClearCleanupComplete).not.toHaveBeenCalled();
+        expect(onClearCleanupFailed).toHaveBeenCalledTimes(1);
+        const backendModule = await import('./utils/opencodeBackend');
+        (backendModule.createOpencodeBackend as unknown as ReturnType<typeof vi.fn>).mockClear();
+    });
+
+    it.each(['permission', 'server'] as const)('aborts clear when %s cleanup fails', async (stage) => {
+        if (stage === 'permission') harness.permissionCancelError = new Error('permission cleanup failed');
+        else harness.serverStopError = new Error('server cleanup failed');
+        const onClearRequested = vi.fn(async () => {});
+        const onClearCleanupComplete = vi.fn(async () => {});
+        const onClearCleanupFailed = vi.fn(async () => {});
+        const { session } = createSessionStub([{ message: '', mode: createClearMode() }]);
+        await expect(opencodeRemoteLauncher(session as never, {
+            onClearRequested, onClearCleanupComplete, onClearCleanupFailed
+        })).rejects.toThrow('cleanup failed');
+        expect(onClearCleanupFailed).toHaveBeenCalledTimes(1);
+        expect(onClearCleanupComplete).not.toHaveBeenCalled();
+        expect(harness.cleanupEvents).toEqual(expect.arrayContaining([
+            'cleanup:permission', 'cleanup:disconnect', 'cleanup:server-stop'
+        ]));
+    });
+
+    it('reaches /clear only after an in-flight /compact has completed', async () => {
+        harness.sessionModelsMetadata = { currentModelId: 'ollama/x', availableModels: [] };
+        let resolveCompact: (() => void) | null = null;
+        compactHarness.triggerImpl = () => new Promise((resolve) => {
+            resolveCompact = () => resolve({ ok: true });
+        });
+        const onClearRequested = vi.fn();
+        const { session } = createSessionStub([
+            { message: '', mode: createCompactMode('ollama/x') },
+            { message: '', mode: createClearMode() }
+        ]);
+
+        const launcherPromise = opencodeRemoteLauncher(session as never, {
+            onCompactAvailabilityChange: () => {},
+            onClearRequested
+        });
+        while (compactHarness.calls.length === 0) {
+            await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+        expect(onClearRequested).not.toHaveBeenCalled();
+
+        resolveCompact!();
+        await launcherPromise;
+
+        expect(compactHarness.calls).toHaveLength(1);
+        expect(onClearRequested).toHaveBeenCalledTimes(1);
+        const backendModule = await import('./utils/opencodeBackend');
+        (backendModule.createOpencodeBackend as unknown as ReturnType<typeof vi.fn>).mockClear();
     });
 
     it('processes a queued /compact operation only after an earlier queued prompt has finished', async () => {
@@ -518,9 +678,14 @@ describe('opencodeRemoteLauncher inline model switch', () => {
         expect(harness.events).toEqual(['prompt:start', 'prompt:end']);
     });
 
-    it('a queued /compact operation posts to the REST bridge using the session baseUrl and current model, and reports started/completed', async () => {
+    it('runs the compact POST callback inside suppression before reporting a verified completion', async () => {
         const opencodeBackendModule = await import('./utils/opencodeBackend');
         const factory = (opencodeBackendModule as unknown as { createOpencodeBackend: ReturnType<typeof vi.fn> }).createOpencodeBackend;
+        let inSuppressionCallback = false;
+        compactHarness.triggerImpl = async () => {
+            expect(inSuppressionCallback).toBe(true);
+            return { ok: true };
+        };
         factory.mockImplementationOnce(() => ({
             initialize: vi.fn(async () => {}),
             newSession: vi.fn(async () => 'acp-session-1'),
@@ -533,12 +698,23 @@ describe('opencodeRemoteLauncher inline model switch', () => {
             setSessionInfoUpdateListener: vi.fn(),
             refreshSessionInfo: vi.fn(async () => {}),
             onPermissionRequest: vi.fn(),
-            disconnect: vi.fn(async () => {}),
+            disconnect: vi.fn(async () => {
+            if (harness.disconnectImpl) {
+                await harness.disconnectImpl();
+            }
+        }),
             getSessionModelsMetadata: vi.fn(() => ({
                 currentModelId: 'ollama/qwen3.6:35b-a3b-q8_0-mtp',
                 availableModels: []
             })),
-            suppressUpdatesDuring: vi.fn(async <T>(fn: () => Promise<T>): Promise<T> => fn())
+            suppressUpdatesDuring: vi.fn(async <T>(fn: () => Promise<T>): Promise<T> => {
+                inSuppressionCallback = true;
+                try {
+                    return await fn();
+                } finally {
+                    inSuppressionCallback = false;
+                }
+            })
         }));
 
         const { session, sessionEvents } = createSessionStub([
@@ -546,6 +722,8 @@ describe('opencodeRemoteLauncher inline model switch', () => {
         ]);
 
         await opencodeRemoteLauncher(session as never);
+
+        expect(compactHarness.operationEvents).toEqual(['snapshot', 'trigger', 'result']);
 
         expect(compactHarness.calls).toEqual([
             {
@@ -629,21 +807,101 @@ describe('opencodeRemoteLauncher inline model switch', () => {
         ]);
     });
 
-    it('switch-to-local also interrupts an in-flight fetchCompactionSummary GET (not just the triggerOpencodeCompact POST)', async () => {
+    it('a plain Stop aborts the pre-POST marker snapshot GET and skips summarize because no server-side compaction has started', async () => {
+        harness.sessionModelsMetadata = { currentModelId: 'ollama/x', availableModels: [] };
+        let capturedSignal: AbortSignal | undefined;
+        compactHarness.snapshotImpl = (opts) => new Promise((resolve) => {
+            capturedSignal = opts.signal;
+            opts.signal?.addEventListener('abort', () => resolve(null));
+        });
+
+        const { session, sessionEvents, rpcHandlers } = createSessionStub([
+            { message: '', mode: createCompactMode('ollama/x') }
+        ]);
+        const launcherPromise = opencodeRemoteLauncher(session as never, {
+            onCompactAvailabilityChange: () => {}
+        });
+
+        while (compactHarness.markerSnapshotCalls.length === 0) {
+            await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+        expect(capturedSignal?.aborted).toBe(false);
+
+        const abortHandler = rpcHandlers.get('abort') as (() => Promise<void>) | undefined;
+        expect(abortHandler).toBeDefined();
+        await Promise.race([
+            abortHandler!(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('plain Stop did not settle during snapshot GET')), 2000))
+        ]);
+
+        expect(capturedSignal?.aborted).toBe(true);
+        expect(compactHarness.calls).toEqual([]);
+        expect(session.thinking).toBe(false);
+        expect(sessionEvents.filter((event) => event.type === 'message').map((event) => event.message))
+            .toEqual(['📦 Compaction started']);
+        session.queue.close();
+        await Promise.race([
+            launcherPromise,
+            new Promise((_, reject) => setTimeout(() => reject(new Error('launcher did not finish after snapshot GET abort')), 2000))
+        ]);
+    });
+
+    it('a plain Stop aborts the post-POST semantic-result GET because summarize has already completed', async () => {
+        harness.sessionModelsMetadata = { currentModelId: 'ollama/x', availableModels: [] };
+        let capturedSignal: AbortSignal | undefined;
+        compactHarness.resultImpl = (opts) => new Promise((resolve) => {
+            capturedSignal = opts.signal;
+            opts.signal?.addEventListener('abort', () => {
+                resolve({ status: 'unverified', reason: 'Compaction result could not be verified.' });
+            });
+        });
+
+        const { session, sessionEvents, rpcHandlers } = createSessionStub([
+            { message: '', mode: createCompactMode('ollama/x') }
+        ]);
+        const launcherPromise = opencodeRemoteLauncher(session as never, {
+            onCompactAvailabilityChange: () => {}
+        });
+
+        while (compactHarness.resultCalls.length === 0) {
+            await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+        expect(capturedSignal?.aborted).toBe(false);
+        expect(compactHarness.calls).toHaveLength(1);
+
+        const abortHandler = rpcHandlers.get('abort') as (() => Promise<void>) | undefined;
+        expect(abortHandler).toBeDefined();
+        await Promise.race([
+            abortHandler!(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('plain Stop did not settle during result GET')), 2000))
+        ]);
+
+        expect(capturedSignal?.aborted).toBe(true);
+        expect(session.thinking).toBe(false);
+        expect(sessionEvents.filter((event) => event.type === 'message').map((event) => event.message))
+            .toEqual(['📦 Compaction started']);
+        session.queue.close();
+        await Promise.race([
+            launcherPromise,
+            new Promise((_, reject) => setTimeout(() => reject(new Error('launcher did not finish after result GET abort')), 2000))
+        ]);
+    });
+
+    it('switch-to-local also interrupts an in-flight semantic-result GET (not just the triggerOpencodeCompact POST)', async () => {
         // Reproduces a second PR-review round's finding: the fix above only
         // wired the abort signal through triggerOpencodeCompact (the POST).
-        // fetchCompactionSummary (the GET runCompactOperation() calls right
-        // after a successful POST) still had no way to be interrupted, so
+        // The semantic-result GET runCompactOperation() calls right after a
+        // successful POST still had no way to be interrupted, so
         // Stop/switch-to-local could still block for as long as *that* call
         // took even after the POST-side fix landed. Here the POST resolves
         // immediately (ok:true) and the GET is the one that only settles on
         // abort.
         harness.sessionModelsMetadata = { currentModelId: 'ollama/x', availableModels: [] };
         let capturedSignal: AbortSignal | undefined;
-        compactHarness.summaryImpl = (opts) => new Promise((resolve) => {
+        compactHarness.resultImpl = (opts) => new Promise((resolve) => {
             capturedSignal = opts.signal;
             opts.signal?.addEventListener('abort', () => {
-                resolve({ found: false });
+                resolve({ status: 'unverified', reason: 'Compaction result could not be verified.' });
             });
         });
 
@@ -657,7 +915,7 @@ describe('opencodeRemoteLauncher inline model switch', () => {
 
         // Wait until the summary GET is actually in flight (i.e. the POST
         // already resolved successfully).
-        while (compactHarness.summaryCalls.length === 0) {
+        while (compactHarness.resultCalls.length === 0) {
             await new Promise<void>((resolve) => setImmediate(resolve));
         }
         expect(capturedSignal?.aborted).toBe(false);
@@ -837,8 +1095,8 @@ describe('opencodeRemoteLauncher inline model switch', () => {
         }
     });
 
-    it('sends the fetched compaction summary as a reasoning-type agent message', async () => {
-        compactHarness.summaryResult = { found: true, text: '## Objective\n- Did the thing' };
+    it('sends the verified compaction summary as a reasoning-type agent message', async () => {
+        compactHarness.compactionResult = { status: 'success', text: '## Objective\n- Did the thing' };
         harness.sessionModelsMetadata = { currentModelId: 'ollama/qwen3.6:35b-a3b-q8_0-mtp', availableModels: [] };
 
         const { session, sentAgentMessages } = createSessionStub([
@@ -847,12 +1105,59 @@ describe('opencodeRemoteLauncher inline model switch', () => {
 
         await opencodeRemoteLauncher(session as never);
 
-        expect(compactHarness.summaryCalls).toEqual([
-            { baseUrl: 'http://127.0.0.1:48273', sessionId: 'acp-session-1', signal: expect.any(AbortSignal) }
+        expect(compactHarness.resultCalls).toEqual([
+            {
+                baseUrl: 'http://127.0.0.1:48273',
+                sessionId: 'acp-session-1',
+                markerIdsBefore: ['before-this-request'],
+                signal: expect.any(AbortSignal)
+            }
         ]);
         expect(sentAgentMessages).toEqual([
             { type: 'reasoning', message: '## Objective\n- Did the thing', id: expect.any(String) }
         ]);
+    });
+
+    it('does not report completion when HTTP success resolves to the observed empty terminal summary failure', async () => {
+        compactHarness.compactionResult = {
+            status: 'failed',
+            reason: 'OpenCode returned an empty compaction summary.'
+        };
+        harness.sessionModelsMetadata = { currentModelId: 'ollama/x', availableModels: [] };
+
+        const { session, sessionEvents, sentAgentMessages } = createSessionStub([
+            { message: '', mode: createCompactMode('ollama/x') }
+        ]);
+
+        await opencodeRemoteLauncher(session as never);
+
+        const messages = sessionEvents.filter((event) => event.type === 'message').map((event) => event.message);
+        expect(messages).toEqual([
+            '📦 Compaction started',
+            '📦 Compaction failed: OpenCode returned an empty compaction summary.'
+        ]);
+        expect(sentAgentMessages).toEqual([]);
+    });
+
+    it('reports an unverified result rather than optimistically completing when association is unavailable', async () => {
+        compactHarness.compactionResult = {
+            status: 'unverified',
+            reason: 'Compaction result could not be verified.'
+        };
+        harness.sessionModelsMetadata = { currentModelId: 'ollama/x', availableModels: [] };
+
+        const { session, sessionEvents, sentAgentMessages } = createSessionStub([
+            { message: '', mode: createCompactMode('ollama/x') }
+        ]);
+
+        await opencodeRemoteLauncher(session as never);
+
+        const messages = sessionEvents.filter((event) => event.type === 'message').map((event) => event.message);
+        expect(messages).toEqual([
+            '📦 Compaction started',
+            '📦 Compaction result could not be verified.'
+        ]);
+        expect(sentAgentMessages).toEqual([]);
     });
 
     it('never starts the compact at all if isLocalIdCancelled already reports the item cancelled the moment it is dequeued', async () => {
@@ -1029,7 +1334,7 @@ describe('opencodeRemoteLauncher inline model switch', () => {
 
         await opencodeRemoteLauncher(session as never);
 
-        expect(compactHarness.summaryCalls).toEqual([]);
+        expect(compactHarness.resultCalls).toEqual([]);
         const messages = sessionEvents.filter((event) => event.type === 'message').map((event) => event.message);
         expect(messages).toEqual(['📦 Compaction started', '📦 Compaction failed: boom']);
     });
@@ -1079,80 +1384,40 @@ describe('opencodeRemoteLauncher inline model switch', () => {
         ]);
     });
 
-    it('a switch-to-local firing during the inline model switch that precedes a compact batch still interrupts that compact once it runs, instead of the abort landing on a not-yet-created controller', async () => {
-        // Reproduces a hostile-review whole-feature-sweep finding: the
-        // dequeue loop applies the inline model/effort switch to every batch
-        // (including operation:'compact' ones) *before* branching into
-        // runCompactOperation() — which is where compactAbortController used
-        // to get created. backend.setModel()/setConfigOption() are real
-        // async ACP round-trips that yield to the event loop, so an abort
-        // firing in that window used to hit a still-null
-        // compactAbortController (a no-op), and by the time the switch
-        // resolved and runCompactOperation() created a *fresh* controller,
-        // all memory of the abort was gone — the unbounded compact REST call
-        // then ran to completion uninterrupted.
-        //
-        // Uses 'switch' (not plain 'abort'/Stop) since a later round split
-        // handleAbort()'s behavior: only switch-to-local/exit
-        // (leavingRemote=true) actually aborts compactAbortController.signal
-        // — plain Stop now only suppresses the result and deliberately
-        // leaves the signal alone (see compactResultSuppressed's doc
-        // comment). The controller-must-already-exist regression this test
-        // protects against still applies identically to switch/exit.
+    it('a switch-to-local firing during the inline model switch prevents the later snapshot/POST from starting', async () => {
+        // The controller is created before inline model switching so terminal
+        // exit is remembered. The cancellation check before the marker GET
+        // must then prevent any delayed compact HTTP work after the switch.
         harness.sessionModelsMetadata = { currentModelId: 'ollama/launch-default', availableModels: [] };
         let resolveSetModel: (() => void) | null = null;
         harness.setModelImpl = () => new Promise<void>((resolve) => {
             resolveSetModel = resolve;
         });
 
-        let capturedSignal: AbortSignal | undefined;
-        compactHarness.triggerImpl = (opts) => {
-            capturedSignal = opts.signal;
-            return Promise.resolve({ ok: true });
-        };
-
         const { session, rpcHandlers } = createSessionStub([
             { message: '', mode: createCompactMode('ollama/switched') }
         ]);
-
         const launcherPromise = opencodeRemoteLauncher(session as never, {
             onCompactAvailabilityChange: () => {}
         });
 
-        // Wait until the model switch is actually in flight. setModelArgs is
-        // pushed synchronously before setModelImpl() is awaited (see the
-        // base mock above), so by the time this is non-empty, resolveSetModel
-        // is already assigned too.
         while (harness.setModelArgs.length === 0) {
             await new Promise<void>((resolve) => setImmediate(resolve));
         }
+        expect(compactHarness.markerSnapshotCalls).toEqual([]);
         expect(compactHarness.calls).toEqual([]);
 
         const switchHandler = rpcHandlers.get('switch') as (() => Promise<void>) | undefined;
         expect(switchHandler).toBeDefined();
         await switchHandler!();
-
-        // Release the switch; the loop now proceeds into the compact batch.
-        // (Cast re-widens the type: TS narrows `resolveSetModel` to `never`
-        // here otherwise, since its only visible assignment is inside the
-        // nested Promise executor above and TS's control-flow analysis
-        // doesn't account for that closure running before this point.)
         (resolveSetModel as (() => void) | null)?.();
 
-        while (compactHarness.calls.length === 0) {
-            await new Promise<void>((resolve) => setImmediate(resolve));
-        }
-
-        // The controller the switch acted on during the model switch must be
-        // the SAME one threaded into the compact REST call — not a fresh,
-        // never-aborted one created after the fact.
-        expect(capturedSignal?.aborted).toBe(true);
-
-        session.queue.close();
         await Promise.race([
             launcherPromise,
             new Promise((_, reject) => setTimeout(() => reject(new Error('launcher did not exit in time')), 2000))
         ]);
+        expect(compactHarness.markerSnapshotCalls).toEqual([]);
+        expect(compactHarness.calls).toEqual([]);
     });
 
     it('a plain Stop firing during the inline model switch that precedes a compact batch prevents that compact from ever starting once the switch finishes, instead of unconditionally launching it anyway', async () => {
@@ -1600,7 +1865,11 @@ describe('opencodeRemoteLauncher inline model switch', () => {
             setSessionInfoUpdateListener: vi.fn(),
             refreshSessionInfo: vi.fn(async () => {}),
             onPermissionRequest: vi.fn(),
-            disconnect: vi.fn(async () => {}),
+            disconnect: vi.fn(async () => {
+            if (harness.disconnectImpl) {
+                await harness.disconnectImpl();
+            }
+        }),
             getSessionModelsMetadata: vi.fn((sessionId: string) => {
                 if (sessionId === 'acp-session-1') {
                     return { availableModels: fixtureModels, currentModelId: 'ollama/exaone:4.5-33b-q8' };
@@ -1679,6 +1948,91 @@ describe('opencodeRemoteLauncher inline model switch', () => {
             success: false,
             error: 'OpenCode reasoning effort options are not available'
         });
+    });
+
+    it('reports a stall stderr error only once per prompt', async () => {
+        harness.hangPrompt = true;
+        const { session, agentMessages } = createSessionStub([
+            { message: 'first', mode: createMode() }
+        ]);
+
+        const launchPromise = opencodeRemoteLauncher(session as never);
+        await vi.waitFor(() => expect(harness.events).toContain('prompt:start'));
+        expect(session.thinking).toBe(true);
+        expect(harness.stderrHandler).toBeTypeOf('function');
+
+        harness.stderrHandler!({
+            type: 'quota_exceeded',
+            message: 'API quota exceeded. Please check your billing or wait for quota reset.',
+            raw: 'quota exceeded for provider'
+        });
+        harness.stderrHandler!({
+            type: 'quota_exceeded',
+            message: 'Retrying after quota error.',
+            raw: 'retrying in 30 seconds'
+        });
+
+        expect(session.thinking).toBe(false);
+        expect(harness.cancelPrompt).toHaveBeenCalledTimes(1);
+        expect(harness.cancelPrompt).toHaveBeenCalledWith('acp-session-1');
+        expect(agentMessages).toEqual([{
+            type: 'error',
+            message: 'API quota exceeded. Please check your billing or wait for quota reset.'
+        }]);
+
+        harness.resolvePrompt!();
+        await launchPromise;
+    });
+
+    it('routes HTTP/2 cancel stderr through the error agent message pipeline', async () => {
+        harness.hangPrompt = true;
+        const { session, agentMessages } = createSessionStub([
+            { message: 'first', mode: createMode() }
+        ]);
+
+        const launchPromise = opencodeRemoteLauncher(session as never);
+        await vi.waitFor(() => expect(harness.stderrHandler).toBeTypeOf('function'));
+
+        const message = 'Error: T: [canceled] http/2 stream closed with error code CANCEL (0x8)';
+        harness.stderrHandler!({
+            type: 'unknown',
+            message,
+            raw: message
+        });
+
+        expect(session.thinking).toBe(false);
+        expect(harness.cancelPrompt).toHaveBeenCalledWith('acp-session-1');
+        expect(agentMessages).toContainEqual({ type: 'error', message });
+
+        harness.resolvePrompt!();
+        await launchPromise;
+    });
+
+    it('surfaces non-stall stderr as error without clearing thinking or canceling prompt', async () => {
+        harness.hangPrompt = true;
+        const { session, agentMessages } = createSessionStub([
+            { message: 'first', mode: createMode() }
+        ]);
+
+        const launchPromise = opencodeRemoteLauncher(session as never);
+        await vi.waitFor(() => expect(harness.events).toContain('prompt:start'));
+        expect(session.thinking).toBe(true);
+
+        harness.stderrHandler!({
+            type: 'authentication',
+            message: 'Authentication failed. Please check your credentials.',
+            raw: 'status 401 unauthenticated'
+        });
+
+        expect(session.thinking).toBe(true);
+        expect(harness.cancelPrompt).not.toHaveBeenCalled();
+        expect(agentMessages).toContainEqual({
+            type: 'error',
+            message: 'Authentication failed. Please check your credentials.'
+        });
+
+        harness.resolvePrompt!();
+        await launchPromise;
     });
 
     it('serializes setModel after the previous prompt resolves', async () => {

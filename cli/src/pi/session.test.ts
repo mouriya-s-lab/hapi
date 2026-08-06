@@ -95,6 +95,44 @@ describe('PiSession ready gate', () => {
         expect(nativeSession.client.emitSessionReady).toHaveBeenCalledTimes(1);
     });
 
+    it('announces native-ready before async history baseline drains prompts', async () => {
+        const session = createMockSession();
+        let finishBaseline!: () => void;
+        session.setNativeReadyPreparation(() => new Promise<void>((resolve) => { finishBaseline = resolve; }));
+        const sent = vi.fn();
+        session.runWhenReady(sent);
+
+        session.markNativeReady();
+
+        expect(session.client.emitSessionReady).toHaveBeenCalledTimes(1);
+        expect(session.isReady).toBe(false);
+        expect(sent).not.toHaveBeenCalled();
+
+        finishBaseline();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(session.isReady).toBe(true);
+        expect(sent).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not drain buffered work when cleanup cancels an in-flight ready preparation', async () => {
+        const session = createMockSession();
+        let finishBaseline!: () => void;
+        session.setNativeReadyPreparation(() => new Promise<void>((resolve) => { finishBaseline = resolve; }));
+        const sent = vi.fn();
+        session.runWhenReady(sent);
+
+        session.markNativeReady();
+        session.cancelReadyGate();
+        finishBaseline();
+        await Promise.resolve();
+        await Promise.resolve();
+        session.runWhenReady(sent);
+
+        expect(session.isReady).toBe(false);
+        expect(sent).not.toHaveBeenCalled();
+    });
+
     it('preserves FIFO across mixed buffered + post-ready enqueues', () => {
         const session = createMockSession();
         const order: string[] = [];
@@ -146,5 +184,126 @@ describe('PiSession cancelBufferedMessage', () => {
 
         // Already sent to Pi — cannot be recalled.
         expect(session.cancelBufferedMessage('id-1')).toBe(false);
+    });
+});
+
+describe('PiSession history transaction gate', () => {
+    it('defers a prompt during clone/restore and drains it FIFO after source restoration', () => {
+        const session = createMockSession();
+        const sent: string[] = [];
+        const release = session.beginHistoryTransaction();
+        session.runWhenHistoryIdle(() => sent.push('first'), 'first');
+        session.runWhenHistoryIdle(() => sent.push('second'), 'second');
+
+        expect(sent).toEqual([]);
+        expect(session.cancelBufferedMessage('second')).toBe(true);
+        release();
+
+        expect(sent).toEqual(['first']);
+        expect(session.isHistoryTransactionActive).toBe(false);
+    });
+});
+
+describe('PiSession runtime mutation mutex', () => {
+    it('serializes config-like mutations FIFO and releases after the active mutation settles', async () => {
+        const session = createMockSession();
+        const order: string[] = [];
+        let finishFirst!: () => void;
+
+        const first = session.runRuntimeMutation(async () => {
+            order.push('first-start');
+            await new Promise<void>((resolve) => { finishFirst = resolve; });
+            order.push('first-end');
+        });
+        const second = session.runRuntimeMutation(async () => {
+            order.push('second-start');
+        });
+
+        await vi.waitFor(() => expect(order).toEqual(['first-start']));
+        expect(order).not.toContain('second-start');
+
+        finishFirst();
+        await Promise.all([first, second]);
+
+        expect(order).toEqual(['first-start', 'first-end', 'second-start']);
+    });
+
+    it('keeps the lease poisoned when a mutation outcome is indeterminate', async () => {
+        const session = createMockSession();
+        const timeout = new Error('timed out');
+        let secondStarted = false;
+
+        await expect(session.runRuntimeMutation(
+            async () => { throw timeout; },
+            { poisonOnError: (error) => error === timeout },
+        )).rejects.toBe(timeout);
+        void session.runRuntimeMutation(async () => { secondStarted = true; });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(secondStarted).toBe(false);
+    });
+});
+
+describe('PiSession streaming generation', () => {
+    it('increments only on false-to-true transitions and is hidden while idle', () => {
+        const session = createMockSession();
+
+        expect(session.currentStreamingGeneration).toBeNull();
+        session.updateThinkingState(true);
+        const firstGeneration = session.currentStreamingGeneration;
+        expect(firstGeneration).toBe(1);
+
+        // Repeated lifecycle/get_state confirmations for the same turn do not
+        // mint a new identity.
+        session.updateThinkingState(true);
+        expect(session.currentStreamingGeneration).toBe(firstGeneration);
+
+        session.applyNativeRuntimeState({ isStreaming: false });
+        expect(session.currentStreamingGeneration).toBeNull();
+        session.applyNativeRuntimeState({ isStreaming: true });
+        expect(session.currentStreamingGeneration).toBe(2);
+    });
+
+    it('invalidates a streaming generation when rewind commits a new native branch', () => {
+        const session = createMockSession();
+        session.updateThinkingState(true);
+        const sourceGeneration = session.currentStreamingGeneration;
+
+        session.commitNativeSessionState(
+            { sessionId: 'rewound-session', sessionFile: '/tmp/rewound-session.jsonl' },
+            { isStreaming: true },
+        );
+
+        expect(session.currentStreamingGeneration).not.toBe(sourceGeneration);
+        expect(session.currentStreamingGeneration).toBe(2);
+    });
+});
+
+describe('PiSession native runtime reconciliation', () => {
+    it('preserves an omitted provider only when the reported model is unchanged', () => {
+        const session = createMockSession();
+        session.currentModel = 'same-model';
+        session.currentProvider = 'known-provider';
+
+        session.applyNativeRuntimeState({ model: 'same-model' });
+        expect(session.currentProvider).toBe('known-provider');
+
+        session.applyNativeRuntimeState({ model: 'different-model' });
+        expect(session.currentProvider).toBeNull();
+    });
+
+    it('infers an omitted provider only from a unique available-model match', () => {
+        const session = createMockSession();
+        session.currentModel = 'old-model';
+        session.currentProvider = 'old-provider';
+        session.cachedPiModels = [
+            { modelId: 'new-model', provider: 'new-provider' },
+            { modelId: 'other-model', provider: 'other-provider' },
+        ];
+
+        session.applyNativeRuntimeState({ model: 'new-model' });
+
+        expect(session.currentProvider).toBe('new-provider');
     });
 });

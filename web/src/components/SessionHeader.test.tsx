@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Session } from '@/types/api'
 import { I18nProvider } from '@/lib/i18n-context'
@@ -77,6 +77,101 @@ describe('resolveSessionHeaderMachineLabel', () => {
 })
 
 describe('SessionHeader', () => {
+    it('manually syncs an inactive Pi session through its owning machine', async () => {
+        const importPiSessions = vi.fn().mockResolvedValue({
+            success: true,
+            results: [{ piSessionId: 'pi-native-1', hapiSessionId: 'session-1', action: 'updated', appended: 2 }]
+        })
+        const api = {
+            getMachines: vi.fn().mockResolvedValue({ machines: [] }),
+            importPiSessions
+        } as unknown as import('@/api/client').ApiClient
+        const queryClient = new QueryClient()
+        const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue(undefined)
+        render(
+            <QueryClientProvider client={queryClient}>
+                <ToastProvider>
+                    <I18nProvider>
+                        <SessionHeader
+                            session={baseSession({
+                                active: false,
+                                metadata: {
+                                    flavor: 'pi',
+                                    path: '/repo',
+                                    host: 'machine',
+                                    machineId: 'machine-1',
+                                    piSessionId: 'pi-native-1'
+                                }
+                            })}
+                            onBack={vi.fn()}
+                            api={api}
+                        />
+                    </I18nProvider>
+                </ToastProvider>
+            </QueryClientProvider>
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: /More/ }))
+        fireEvent.click(screen.getByRole('menuitem', { name: /Sync Pi history/ }))
+
+        await waitFor(() => expect(importPiSessions).toHaveBeenCalledWith({
+            sessionIds: ['pi-native-1'],
+            cwd: '/repo',
+            machineId: 'machine-1'
+        }))
+        expect(invalidateQueries).toHaveBeenCalledTimes(3)
+    })
+
+    it('does not offer manual Pi sync while the HAPI session is active', () => {
+        const api = {
+            getMachines: vi.fn().mockResolvedValue({ machines: [] }),
+            importPiSessions: vi.fn()
+        } as unknown as import('@/api/client').ApiClient
+        render(
+            <QueryClientProvider client={new QueryClient()}>
+                <ToastProvider>
+                    <I18nProvider>
+                        <SessionHeader
+                            session={baseSession({
+                                active: true,
+                                metadata: { flavor: 'pi', path: '/repo', host: 'machine', machineId: 'machine-1', piSessionId: 'pi-native-1' }
+                            })}
+                            onBack={vi.fn()}
+                            api={api}
+                        />
+                    </I18nProvider>
+                </ToastProvider>
+            </QueryClientProvider>
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: /More/ }))
+        expect(screen.queryByRole('menuitem', { name: /Sync Pi history/ })).toBeNull()
+    })
+
+    it('renders and toggles the agent terminal control', () => {
+        const onToggleTerminal = vi.fn()
+        render(
+            <QueryClientProvider client={new QueryClient()}>
+                <ToastProvider>
+                    <I18nProvider>
+                        <SessionHeader
+                            session={baseSession({ metadata: { flavor: 'agy', path: '/repo', host: 'machine' } })}
+                            onBack={vi.fn()}
+                            onToggleTerminal={onToggleTerminal}
+                            terminalActive
+                            api={null}
+                        />
+                    </I18nProvider>
+                </ToastProvider>
+            </QueryClientProvider>
+        )
+
+        const terminal = screen.getByRole('button', { name: 'Terminal' })
+        expect(terminal).toHaveAttribute('aria-pressed', 'true')
+        terminal.click()
+        expect(onToggleTerminal).toHaveBeenCalledOnce()
+    })
+
     it('shows an inherited catalog-default Fast tier', () => {
         renderHeader(baseSession(), { serviceTier: 'priority' })
         expect(screen.getByText('fast')).toBeInTheDocument()

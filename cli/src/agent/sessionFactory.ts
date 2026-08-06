@@ -108,11 +108,14 @@ function pickExistingSessionMetadata(metadata: Metadata | null | undefined): Par
     if (metadata.geminiSessionId !== undefined) preserved.geminiSessionId = metadata.geminiSessionId
     if (metadata.opencodeSessionId !== undefined) preserved.opencodeSessionId = metadata.opencodeSessionId
     if (metadata.grokSessionId !== undefined) preserved.grokSessionId = metadata.grokSessionId
+    if (metadata.agySessionId !== undefined) preserved.agySessionId = metadata.agySessionId
     if (metadata.cursorSessionId !== undefined) preserved.cursorSessionId = metadata.cursorSessionId
     if (metadata.cursorSessionProtocol !== undefined) preserved.cursorSessionProtocol = metadata.cursorSessionProtocol
     if (metadata.kimiSessionId !== undefined) preserved.kimiSessionId = metadata.kimiSessionId
+    if (metadata.copilotSessionId !== undefined) preserved.copilotSessionId = metadata.copilotSessionId
     if (metadata.piSessionId !== undefined) preserved.piSessionId = metadata.piSessionId
     if (metadata.piResumeAttempt !== undefined) preserved.piResumeAttempt = metadata.piResumeAttempt
+    if (metadata.ptyResumeAttempt !== undefined) preserved.ptyResumeAttempt = metadata.ptyResumeAttempt
     if (metadata.preferredPermissionMode !== undefined) preserved.preferredPermissionMode = metadata.preferredPermissionMode
     if (metadata.ompSession !== undefined) preserved.ompSession = metadata.ompSession
     if (metadata.ompThinking !== undefined) preserved.ompThinking = metadata.ompThinking
@@ -132,6 +135,9 @@ function pickExistingSessionMetadata(metadata: Metadata | null | undefined): Par
     }
     if (metadata.conversationHistoryTurns !== undefined) {
         preserved.conversationHistoryTurns = metadata.conversationHistoryTurns
+    }
+    if (metadata.conversationHistoryEntryIds !== undefined) {
+        preserved.conversationHistoryEntryIds = metadata.conversationHistoryEntryIds
     }
     if (metadata.conversationHistoryDiverged !== undefined) {
         preserved.conversationHistoryDiverged = metadata.conversationHistoryDiverged

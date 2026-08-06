@@ -10,6 +10,8 @@ import {
     updateMessageStatus,
 } from '@/lib/message-window-store'
 import { usePlatform } from '@/hooks/usePlatform'
+import type { MessageDeliveryMode } from '@hapi/protocol'
+import { getRetryDeliveryMode } from '@/lib/messageDelivery'
 
 type SendMessageInput = {
     sessionId: string
@@ -18,6 +20,7 @@ type SendMessageInput = {
     createdAt: number
     attachments?: AttachmentMetadata[]
     scheduledAt?: number | null
+    deliveryMode: MessageDeliveryMode
 }
 
 type BlockedReason = 'no-api' | 'no-session' | 'pending'
@@ -45,6 +48,9 @@ type BlockedReason = 'no-api' | 'no-session' | 'pending'
  *   downgrading to immediate -- `SessionChat.handleSend` clears the
  *   pendingSchedule the moment the mutation is accepted, so without
  *   this the schedule is gone by the time onError fires.
+ * - `deliveryMode` is the resolved durable intent for this exact send. Retry
+ *   recovery retains queue, while turn-scoped steer safely degrades to queue
+ *   because the original Pi generation can no longer be proven.
  *
  * Only fired for text-only sends.  Sends with attachments fall back to
  * the legacy failed-bubble UX (the optimistic row stays as `failed` and
@@ -57,6 +63,7 @@ export type SendErrorInfo = {
     text: string
     error: unknown
     scheduledAt: number | null
+    deliveryMode: MessageDeliveryMode
     /** True only after the message mutation was started. */
     mutationStarted: boolean
 }
@@ -83,7 +90,10 @@ function createOptimisticMessage(input: SendMessageInput, status: 'queued' | 'se
                 type: 'text',
                 text: input.text,
                 attachments: input.attachments
-            }
+            },
+            meta: {
+                deliveryMode: input.deliveryMode,
+            },
         },
         createdAt: input.createdAt,
         // Explicit null so the strict-null queued check matches. A pre-V8 hub
@@ -131,6 +141,19 @@ function getMessageAttachments(message: DecryptedMessage): AttachmentMetadata[] 
     return inner.attachments as AttachmentMetadata[]
 }
 
+/** Read the durable delivery intent from an optimistic or failed user row.
+ * Old rows predate the field, and the cross-layer compatibility rule is that
+ * absence means ordinary queued delivery. */
+function getMessageDeliveryMode(message: DecryptedMessage): MessageDeliveryMode {
+    const content = message.content as unknown
+    if (typeof content !== 'object' || content === null) return 'queue'
+    const meta = (content as { meta?: unknown }).meta
+    if (typeof meta !== 'object' || meta === null) return 'queue'
+    return (meta as { deliveryMode?: unknown }).deliveryMode === 'steer'
+        ? 'steer'
+        : 'queue'
+}
+
 export function useSendMessage(
     api: ApiClient | null,
     sessionId: string | null,
@@ -142,7 +165,12 @@ export function useSendMessage(
     // resume happens before mutation.mutate(), and a sync `true` would let the
     // caller clear UI state (e.g. pendingSchedule) before knowing whether
     // resume succeeded — see SessionChat.handleSend.
-    sendMessage: (text: string, attachments?: AttachmentMetadata[], scheduledAt?: number | null) => Promise<boolean>
+    sendMessage: (
+        text: string,
+        attachments?: AttachmentMetadata[],
+        scheduledAt?: number | null,
+        deliveryMode?: MessageDeliveryMode,
+    ) => Promise<boolean>
     retryMessage: (localId: string) => boolean
     isSending: boolean
 } {
@@ -157,7 +185,15 @@ export function useSendMessage(
             if (!api) {
                 throw new Error('API unavailable')
             }
-            await api.sendMessage(input.sessionId, input.text, input.localId, input.attachments, input.scheduledAt)
+            await api.sendMessage(
+                input.sessionId,
+                input.text,
+                input.localId,
+                input.attachments,
+                input.scheduledAt,
+                undefined,
+                input.deliveryMode,
+            )
         },
         onMutate: async (input) => {
             const successStatus = isSessionThinkingRef.current ? 'queued' as const : 'sent' as const
@@ -200,12 +236,18 @@ export function useSendMessage(
                 text: input.text,
                 error,
                 scheduledAt: input.scheduledAt ?? null,
+                deliveryMode: input.deliveryMode,
                 mutationStarted: true,
             })
         },
     })
 
-    const sendMessage = async (text: string, attachments?: AttachmentMetadata[], scheduledAt?: number | null): Promise<boolean> => {
+    const sendMessage = async (
+        text: string,
+        attachments?: AttachmentMetadata[],
+        scheduledAt?: number | null,
+        deliveryMode: MessageDeliveryMode = 'queue',
+    ): Promise<boolean> => {
         if (!api) {
             options?.onBlocked?.('no-api')
             haptic.notification('error')
@@ -250,6 +292,7 @@ export function useSendMessage(
                     text,
                     error,
                     scheduledAt: scheduledAt ?? null,
+                    deliveryMode,
                     mutationStarted: false,
                 })
                 return false
@@ -265,6 +308,7 @@ export function useSendMessage(
             createdAt,
             attachments,
             scheduledAt,
+            deliveryMode,
         })
         return true
     }
@@ -297,6 +341,7 @@ export function useSendMessage(
             createdAt: message.createdAt,
             attachments: getMessageAttachments(message),
             scheduledAt: message.scheduledAt ?? null,
+            deliveryMode: getRetryDeliveryMode(getMessageDeliveryMode(message)),
         })
         return true
     }

@@ -4,12 +4,14 @@ import { render } from 'ink'
 import { existsSync } from 'node:fs'
 import type { LocalResumeTarget, ResumableSession } from '@hapi/protocol'
 import type {
+    AgyPermissionMode,
     ClaudePermissionMode,
     CodexPermissionMode,
     CursorPermissionMode,
     GrokPermissionMode,
     KimiPermissionMode,
     OmpPermissionMode,
+    CopilotPermissionMode,
     OpencodePermissionMode
 } from '@hapi/protocol/types'
 import { ApiClient } from '@/api/api'
@@ -147,6 +149,36 @@ async function dispatchLocalResume(target: LocalResumeTarget): Promise<void> {
             permissionMode: base.permissionMode as KimiPermissionMode | undefined,
             startingMode: 'local',
             model: target.model ?? undefined
+        })
+        return
+    }
+
+    if (target.flavor === 'agy') {
+        const { runAgy } = await import('@/agy/runAgy')
+        await runAgy({
+            existingSessionId: base.existingSessionId,
+            workingDirectory: base.workingDirectory,
+            resumeSessionId: base.resumeSessionId,
+            startedBy: base.startedBy,
+            permissionMode: base.permissionMode as AgyPermissionMode | undefined,
+            startingMode: 'pty',
+            model: target.model ?? undefined,
+            effort: target.effort ?? undefined,
+        })
+        return
+    }
+
+    if (target.flavor === 'copilot') {
+        const { runCopilot } = await import('@/copilot/runCopilot')
+        await runCopilot({
+            existingSessionId: base.existingSessionId,
+            workingDirectory: base.workingDirectory,
+            resumeSessionId: base.resumeSessionId,
+            startedBy: base.startedBy,
+            permissionMode: base.permissionMode as CopilotPermissionMode | undefined,
+            startingMode: 'local',
+            model: target.model ?? undefined,
+            copilotAgentMode: target.copilotAgentMode
         })
         return
     }

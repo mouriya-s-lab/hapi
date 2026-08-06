@@ -1264,6 +1264,7 @@ export class OmpRpcEventAdapter {
             totalTokens: usage.totalTokens,
             thoughtTokens: usage.reasoningTokens,
             cacheReadTokens: usage.cacheRead,
+            cacheCreationTokens: usage.cacheWrite,
             costUsd: usage.cost.total
         };
     }

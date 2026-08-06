@@ -40,15 +40,17 @@ import type { Suggestion } from '@/hooks/useActiveSuggestions'
 import { useSendMessage, type SendErrorInfo } from '@/hooks/mutations/useSendMessage'
 import type { ComposerSendError } from '@/components/AssistantChat/HappyComposer'
 import { ApiError } from '@/api/client'
+import type { MessageDeliveryMode } from '@hapi/protocol'
 import { queryKeys } from '@/lib/query-keys'
 import { useToast } from '@/lib/toast-context'
 import { useTranslation } from '@/lib/use-translation'
 import { seedMessageWindowFromSession, syncTailMessages } from '@/lib/message-window-store'
 import { clearDraftsAfterSend } from '@/lib/clearDraftsAfterSend'
 import { inactiveSessionCanResume } from '@/lib/sessionResume'
-import { markSessionSeen } from '@/lib/sessionLastSeen'
+import { initializeSessionLastSeen, markSessionSeen } from '@/lib/sessionLastSeen'
 import { useSessionBrowserTitle } from '@/hooks/useSessionBrowserTitle'
 import { clearCodexImportedSession } from '@/lib/codexImportedSessions'
+import { getSupersedingSessionId, shouldFollowSupersedingSession } from '@/routes/sessions/followSupersedingSession'
 import { migrateSuppressedSendError } from '@/lib/suppressed-send-error'
 import FilesPage from '@/routes/sessions/files'
 import FilePage from '@/routes/sessions/file'
@@ -66,6 +68,7 @@ import SettingsAboutPage from '@/routes/settings/about'
 import SettingsStoragePage from '@/routes/settings/storage'
 import ForkSettingsPage from '@/fork-features/settings/ForkSettingsPage'
 import { ResourceGrantsSettingsPage } from '@/fork-features/multi-user/ResourceGrantsSettingsSection'
+import SettingsUsagePage from '@/routes/settings/usage'
 import SharePage from '@/routes/share'
 import { setSharePendingTransfer } from '@/lib/sharePendingState'
 import { deleteShareTransfer } from '@/lib/shareTransfer'
@@ -153,7 +156,7 @@ function SettingsIcon(props: { className?: string }) {
 }
 
 function SessionsPage() {
-    const { api } = useAppContext()
+    const { api, baseUrl } = useAppContext()
     const navigate = useNavigate()
     const pathname = useLocation({ select: location => location.pathname })
     const sidebarScrollRef = useRef<HTMLDivElement>(null)
@@ -172,6 +175,7 @@ function SessionsPage() {
         () => filterVisibleSessions(sessions, hideArchivedSessions),
         [sessions, hideArchivedSessions]
     )
+    const [initializedHub, setInitializedHub] = useState<string | null>(null)
     const { machines } = useMachines(api, true)
     const handleRefresh = useCallback(() => {
         return (async () => {
@@ -209,6 +213,13 @@ function SessionsPage() {
         [selectedSessionId, sessions]
     )
     useEffect(() => {
+        if (isLoading || error) {
+            return
+        }
+        initializeSessionLastSeen(baseUrl, sessions)
+        setInitializedHub(baseUrl)
+    }, [baseUrl, error, isLoading, sessions])
+    useEffect(() => {
         if (!selectedSessionId || !selectedSession) {
             return
         }
@@ -239,6 +250,7 @@ function SessionsPage() {
                         </div>
                     ) : null}
                     <SessionList
+                        key={initializedHub === baseUrl ? 'last-seen-ready' : 'last-seen-pending'}
                         sessions={visibleSessions}
                         selectedSessionId={selectedSessionId}
                         onSelect={(sessionId) => navigate({
@@ -390,6 +402,7 @@ function SessionPage() {
         message: string
         code: string | null
         scheduledAt: number | null
+        deliveryMode: MessageDeliveryMode
         mutationStarted: boolean
         restoreSuppressed: boolean
     }
@@ -477,6 +490,7 @@ function SessionPage() {
             text: rawSendError.text,
             message: rawSendError.message,
             scheduledAt: rawSendError.scheduledAt,
+            deliveryMode: rawSendError.deliveryMode,
             mutationStarted: rawSendError.mutationStarted,
             restoreSuppressed: rawSendError.restoreSuppressed,
             action: rawSendError.code === 'session_inactive' && canOfferInactiveReopen
@@ -517,6 +531,7 @@ function SessionPage() {
                     message,
                     code,
                     scheduledAt: info.scheduledAt,
+                    deliveryMode: info.deliveryMode,
                     mutationStarted: info.mutationStarted,
                     restoreSuppressed: false,
                 }
@@ -663,11 +678,14 @@ function SessionPage() {
             })
 
             const fileHits: Suggestion[] = []
-            if (agentType === 'codex' && api && sessionId) {
+            if ((agentType === 'codex' || agentType === 'copilot') && api && sessionId) {
                 const response = await api.searchSessionFiles(sessionId, search, 50)
                 if (response.success && response.files) {
                     for (const file of response.files) {
-                        const mentionText = `@"${file.fullPath.replace(/(["\\])/g, '\\$1')}"`
+                        // Codex App Server expects @"path"; Copilot CLI uses @path (relative preferred).
+                        const mentionText = agentType === 'copilot'
+                            ? `@${file.fullPath}`
+                            : `@"${file.fullPath.replace(/(["\\])/g, '\\$1')}"`
                         fileHits.push({
                             key: mentionText,
                             text: mentionText,
@@ -768,6 +786,22 @@ function SessionPage() {
             onSuppressSendErrorRestore={suppressSendErrorRestore}
             initialOutlineOpen={outline}
             onInitialOutlineConsumed={handleInitialOutlineConsumed}
+            onAbortRestore={(text) => {
+                sendErrorIdRef.current += 1
+                setSendErrors((prev) => ({
+                    ...prev,
+                    [sessionId]: {
+                        id: sendErrorIdRef.current,
+                        text,
+                        message: t('chat.sendError.aborted'),
+                        code: 'abort',
+                        scheduledAt: null,
+                        deliveryMode: 'steer',
+                        mutationStarted: true,
+                        restoreSuppressed: false
+                    }
+                }))
+            }}
         />
     )
 }
@@ -781,13 +815,36 @@ function SessionDetailRoute() {
     useSessionBrowserTitle(session)
     const basePath = `/sessions/${sessionId}`
     const isChat = pathname === basePath || pathname === `${basePath}/`
+    const supersedingSessionId = getSupersedingSessionId(sessionId, session?.metadata)
+    const observedSessionRef = useRef<{
+        sessionId: string
+        supersedingSessionId: string | null
+    } | null>(null)
+
+    useEffect(() => {
+        if (!session) {
+            return
+        }
+        const shouldFollow = shouldFollowSupersedingSession(
+            observedSessionRef.current,
+            sessionId,
+            session.metadata
+        )
+        observedSessionRef.current = { sessionId, supersedingSessionId }
+        if (!shouldFollow || !supersedingSessionId) return
+        navigate({
+            to: '/sessions/$sessionId',
+            params: { sessionId: supersedingSessionId },
+            replace: true
+        })
+    }, [navigate, session, sessionId, supersedingSessionId])
 
     useEffect(() => {
         if (!sessionNotFound) {
             return
         }
         navigate({ to: '/sessions', replace: true })
-    }, [navigate, sessionNotFound])
+    }, [navigate, sessionNotFound, sessionId])
 
     if (sessionNotFound) {
         return (
@@ -1139,21 +1196,27 @@ const settingsStorageRoute = createRoute({
     component: SettingsStoragePage,
 })
 
-const settingsForkRoute = createRoute({
-    getParentRoute: () => settingsRoute,
-    path: 'fork',
-    component: ForkSettingsPage,
-})
+    const settingsForkRoute = createRoute({
+        getParentRoute: () => settingsRoute,
+        path: 'fork',
+        component: ForkSettingsPage,
+    })
 
-const settingsForkGrantsRoute = createRoute({
-    getParentRoute: () => settingsRoute,
-    path: 'fork/grants',
-    component: ResourceGrantsSettingsPage,
-})
+    const settingsForkGrantsRoute = createRoute({
+        getParentRoute: () => settingsRoute,
+        path: 'fork/grants',
+        component: ResourceGrantsSettingsPage,
+    })
 
-const settingsAccountRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'account', component: AccountSettingsPage })
-const settingsUsersRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'users', component: UsersSettingsPage })
-const settingsUserRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'users/$accountId', component: UserSettingsPage })
+    const settingsAccountRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'account', component: AccountSettingsPage })
+    const settingsUsersRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'users', component: UsersSettingsPage })
+    const settingsUserRoute = createRoute({ getParentRoute: () => settingsRoute, path: 'users/$accountId', component: UserSettingsPage })
+
+    const settingsUsageRoute = createRoute({
+        getParentRoute: () => settingsRoute,
+        path: 'usage',
+        component: SettingsUsagePage,
+    })
 // Web Share Target landing route. Service worker (`web/src/sw.ts`)
 // intercepts the manifest's `POST /share` and 303-redirects here with an
 // IDB transfer id. `error=ingest` is set when the SW failed to write IDB.
@@ -1195,6 +1258,7 @@ export const routeTree = rootRoute.addChildren([
         settingsVoiceAdvancedRoute,
         settingsMachinesRoute,
         settingsStorageRoute,
+        settingsUsageRoute,
         settingsAboutRoute,
         settingsForkRoute,
         settingsForkGrantsRoute,

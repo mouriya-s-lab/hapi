@@ -1,12 +1,14 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { isPermissionModeAllowedForFlavor } from '@hapi/protocol'
 import type { ApiClient } from '@/api/client'
-import type { CodexCollaborationMode, PermissionMode, SessionResponse, SessionsResponse } from '@/types/api'
+import type { CodexCollaborationMode, CopilotAgentMode, PermissionMode, SessionResponse, SessionsResponse } from '@/types/api'
 import type { ReopenSessionResponse } from '@hapi/protocol/apiTypes'
 import { queryKeys } from '@/lib/query-keys'
 import { clearMessageWindow } from '@/lib/message-window-store'
 import { isKnownFlavor } from '@hapi/protocol'
 import type { ForkRouteResult } from '../../../../fork-features/session-fork/rpcPayloads'
+
+export const sessionModelMutationKey = (sessionId: string) => ['session-model', sessionId] as const
 
 export function useSessionActions(
     api: ApiClient | null,
@@ -20,6 +22,7 @@ export function useSessionActions(
     switchSession: () => Promise<void>
     setPermissionMode: (mode: PermissionMode) => Promise<void>
     setCollaborationMode: (mode: CodexCollaborationMode) => Promise<void>
+    setCopilotAgentMode: (mode: CopilotAgentMode) => Promise<void>
     setModel: (model: { provider: string; modelId: string } | string | null) => Promise<void>
     setResumeWithSessionModel: (enabled: boolean) => Promise<void>
     setModelReasoningEffort: (modelReasoningEffort: string | null) => Promise<void>
@@ -148,18 +151,30 @@ export function useSessionActions(
         onSuccess: () => void invalidateSession(),
     })
 
+    const copilotAgentModeMutation = useMutation({
+        mutationFn: async (mode: CopilotAgentMode) => {
+            if (!api || !sessionId) {
+                throw new Error('Session unavailable')
+            }
+            if (agentFlavor !== 'copilot') {
+                throw new Error('Agent mode is only supported for Copilot sessions')
+            }
+            await api.setCopilotAgentMode(sessionId, mode)
+        },
+        onSuccess: () => void invalidateSession(),
+    })
+
     const modelMutation = useMutation({
+        mutationKey: sessionModelMutationKey(sessionId ?? ''),
         mutationFn: async (model: { provider: string; modelId: string } | string | null) => {
             if (!api || !sessionId) {
                 throw new Error('Session unavailable')
             }
             await api.setModel(sessionId, model)
         },
-        onSuccess: () => {
-            void (async () => {
-                await invalidateSession()
-                await invalidateCursorModels()
-            })()
+        onSuccess: async () => {
+            await invalidateSession()
+            await invalidateCursorModels()
         },
     })
 
@@ -270,6 +285,7 @@ export function useSessionActions(
         switchSession: switchMutation.mutateAsync,
         setPermissionMode: permissionMutation.mutateAsync,
         setCollaborationMode: collaborationMutation.mutateAsync,
+        setCopilotAgentMode: copilotAgentModeMutation.mutateAsync,
         setModel: modelMutation.mutateAsync,
         setResumeWithSessionModel: resumeWithSessionModelMutation.mutateAsync,
         setModelReasoningEffort: modelReasoningEffortMutation.mutateAsync,
@@ -284,6 +300,7 @@ export function useSessionActions(
             || switchMutation.isPending
             || permissionMutation.isPending
             || collaborationMutation.isPending
+            || copilotAgentModeMutation.isPending
             || modelMutation.isPending
             || resumeWithSessionModelMutation.isPending
             || modelReasoningEffortMutation.isPending

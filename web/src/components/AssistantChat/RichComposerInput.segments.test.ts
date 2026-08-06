@@ -40,6 +40,28 @@ describe('segmentsFromEditor', () => {
         expect(serializeComposerSegments(segmentsFromEditor(root))).toBe('a\nb')
     })
 
+    it('ignores the filler br browsers park in an emptied editor', () => {
+        // Deleting the last character leaves Chromium/WebKit with `<br>` as the
+        // sole child. Counting it made an empty composer hold "\n".
+        const root = document.createElement('div')
+        root.innerHTML = '<br>'
+        expect(serializeComposerSegments(segmentsFromEditor(root))).toBe('')
+        expect(mirrorOffsetFromPoint(root, root, 0)).toBe(0)
+        expect(mirrorOffsetFromPoint(root, root, 1)).toBe(0)
+
+        const moz = document.createElement('div')
+        moz.innerHTML = '<br type="_moz">'
+        expect(serializeComposerSegments(segmentsFromEditor(moz))).toBe('')
+    })
+
+    it('keeps a trailing br that carries our caret pad (real trailing newline)', () => {
+        // renderSegmentsToEditor maps "a\n" → text + <br> + ZWSP; the pad is
+        // what separates a deliberate break from browser filler.
+        const root = document.createElement('div')
+        root.innerHTML = 'a<br>​'
+        expect(serializeComposerSegments(segmentsFromEditor(root))).toBe('a\n')
+    })
+
     it('preserves blank-line endings from renderSegments (br+br+pad)', () => {
         // renderSegmentsToEditor maps "...\n\n" → text + <br> + <br> + ZWSP.
         // Must not strip a real trailing blank line on re-serialize.
@@ -118,6 +140,8 @@ describe('insertLineBreakAtCaret', () => {
         document.body.appendChild(root)
         const hello = document.createTextNode('hello')
         root.appendChild(hello)
+        Object.defineProperty(root, 'scrollHeight', { value: 120 })
+        root.scrollTop = 10
         placeCaretAtEnd(root, hello)
 
         insertLineBreakAtCaret(root)
@@ -125,6 +149,7 @@ describe('insertLineBreakAtCaret', () => {
         const texts = Array.from(root.childNodes).map((n) => n.textContent ?? '')
         expect(texts).toContain(CARET_PAD)
         expect(serializeComposerSegments(segmentsFromEditor(root))).toBe('hello\n')
+        expect(root.scrollTop).toBe(120)
     })
 
     it('does not pad when there is meaningful content after the caret', () => {
@@ -132,12 +157,41 @@ describe('insertLineBreakAtCaret', () => {
         document.body.appendChild(root)
         const text = document.createTextNode('helloworld')
         root.appendChild(text)
+        Object.defineProperty(root, 'scrollHeight', { value: 120 })
+        root.scrollTop = 10
         placeCaretInText(text, 5) // between hello|world
 
         insertLineBreakAtCaret(root)
 
         expect(serializeComposerSegments(segmentsFromEditor(root))).toBe('hello\nworld')
         expect(Array.from(root.childNodes).some((n) => n.textContent === CARET_PAD)).toBe(false)
+        expect(root.scrollTop).toBe(10)
+    })
+
+    it('does not scroll for a nested middle-line break', () => {
+        const root = document.createElement('div')
+        document.body.appendChild(root)
+        root.innerHTML = '<div>first</div><div>second</div>'
+        Object.defineProperty(root, 'scrollHeight', { value: 120 })
+        root.scrollTop = 10
+        placeCaretAtEnd(root, root.firstElementChild!.firstChild as Text)
+
+        insertLineBreakAtCaret(root)
+
+        expect(root.scrollTop).toBe(10)
+    })
+
+    it('scrolls for a line break at the end of nested blocks', () => {
+        const root = document.createElement('div')
+        document.body.appendChild(root)
+        root.innerHTML = '<div>first</div><div>second</div>'
+        Object.defineProperty(root, 'scrollHeight', { value: 120 })
+        root.scrollTop = 10
+        placeCaretAtEnd(root, root.lastElementChild!.firstChild as Text)
+
+        insertLineBreakAtCaret(root)
+
+        expect(root.scrollTop).toBe(120)
     })
 })
 
