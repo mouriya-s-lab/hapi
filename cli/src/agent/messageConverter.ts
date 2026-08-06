@@ -8,6 +8,7 @@ type CodexUsageInfo = {
         totalTokens?: number;
         thoughtTokens?: number;
         cachedInputTokens?: number;
+        cacheWriteInputTokens?: number;
     };
     contextTokens?: number;
     modelContextWindow?: number;
@@ -21,7 +22,8 @@ function convertAgentUsage(message: AgentUsage): CodexUsageInfo {
             outputTokens: message.outputTokens,
             totalTokens: message.totalTokens,
             thoughtTokens: message.thoughtTokens,
-            cachedInputTokens: message.cacheReadTokens
+            cachedInputTokens: message.cacheReadTokens,
+            cacheWriteInputTokens: message.cacheCreationTokens
         },
         contextTokens: message.contextTokens,
         modelContextWindow: message.contextWindow,
@@ -30,10 +32,11 @@ function convertAgentUsage(message: AgentUsage): CodexUsageInfo {
 }
 
 export type CodexMessage =
-    | { type: 'message'; message: string; model?: string; usage?: CodexUsageInfo }
+    | { type: 'message'; message: string; id?: string; streamSnapshot?: boolean; model?: string; usage?: CodexUsageInfo }
     | { type: 'reasoning'; message: string; id: string; model?: string; usage?: CodexUsageInfo }
     | {
         type: 'token_count';
+        model: string | null;
         info: CodexUsageInfo;
     }
     | {
@@ -46,6 +49,7 @@ export type CodexMessage =
         nativeKind?: string;
         model?: string;
         usage?: CodexUsageInfo;
+        progress?: unknown;
     }
     | {
         type: 'tool-call-result';
@@ -63,14 +67,16 @@ export type CodexMessage =
         id: string;
     };
 
-export function convertAgentMessage(message: AgentMessage): CodexMessage | null {
+export function convertAgentMessage(message: AgentMessage, model?: string | null): CodexMessage | null {
     switch (message.type) {
         case 'text':
             return {
                 type: 'message',
                 message: message.text,
                 model: message.model,
-                usage: message.usage ? convertAgentUsage(message.usage) : undefined
+                usage: message.usage ? convertAgentUsage(message.usage) : undefined,
+                ...(message.id !== undefined ? { id: message.id } : {}),
+                ...(message.streamSnapshot === true ? { streamSnapshot: true } : {})
             };
         case 'reasoning':
             // AgentMessage uses `text` (consistent with the `text` variant);
@@ -86,7 +92,24 @@ export function convertAgentMessage(message: AgentMessage): CodexMessage | null 
         case 'usage':
             return {
                 type: 'token_count',
-                info: convertAgentUsage(message)
+                model: typeof model === 'string' && model.trim() ? model.trim() : null,
+                info: {
+                    total: {
+                        inputTokens: message.inputTokens
+                            + (message.cacheReadTokens ?? 0)
+                            + (message.cacheCreationTokens ?? 0),
+                        outputTokens: message.outputTokens,
+                        totalTokens: message.totalTokens,
+                        thoughtTokens: message.thoughtTokens,
+                        cachedInputTokens: message.cacheReadTokens,
+                        ...(message.cacheCreationTokens !== undefined
+                            ? { cacheWriteInputTokens: message.cacheCreationTokens }
+                            : {})
+                    },
+                    contextTokens: message.contextTokens,
+                    modelContextWindow: message.contextWindow,
+                    costUsd: message.costUsd
+                }
             };
         case 'tool_call':
             return {
@@ -98,7 +121,8 @@ export function convertAgentMessage(message: AgentMessage): CodexMessage | null 
                 ...(message.title ? { nativeTitle: message.title } : {}),
                 ...(message.kind ? { nativeKind: message.kind } : {}),
                 model: message.model,
-                usage: message.usage ? convertAgentUsage(message.usage) : undefined
+                usage: message.usage ? convertAgentUsage(message.usage) : undefined,
+                ...(message.progress !== undefined ? { progress: message.progress } : {})
             };
         case 'tool_result':
             return {

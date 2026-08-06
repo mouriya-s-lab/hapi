@@ -177,6 +177,32 @@ describe('sessionResume', () => {
             metadata: { path: '/tmp/project', host: 'localhost', flavor: 'grok' },
         }), 3)).toBe(false)
     })
+
+    it('resolveAgentSessionIdFromMetadata returns agySessionId for agy flavor', () => {
+        expect(resolveAgentSessionIdFromMetadata({
+            path: '/p',
+            host: 'h',
+            flavor: 'agy',
+            agySessionId: 'brain-uuid-1234',
+        })).toBe('brain-uuid-1234')
+    })
+
+    it('inactiveSessionCanResume allows agy resume when agySessionId exists', () => {
+        expect(inactiveSessionCanResume(makeSession({
+            metadata: {
+                path: '/tmp/project',
+                host: 'localhost',
+                flavor: 'agy',
+                agySessionId: 'brain-uuid-1234',
+            },
+        }), 5)).toBe(true)
+    })
+
+    it('inactiveSessionCanResume rejects agy with messages but no agySessionId', () => {
+        expect(inactiveSessionCanResume(makeSession({
+            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'agy' },
+        }), 3)).toBe(false)
+    })
 })
 
 describe('sessionResume — pi flavor', () => {
@@ -295,6 +321,12 @@ describe('sessionResume — regression for all other flavor ids', () => {
         expect(resolveAgentSessionIdFromMetadata({
             path: '/p', host: 'h', flavor: 'kimi', kimiSessionId: 'ki-1',
         })).toBe('ki-1')
+    })
+
+    it('copilot', () => {
+        expect(resolveAgentSessionIdFromMetadata({
+            path: '/p', host: 'h', flavor: 'copilot', copilotSessionId: 'cp-1',
+        })).toBe('cp-1')
     })
     it('claude (default branch)', () => {
         expect(resolveAgentSessionIdFromMetadata({

@@ -3,6 +3,7 @@ import type { Database } from 'bun:sqlite'
 import type { StoredMessage } from './types'
 import {
     addMessage,
+    addImportedMessage,
     cancelQueuedMessage,
     deleteQueuedMessageById,
     lookupQueuedMessage,
@@ -23,10 +24,14 @@ import {
     minFutureScheduledAtBySessionIds,
     countMessages,
     markMessagesInvoked,
+    markUninvokedImmediateMessages,
     mergeSessionMessages,
+    moveUninvokedScheduledMessages,
+    moveUninvokedMessages,
     copyMessageToSession as copyStoredMessageToSession,
     copyMessagesToSession as copyStoredMessagesToSession,
     getAllMessages,
+    getMessagesAfterSeq,
     truncateMessagesFromLocalId,
     type CancelQueuedMessageResult,
     type LookupQueuedMessageResult,
@@ -41,8 +46,12 @@ export class MessageStore {
         this.db = db
     }
 
-    addMessage(sessionId: string, content: unknown, localId?: string, scheduledAt?: number | null): StoredMessage {
-        return addMessage(this.db, sessionId, content, localId, scheduledAt)
+    addMessage(sessionId: string, content: unknown, localId?: string, scheduledAt?: number | null, createdAt?: number): StoredMessage {
+        return addMessage(this.db, sessionId, content, localId, scheduledAt, createdAt)
+    }
+
+    addImportedMessage(sessionId: string, content: unknown, localId: string, createdAt: number): { message: StoredMessage; inserted: boolean } {
+        return addImportedMessage(this.db, sessionId, content, localId, createdAt)
     }
 
     copyMessageToSession(
@@ -62,6 +71,10 @@ export class MessageStore {
 
     getAllMessages(sessionId: string): StoredMessage[] {
         return getAllMessages(this.db, sessionId)
+    }
+
+    getMessagesAfterSeq(sessionId: string, afterSeq: number): StoredMessage[] {
+        return getMessagesAfterSeq(this.db, sessionId, afterSeq)
     }
 
     getMessages(sessionId: string, limit: number = 200): StoredMessage[] {
@@ -147,6 +160,18 @@ export class MessageStore {
 
     markMessagesInvoked(sessionId: string, localIds: string[], invokedAt: number): number {
         return markMessagesInvoked(this.db, sessionId, localIds, invokedAt)
+    }
+
+    markUninvokedImmediateMessages(sessionId: string, invokedAt: number): string[] {
+        return markUninvokedImmediateMessages(this.db, sessionId, invokedAt)
+    }
+
+    moveUninvokedScheduledMessages(fromSessionId: string, toSessionId: string): number {
+        return moveUninvokedScheduledMessages(this.db, fromSessionId, toSessionId)
+    }
+
+    moveUninvokedMessages(fromSessionId: string, toSessionId: string): number {
+        return moveUninvokedMessages(this.db, fromSessionId, toSessionId)
     }
 
     mergeSessionMessages(fromSessionId: string, toSessionId: string): { moved: number; oldMaxSeq: number; newMaxSeq: number } {

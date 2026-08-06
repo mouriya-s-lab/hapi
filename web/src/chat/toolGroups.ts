@@ -55,6 +55,7 @@ export function visibleBlockRole(block: VisibleChatBlock): VisibleChatBlockRole 
 type ToolGroupingOptions = {
     hasMoreMessages: boolean
     previousGroups?: ToolGroupBlock[]
+    codexExplorationCollapsed?: boolean
 }
 
 const PLAN_TOOL_NAMES = new Set([
@@ -72,6 +73,9 @@ const MILESTONE_TOOL_NAMES = new Set([
     'TeamCreate',
     'TeamDelete',
     'SendMessage',
+    // agy's transitional task-log chip — keep it standalone (like SendMessage)
+    // so it reads as a thin marker instead of being folded into a tool group.
+    'AgyTaskLog',
     'Skill',
     'spawn_agent',
     'send_input',
@@ -305,7 +309,7 @@ export function buildVisibleChatBlocks(
             firstToolId: tools[0].id,
             lastToolId: tools[tools.length - 1].id,
             tools,
-            defaultOpen: groupingFamily === 'codex-exploration',
+            defaultOpen: groupingFamily === 'codex-exploration' && options.codexExplorationCollapsed === false,
             historyState: needsOlderHistory ? 'needs-older-history' : 'complete',
             needsOlderHistory,
             activityTitle,

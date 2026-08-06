@@ -68,10 +68,9 @@ export class SessionStore {
     replaceSessionTodos(
         id: string,
         todos: unknown,
-        todosUpdatedAt: number | null,
         namespace: string
     ): boolean {
-        return replaceSessionTodos(this.db, id, todos, todosUpdatedAt, namespace)
+        return replaceSessionTodos(this.db, id, todos, namespace)
     }
 
     setSessionTeamState(id: string, teamState: unknown, updatedAt: number, namespace: string): boolean {

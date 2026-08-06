@@ -138,6 +138,33 @@ function FileContentSkeleton(props: { label: string }) {
     )
 }
 
+function FileContentHeader(props: {
+    label: string
+    copied: boolean
+    copyLabel: string
+    onCopy: () => void
+}) {
+    return (
+        <div
+            data-hapi-file-content-header="true"
+            className="flex items-center justify-between gap-3 bg-[var(--app-code-header-bg)] px-3 py-2"
+        >
+            <div className="min-w-0 flex-1 truncate font-mono text-[11px] uppercase tracking-[0.08em] text-[var(--app-code-header-fg)]">
+                {props.label}
+            </div>
+            <button
+                type="button"
+                onClick={props.onCopy}
+                className="shrink-0 rounded-md p-1 text-[var(--app-code-header-fg)] transition-colors hover:bg-[var(--app-code-copy-hover-bg)] hover:text-[var(--app-fg)]"
+                title={props.copyLabel}
+                aria-label={props.copyLabel}
+            >
+                {props.copied ? <CheckIcon className="h-3.5 w-3.5" /> : <CopyIcon className="h-3.5 w-3.5" />}
+            </button>
+        </div>
+    )
+}
+
 function resolveImageMimeType(path: string): string | null {
     const parts = path.split('.')
     if (parts.length <= 1) return null

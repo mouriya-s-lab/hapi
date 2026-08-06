@@ -7,6 +7,8 @@ import { useAppContext } from '@/lib/app-context'
 import { settingsCategories } from '@/routes/settings/categories'
 import { ChevronRightIcon } from './SettingsPrimitives'
 
+const OWNER_ONLY_CATEGORIES = new Set(['storage', 'usage'])
+
 function getNamespace(token: string): string | null {
     try {
         const payload = token.split('.')[1]
@@ -37,11 +39,12 @@ export function SettingsNav(props: { activeId?: string; mobile?: boolean }) {
         account: t('settings.fork.account.description'),
         users: t('settings.fork.users.description'),
         fork: t('settings.fork.summary'),
+        usage: t('settings.usage.summary'),
         about: `v${__APP_VERSION__}`,
     }
     const namespace = getNamespace(token)
     const visibleCategories = settingsCategories.filter(
-        (category) => (category.id !== 'storage' || namespace === 'default')
+        (category) => (!OWNER_ONLY_CATEGORIES.has(category.id) || namespace === 'default')
             && (category.id !== 'users' || user.role === 'admin')
     )
 

@@ -30,6 +30,91 @@ import { resolveWorkspaceRoots } from '@/utils/workspaceRoot';
 import { hashRunnerCliApiToken, hashRunnerExtraHeaders } from './runnerIdentity';
 import { scheduleCursorModelsPrewarm } from '@/modules/common/cursorModelsPrewarm';
 import { detectOmpMachineAvailability } from '../../../fork-features/omp-host-integration/machine';
+import { isLinkedGitWorktree } from '@/utils/isLinkedGitWorktree';
+
+/**
+ * Deduplicates a preallocated HAPI-row spawn only while its child is alive.
+ * A lost acknowledgement can retry safely, but a later resume after that
+ * child exits must be allowed to start a new child for the same HAPI row.
+ */
+export type SpawnDeduplicator = ((options: SpawnSessionOptions) => Promise<SpawnSessionResult>) & {
+  recoverChild: (existingSessionId: string, result: SpawnSessionResult) => void
+  markChildAlive: (existingSessionId: string) => void
+  markChildStopping: (existingSessionId: string) => void
+  onChildExited: (existingSessionId: string) => void
+}
+
+export function createSpawnDeduplicator(
+  spawnOnce: (options: SpawnSessionOptions) => Promise<SpawnSessionResult>
+): SpawnDeduplicator {
+  const completedOrInFlight = new Map<string, Promise<SpawnSessionResult>>();
+  const childState = new Map<string, 'alive' | 'stopping'>();
+
+  const dedupe = async (options: SpawnSessionOptions): Promise<SpawnSessionResult> => {
+    const key = options.existingSessionId;
+    if (!key) {
+      return await spawnOnce(options);
+    }
+    const existing = completedOrInFlight.get(key);
+    if (existing) {
+      return await existing;
+    }
+
+    const task = spawnOnce(options);
+    completedOrInFlight.set(key, task);
+    task.then((result) => {
+      // A failure before a PID exists can retry immediately. Once startRunner
+      // has registered a child PID, keep its result until exit/stale detection
+      // confirms that the child is gone.
+      if (result.type !== 'success' && !childState.has(key) && completedOrInFlight.get(key) === task) {
+        completedOrInFlight.delete(key);
+      }
+    }, () => {
+      if (!childState.has(key) && completedOrInFlight.get(key) === task) {
+        completedOrInFlight.delete(key);
+      }
+    });
+    return await task;
+  };
+  dedupe.recoverChild = (existingSessionId: string, result: SpawnSessionResult) => {
+    childState.set(existingSessionId, 'alive');
+    completedOrInFlight.set(existingSessionId, Promise.resolve(result));
+  };
+  dedupe.markChildAlive = (existingSessionId: string) => {
+    childState.set(existingSessionId, 'alive');
+  };
+  dedupe.markChildStopping = (existingSessionId: string) => {
+    if (childState.has(existingSessionId)) {
+      childState.set(existingSessionId, 'stopping');
+    }
+  };
+  dedupe.onChildExited = (existingSessionId: string) => {
+    childState.delete(existingSessionId);
+    completedOrInFlight.delete(existingSessionId);
+  };
+  return dedupe;
+}
+
+export function classifyRecoveredProcessGeneration(
+  processAlive: boolean,
+  currentMarker: string | null,
+  persistedMarker: string
+): 'verified' | 'quarantined' | 'exited' {
+  if (!processAlive) return 'exited';
+  if (currentMarker === null) return 'quarantined';
+  return currentMarker === persistedMarker ? 'verified' : 'exited';
+}
+
+export function releaseRecoveredSpawnDedupe(
+  pid: number,
+  existingSessionIdByChildPid: Map<number, string>,
+  spawnSession: SpawnDeduplicator
+): void {
+  const existingSessionId = existingSessionIdByChildPid.get(pid);
+  if (!existingSessionId) return;
+  spawnSession.onChildExited(existingSessionId);
+  existingSessionIdByChildPid.delete(pid);
+}
 
 export async function startRunner(options: { workspaceRoots?: string[] } = {}): Promise<void> {
   // We don't have cleanup function at the time of server construction
@@ -279,10 +364,11 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
     for (const [pid, record] of [...persistedResumeProcesses]) {
       const alive = isProcessAlive(pid);
       const marker = alive ? getProcessStartMarker(pid) : null;
-      if (alive && marker === record.processStartMarker) {
+      const generation = classifyRecoveredProcessGeneration(alive, marker, record.processStartMarker);
+      if (generation === 'verified') {
         pidToRequestedSessionId.set(pid, record.requestedSessionId);
         if (record.confirmedSessionId) pidToConfirmedSessionId.set(pid, record.confirmedSessionId);
-      } else if (!alive || marker !== null) {
+      } else if (generation === 'exited') {
         persistedResumeProcesses.delete(pid);
         rememberVerifiedExit(record.requestedSessionId);
         if (record.confirmedSessionId) rememberVerifiedExit(record.confirmedSessionId);
@@ -309,6 +395,9 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
     // Session spawning awaiter system
     const pidToAwaiter = new Map<number, (session: TrackedSession) => void>();
     const pidToErrorAwaiter = new Map<number, (errorMessage: string) => void>();
+    // existingSessionId identifies the HAPI row, not a permanent spawn request.
+    // Keep the dedupe entry only while this runner still owns the child PID.
+    const existingSessionIdByChildPid = new Map<number, string>();
     type SpawnFailureDetails = {
       message: string
       pid?: number
@@ -405,7 +494,8 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
     };
 
     // Spawn a new session (sessionId reserved for future --resume functionality)
-    const spawnSession = async (options: SpawnSessionOptions): Promise<SpawnSessionResult> => {
+    let spawnSession!: SpawnDeduplicator;
+    const spawnSessionOnce = async (options: SpawnSessionOptions): Promise<SpawnSessionResult> => {
       logger.debugLargeJson('[RUNNER RUN] Spawning session', options);
 
       const { directory, sessionId, machineId, approvedNewDirectoryCreation = true } = options;
@@ -461,9 +551,17 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
       if (sessionType === 'worktree') {
         // Cursor Agent has native `--worktree` under ~/.cursor/worktrees/. Prefer that
         // over HAPI's sibling-directory worktree so Cursor sandbox/skills see the same layout.
+        // Exception: if `directory` is already a linked git worktree (e.g. HAPI feature
+        // worktree or driver/), nesting `--cursor-worktree` hangs ACP initialize (#1085).
         if (agent === 'cursor') {
           spawnDirectory = directory;
-          logger.debug(`[RUNNER RUN] Cursor-native worktree requested (nameHint=${worktreeName ?? '(auto)'})`);
+          if (isLinkedGitWorktree(directory)) {
+            logger.debug(
+              `[RUNNER RUN] Directory is already a linked git worktree; skipping Cursor --worktree (cwd=${directory})`
+            );
+          } else {
+            logger.debug(`[RUNNER RUN] Cursor-native worktree requested (nameHint=${worktreeName ?? '(auto)'})`);
+          }
         } else {
           const worktreeResult = await createWorktree({
             basePath: directory,
@@ -619,6 +717,10 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
         }
 
         const pid = happyProcess.pid;
+        if (options.existingSessionId) {
+          existingSessionIdByChildPid.set(pid, options.existingSessionId);
+          spawnSession.markChildAlive(options.existingSessionId);
+        }
         invalidateVerifiedExit(`PID-${pid}`);
         logger.debug(`[RUNNER RUN] Spawned process with PID ${pid}`);
         let observedExitCode: number | null = null;
@@ -796,6 +898,18 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
       }
     };
 
+    spawnSession = createSpawnDeduplicator(spawnSessionOnce);
+    for (const [pid, record] of persistedResumeProcesses) {
+      const verified = pidToRequestedSessionId.get(pid) === record.requestedSessionId;
+      existingSessionIdByChildPid.set(pid, record.requestedSessionId);
+      spawnSession.recoverChild(
+        record.requestedSessionId,
+        verified && record.confirmedSessionId
+          ? { type: 'success', sessionId: record.confirmedSessionId }
+          : { type: 'error', errorMessage: `Session ${record.requestedSessionId} process verification is pending` }
+      );
+    }
+
     // Stop a session by sessionId or PID fallback
     const stopSession = async (sessionId: string): Promise<'stopped' | 'already_gone' | 'still_alive'> => {
       logger.debug(`[RUNNER RUN] Attempting to stop session ${sessionId}`);
@@ -829,6 +943,12 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
             }
           }
 
+          // A stop request starts termination but does not prove that a detached
+          // child is gone. Keep its HAPI-row dedupe key until exit/stale detection.
+          const existingSessionId = existingSessionIdByChildPid.get(pid);
+          if (existingSessionId) {
+            spawnSession.markChildStopping(existingSessionId);
+          }
           const deadline = Date.now() + 5_000;
           while (isProcessAlive(pid) && Date.now() < deadline) {
             await new Promise(resolve => setTimeout(resolve, 50));
@@ -873,6 +993,7 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
             pidToConfirmedSessionId.delete(pid);
             if (requestedSessionId) rememberVerifiedExit(requestedSessionId);
             if (confirmedSessionId) rememberVerifiedExit(confirmedSessionId);
+            releaseRecoveredSpawnDedupe(pid, existingSessionIdByChildPid, spawnSession);
             return 'already_gone';
           }
           if (!(await killProcessTreeByPid(pid))) return 'still_alive';
@@ -882,6 +1003,7 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
           pidToRequestedSessionId.delete(pid);
           pidToConfirmedSessionId.delete(pid);
           if (persistedResumeProcesses.delete(pid)) persistResumeProcesses();
+          releaseRecoveredSpawnDedupe(pid, existingSessionIdByChildPid, spawnSession);
           return 'stopped';
         }
         if (requestedSessionId) rememberVerifiedExit(requestedSessionId);
@@ -890,6 +1012,7 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
         pidToRequestedSessionId.delete(pid);
         pidToConfirmedSessionId.delete(pid);
         if (persistedResumeProcesses.delete(pid)) persistResumeProcesses();
+        releaseRecoveredSpawnDedupe(pid, existingSessionIdByChildPid, spawnSession);
         return 'already_gone';
       }
 
@@ -910,6 +1033,11 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
       if (confirmedSessionId) rememberVerifiedExit(confirmedSessionId);
       rememberVerifiedExit(`PID-${pid}`);
       logger.debug(`[RUNNER RUN] Removing exited process PID ${pid} from tracking`);
+      const existingSessionId = existingSessionIdByChildPid.get(pid);
+      if (existingSessionId) {
+        spawnSession.onChildExited(existingSessionId);
+        existingSessionIdByChildPid.delete(pid);
+      }
       pidToTrackedSession.delete(pid);
       pidToAwaiter.delete(pid);
       pidToErrorAwaiter.delete(pid);
@@ -1118,10 +1246,36 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
       }
 
       // Prune stale sessions
-      for (const [pid, _] of pidToTrackedSession.entries()) {
+      const pidsToCheck = new Set([
+        ...pidToTrackedSession.keys(),
+        ...existingSessionIdByChildPid.keys()
+      ]);
+      for (const pid of pidsToCheck) {
         if (!isProcessAlive(pid)) {
           logger.debug(`[RUNNER RUN] Removing stale session with PID ${pid} (process no longer exists)`);
-          pidToTrackedSession.delete(pid);
+          onChildExited(pid);
+          continue;
+        }
+        const persisted = persistedResumeProcesses.get(pid);
+        if (persisted) {
+          const generation = classifyRecoveredProcessGeneration(
+            true,
+            getProcessStartMarker(pid),
+            persisted.processStartMarker
+          );
+          if (generation === 'exited') {
+            logger.debug(`[RUNNER RUN] Removing stale session with reused PID ${pid}`);
+            onChildExited(pid);
+          } else if (generation === 'verified' && pidToRequestedSessionId.get(pid) !== persisted.requestedSessionId) {
+            pidToRequestedSessionId.set(pid, persisted.requestedSessionId);
+            if (persisted.confirmedSessionId) pidToConfirmedSessionId.set(pid, persisted.confirmedSessionId);
+            spawnSession.recoverChild(
+              persisted.requestedSessionId,
+              persisted.confirmedSessionId
+                ? { type: 'success', sessionId: persisted.confirmedSessionId }
+                : { type: 'error', errorMessage: `Session ${persisted.requestedSessionId} is still starting` }
+            );
+          }
         }
       }
 
@@ -1337,12 +1491,16 @@ export function buildCliArgs(
         ? 'grok'
         : agent === 'kimi'
           ? 'kimi'
-          : agent === 'opencode'
+          : agent === 'copilot'
+            ? 'copilot'
+            : agent === 'opencode'
             ? 'opencode'
             : agent === 'pi'
               ? 'pi'
-              : agent === 'omp'
-                ? 'omp'
+              : agent === 'agy'
+                ? 'agy'
+                : agent === 'omp'
+                  ? 'omp'
                 : 'claude';
   const args = [agentCommand];
   if (agent === 'claude' && options.claudeLaunch) {
@@ -1364,14 +1522,20 @@ export function buildCliArgs(
       args.push('--resume', options.resumeSessionId);
     }
   }
+  // agy PTY reuses the existing hub row directly on reopen/resume.
+  if (options.existingSessionId && agent === 'agy') {
+    args.push('--hapi-session-id', options.existingSessionId);
+  }
   // Message-level Fork current for Claude: must follow --resume.
   if (options.forkSession && agentCommand === 'claude') {
     args.push('--fork-session');
   }
-  args.push('--hapi-starting-mode', 'remote', '--started-by', 'runner');
-  // Codex, Cursor ACP, Pi native resume, and Claude message-level forks
-  // reuse the original HAPI row via --existing-session-id.
+  const startingMode = options.startingMode || 'remote';
+  args.push('--hapi-starting-mode', startingMode, '--started-by', 'runner');
+  // Codex, Cursor ACP, OpenCode, Pi native resume, and Claude message-level
+  // forks reuse the original HAPI row via --existing-session-id.
   if (agent === 'codex' || agent === 'cursor' || agent === 'pi'
+      || agent === 'opencode'
       || (agentCommand === 'claude' && options.forkSession)) {
     const existingSessionId = options.existingSessionId ?? options.sessionId;
     if (existingSessionId) {
@@ -1400,6 +1564,9 @@ export function buildCliArgs(
   if (options.collaborationMode && options.collaborationMode !== 'default' && agent === 'codex') {
     args.push('--collaboration-mode', options.collaborationMode);
   }
+  if (options.copilotAgentMode && options.copilotAgentMode !== 'interactive' && agent === 'copilot') {
+    args.push('--copilot-agent-mode', options.copilotAgentMode);
+  }
   // Pi RPC mode has no permission switching; never pass these flags to it
   // (the Pi parser rejects --permission-mode and ignores --yolo).
   if (agent !== 'pi') {
@@ -1410,10 +1577,14 @@ export function buildCliArgs(
     }
   }
   if (agent === 'cursor' && options.sessionType === 'worktree') {
-    args.push('--cursor-worktree');
-    const name = options.worktreeName?.trim();
-    if (name) {
-      args.push(name);
+    // Nested Cursor --worktree inside an existing linked git worktree hangs ACP
+    // initialize (banner ignored, but never reaches protocolVersion / cursorSessionId).
+    if (!isLinkedGitWorktree(options.directory)) {
+      args.push('--cursor-worktree');
+      const name = options.worktreeName?.trim();
+      if (name) {
+        args.push(name);
+      }
     }
   }
   return args;

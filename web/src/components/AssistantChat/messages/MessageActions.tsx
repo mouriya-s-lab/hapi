@@ -8,6 +8,7 @@ import { MessageMetadata, buildMessageMetadataLabels, type MessageMetadataProps 
 import { MessageTimestamp } from './MessageTimestamp'
 import { cn } from '@/lib/utils'
 import { ShareTurnButton } from './ShareTurnButton'
+import type { HappyRuntimeExtras } from '@/lib/assistant-runtime'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 
 export type MessageHistoryAction = {
@@ -27,6 +28,32 @@ type MessageActionsProps = {
     onRewind?: () => Promise<void>
 }
 
+type MessageActionsAuiState = {
+    message: { id: string }
+    thread?: {
+        isRunning?: boolean
+        extras?: unknown
+    } | null
+}
+
+/**
+ * Primitive selectors for `useAuiState` / `useSyncExternalStore`.
+ * Must return booleans (or other Object.is-stable values) — never a fresh
+ * object — or React hits max update depth (#185). See issue #1380 / #1306.
+ *
+ * @internal Exported for unit testing.
+ */
+export function selectHideShareButton(state: MessageActionsAuiState): boolean {
+    const extras = state.thread?.extras as HappyRuntimeExtras | undefined
+    const isRunning = state.thread?.isRunning ?? false
+    return extras?.shareHiddenByMessageId.has(state.message.id) ?? isRunning
+}
+
+/** @internal Exported for unit testing. */
+export function selectThreadIsRunning(state: MessageActionsAuiState): boolean {
+    return state.thread?.isRunning ?? false
+}
+
 export function MessageActions({
     align,
     copyText,
@@ -40,7 +67,11 @@ export function MessageActions({
 }: MessageActionsProps) {
     const { copied, copy } = useCopyToClipboard()
     const { t } = useTranslation()
-    const threadIsRunning = useAuiState(({ thread }) => thread?.isRunning ?? false)
+    // Split into two primitive selectors. A single object-returning selector
+    // allocates a new snapshot every call and trips React #185 via
+    // useSyncExternalStore (issue #1380, regression from #1306).
+    const hideShareButton = useAuiState((state) => selectHideShareButton(state))
+    const threadIsRunning = useAuiState((state) => selectThreadIsRunning(state))
     const canCopy = Boolean(copyText)
     const hasMetadata = metadata ? buildMessageMetadataLabels(metadata).length > 0 : false
     const [forkOpen, setForkOpen] = useState(false)
@@ -49,7 +80,7 @@ export function MessageActions({
     const [rewindPending, setRewindPending] = useState(false)
     const actionsLocked = historyActionPending || forkPending || rewindPending || threadIsRunning
 
-    const shareButton = messageElementId && !threadIsRunning ? (
+    const shareButton = messageElementId && !hideShareButton ? (
         <ShareTurnButton
             messageElementId={messageElementId}
             fallbackText={copyText}

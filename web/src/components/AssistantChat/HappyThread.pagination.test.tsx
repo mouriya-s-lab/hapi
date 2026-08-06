@@ -18,6 +18,15 @@ vi.mock('@assistant-ui/react', () => ({
     },
 }))
 
+vi.mock('@/hooks/queries/useMachines', () => ({
+    useMachines: () => ({
+        machines: [],
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+    }),
+}))
+
 const scrollToDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTo')
 
 beforeAll(() => {

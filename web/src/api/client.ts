@@ -9,11 +9,14 @@ import type {
     CodexDesktopStatusResponse,
     CodexArchiveSessionResponse,
     CodexCollaborationMode,
+    CopilotAgentMode,
     FileSearchResponse,
     MachinesResponse,
     MessagesResponse,
     OmpInputMode,
     PermissionMode,
+    PiImportSessionsResponse,
+    PiLocalSessionsResponse,
     PushSubscriptionPayload,
     PushUnsubscribePayload,
     PushVapidPublicKeyResponse,
@@ -26,6 +29,7 @@ import type {
     SessionsResponse
 } from '@/types/api'
 import type {
+    AgyModelsResponse,
     CodexModelsResponse,
     CursorMigrateOutcome,
     CursorMigrateToAcpRequest,
@@ -37,6 +41,7 @@ import type {
     FileWriteResponse,
     GitCommandResponse,
     GrokModelsResponse,
+    CopilotModelsResponse,
     GrokReasoningEffortResponse,
     ListCcSwitchProvidersResponse,
     ListDirectoryResponse,
@@ -53,9 +58,10 @@ import type {
     GetOmpExtensionUiResponse,
     ReopenSessionResponse,
     SqliteStorageUsageResponse,
+    UsageSummaryResponse,
     UploadFileResponse
 } from '@hapi/protocol/apiTypes'
-import type { AgentFlavor } from '@hapi/protocol'
+import type { AgentFlavor, MessageDeliveryMode } from '@hapi/protocol'
 import type { CancelMessageResponse } from '@hapi/protocol/schemas'
 import type { TranscriptionMode, TranscriptionProvider, TranscriptionProviderInfo } from '@hapi/protocol/voice'
 import type { ForkRouteResult } from '../../../fork-features/session-fork/rpcPayloads'
@@ -235,6 +241,21 @@ export class ApiClient {
         if (machineId?.trim()) params.set('machineId', machineId.trim())
         const query = params.size ? `?${params.toString()}` : ''
         return await this.request<CodexLocalSessionsResponse>(`/api/codex/sessions${query}`)
+    }
+
+    async getPiSessions(cwd?: string | null, machineId?: string | null): Promise<PiLocalSessionsResponse> {
+        const params = new URLSearchParams()
+        if (cwd?.trim()) params.set('cwd', cwd.trim())
+        if (machineId?.trim()) params.set('machineId', machineId.trim())
+        const query = params.size ? `?${params.toString()}` : ''
+        return await this.request<PiLocalSessionsResponse>(`/api/pi/sessions${query}`)
+    }
+
+    async importPiSessions(payload: { sessionIds: string[]; cwd?: string | null; machineId?: string | null }): Promise<PiImportSessionsResponse> {
+        return await this.request<PiImportSessionsResponse>('/api/pi/import-sessions', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        })
     }
 
     async archiveCodexSession(sessionId: string, machineId?: string | null): Promise<CodexArchiveSessionResponse> {
@@ -488,7 +509,15 @@ export class ApiClient {
         )
     }
 
-    async sendMessage(sessionId: string, text: string, localId?: string | null, attachments?: AttachmentMetadata[], scheduledAt?: number | null, ompInputMode?: OmpInputMode): Promise<void> {
+    async sendMessage(
+        sessionId: string,
+        text: string,
+        localId?: string | null,
+        attachments?: AttachmentMetadata[],
+        scheduledAt?: number | null,
+        ompInputMode?: OmpInputMode,
+        deliveryMode?: MessageDeliveryMode,
+    ): Promise<void> {
         await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
             method: 'POST',
             body: JSON.stringify({
@@ -496,7 +525,8 @@ export class ApiClient {
                 localId: localId ?? undefined,
                 attachments: attachments ?? undefined,
                 scheduledAt: scheduledAt ?? undefined,
-                ompInputMode: ompInputMode ?? undefined
+                ompInputMode: ompInputMode ?? undefined,
+                deliveryMode: deliveryMode ?? undefined,
             })
         })
     }
@@ -766,6 +796,17 @@ export class ApiClient {
         return await this.request(`/api/machines/${encodeURIComponent(machineId)}/importable-sessions/${provider}/${encodeURIComponent(externalSessionId)}`, { method: 'POST' })
     }
 
+    async getUsageSummary(
+        range: '7d' | '30d' | 'all' = '7d',
+        timeZone: string = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+    ): Promise<UsageSummaryResponse> {
+        const params = new URLSearchParams({
+            range,
+            timeZone
+        })
+        return await this.request<UsageSummaryResponse>(`/api/usage/summary?${params.toString()}`)
+    }
+
     async listMachineDirectory(
         machineId: string,
         path: string,
@@ -819,7 +860,9 @@ export class ApiClient {
         effort?: string,
         permissionMode?: PermissionMode,
         serviceTier?: 'fast' | 'standard',
-        collaborationMode?: 'default' | 'plan'
+        collaborationMode?: CodexCollaborationMode,
+        copilotAgentMode?: CopilotAgentMode,
+        startingMode?: 'remote' | 'pty'
     ): Promise<SpawnResponse> {
         return await this.request<SpawnResponse>(`/api/machines/${encodeURIComponent(machineId)}/spawn`, {
             method: 'POST',
@@ -834,9 +877,17 @@ export class ApiClient {
                 effort,
                 permissionMode,
                 serviceTier,
-                collaborationMode
+                collaborationMode,
+                copilotAgentMode,
+                startingMode
             })
         })
+    }
+
+    async getMachineAgyModels(machineId: string): Promise<AgyModelsResponse> {
+        return await this.request<AgyModelsResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/agy-models`
+        )
     }
 
     async getMachineCodexModels(machineId: string): Promise<CodexModelsResponse> {
@@ -959,10 +1010,29 @@ export class ApiClient {
         )
     }
 
+    async getMachineCopilotModelsForCwd(machineId: string, cwd: string): Promise<CopilotModelsResponse> {
+        return await this.request<CopilotModelsResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/copilot-models?cwd=${encodeURIComponent(cwd)}`
+        )
+    }
+
     async getSessionGrokModels(sessionId: string): Promise<GrokModelsResponse> {
         return await this.request<GrokModelsResponse>(
             `/api/sessions/${encodeURIComponent(sessionId)}/grok-models`
         )
+    }
+
+    async getSessionCopilotModels(sessionId: string): Promise<CopilotModelsResponse> {
+        return await this.request<CopilotModelsResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/copilot-models`
+        )
+    }
+
+    async setCopilotAgentMode(sessionId: string, mode: CopilotAgentMode): Promise<void> {
+        await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/copilot-agent-mode`, {
+            method: 'POST',
+            body: JSON.stringify({ mode })
+        })
     }
 
     async getSessionGrokReasoningEffortOptions(sessionId: string): Promise<GrokReasoningEffortResponse> {
@@ -1154,7 +1224,7 @@ export class ApiClient {
         return this.getToken ? this.getToken() : this.token
     }
 
-    async fetchVoiceBackend(): Promise<{ backend: string; backends: string[] }> {
+    async fetchVoiceBackend(): Promise<{ backend: string | null; backends: string[] }> {
         return await this.request('/api/voice/backend')
     }
 

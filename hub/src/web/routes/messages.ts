@@ -116,7 +116,8 @@ export function createMessagesRoutes(getSyncEngine: () => SyncEngine | null): Ho
             ompInputMode: parsed.data.ompInputMode,
             sentFrom: 'webapp',
             scheduledAt: parsed.data.scheduledAt,
-            deliveryMetadata
+            deliveryMetadata,
+            deliveryMode: parsed.data.deliveryMode
         })
         return c.json({ ok: true })
     })

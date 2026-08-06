@@ -19,6 +19,7 @@ const {
     setFontScale,
     setTerminalFontSize,
     setComposerEnterBehavior,
+    setCodexExplorationCollapsed,
     setVoice,
 } = vi.hoisted(() => ({
     context: { token: '' },
@@ -29,6 +30,7 @@ const {
     setFontScale: vi.fn(),
     setTerminalFontSize: vi.fn(),
     setComposerEnterBehavior: vi.fn(),
+    setCodexExplorationCollapsed: vi.fn(),
     setVoice: vi.fn(),
 }))
 
@@ -100,6 +102,10 @@ vi.mock('@/hooks/useShowActiveSessionsOnly', () => ({
     useShowActiveSessionsOnly: () => ({ showActiveSessionsOnly: false, setShowActiveSessionsOnly: vi.fn() }),
 }))
 
+vi.mock('@/hooks/usePinInProgressSessions', () => ({
+    usePinInProgressSessions: () => ({ pinInProgressSessions: false, setPinInProgressSessions: vi.fn() }),
+}))
+
 vi.mock('@/hooks/useSessionHeaderMetadata', () => ({
     useSessionHeaderMetadata: () => ({
         preferences: {
@@ -151,6 +157,10 @@ vi.mock('@/hooks/useTerminalToolDisplayMode', () => ({
         { value: 'compact', labelKey: 'settings.chat.terminalToolDisplay.compact' },
         { value: 'detailed', labelKey: 'settings.chat.terminalToolDisplay.detailed' },
     ],
+}))
+
+vi.mock('@/hooks/useCodexExplorationCollapse', () => ({
+    useCodexExplorationCollapse: () => ({ codexExplorationCollapsed: true, setCodexExplorationCollapsed }),
 }))
 
 vi.mock('@/hooks/useChatSurfaceColors', () => ({
@@ -276,6 +286,14 @@ describe('responsive settings pages', () => {
         fireEvent.click(screen.getByRole('radio', { name: 'Insert newline' }))
         expect(setComposerEnterBehavior).toHaveBeenCalledWith('newline')
         expect(screen.getByText('Grouped Tool Use Background')).toBeInTheDocument()
+    })
+
+    it('renders the default-collapse switch for Codex exploration groups', () => {
+        renderPage(<SettingsChatPage />)
+        const toggle = screen.getByRole('checkbox', { name: 'Collapse explored tool groups by default' })
+        expect(toggle).toBeChecked()
+        fireEvent.click(toggle)
+        expect(setCodexExplorationCollapsed).toHaveBeenCalledWith(false)
     })
 
     it('renders About metadata and reloads the PWA on demand', () => {

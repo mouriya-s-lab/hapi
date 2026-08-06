@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { parsePiModels, parsePiCommands, parsePiContextUsage, sendPiRpcAndWait, wireTransportEvents } from './loop';
+import { parsePiModels, parsePiCommands, parsePiContextUsage, PiRpcTimeoutError, sendPiRpcAndWait, wireTransportEvents } from './loop';
 import type { PiResponseEvent } from './types';
 import { PiSession } from './session';
 import { PiTransport } from './piTransport';
+import { PiConversationHistory } from './conversationHistory';
 import type { PiThinkingLevel } from './types';
+import { PiAgentEventSchema } from './schemas';
 
 // Mock logger
 vi.mock('@/ui/logger', () => ({
@@ -31,11 +33,12 @@ vi.mock('./piMessageAccumulator', () => {
     return {
         PiMessageAccumulator: class {
             handleEvent = vi.fn(() => []);
+            flush = vi.fn(() => []);
         },
     };
 });
 
-function createMockSession(): PiSession {
+function createMockSession(model?: string): PiSession {
     return new PiSession({
         api: {} as any,
         client: {
@@ -44,12 +47,16 @@ function createMockSession(): PiSession {
             sendAgentMessage: vi.fn(),
             emitMessagesConsumed: vi.fn(),
             sendSessionEvent: vi.fn(),
+            updateAgentState: vi.fn(),
             emitSessionReady: vi.fn(),
+            getMetadata: vi.fn(() => null),
+            rpcHandlerManager: { registerHandler: vi.fn() },
         } as any,
         path: '/tmp/test',
         logPath: '/tmp/test.log',
         startedBy: 'terminal',
         startingMode: 'local',
+        model,
     });
 }
 
@@ -217,6 +224,21 @@ describe('parsePiContextUsage', () => {
     });
 });
 
+describe('Pi lifecycle event normalization', () => {
+    it('normalizes legacy auto_compaction aliases with lifecycle defaults at the transport boundary', () => {
+        expect(PiAgentEventSchema.parse({ type: 'auto_compaction_start' })).toMatchObject({
+            type: 'compaction_start',
+            reason: 'threshold',
+        });
+        expect(PiAgentEventSchema.parse({ type: 'auto_compaction_end' })).toMatchObject({
+            type: 'compaction_end',
+            reason: 'threshold',
+            aborted: false,
+            willRetry: false,
+        });
+    });
+});
+
 // --- wireTransportEvents (integration) ---
 
 describe('wireTransportEvents', () => {
@@ -349,6 +371,8 @@ describe('wireTransportEvents', () => {
                 emitMessagesConsumed: vi.fn(),
                 sendSessionEvent: vi.fn(),
                 emitSessionReady: vi.fn(),
+                getMetadata: vi.fn(() => null),
+                rpcHandlerManager: { registerHandler: vi.fn() },
             } as any,
             path: '/tmp/test',
             logPath: '/tmp/test.log',
@@ -384,6 +408,8 @@ describe('wireTransportEvents', () => {
                 emitMessagesConsumed: vi.fn(),
                 sendSessionEvent: vi.fn(),
                 emitSessionReady: vi.fn(),
+                getMetadata: vi.fn(() => null),
+                rpcHandlerManager: { registerHandler: vi.fn() },
             } as any,
             path: '/tmp/test',
             logPath: '/tmp/test.log',
@@ -424,6 +450,8 @@ describe('wireTransportEvents', () => {
                 emitMessagesConsumed: vi.fn(),
                 sendSessionEvent: vi.fn(),
                 emitSessionReady: vi.fn(),
+                getMetadata: vi.fn(() => null),
+                rpcHandlerManager: { registerHandler: vi.fn() },
             } as any,
             path: '/tmp/test',
             logPath: '/tmp/test.log',
@@ -510,6 +538,19 @@ describe('wireTransportEvents', () => {
         expect(session.client.emitMessagesConsumed).toHaveBeenCalledWith(['prompt-1'], undefined);
     });
 
+    it('observes each agent lifecycle start without settling the prompt', () => {
+        const transport = createMockTransport();
+        const onAgentLifecycleStarted = vi.fn();
+        const onAgentSettled = vi.fn();
+        wireTransportEvents(transport, session, [], { onAgentLifecycleStarted, onAgentSettled });
+
+        emitEvent({ type: 'agent_start' });
+        emitEvent({ type: 'turn_start' });
+
+        expect(onAgentLifecycleStarted).toHaveBeenCalledTimes(2);
+        expect(onAgentSettled).not.toHaveBeenCalled();
+    });
+
     it('publishes authoritative context usage after turn_end stats resolve', async () => {
         const transport = createMockTransport();
         wireTransportEvents(transport, session, []);
@@ -523,7 +564,7 @@ describe('wireTransportEvents', () => {
             },
         });
 
-        expect(session.piIsStreaming).toBe(false);
+        expect(session.piIsStreaming).toBe(true);
         expect(session.client.sendAgentMessage).not.toHaveBeenCalled();
         const command = getSentCommand(transport);
         expect(command).toMatchObject({ type: 'get_session_stats' });
@@ -543,6 +584,7 @@ describe('wireTransportEvents', () => {
                 outputTokens: 200,
                 totalTokens: 315,
                 cacheReadTokens: 10,
+                cacheCreationTokens: 5,
                 contextTokens: 342,
                 contextWindow: 200_000,
             });
@@ -649,13 +691,15 @@ describe('wireTransportEvents', () => {
         expect(session.client.sendAgentMessage).toHaveBeenCalledTimes(1);
     });
 
-    it('handles agent_end — stops streaming', () => {
+    it('handles agent_settled — stops streaming after an agent_end grace window', () => {
         const transport = createMockTransport();
         wireTransportEvents(transport, session, []);
 
         session.piIsStreaming = true;
+        emitEvent({ type: 'agent_start' });
         emitEvent({ type: 'agent_end' });
-
+        expect(session.piIsStreaming).toBe(true);
+        emitEvent({ type: 'agent_settled' });
         expect(session.piIsStreaming).toBe(false);
     });
 
@@ -679,6 +723,38 @@ describe('wireTransportEvents', () => {
             { provider: 'openai', modelId: 'gpt-4o' },
             { provider: 'anthropic', modelId: 'claude-3' },
         ]);
+    });
+
+    it('fails closed and poisons the mutation lease when the detached startup model times out', async () => {
+        vi.useFakeTimers();
+        try {
+            session = createMockSession('startup-model');
+            const transport = createMockTransport();
+            const onStartupFailure = vi.fn();
+            wireTransportEvents(transport, session, [], { onStartupFailure });
+
+            emitEvent({
+                type: 'response',
+                command: 'get_available_models',
+                success: true,
+                data: { models: [{ id: 'startup-model', provider: 'provider' }] },
+            });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(transport.send).toHaveBeenCalledWith(expect.objectContaining({
+                type: 'set_model', provider: 'provider', modelId: 'startup-model',
+            }));
+
+            await vi.advanceTimersByTimeAsync(10_000);
+            await vi.waitFor(() => expect(onStartupFailure).toHaveBeenCalledWith(expect.objectContaining({
+                message: expect.stringContaining('startup model outcome is indeterminate'),
+            })));
+            let secondMutationStarted = false;
+            void session.runRuntimeMutation(async () => { secondMutationStarted = true; });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(secondMutationStarted).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('handles get_commands response — caches commands', () => {
@@ -807,6 +883,35 @@ describe('sendPiRpcAndWait', () => {
         await expect(promise).resolves.toBeUndefined();
     });
 
+    it('steer response resolves its matching RPC without changing the main thinking state', async () => {
+        const handlers = new Map<string, (...args: unknown[]) => void>();
+        const { transport, reply } = recordingTransport(handlers);
+        const session = createMockSession();
+        session.updateThinkingState(true);
+        wireTransportEvents(transport, session, []);
+
+        const promise = sendPiRpcAndWait(session, transport, {
+            type: 'steer', message: 'redirect current work', images: [],
+        }, 10_000);
+        reply({ command: 'steer', success: true });
+
+        await expect(promise).resolves.toBeUndefined();
+        expect(session.piIsStreaming).toBe(true);
+    });
+
+    it('does not double-report a matching steer failure outside its dispatcher', async () => {
+        const handlers = new Map<string, (...args: unknown[]) => void>();
+        const { transport, reply } = recordingTransport(handlers);
+        const session = createMockSession();
+        wireTransportEvents(transport, session, []);
+
+        const promise = sendPiRpcAndWait(session, transport, { type: 'steer', message: 'reject me' }, 10_000);
+        reply({ command: 'steer', success: false, error: 'native steer rejected' });
+
+        await expect(promise).rejects.toThrow('native steer rejected');
+        expect(session.client.sendSessionEvent).not.toHaveBeenCalled();
+    });
+
     it('get_available_models response resolves the awaited promise before timeout', async () => {
         const handlers = new Map<string, (...args: unknown[]) => void>();
         const { transport, reply } = recordingTransport(handlers);
@@ -837,14 +942,470 @@ describe('sendPiRpcAndWait', () => {
         await expect(promise).rejects.toThrow('Unknown provider: bad');
     });
 
-    it('rejects with timeout when Pi never responds', async () => {
+    it('rejects with a typed timeout when Pi never responds', async () => {
         const handlers = new Map<string, (...args: unknown[]) => void>();
         const { transport } = recordingTransport(handlers);
         const session = createMockSession();
         wireTransportEvents(transport, session, []);
 
         // No reply emitted -> must time out (guards against hangs).
-        await expect(sendPiRpcAndWait(session, transport, { type: 'test' }, 100))
-            .rejects.toThrow('timed out');
+        const pending = sendPiRpcAndWait(session, transport, { type: 'test' }, 100);
+        await expect(pending).rejects.toBeInstanceOf(PiRpcTimeoutError);
+        await expect(pending)
+            .rejects.toMatchObject({
+                name: 'PiRpcTimeoutError',
+                command: 'test',
+                requestId: 1,
+                timeoutMs: 100,
+                message: 'Pi RPC test (id=1) timed out after 100ms',
+            });
+    });
+});
+
+describe('Pi lifecycle timeline', () => {
+    it('synchronizes authoritative get_state streaming and deduplicates compaction/retry timeline events', () => {
+        let listener: ((event: Record<string, unknown>) => void) | null = null;
+        const transport = {
+            onEvent: vi.fn((handler: (event: Record<string, unknown>) => void) => { listener = handler; }),
+            send: vi.fn(),
+        } as unknown as PiTransport;
+        const stateSession = createMockSession();
+        wireTransportEvents(transport, stateSession, []);
+        const emit = (event: Record<string, unknown>) => listener?.(event);
+
+        emit({ type: 'response', command: 'get_state', success: true, data: { isStreaming: true } });
+        expect(stateSession.piIsStreaming).toBe(true);
+
+        emit({ type: 'compaction_start', reason: 'threshold' });
+        emit({ type: 'compaction_start', reason: 'threshold' });
+        emit({ type: 'compaction_end', reason: 'threshold', aborted: false, willRetry: false });
+        emit({ type: 'auto_retry_start', attempt: 1, maxAttempts: 3, delayMs: 10, errorMessage: '429' });
+        emit({ type: 'auto_retry_start', attempt: 1, maxAttempts: 3, delayMs: 10, errorMessage: '429' });
+        emit({ type: 'auto_retry_end', attempt: 1, success: true });
+        // A later compaction/retry episode with the same reason and attempt must
+        // remain visible; dedupe applies only while its current episode is open.
+        emit({ type: 'compaction_start', reason: 'threshold' });
+        emit({ type: 'compaction_end', reason: 'threshold', aborted: false, willRetry: false });
+        emit({ type: 'auto_retry_start', attempt: 1, maxAttempts: 3, delayMs: 10, errorMessage: '429' });
+        emit({ type: 'auto_retry_end', attempt: 1, success: true });
+        expect(stateSession.client.sendSessionEvent).toHaveBeenCalledWith({ type: 'message', message: '📦 Compaction started' });
+        expect(stateSession.client.sendSessionEvent).toHaveBeenCalledWith({ type: 'message', message: '📦 Compaction completed' });
+        expect(stateSession.client.sendSessionEvent).toHaveBeenCalledTimes(8);
+
+        // Nested maintenance remains active until each own terminal event.
+        emit({ type: 'compaction_start', reason: 'manual' });
+        emit({ type: 'summarization_retry_scheduled', attempt: 1, maxAttempts: 2, delayMs: 1, errorMessage: 'x' });
+        emit({ type: 'summarization_retry_finished' });
+        emit({ type: 'agent_end', willRetry: false });
+        expect(stateSession.piIsStreaming).toBe(true);
+        emit({ type: 'compaction_end', reason: 'manual', aborted: false, willRetry: false });
+    });
+
+    it('does not let a delayed get_state false interrupt an active prompt lifecycle', () => {
+        let listener: ((event: Record<string, unknown>) => void) | null = null;
+        const transport = {
+            onEvent: vi.fn((handler: (event: Record<string, unknown>) => void) => { listener = handler; }),
+            send: vi.fn(),
+        } as unknown as PiTransport;
+        const stateSession = createMockSession();
+        const controller = wireTransportEvents(transport, stateSession, []);
+        const emit = (event: Record<string, unknown>) => listener?.(event);
+
+        controller.beginPromptLifecycle('prompt-1');
+        emit({ type: 'agent_start' });
+        expect(stateSession.piIsStreaming).toBe(true);
+
+        emit({ type: 'response', command: 'get_state', success: true, data: { isStreaming: false } });
+        expect(stateSession.piIsStreaming).toBe(true);
+
+        emit({ type: 'turn_start' });
+        expect(stateSession.piIsStreaming).toBe(true);
+
+        emit({ type: 'agent_end', willRetry: false });
+        emit({ type: 'response', command: 'get_state', success: true, data: { isStreaming: false } });
+        expect(stateSession.piIsStreaming).toBe(true);
+    });
+
+    it('still applies get_state false when no prompt lifecycle is active', () => {
+        let listener: ((event: Record<string, unknown>) => void) | null = null;
+        const transport = {
+            onEvent: vi.fn((handler: (event: Record<string, unknown>) => void) => { listener = handler; }),
+            send: vi.fn(),
+        } as unknown as PiTransport;
+        const stateSession = createMockSession();
+        wireTransportEvents(transport, stateSession, []);
+        const emit = (event: Record<string, unknown>) => listener?.(event);
+
+        emit({ type: 'response', command: 'get_state', success: true, data: { isStreaming: true } });
+        expect(stateSession.piIsStreaming).toBe(true);
+
+        emit({ type: 'response', command: 'get_state', success: true, data: { isStreaming: false } });
+        expect(stateSession.piIsStreaming).toBe(false);
+    });
+});
+
+describe('Pi prompt-settlement boundaries', () => {
+    it('does not release the local FIFO between tool-loop turns; only agent_end settles a prompt', () => {
+        let listener: ((event: Record<string, unknown>) => void) | null = null;
+        const transport = {
+            onEvent: vi.fn((handler: (event: Record<string, unknown>) => void) => { listener = handler; }),
+            send: vi.fn(),
+        } as unknown as PiTransport;
+        const onAgentSettled = vi.fn();
+        const stateSession = createMockSession();
+        wireTransportEvents(transport, stateSession, [], { onAgentSettled });
+
+        listener!({ type: 'agent_start' });
+        listener!({ type: 'turn_start' });
+        listener!({ type: 'turn_end', message: {} });
+        listener!({ type: 'turn_start' });
+        listener!({ type: 'turn_end', message: {} });
+        expect(stateSession.piIsStreaming).toBe(true);
+        expect(onAgentSettled).not.toHaveBeenCalled();
+
+        listener!({ type: 'agent_end', willRetry: true });
+        expect(stateSession.piIsStreaming).toBe(true);
+        expect(onAgentSettled).not.toHaveBeenCalled();
+
+        listener!({ type: 'agent_end', willRetry: false });
+        expect(stateSession.piIsStreaming).toBe(true);
+        expect(onAgentSettled).not.toHaveBeenCalled();
+
+        listener!({ type: 'compaction_start', reason: 'threshold' });
+        listener!({ type: 'agent_settled' });
+        expect(stateSession.piIsStreaming).toBe(false);
+        expect(onAgentSettled).toHaveBeenCalledTimes(1);
+    });
+});
+
+
+describe('Pi settlement compatibility fallbacks', () => {
+    function setup() {
+        let listener: ((event: Record<string, unknown>) => void) | null = null;
+        const transport = {
+            onEvent: vi.fn((handler: (event: Record<string, unknown>) => void) => { listener = handler; }),
+            send: vi.fn(),
+        } as unknown as PiTransport;
+        const stateSession = createMockSession();
+        const onAgentSettled = vi.fn();
+        const onPromptLifecycleMissing = vi.fn();
+        const onPromptRejected = vi.fn();
+        const controller = wireTransportEvents(transport, stateSession, [], { onAgentSettled, onPromptLifecycleMissing, onPromptRejected });
+        return { emit: (event: Record<string, unknown>) => listener?.(event), stateSession, onAgentSettled, onPromptLifecycleMissing, onPromptRejected, controller, transport };
+    }
+
+    it('waits for agent_settled through maintenance and uses grace only for legacy Pi', async () => {
+        vi.useFakeTimers();
+        const h = setup();
+        h.stateSession.piIsStreaming = true;
+        h.emit({ type: 'agent_start' });
+        h.emit({ type: 'agent_end', willRetry: false });
+        h.emit({ type: 'compaction_start', reason: 'threshold' });
+        await vi.advanceTimersByTimeAsync(600);
+        expect(h.onAgentSettled).not.toHaveBeenCalled();
+        h.emit({ type: 'agent_settled' });
+        expect(h.onAgentSettled).toHaveBeenCalledTimes(1);
+
+        const legacy = setup();
+        legacy.emit({ type: 'agent_end', willRetry: false });
+        await vi.advanceTimersByTimeAsync(500);
+        expect(legacy.onAgentSettled).toHaveBeenCalledTimes(1);
+    });
+
+    it('releases command-only prompts only after their lifecycle grace, while agent_start cancels it', async () => {
+        vi.useFakeTimers();
+        const h = setup();
+        h.emit({ type: 'response', id: 'command-a', command: 'prompt', success: true });
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(h.onPromptLifecycleMissing).toHaveBeenCalledTimes(1);
+
+        const normal = setup();
+        normal.emit({ type: 'response', command: 'prompt', success: true });
+        normal.emit({ type: 'agent_start' });
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(normal.onPromptLifecycleMissing).not.toHaveBeenCalled();
+    });
+
+    it('syncs conversation history before reporting a missing prompt lifecycle', async () => {
+        vi.useFakeTimers();
+        const order: string[] = [];
+        let listener: ((event: Record<string, unknown>) => void) | null = null;
+        const transport = {
+            onEvent: vi.fn((handler: (event: Record<string, unknown>) => void) => { listener = handler; }),
+            send: vi.fn(),
+        } as unknown as PiTransport;
+        const stateSession = createMockSession();
+        const conversationHistory = {
+            syncEntries: vi.fn(async () => { order.push('sync'); }),
+        } as unknown as PiConversationHistory;
+        const onPromptLifecycleMissing = vi.fn(() => { order.push('missing'); });
+        const controller = wireTransportEvents(transport, stateSession, ['command-local'], {
+            conversationHistory,
+            onPromptLifecycleMissing,
+        });
+
+        controller.beginPromptLifecycle('command-a');
+        listener!({ type: 'response', id: 'command-a', command: 'prompt', success: true });
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        expect(conversationHistory.syncEntries).toHaveBeenCalledTimes(1);
+        expect(onPromptLifecycleMissing).toHaveBeenCalledWith('command-local');
+        expect(order).toEqual(['sync', 'missing']);
+    });
+
+    it('fails closed without retiring the prompt when command-only history sync fails', async () => {
+        vi.useFakeTimers();
+        const pendingLocalIds = ['command-local'];
+        let listener: ((event: Record<string, unknown>) => void) | null = null;
+        const transport = {
+            onEvent: vi.fn((handler: (event: Record<string, unknown>) => void) => { listener = handler; }),
+            send: vi.fn(),
+        } as unknown as PiTransport;
+        const stateSession = createMockSession();
+        const conversationHistory = {
+            syncEntries: vi.fn(async () => { throw new Error('temporary get_entries failure'); }),
+        } as unknown as PiConversationHistory;
+        const onPromptLifecycleMissing = vi.fn();
+        const onStartupFailure = vi.fn();
+        const controller = wireTransportEvents(transport, stateSession, pendingLocalIds, {
+            conversationHistory,
+            onPromptLifecycleMissing,
+            onStartupFailure,
+        });
+
+        controller.beginPromptLifecycle('command-a');
+        listener!({ type: 'response', id: 'command-a', command: 'prompt', success: true });
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        expect(onStartupFailure).toHaveBeenCalledWith(expect.objectContaining({
+            message: 'Pi command-only history sync failed: temporary get_entries failure',
+        }));
+        expect(onPromptLifecycleMissing).not.toHaveBeenCalled();
+        expect(pendingLocalIds).toEqual(['command-local']);
+    });
+
+    it('uses a fresh generation for consecutive command-only prompts', async () => {
+        vi.useFakeTimers();
+        const h = setup();
+        h.controller.beginPromptLifecycle('command-a');
+        h.emit({ type: 'response', id: 'command-a', command: 'prompt', success: true });
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(h.onPromptLifecycleMissing).toHaveBeenCalledTimes(1);
+
+        h.controller.beginPromptLifecycle('command-b');
+        h.emit({ type: 'response', id: 'command-b', command: 'prompt', success: true });
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(h.onPromptLifecycleMissing).toHaveBeenCalledTimes(2);
+
+        // A late settled event belongs to no current agent lifecycle and cannot
+        // cause a third settlement for the command-only generation.
+        h.emit({ type: 'agent_settled' });
+        expect(h.onAgentSettled).not.toHaveBeenCalled();
+    });
+
+    it('rejects a matching prompt after turn_start already consumed its local ID', async () => {
+        vi.useFakeTimers();
+        const pendingLocalIds = ['local-a'];
+        let listener: ((event: Record<string, unknown>) => void) | null = null;
+        const transport = {
+            onEvent: vi.fn((handler: (event: Record<string, unknown>) => void) => { listener = handler; }),
+            send: vi.fn(),
+        } as unknown as PiTransport;
+        const stateSession = createMockSession();
+        const onPromptRejected = vi.fn();
+        const onPromptLifecycleMissing = vi.fn();
+        const controller = wireTransportEvents(transport, stateSession, pendingLocalIds, {
+            onPromptRejected,
+            onPromptLifecycleMissing,
+        });
+
+        controller.beginPromptLifecycle('prompt-a');
+        listener!({ type: 'agent_start' });
+        listener!({ type: 'turn_start' });
+        expect(pendingLocalIds).toEqual([]);
+
+        listener!({ type: 'response', id: 'prompt-a', command: 'prompt', success: false, error: 'rejected' });
+        expect(onPromptRejected).toHaveBeenCalledTimes(1);
+        expect(onPromptRejected).toHaveBeenCalledWith('local-a');
+        expect(stateSession.piIsStreaming).toBe(false);
+
+        // The failed generation owns no delayed lifecycle work. It must not
+        // later report lifecycle-missing or reject again.
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(onPromptLifecycleMissing).not.toHaveBeenCalled();
+        listener!({ type: 'response', id: 'prompt-a', command: 'prompt', success: false, error: 'duplicate' });
+        expect(onPromptRejected).toHaveBeenCalledTimes(1);
+
+        controller.beginPromptLifecycle('prompt-b');
+        stateSession.updateThinkingState(true);
+        listener!({ type: 'response', id: 'prompt-a', command: 'prompt', success: false, error: 'stale' });
+        expect(stateSession.piIsStreaming).toBe(true);
+        expect(onPromptRejected).toHaveBeenCalledTimes(1);
+    });
+
+    it('blocks legacy auto compaction until it ends before using the legacy settlement grace', async () => {
+        vi.useFakeTimers();
+        const h = setup();
+        h.stateSession.piIsStreaming = true;
+        h.emit({ type: 'agent_start' });
+        h.emit({ type: 'agent_end', willRetry: false });
+        h.emit({ type: 'auto_compaction_start', reason: 'threshold' });
+
+        await vi.advanceTimersByTimeAsync(600);
+        expect(h.onAgentSettled).not.toHaveBeenCalled();
+        expect(h.stateSession.client.sendSessionEvent).toHaveBeenCalledWith({ type: 'message', message: '📦 Compaction started' });
+
+        h.emit({ type: 'auto_compaction_end', reason: 'threshold', aborted: false, willRetry: false });
+        await vi.advanceTimersByTimeAsync(499);
+        expect(h.onAgentSettled).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(h.onAgentSettled).toHaveBeenCalledTimes(1);
+        expect(h.stateSession.client.sendSessionEvent).toHaveBeenCalledWith({ type: 'message', message: '📦 Compaction completed' });
+    });
+
+    it('keeps the settlement gate closed across a compaction retry', async () => {
+        vi.useFakeTimers();
+        const h = setup();
+        h.stateSession.piIsStreaming = true;
+        h.emit({ type: 'agent_start' });
+        h.emit({ type: 'agent_end', willRetry: false });
+        h.emit({ type: 'compaction_start', reason: 'threshold' });
+        h.emit({ type: 'compaction_end', reason: 'threshold', aborted: false, willRetry: true });
+
+        await vi.advanceTimersByTimeAsync(600);
+        expect(h.onAgentSettled).not.toHaveBeenCalled();
+
+        h.emit({ type: 'agent_start' });
+        h.emit({ type: 'agent_end', willRetry: false });
+        await vi.advanceTimersByTimeAsync(499);
+        expect(h.onAgentSettled).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(h.onAgentSettled).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses a bounded fallback when a compaction retry never starts', async () => {
+        vi.useFakeTimers();
+        const h = setup();
+        h.stateSession.piIsStreaming = true;
+        h.emit({ type: 'agent_start' });
+        h.emit({ type: 'agent_end', willRetry: false });
+        h.emit({ type: 'compaction_start', reason: 'threshold' });
+        h.emit({ type: 'compaction_end', reason: 'threshold', aborted: false, willRetry: true });
+
+        await vi.advanceTimersByTimeAsync(1_499);
+        expect(h.onAgentSettled).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(h.onAgentSettled).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects all pending RPCs immediately during transport termination', async () => {
+        const h = setup();
+        const pending = sendPiRpcAndWait(h.stateSession, h.transport, { type: 'abort' }, 10_000);
+        h.controller.terminatePendingRpc(new Error('transport closed'));
+        h.controller.terminatePendingRpc(new Error('transport closed again'));
+        await expect(pending).rejects.toThrow('transport closed');
+        await expect(sendPiRpcAndWait(h.stateSession, h.transport, { type: 'abort' }, 10_000)).rejects.toThrow('transport closed');
+        expect(h.transport.send).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('Pi abort UI lifecycle', () => {
+    it('cancels pending extension input and ignores late prompt lifecycle events after abort', async () => {
+        let listener: ((event: Record<string, unknown>) => void) | null = null;
+        const transport = {
+            onEvent: vi.fn((handler: (event: Record<string, unknown>) => void) => { listener = handler; }),
+            send: vi.fn(),
+        } as unknown as PiTransport;
+        const session = createMockSession();
+        const onPromptLifecycleMissing = vi.fn();
+        const controller = wireTransportEvents(transport, session, [], { onPromptLifecycleMissing });
+        controller.beginPromptLifecycle('prompt-a');
+        listener!({ type: 'extension_ui_request', id: 'ui-a', method: 'input', title: 'Need input' });
+        controller.cancelPendingExtensionUi('Pi prompt aborted', { sendResponse: true });
+        controller.abortPromptLifecycle();
+
+        expect(transport.send).toHaveBeenCalledWith({ type: 'extension_ui_response', id: 'ui-a', cancelled: true });
+        expect(session.client.updateAgentState).toHaveBeenCalled();
+        listener!({ type: 'response', id: 'prompt-a', command: 'prompt', success: true });
+        listener!({ type: 'agent_settled' });
+        await Promise.resolve();
+        expect(onPromptLifecycleMissing).not.toHaveBeenCalled();
+    });
+});
+
+describe('Pi conversation-history transport integration', () => {
+    function setup(expectedNativeSessionId?: string) {
+        let listener: ((event: Record<string, unknown>) => void) | null = null;
+        const transport = {
+            onEvent: vi.fn((handler: (event: Record<string, unknown>) => void) => { listener = handler; }),
+            send: vi.fn(),
+        } as unknown as PiTransport;
+        const session = new PiSession({
+            api: {} as never,
+            client: {
+                keepAlive: vi.fn(),
+                updateMetadata: vi.fn(),
+                sendAgentMessage: vi.fn(),
+                emitMessagesConsumed: vi.fn(),
+                sendSessionEvent: vi.fn(),
+                updateAgentState: vi.fn(),
+                emitSessionReady: vi.fn(),
+                rpcHandlerManager: { registerHandler: vi.fn() },
+            } as never,
+            path: '/tmp/test',
+            logPath: '/tmp/test.log',
+            startedBy: 'terminal',
+            startingMode: 'remote',
+            expectedNativeSessionId,
+        });
+        return {
+            transport,
+            session,
+            emit: (event: Record<string, unknown>) => listener?.(event),
+        };
+    }
+
+    it('resolves an awaited temporary get_state without publishing clone identity', async () => {
+        const h = setup('source-id');
+        wireTransportEvents(h.transport, h.session, []);
+        const release = h.session.beginHistoryTransaction();
+        const pending = sendPiRpcAndWait(h.session, h.transport, { type: 'get_state' });
+        const command = (h.transport.send as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0] as { id: string };
+
+        h.emit({
+            type: 'response',
+            id: command.id,
+            command: 'get_state',
+            success: true,
+            data: { sessionId: 'clone-id', sessionFile: '/tmp/clone.jsonl' },
+        });
+
+        await expect(pending).resolves.toEqual({ sessionId: 'clone-id', sessionFile: '/tmp/clone.jsonl' });
+        expect(h.session.client.updateMetadata).not.toHaveBeenCalled();
+        expect(h.session.client.emitSessionReady).not.toHaveBeenCalled();
+        release();
+    });
+
+    it('maps entry_appended events and completes the final sync before releasing the queue', async () => {
+        const h = setup();
+        const rpc = vi.fn(async () => ({ entries: [], leafId: null }));
+        const history = new PiConversationHistory(h.session, rpc);
+        history.registerUserEntry('local-1');
+        const onAgentSettled = vi.fn();
+        const controller = wireTransportEvents(h.transport, h.session, [], {
+            conversationHistory: history,
+            onAgentSettled,
+        });
+
+        h.emit({ type: 'entry_appended', entry: { id: 'entry-1', type: 'message', message: { role: 'user' } } });
+        expect(history.getEntryIds()).toEqual({ 'local-1': 'entry-1' });
+
+        controller.beginPromptLifecycle('prompt-1');
+        h.emit({ type: 'response', id: 'prompt-1', command: 'prompt', success: true });
+        h.emit({ type: 'agent_start' });
+        h.emit({ type: 'agent_settled' });
+        expect(onAgentSettled).not.toHaveBeenCalled();
+        await vi.waitFor(() => expect(onAgentSettled).toHaveBeenCalledTimes(1));
+        expect(rpc).toHaveBeenCalledWith({ type: 'get_entries', since: 'entry-1' }, undefined);
     });
 });

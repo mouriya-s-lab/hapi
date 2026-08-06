@@ -4,15 +4,12 @@ import { useTranslation } from '@/lib/use-translation'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 import { ZoomableLightbox } from '@/components/ZoomableLightbox'
 import { safeCopyToClipboard } from '@/lib/clipboard'
+import type { ShareTurnMetadataItem } from '@/lib/shareTurnMetadata'
 
 type ShareTurnDialogProps = {
     isOpen: boolean
     title: string
-    flavor: string | null
-    modelLabel: string | null
-    reasoningLabel: string | null
-    showFastBadge: boolean
-    worktreeBranch: string | null
+    metadataItems: ShareTurnMetadataItem[]
     sourceSnapshots: Array<{
         html: string
         text: string
@@ -610,7 +607,7 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
         return () => {
             cancelled = true
         }
-    }, [props.isOpen, props.sourceSnapshots, ready, restoreTick, previewRevision, exportWidth, preserveSourceLayout])
+    }, [props.isOpen, props.sourceSnapshots, props.metadataItems, ready, restoreTick, previewRevision, exportWidth, preserveSourceLayout])
 
     const handlePreviewClick = (event: ReactMouseEvent<HTMLElement>) => {
         const target = event.target
@@ -757,18 +754,20 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
                         <div className="mb-4 border-b border-[var(--app-divider)] pb-3">
                             <div className="min-w-0">
                                 <div className="truncate text-lg font-semibold">{props.title}</div>
-                                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--app-hint)]">
-                                    <span className="inline-flex items-center gap-1">
-                                        <AgentFlavorIcon flavor={props.flavor} className="h-3.5 w-3.5 shrink-0" />
-                                        {props.flavor?.trim() || 'unknown'}
-                                    </span>
-                                    {props.modelLabel ? <span>{props.modelLabel}</span> : null}
-                                    {props.reasoningLabel ? <span>{props.reasoningLabel}</span> : null}
-                                    {props.showFastBadge ? <span className="text-[#34C759]">fast</span> : null}
-                                    {props.worktreeBranch ? (
-                                        <span>{t('session.item.worktree')}: {props.worktreeBranch}</span>
-                                    ) : null}
-                                </div>
+                                {props.metadataItems.length > 0 ? (
+                                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--app-hint)]">
+                                        {props.metadataItems.map((item) => item.key === 'agent' ? (
+                                            <span key={item.key} className="inline-flex items-center gap-1">
+                                                <AgentFlavorIcon flavor={item.flavor} className="h-3.5 w-3.5 shrink-0" />
+                                                {item.text}
+                                            </span>
+                                        ) : (
+                                            <span key={item.key} className={item.key === 'fastMode' ? 'text-[#34C759]' : undefined}>
+                                                {item.text}
+                                            </span>
+                                        ))}
+                                    </div>
+                                ) : null}
                             </div>
                         </div>
                         <div ref={bodyRef} data-hapi-share-body="true" className="flex flex-col gap-3" />

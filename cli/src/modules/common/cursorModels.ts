@@ -11,6 +11,7 @@ import {
 import {
     cursorCliSkuBaseId,
     cursorModelBaseId,
+    isCursorAcpCatalogModelId,
     isCursorAcpWireModelId
 } from '@hapi/protocol';
 import {
@@ -66,6 +67,7 @@ function filterCliSkusForWireBases(
 
     return cliSkus.filter((entry) => {
         const modelId = entry.modelId.trim();
+        // Keep bare base SKUs (composer-2.5); drop parameterized ACP wires only.
         if (!modelId || modelId === 'auto' || isCursorAcpWireModelId(modelId)) {
             return false;
         }
@@ -77,22 +79,42 @@ function attachCliSkusToResponse(
     response: ListCursorModelsResponse,
     cliSkus: readonly CursorModelSummary[]
 ): ListCursorModelsResponse {
-    const wires = (response.availableModels ?? []).filter((entry) => isCursorAcpWireModelId(entry.modelId));
-    const filtered = filterCliSkusForWireBases([...cliSkus], wires);
-    const merged = mergeCliModelSkus(response.cliModelSkus ?? [], filtered);
-    if (merged.length === 0) {
+    const wires = (response.availableModels ?? []).filter((entry) => isCursorAcpCatalogModelId(entry.modelId));
+    // Suffixed CLI variants (effort/speed) only apply when ACP exposes parameterized
+    // wires for that base. Bare-only catalogs cannot express those variants
+    // (apply path is model + fast at most), so attaching them creates dead picker rows.
+    const parameterizedBases = new Set(
+        wires
+            .filter((entry) => isCursorAcpWireModelId(entry.modelId))
+            .map((entry) => cursorModelBaseId(entry.modelId))
+            .filter((base) => base.length > 0)
+    );
+    const filtered = filterCliSkusForWireBases(
+        mergeCliModelSkus(response.cliModelSkus ?? [], [...cliSkus]),
+        wires
+    ).filter((entry) => {
+        const modelId = entry.modelId.trim();
+        const base = cursorCliSkuBaseId(modelId);
+        return modelId === base || parameterizedBases.has(base);
+    });
+    if (filtered.length === 0) {
+        return response.cliModelSkus?.length
+            ? { ...response, cliModelSkus: undefined }
+            : response;
+    }
+    if (
+        filtered.length === (response.cliModelSkus?.length ?? 0)
+        && filtered.every((entry, index) => entry.modelId === response.cliModelSkus?.[index]?.modelId)
+    ) {
         return response;
     }
-    if (merged.length === (response.cliModelSkus?.length ?? 0)) {
-        return response;
-    }
-    return { ...response, cliModelSkus: merged };
+    return { ...response, cliModelSkus: filtered };
 }
 
 async function enrichCursorModelsWithCliSkus(
     response: ListCursorModelsResponse
 ): Promise<ListCursorModelsResponse> {
-    const wires = (response.availableModels ?? []).filter((entry) => isCursorAcpWireModelId(entry.modelId));
+    const wires = (response.availableModels ?? []).filter((entry) => isCursorAcpCatalogModelId(entry.modelId));
     if (wires.length === 0) {
         return response;
     }
@@ -121,6 +143,11 @@ async function enrichCursorModelsWithCliSkus(
 }
 
 export type ListCursorModelsResponse = CursorModelsResponse;
+
+function responseHasParameterizedWireIds(response: ListCursorModelsResponse): boolean {
+    // CLI `--list-models` returns bare/SKU slugs; only treat bracket wires as an ACP catalog.
+    return (response.availableModels ?? []).some((model) => isCursorAcpWireModelId(model.modelId));
+}
 
 interface CacheEntry {
     expiresAt: number;
@@ -291,7 +318,8 @@ export async function listCursorModels(): Promise<ListCursorModelsResponse> {
             let probeResponse: ListCursorModelsResponse | null = null;
             if (!isAgentAcpTransportActive()) {
                 probeResponse = await runCursorModelProbe();
-                if (cursorProbeResponseHasWireCatalog(probeResponse)) {
+                // Never promote CLI `--list-models` slug catalogs into the ACP wire cache.
+                if (responseHasParameterizedWireIds(probeResponse)) {
                     return applyInMemoryCache(probeResponse);
                 }
             }

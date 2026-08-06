@@ -1,4 +1,5 @@
 import chalk from 'chalk'
+import { agyCommand } from './agy'
 import { authCommand } from './auth'
 import { claudeCommand } from './claude'
 import { codexCommand } from './codex'
@@ -8,6 +9,7 @@ import { runnerCommand } from './runner'
 import { resumeCommand } from './resume'
 import { doctorCommand } from './doctor'
 import { kimiCommand } from './kimi'
+import { copilotCommand } from './copilot'
 import { grokCommand } from './grok'
 import { ompCommand } from './omp'
 import { opencodeCommand } from './opencode'
@@ -38,6 +40,7 @@ const removedGeminiCommand: CommandDefinition = {
 }
 
 const COMMANDS: CommandDefinition[] = [
+    agyCommand,
     authCommand,
     connectCommand,
     codexCommand,
@@ -46,6 +49,7 @@ const COMMANDS: CommandDefinition[] = [
     grokCommand,
     kimiCommand,
     ompCommand,
+    copilotCommand,
     opencodeCommand,
     piCommand,
     mcpCommand,

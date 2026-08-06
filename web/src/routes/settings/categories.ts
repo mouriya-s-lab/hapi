@@ -8,6 +8,7 @@ export const settingsCategories = [
     { id: 'account', path: '/settings/account', titleKey: 'settings.fork.account.title' },
     { id: 'users', path: '/settings/users', titleKey: 'settings.fork.users.title' },
     { id: 'fork', path: '/settings/fork', titleKey: 'settings.fork.title' },
+    { id: 'usage', path: '/settings/usage', titleKey: 'settings.usage.title' },
     { id: 'about', path: '/settings/about', titleKey: 'settings.about.title' },
 ] as const
 

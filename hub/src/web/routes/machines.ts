@@ -81,6 +81,12 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
         if (!parsed.success) {
             return c.json({ error: 'Invalid body' }, 400)
         }
+        if (parsed.data.agent === 'agy' && parsed.data.startingMode === 'remote') {
+            return c.json({ error: 'AGY only supports PTY mode' }, 400)
+        }
+        const startingMode = parsed.data.agent === 'agy'
+            ? 'pty'
+            : parsed.data.startingMode
 
         const result = await engine.spawnSession(
             machineId,
@@ -91,12 +97,16 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
             parsed.data.yolo,
             parsed.data.sessionType,
             parsed.data.worktreeName,
-            undefined,
+            undefined, // resumeSessionId
             parsed.data.effort,
             parsed.data.permissionMode,
             parsed.data.serviceTier,
             undefined,
-            parsed.data.collaborationMode
+            undefined,
+            undefined,
+            parsed.data.collaborationMode,
+            parsed.data.copilotAgentMode,
+            startingMode
         )
         return c.json(result)
     })
@@ -187,6 +197,29 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
     })
 
+    app.get('/machines/:id/agy-models', async (c) => {
+        const engine = getSyncEngine()
+        if (!engine) {
+            return c.json({ success: false, error: 'Not connected' }, 503)
+        }
+
+        const machineId = c.req.param('id')
+        const machine = requireMachine(c, engine, machineId)
+        if (machine instanceof Response) {
+            return machine
+        }
+
+        try {
+            const result = await engine.listAgyModelsForMachine(machineId)
+            return c.json(result)
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to list Agy models'
+            }, 500)
+        }
+    })
+
     app.get('/machines/:id/codex-models', async (c) => {
         const engine = getSyncEngine()
         if (!engine) {
@@ -259,6 +292,31 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({
                 success: false,
                 error: error instanceof Error ? error.message : 'Failed to list Grok models'
+            }, 500)
+        }
+    })
+
+    app.get('/machines/:id/copilot-models', async (c) => {
+        const engine = getSyncEngine()
+        if (!engine) {
+            return c.json({ success: false, error: 'Not connected' }, 503)
+        }
+
+        const machineId = c.req.param('id')
+        const machine = requireMachine(c, engine, machineId)
+        if (machine instanceof Response) return machine
+
+        const cwd = (c.req.query('cwd') ?? '').trim()
+        if (!cwd) {
+            return c.json({ success: false, error: 'cwd query parameter is required' }, 400)
+        }
+
+        try {
+            return c.json(await engine.listCopilotModelsForCwd(machineId, cwd))
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to list Copilot models'
             }, 500)
         }
     })

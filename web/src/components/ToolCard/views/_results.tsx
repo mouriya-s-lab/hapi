@@ -475,30 +475,52 @@ function extractReadPathFromInput(input: unknown): string | null {
     return null
 }
 
-function renderReadTextResult(text: string, path: string | null, surface: ToolViewProps['surface']) {
-    // Read on an image file returns base64 (with Read's per-line "N\t" prefix).
-    // Detect and render as inline preview across all surfaces — a base64 blob
-    // has no useful CodeBlock / toggle view. See readImageDetection.ts.
+/**
+ * Some agents (agy) prefix every read line with its true file line number
+ * ("50: <line>", "51: <line>", …). Detect that format when the prefixes are
+ * strictly consecutive, strip them, and return the starting line so the code
+ * block's gutter can be offset to the real numbers instead of restarting at 1
+ * (which misleads a partial read into looking like it started at line 1).
+ * Returns null when the text isn't a consecutively-numbered block.
+ */
+export function parseNumberedFileLines(text: string): { startLine: number; body: string } | null {
+    const lines = text.split('\n')
+    if (lines.length < 2) return null
+    let startLine: number | null = null
+    let expected = 0
+    const body: string[] = []
+    for (const line of lines) {
+        const match = line.match(/^(\d+): ?(.*)$/)
+        if (!match) return null
+        const n = Number(match[1])
+        if (startLine === null) { startLine = n; expected = n }
+        if (n !== expected) return null
+        expected++
+        body.push(match[2])
+    }
+    return startLine === null ? null : { startLine, body: body.join('\n') }
+}
+
+function renderReadTextResult(text: string, path: string | null, surface: ToolViewProps['surface'], parseNumberedLines: boolean) {
     const imageDataUrl = detectImageDataUrl(text, path)
     if (imageDataUrl) {
         return renderImageResult(imageDataUrl, path)
     }
-    // In the detail dialog (the "click a file → popup preview" surface) show the
-    // full file with the fork's markdown-preview + word-wrap toggles, matching
-    // the file-viewer route. Inline cards keep the compact CodeBlock preview.
-    if (surface === 'dialog') {
-        // Read tool wraps every line with "<lineNumber>\t"; leave that to the
-        // toggle view so the markdown-preview branch can strip it while the raw
-        // tab keeps the line numbers visible. (Structured Read responses that
-        // come in through extractReadFileContent already have clean content, so
-        // stripping there is a no-op.)
+    if (surface === 'dialog' && !parseNumberedLines) {
         return <FileContentToggleView content={text} path={path} stripReadLineNumbers />
     }
-    const language = inferCodeLanguage(path, text)
-    if (language) {
-        return <CodeBlock code={text} language={language} title="File content" {...resultCodeBlockProps(surface, surface === 'inline')} />
-    }
-    return renderPlainTextQuote(text, surface)
+    const numbered = parseNumberedLines ? parseNumberedFileLines(text) : null
+    const body = numbered ? numbered.body : text
+    const language = inferCodeLanguage(path, body) ?? 'text'
+    return (
+        <CodeBlock
+            code={body}
+            language={language}
+            title="File content"
+            startLineNumber={numbered?.startLine}
+            {...resultCodeBlockProps(surface, surface === 'inline')}
+        />
+    )
 }
 
 function renderImageResult(src: string, path: string | null) {
@@ -745,7 +767,7 @@ const ReadResultView: ToolViewComponent = (props: ToolViewProps) => {
                         {basename(path)}
                     </div>
                 ) : null}
-                {renderReadTextResult(file.content, path, props.surface)}
+                {renderReadTextResult(file.content, path, props.surface, props.block.tool.nativeKind === 'agy-numbered-read')}
                 <RawJsonDevOnly value={result} surface={props.surface} />
             </>
         )
@@ -767,7 +789,7 @@ const ReadResultView: ToolViewComponent = (props: ToolViewProps) => {
     if (text) {
         return (
             <>
-                {renderReadTextResult(text, displayPath, props.surface)}
+                {renderReadTextResult(text, displayPath, props.surface, props.block.tool.nativeKind === 'agy-numbered-read')}
                 <RawJsonDevOnly value={result} surface={props.surface} />
             </>
         )
@@ -1103,7 +1125,8 @@ const GenericResultView: ToolViewComponent = (props: ToolViewProps) => {
                         ? renderReadTextResult(
                             parsed.output.trim(),
                             extractReadPathFromInput(props.block.tool.input),
-                            props.surface
+                            props.surface,
+                            props.block.tool.nativeKind === 'agy-numbered-read'
                         )
                         : renderText(parsed.output.trim(), { mode: 'code', language: 'text', collapseLongContent: props.surface === 'inline', surface: props.surface })}
                     <RawJsonDevOnly value={result} surface={props.surface} />
@@ -1129,7 +1152,7 @@ const GenericResultView: ToolViewComponent = (props: ToolViewProps) => {
         return (
             <>
                 {isReadFileToolCall(props.block.tool.name, props.block.tool.input)
-                    ? renderReadTextResult(text, extractReadPathFromInput(props.block.tool.input), props.surface)
+                    ? renderReadTextResult(text, extractReadPathFromInput(props.block.tool.input), props.surface, props.block.tool.nativeKind === 'agy-numbered-read')
                     : renderText(text, { mode: 'auto', collapseLongContent: props.surface === 'inline', surface: props.surface })}
                 {typeof result === 'object' ? <RawJsonDevOnly value={result} surface={props.surface} /> : null}
             </>

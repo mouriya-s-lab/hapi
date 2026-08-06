@@ -766,6 +766,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
         let scheduleReadyAfterTurn: (() => void) | null = null;
         let clearReadyAfterTurnTimer: (() => void) | null = null;
         let turnInFlight = false;
+        let usageModel: string | null = null;
         let allowAnonymousTerminalEvent = false;
         let invalidThreadId: string | null = null;
         let childAgentActivityInCurrentTurn = false;
@@ -2583,7 +2584,22 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 return;
             }
 
-            if (isTerminalEvent && eventTurnId && eventTurnId === lastFinalizedTurnId) {
+            const isStaleSameThreadRecoveryTerminal = msgType === 'task_complete'
+                && turnInFlight
+                && (sameThreadRetryAttempt > 0 || sameThreadCompactAttempt > 0)
+                && Boolean(eventTurnId)
+                && eventTurnId === lastFinalizedTurnId
+                && Boolean(this.currentTurnId)
+                && eventTurnId !== this.currentTurnId
+                && Boolean(eventThreadId)
+                && eventThreadId === this.currentThreadId;
+
+            if (
+                isTerminalEvent
+                && eventTurnId
+                && eventTurnId === lastFinalizedTurnId
+                && !isStaleSameThreadRecoveryTerminal
+            ) {
                 logger.debug(`[Codex] Ignoring duplicate terminal event for turn ${eventTurnId}`);
                 return;
             }
@@ -2773,7 +2789,8 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     allowAnonymousTerminalEvent,
                     eventThreadId,
                     currentThreadId: this.currentThreadId,
-                    allowMatchingThreadIdTerminalEvent: allowSameThreadTerminalRecovery
+                    allowMatchingThreadIdTerminalEvent: allowSameThreadTerminalRecovery,
+                    allowMismatchedTurnIdTerminalEvent: isStaleSameThreadRecoveryTerminal
                 })) {
                     logger.debug(
                         `[Codex] Ignoring terminal event ${msgType} without matching turn context; ` +
@@ -3005,6 +3022,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 const threadId = eventThreadId ?? this.currentThreadId;
                 session.sendAgentMessage({
                     ...addCodexEventScope(msg, 'parent', threadId),
+                    model: asString(msg.model) ?? usageModel,
                     id: randomUUID()
                 });
             }
@@ -3923,6 +3941,9 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     ...message.mode,
                     model: session.getModel() ?? message.mode.model
                 };
+                usageModel = typeof mode.model === 'string' && mode.model.trim()
+                    ? mode.model.trim()
+                    : null;
                 const shouldSendCollaborationMode = supportsTurnCollaborationMode
                     && Boolean(mode.collaborationMode);
                 const clientUserMessageId = message.items

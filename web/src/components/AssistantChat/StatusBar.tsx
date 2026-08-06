@@ -1,5 +1,6 @@
 import {
     getCodexCollaborationModeLabel,
+    getCopilotAgentModeLabel,
     getPermissionModeLabel,
     getPermissionModeTone,
     isPermissionModeAllowedForFlavor
@@ -215,6 +216,7 @@ export function StatusBar(props: {
     permissionMode?: PermissionMode
     collaborationMode?: CodexCollaborationMode
     threadGoal?: ThreadGoal | null
+    copilotAgentMode?: import('@hapi/protocol').CopilotAgentMode
     agentFlavor?: string | null
     voiceStatus?: ConversationStatus
 }) {
@@ -253,9 +255,12 @@ export function StatusBar(props: {
     const contextUsedPercentage = contextUsageDetails?.usedPercentage ?? null
 
     const permissionMode = props.permissionMode
+    // Copilot always shows permission (including Default) so model=auto sessions
+    // still surface the bottom-right mode chip. Other flavors keep Codex-style
+    // "hide default" parity.
     const displayPermissionMode = permissionMode
-        && permissionMode !== 'default'
         && isPermissionModeAllowedForFlavor(permissionMode, props.agentFlavor)
+        && (permissionMode !== 'default' || props.agentFlavor === 'copilot')
         ? permissionMode
         : null
 
@@ -267,6 +272,14 @@ export function StatusBar(props: {
         : null
     const collaborationModeLabel = displayCollaborationMode
         ? getCodexCollaborationModeLabel(displayCollaborationMode)
+        : null
+    const displayCopilotAgentMode = props.agentFlavor === 'copilot'
+        && props.copilotAgentMode
+        && props.copilotAgentMode !== 'interactive'
+        ? props.copilotAgentMode
+        : null
+    const copilotAgentModeLabel = displayCopilotAgentMode
+        ? getCopilotAgentModeLabel(displayCopilotAgentMode)
         : null
     const reasoningEffort = getReasoningEffortForFlavor(
         props.agentFlavor,
@@ -390,6 +403,11 @@ export function StatusBar(props: {
                 {collaborationModeLabel ? (
                     <span className="whitespace-nowrap text-xs text-blue-500">
                         {collaborationModeLabel}
+                    </span>
+                ) : null}
+                {copilotAgentModeLabel ? (
+                    <span className="whitespace-nowrap text-xs text-blue-500">
+                        {copilotAgentModeLabel}
                     </span>
                 ) : null}
                 {displayPermissionMode ? (

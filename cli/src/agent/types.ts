@@ -34,13 +34,14 @@ export type AgentUsage = {
     totalTokens?: number;
     thoughtTokens?: number;
     cacheReadTokens?: number;
+    cacheCreationTokens?: number;
     contextTokens?: number;
     contextWindow?: number;
     costUsd?: number;
 };
 
 export type AgentMessage =
-    | { type: 'text'; text: string; model?: string; usage?: AgentUsage }
+    | { type: 'text'; text: string; id?: string; live?: boolean; streamSnapshot?: boolean; model?: string; usage?: AgentUsage }
     | { type: 'reasoning'; text: string; id?: string; live?: boolean; model?: string; usage?: AgentUsage }
     | {
         type: 'tool_call';
@@ -52,6 +53,7 @@ export type AgentMessage =
         kind?: string;
         model?: string;
         usage?: AgentUsage;
+        progress?: unknown;
     }
     | { type: 'tool_result'; id: string; output: unknown; status: 'completed' | 'failed' }
     | ({ type: 'usage' } & AgentUsage)
