@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import type { SessionSummary } from '@/types/api'
 import { I18nProvider } from '@/lib/i18n-context'
 import { ToastProvider } from '@/lib/toast-context'
+import { DISABLED_SESSION_LIST_SCROLL_STABILITY } from '@/fork-features/session-list-scroll/sessionListScroll'
 import { SessionList } from './SessionList'
 
 afterEach(() => {
@@ -71,6 +72,7 @@ describe('SessionList directory action', () => {
 
         renderWithProviders(
             <SessionList
+                scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                 sessions={[session]}
                 selectedSessionId={null}
                 onSelect={vi.fn()}
@@ -105,6 +107,7 @@ describe('SessionList directory action', () => {
 
         renderWithProviders(
             <SessionList
+                scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                 sessions={[session]}
                 selectedSessionId={null}
                 onSelect={vi.fn()}
@@ -134,6 +137,7 @@ describe('SessionList directory action', () => {
     it('hides the directory action for sessions without path metadata', () => {
         renderWithProviders(
             <SessionList
+                scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                 sessions={[makeSession({ id: 'session-without-path' })]}
                 selectedSessionId={null}
                 onSelect={vi.fn()}
@@ -160,7 +164,7 @@ describe('SessionList time filter', () => {
         vi.useRealTimers()
     })
 
-    it('filters after selecting a start and end date', () => {
+    it('keeps the date filter beside collapsed search and filters without expanding it', () => {
         const recent = makeSession({
             id: 'recent',
             updatedAt: Date.now(),
@@ -174,6 +178,7 @@ describe('SessionList time filter', () => {
 
         renderWithProviders(
             <SessionList
+                scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                 sessions={[recent, old]}
                 selectedSessionId={null}
                 onSelect={vi.fn()}
@@ -188,8 +193,14 @@ describe('SessionList time filter', () => {
         expect(screen.getByRole('button', { name: /Recent session/ })).toBeInTheDocument()
         expect(screen.getByRole('button', { name: /Old session/ })).toBeInTheDocument()
 
-        fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
-        fireEvent.click(screen.getByRole('button', { name: 'Filter sessions by last activity' }))
+        const searchButton = screen.getByRole('button', { name: 'Search sessions' })
+        const filterButton = screen.getByRole('button', { name: 'Filter sessions by last activity' })
+        expect(searchButton.nextElementSibling).toBe(filterButton)
+        expect(searchButton.parentElement).toBe(filterButton.parentElement)
+        expect(searchButton.parentElement).toHaveClass('relative', 'gap-1')
+        expect(screen.queryByPlaceholderText('Search sessions…')).toBeNull()
+
+        fireEvent.click(filterButton)
         const emptyDate = screen.getByRole('button', { name: new Date(2026, 6, 17).toLocaleDateString() })
         const activeDate = screen.getByRole('button', { name: `${new Date(2026, 6, 18).toLocaleDateString()}, has session activity` })
         expect(emptyDate).toHaveClass('text-[var(--app-hint)]')
@@ -200,6 +211,10 @@ describe('SessionList time filter', () => {
 
         expect(screen.getByRole('button', { name: /Recent session/ })).toBeInTheDocument()
         expect(screen.queryByRole('button', { name: /Old session/ })).toBeNull()
+        expect(screen.queryByPlaceholderText('Search sessions…')).toBeNull()
+        expect(filterButton).toHaveAttribute('title', '2026-07-17 – 2026-07-18')
+        expect(filterButton).toHaveAccessibleName('Filter sessions by last activity: 2026-07-17 – 2026-07-18')
+        expect(filterButton).toHaveFocus()
     })
 
     it('highlights today without requiring hover or session activity', () => {
@@ -211,6 +226,7 @@ describe('SessionList time filter', () => {
 
         renderWithProviders(
             <SessionList
+                scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                 sessions={[old]}
                 selectedSessionId={null}
                 onSelect={vi.fn()}
@@ -241,6 +257,7 @@ describe('SessionList time filter', () => {
 
         renderWithProviders(
             <SessionList
+                scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                 sessions={[session]}
                 selectedSessionId={null}
                 onSelect={vi.fn()}
@@ -275,6 +292,7 @@ describe('SessionList time filter', () => {
 
         renderWithProviders(
             <SessionList
+                scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                 sessions={[session]}
                 selectedSessionId={null}
                 onSelect={vi.fn()}
@@ -321,6 +339,7 @@ describe('SessionList action menu parity', () => {
 
         renderWithProviders(
             <SessionList
+                scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                 sessions={[session]}
                 selectedSessionId={null}
                 onSelect={vi.fn()}
@@ -351,6 +370,7 @@ describe('SessionList collapse behavior', () => {
             })}>
                 <I18nProvider>
                     <SessionList
+                        scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                         sessions={sessions}
                         selectedSessionId={selectedSessionId}
                         onSelect={vi.fn()}
@@ -779,6 +799,7 @@ describe('SessionList search toggle', () => {
 
         renderWithProviders(
             <SessionList
+                scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                 sessions={sessions}
                 selectedSessionId={null}
                 onSelect={vi.fn()}
@@ -812,6 +833,7 @@ describe('SessionList search toggle', () => {
     it('stays expanded with focus on the input after clearing the query', () => {
         renderWithProviders(
             <SessionList
+                scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                 sessions={[makeSession({
                     id: 'session-1',
                     updatedAt: 100,
@@ -851,6 +873,7 @@ describe('SessionList search toggle', () => {
                 <ToastProvider>
                     <I18nProvider>
                         <SessionList
+                            scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                             sessions={sessions}
                             selectedSessionId={null}
                             onSelect={vi.fn()}

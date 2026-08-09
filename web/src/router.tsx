@@ -13,7 +13,7 @@ import {
     useSearch,
 } from '@tanstack/react-router'
 import { getScrollRestorationKey } from '@/lib/scrollRestorationKey'
-import { usePreserveSidebarScroll } from '@/hooks/usePreserveSidebarScroll'
+import { useSessionListScrollStability } from '@/fork-features/session-list-scroll/sessionListScroll'
 import { App } from '@/App'
 import { SessionChat } from '@/components/SessionChat'
 import { SessionList } from '@/components/SessionList'
@@ -159,10 +159,7 @@ function SessionsPage() {
     const { api, baseUrl } = useAppContext()
     const navigate = useNavigate()
     const pathname = useLocation({ select: location => location.pathname })
-    const sidebarScrollRef = useRef<HTMLDivElement>(null)
-    // Keep the persistent sidebar from jumping when Router's per-route scroll
-    // restoration fires on navigation (issue #31).
-    usePreserveSidebarScroll(sidebarScrollRef, pathname)
+    const sessionListScrollStability = useSessionListScrollStability(pathname)
     const matchRoute = useMatchRoute()
     const { t } = useTranslation()
     const { addToast } = useToast()
@@ -253,6 +250,7 @@ function SessionsPage() {
                         key={initializedHub === baseUrl ? 'last-seen-ready' : 'last-seen-pending'}
                         sessions={visibleSessions}
                         selectedSessionId={selectedSessionId}
+                        scrollStability={sessionListScrollStability}
                         onSelect={(sessionId) => navigate({
                             to: '/sessions/$sessionId',
                             params: { sessionId },
