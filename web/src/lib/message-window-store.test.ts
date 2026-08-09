@@ -762,6 +762,41 @@ describe('history view and older pagination', () => {
         expect(getMessageWindowState(id).messages).toHaveLength(VISIBLE_WINDOW_SIZE + 2)
     })
 
+    it('keeps loaded history intact when a tail sync fires while browsing history', async () => {
+        const id = sessionId('history-tail-sync-preserved')
+        const getMessages = vi.fn()
+            .mockResolvedValueOnce(latestResponse([
+                makeAgentMessage({ id: 'initial', seq: 1, at: 1 })
+            ], { epoch: 1 }))
+            .mockResolvedValue(latestResponse([
+                makeAgentMessage({ id: 'latest', seq: 5_000, at: 5_000 })
+            ], { epoch: 1 }))
+        const api = createApi(getMessages)
+        await syncTailMessages(api, id)
+        setMessageViewMode(id, 'history')
+
+        // Overflow the bounded history window so the tail gets evicted and
+        // requiresLatestReset is recorded while the user is still reading.
+        ingestIncomingMessages(id, Array.from({ length: HISTORY_WINDOW_SIZE + 10 }, (_, index) =>
+            makeAgentMessage({ id: `overflow-${index}`, seq: index + 2, at: index + 2 })
+        ))
+        const before = getMessageWindowState(id).messages.map((message) => message.id)
+        expect(before[0]).toBe('initial')
+
+        // A reconnect/refresh-triggered tail sync must not replace the history
+        // window with the latest page while the user is browsing history.
+        await syncTailMessages(api, id)
+        expect(getMessages).toHaveBeenCalledTimes(1)
+        expect(getMessageWindowState(id).messages.map((message) => message.id)).toEqual(before)
+        expect(getMessageWindowState(id).viewMode).toBe('history')
+
+        // Returning to tail mode performs the deferred latest reset.
+        setMessageViewMode(id, 'tail')
+        await syncTailMessages(api, id)
+        expect(getMessages.mock.calls[1]?.[1]).toEqual({ limit: 200 })
+        expect(getMessageWindowState(id).messages.map((message) => message.id)).toContain('latest')
+    })
+
     it('falls back to a latest request after the bounded history window overflows', async () => {
         const id = sessionId('history-overflow')
         const initial = makeAgentMessage({ id: 'initial', seq: 1, at: 1 })
