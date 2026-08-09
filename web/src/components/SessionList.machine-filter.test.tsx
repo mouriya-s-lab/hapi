@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import type { SessionSummary } from '@/types/api'
 import { I18nProvider } from '@/lib/i18n-context'
 import { ToastProvider } from '@/lib/toast-context'
+import { DISABLED_SESSION_LIST_SCROLL_STABILITY } from '@/fork-features/session-list-scroll/sessionListScroll'
 import { SessionList } from './SessionList'
 
 afterEach(() => cleanup())
@@ -54,6 +55,7 @@ function renderWithProviders(children: ReactNode) {
 function renderSessionList(sessions: SessionSummary[]) {
     return renderWithProviders(
         <SessionList
+            scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
             sessions={sessions}
             selectedSessionId={null}
             onSelect={vi.fn()}

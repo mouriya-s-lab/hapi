@@ -22,6 +22,7 @@ export const TITLE_INSTRUCTION = trimIdent(`
     ${buildSessionCitationSteerInstruction({
         inspectTool: 'hapi_inspect_peer',
         pingTool: 'hapi_ping_peer',
+        listPeersTool: 'hapi_list_peers',
     })}
     ${SKILL_LOOKUP_INSTRUCTION}
 `);
@@ -35,6 +36,7 @@ export const OPENCODE_NATIVE_TOOL_INSTRUCTION = trimIdent(`
     ${buildSessionCitationSteerInstruction({
         inspectTool: 'hapi_inspect_peer',
         pingTool: 'hapi_ping_peer',
+        listPeersTool: 'hapi_list_peers',
     })}
     ${SKILL_LOOKUP_INSTRUCTION}
 `);

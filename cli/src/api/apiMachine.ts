@@ -22,6 +22,7 @@ import {
     type MachineCreateDirectoryResponse
 } from '@hapi/protocol/apiTypes'
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
+import { RUNNER_CAPABILITIES } from '@hapi/protocol'
 import type { RunnerState, Machine, MachineMetadata } from './types'
 import type { MachineAgentSkills } from '@hapi/protocol/schemas'
 import { RunnerStateSchema, MachineMetadataSchema } from './types'
@@ -627,7 +628,8 @@ export class ApiMachineClient {
                 status: 'running',
                 pid: process.pid,
                 httpPort: this.machine.runnerState?.httpPort,
-                startedAt: Date.now()
+                startedAt: Date.now(),
+                capabilities: { ...RUNNER_CAPABILITIES }
             })).catch((error) => {
                 logger.debug('[API MACHINE] Failed to update runner state on connect', error)
             })

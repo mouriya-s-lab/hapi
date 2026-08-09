@@ -17,6 +17,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import '../src/index.css'
 import { I18nProvider } from '../src/lib/i18n-context'
 import { SessionList } from '../src/components/SessionList'
+import { DISABLED_SESSION_LIST_SCROLL_STABILITY } from '../src/fork-features/session-list-scroll/sessionListScroll'
 import { useHideArchivedSessions } from '../src/hooks/useHideArchivedSessions'
 import { filterVisibleSessions } from '../src/lib/sessionListFilters'
 import type { SessionSummary } from '../src/types/api'
@@ -76,6 +77,7 @@ function App() {
                 </button>
                 <div data-testid="session-list-host">
                     <SessionList
+                        scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                         sessions={visible}
                         onSelect={() => {}}
                         onNewSession={() => {}}

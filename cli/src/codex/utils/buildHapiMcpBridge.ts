@@ -97,6 +97,10 @@ export async function buildHapiMcpBridge(
     if (options.enableChangeTitle !== false) {
         tools.change_title = { approval_mode: 'approve' };
     }
+    // Discovery shortlist only - same trust as skill_lookup / change_title.
+    tools.list_peers = {
+        approval_mode: 'approve'
+    };
     // ping_peer / inspect_peer are registered on the HTTP MCP server / stdio
     // bridge, but are not auto-approved: they target another session (resume +
     // inject, or read peer histories).
