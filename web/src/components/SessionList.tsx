@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SessionSummary } from '@/types/api'
 import type { ApiClient } from '@/api/client'
 import { useLongPress } from '@/hooks/useLongPress'
@@ -34,6 +34,12 @@ import { SessionRowSummary } from '@/components/SessionRowSummary'
 import { Spinner } from '@/components/Spinner'
 
 export { getWorktreeSessionLabel } from '@/lib/sessionWorktreeLabel'
+
+export type SessionListScrollStability = Readonly<{
+    container: HTMLDivElement | null
+    bindContainer: (container: HTMLDivElement | null) => void
+    beforeSelect: (sessionId: string) => void
+}>
 
 type SessionGroup = {
     key: string
@@ -922,6 +928,7 @@ function SessionItem(props: {
             <button
                 type="button"
                 {...longPressHandlers}
+                data-session-id={s.id}
                 className={`session-list-item group/session-row flex w-full flex-col gap-1 py-2 pl-2.5 pr-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] select-none rounded-lg ${selected ? 'bg-[var(--app-secondary-bg)]' : ''}`}
                 style={{ WebkitTouchCallout: 'none' }}
                 aria-current={selected ? 'page' : undefined}
@@ -1084,9 +1091,20 @@ export function SessionList(props: {
     machineLabelsById?: Record<string, string>
     machinesById?: Record<string, Machine>
     selectedSessionId?: string | null
+    /** Required binding keeps the real scroll node and pre-navigation selection coupled. */
+    scrollStability: SessionListScrollStability
 }) {
     const { t } = useTranslation()
-    const { renderHeader = true, api, selectedSessionId, machineLabelsById = {}, machinesById = {}, onNewSessionInDirectory } = props
+    const {
+        renderHeader = true,
+        api,
+        selectedSessionId,
+        machineLabelsById = {},
+        machinesById = {},
+        onNewSessionInDirectory,
+        scrollStability,
+    } = props
+    const { bindContainer, beforeSelect } = scrollStability
     const { sessionPreviewLimit } = useSessionPreviewLimit()
     const { sessionListStatusMode } = useSessionListStatusMode()
     const { showActiveSessionsOnly } = useShowActiveSessionsOnly()
@@ -1386,6 +1404,14 @@ export function SessionList(props: {
     // pull-to-load-older pattern in HappyThread; desktop has no overscroll
     // bounce to make a wheel pull feel right, so it stays on live updates.
     const scrollContainerRef = useRef<HTMLDivElement>(null)
+    const assignScrollContainer = useCallback((container: HTMLDivElement | null) => {
+        scrollContainerRef.current = container
+        bindContainer(container)
+    }, [bindContainer])
+    const selectSession = useCallback((sessionId: string) => {
+        beforeSelect(sessionId)
+        props.onSelect(sessionId)
+    }, [beforeSelect, props.onSelect])
     const [pullState, setPullState] = useState<PullToRefreshState>('idle')
     const pullStateRef = useRef<PullToRefreshState>('idle')
     const [isRefreshing, setIsRefreshing] = useState(false)
@@ -1549,7 +1575,10 @@ export function SessionList(props: {
                     </span>
                 </div>
             ) : null}
-            <div ref={scrollContainerRef} className="app-scroll-y session-list-scrollbar-left min-h-0 flex-1">
+            <div
+                ref={assignScrollContainer}
+                className="app-scroll-y session-list-scrollbar-left min-h-0 flex-1"
+            >
             <div className="mx-auto flex w-full max-w-content flex-col gap-1 pl-1.5 pr-2 pb-2">
                 {props.sessions.length === 0 && !props.isLoading ? (
                     <SessionsEmptyState
@@ -1609,7 +1638,7 @@ export function SessionList(props: {
                                                 <SessionItem
                                                     key={s.id}
                                                     session={s}
-                                                    onSelect={props.onSelect}
+                                                    onSelect={selectSession}
                                                     showPath={false}
                                                     api={api}
                                                     selected={s.id === selectedSessionId}
@@ -1691,7 +1720,7 @@ export function SessionList(props: {
                                         <SessionItem
                                             key={s.id}
                                             session={s}
-                                            onSelect={props.onSelect}
+                                            onSelect={selectSession}
                                             showPath={false}
                                             api={api}
                                             selected={s.id === selectedSessionId}
