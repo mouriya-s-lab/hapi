@@ -15,10 +15,11 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { dirname, join } from 'node:path'
 
 import { CREATABLE_AGENT_FLAVORS } from '@hapi/protocol/modes'
-import type { AgentSkillHarnessResult, MachineAgentSkills } from '@hapi/protocol/schemas'
+import { PROBE_AGENT_SKILLS_RPC_METHOD, type AgentSkillHarnessResult, type MachineAgentSkills, type MachineMetadata } from '@hapi/protocol/schemas'
 import { isBunCompiled, projectPath, runtimePath } from '../../cli/src/projectPath'
 import { getHomeDirectory, getUserSkillsRoots } from '../../cli/src/modules/common/skills'
 import packageJson from '../../cli/package.json'
+import { logger } from '../../cli/src/ui/logger'
 
 export const HAPI_AGENT_SKILL_NAME = 'hapi-agent'
 const SKILL_FILE_NAME = 'SKILL.md'
@@ -90,9 +91,15 @@ function writeManifest(targetPath: string, manifest: ManagedManifest): void {
     writeFileAtomic(manifestPathFor(targetPath), JSON.stringify(manifest, null, 2))
 }
 
-type SharedDeployOutcome =
-    | { status: 'deployed' | 'current' | 'updated' }
-    | { status: 'conflict' | 'failed'; error: string }
+type SharedDeployOutcome = {
+    status: 'deployed' | 'current' | 'updated' | 'conflict' | 'failed'
+}
+
+type SharedProbeOutcome = {
+    status: 'current' | 'missing' | 'outdated' | 'conflict' | 'failed'
+}
+
+type SharedArtifactOutcome = SharedDeployOutcome | SharedProbeOutcome
 
 function deploySharedArtifact(canonicalContent: string, canonicalHash: string): SharedDeployOutcome {
     const targetPath = resolveManagedSkillTargetPath()
@@ -111,10 +118,7 @@ function deploySharedArtifact(canonicalContent: string, canonicalHash: string): 
         const existingHash = sha256Hex(readFileSync(targetPath))
         const manifest = readManifest(targetPath)
         if (!manifest || !manifest.managedHashes.includes(existingHash)) {
-            return {
-                status: 'conflict',
-                error: 'an unmanaged hapi-agent skill already exists in the shared user skills root'
-            }
+            return { status: 'conflict' }
         }
 
         if (existingHash === canonicalHash) {
@@ -136,10 +140,8 @@ function deploySharedArtifact(canonicalContent: string, canonicalHash: string): 
         })
         return { status: 'updated' }
     } catch (error) {
-        return {
-            status: 'failed',
-            error: error instanceof Error ? error.message : String(error)
-        }
+        logger.debug('[agent-skill-deploy] failed to deploy the shared skill', error)
+        return { status: 'failed' }
     }
 }
 
@@ -149,9 +151,10 @@ function deploySharedArtifact(canonicalContent: string, canonicalHash: string): 
  * artifact lives in; any additional flavor-specific root can shadow it
  * inside that harness, so an unmanaged same-name copy there is a conflict.
  */
-function probeHarness(flavor: string, shared: SharedDeployOutcome, canonicalHash: string): AgentSkillHarnessResult {
+function probeHarness(flavor: string, shared: SharedArtifactOutcome, canonicalHash: string): AgentSkillHarnessResult {
     try {
         const [, ...flavorRoots] = getUserSkillsRoots(flavor)
+        let hasCanonicalFlavorCopy = false
         for (const root of flavorRoots) {
             const candidatePath = join(root, HAPI_AGENT_SKILL_NAME, SKILL_FILE_NAME)
             if (!existsSync(candidatePath)) {
@@ -161,21 +164,55 @@ function probeHarness(flavor: string, shared: SharedDeployOutcome, canonicalHash
             if (candidateHash !== canonicalHash) {
                 return {
                     status: 'conflict',
-                    discoveredHash: candidateHash,
-                    error: `an unmanaged hapi-agent skill in the ${flavor} config skills directory shadows the canonical skill`
+                    discoveredHash: candidateHash
                 }
             }
+            hasCanonicalFlavorCopy = true
+        }
+        if (hasCanonicalFlavorCopy) {
+            return { status: 'current', discoveredHash: canonicalHash }
         }
 
-        if (shared.status === 'conflict' || shared.status === 'failed') {
-            return { status: shared.status, error: shared.error }
+        switch (shared.status) {
+            case 'conflict':
+            case 'failed':
+            case 'missing':
+            case 'outdated':
+                return { status: shared.status }
+            case 'deployed':
+            case 'current':
+            case 'updated':
+                return { status: shared.status, discoveredHash: canonicalHash }
         }
-        return { status: shared.status, discoveredHash: canonicalHash }
     } catch (error) {
-        return {
-            status: 'failed',
-            error: error instanceof Error ? error.message : String(error)
-        }
+        logger.debug(`[agent-skill-deploy] failed to probe ${flavor} skill discovery`, error)
+        return { status: 'failed' }
+    }
+}
+
+function createAgentSkillReport(canonicalHash: string, shared: SharedArtifactOutcome): MachineAgentSkills {
+    const checkedAt = Date.now()
+    const harnesses = Object.fromEntries(CREATABLE_AGENT_FLAVORS.map((flavor) => [
+        flavor,
+        probeHarness(flavor, shared, canonicalHash)
+    ]))
+    return {
+        canonicalHash,
+        cliVersion: packageJson.version,
+        checkedAt,
+        harnesses
+    }
+}
+
+function canonicalSourceFailureReport(): MachineAgentSkills {
+    return {
+        canonicalHash: '',
+        cliVersion: packageJson.version,
+        checkedAt: Date.now(),
+        harnesses: Object.fromEntries(CREATABLE_AGENT_FLAVORS.map((flavor) => [
+            flavor,
+            { status: 'failed' } satisfies AgentSkillHarnessResult
+        ]))
     }
 }
 
@@ -189,27 +226,74 @@ export function runAgentSkillDeployment(): MachineAgentSkills {
     try {
         canonicalContent = readFileSync(resolveCanonicalSkillSourcePath(), 'utf-8')
     } catch (error) {
-        const message = `canonical skill source unavailable: ${error instanceof Error ? error.message : String(error)}`
-        return {
-            canonicalHash: '',
-            cliVersion: packageJson.version,
-            checkedAt: Date.now(),
-            harnesses: Object.fromEntries(CREATABLE_AGENT_FLAVORS.map((flavor) => [
-                flavor,
-                { status: 'failed', error: message } satisfies AgentSkillHarnessResult
-            ]))
-        }
+        logger.debug('[agent-skill-deploy] canonical skill source unavailable', error)
+        return canonicalSourceFailureReport()
     }
 
     const canonicalHash = sha256Hex(canonicalContent)
     const shared = deploySharedArtifact(canonicalContent, canonicalHash)
-    return {
-        canonicalHash,
-        cliVersion: packageJson.version,
-        checkedAt: Date.now(),
-        harnesses: Object.fromEntries(CREATABLE_AGENT_FLAVORS.map((flavor) => [
-            flavor,
-            probeHarness(flavor, shared, canonicalHash)
-        ]))
+    return createAgentSkillReport(canonicalHash, shared)
+}
+
+/**
+ * Inspect the shared artifact without writing anything, distinguishing
+ * missing, current, outdated, and unmanaged files.
+ */
+function probeSharedArtifact(canonicalHash: string): SharedProbeOutcome {
+    const targetPath = resolveManagedSkillTargetPath()
+    try {
+        if (!existsSync(targetPath)) {
+            return { status: 'missing' }
+        }
+        const existingHash = sha256Hex(readFileSync(targetPath))
+        if (existingHash === canonicalHash) {
+            return { status: 'current' }
+        }
+        const manifest = readManifest(targetPath)
+        if (manifest && manifest.managedHashes.includes(existingHash)) {
+            return { status: 'outdated' }
+        }
+        return { status: 'conflict' }
+    } catch (error) {
+        logger.debug('[agent-skill-deploy] failed to inspect the shared skill', error)
+        return { status: 'failed' }
     }
+}
+
+export function probeAgentSkillDeployment(): MachineAgentSkills {
+    let canonicalContent: string
+    try {
+        canonicalContent = readFileSync(resolveCanonicalSkillSourcePath(), 'utf-8')
+    } catch (error) {
+        logger.debug('[agent-skill-deploy] canonical skill source unavailable', error)
+        return canonicalSourceFailureReport()
+    }
+
+    const canonicalHash = sha256Hex(canonicalContent)
+    const shared = probeSharedArtifact(canonicalHash)
+    return createAgentSkillReport(canonicalHash, shared)
+}
+
+type RpcHandlerRegistrar = {
+    registerHandler: (method: string, handler: (params: unknown) => unknown | Promise<unknown>) => void
+}
+
+/**
+ * Register the Settings refresh RPC on the machine-scoped handler manager.
+ * The probe result is pushed into machine metadata through the same
+ * optimistic-concurrency channel the runner already uses, then returned to
+ * the hub caller.
+ */
+export function registerAgentSkillProbeHandler(
+    rpcHandlerManager: RpcHandlerRegistrar,
+    updateMetadata: (handler: (metadata: MachineMetadata | null) => MachineMetadata) => Promise<void>
+): void {
+    rpcHandlerManager.registerHandler(PROBE_AGENT_SKILLS_RPC_METHOD, async () => {
+        const agentSkills = probeAgentSkillDeployment()
+        await updateMetadata((current) => {
+            if (!current) throw new Error('Machine metadata unavailable for agent skills probe')
+            return { ...current, agentSkills }
+        })
+        return { agentSkills }
+    })
 }

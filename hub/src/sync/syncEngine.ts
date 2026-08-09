@@ -11,6 +11,7 @@ import { isKnownFlavor, type LocalResumeTarget, type ResumableSession, type Sess
 import type { CursorChatStoreStatus, CursorMigrateOutcome, CursorMigrateToAcpRequest, ImportableSessionProvider, ImportProviderSessionResponse, ListCcSwitchProvidersResponse, ListImportableSessionsResponse, MessageDeliveryMode, MessagesResponse, QueuedStateResponse, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor, ClaudeLaunch, CodexCollaborationMode, CopilotAgentMode, DecryptedMessage, PermissionMode, Session, SyncEvent } from '@hapi/protocol/types'
 import { unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
+import type { ProbeAgentSkillsResponse } from '@hapi/protocol/schemas'
 import type { Server } from 'socket.io'
 import { randomUUID } from 'node:crypto'
 import type { Store, CancelQueuedMessageResult } from '../store'
@@ -364,6 +365,10 @@ export class SyncEngine {
 
     getMachineByNamespace(machineId: string, namespace: string): Machine | undefined {
         return this.machineCache.getMachineByNamespace(machineId, namespace)
+    }
+
+    async probeMachineAgentSkills(machineId: string): Promise<ProbeAgentSkillsResponse> {
+        return await this.rpcGateway.probeMachineAgentSkills(machineId)
     }
 
     getOnlineMachines(): Machine[] {

@@ -41,6 +41,9 @@ function agentErrorResponse(c: AgentRouteContext, error: AgentRouteError): Respo
     const body = { error: { code: error.code, message: error.message } }
     switch (error.code) {
         case 'bad_args': return c.json(body, 400)
+        // CLI-side boundary code (#261); a hub route never produces it, but
+        // the exhaustive switch must still map it.
+        case 'not_hapi_session': return c.json(body, 400)
         case 'auth_failed': return c.json(body, 401)
         case 'scope_denied': return c.json(body, 403)
         case 'not_found': return c.json(body, 404)

@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 import { CREATABLE_AGENT_FLAVORS } from '@hapi/protocol/modes'
 import {
+    probeAgentSkillDeployment,
+    registerAgentSkillProbeHandler,
     resolveCanonicalSkillSourcePath,
     resolveManagedSkillTargetPath,
     runAgentSkillDeployment
@@ -44,6 +46,14 @@ afterEach(() => {
 
 const canonicalContent = () => readFileSync(resolveCanonicalSkillSourcePath(), 'utf-8')
 
+function writeManagedManifest(targetPath: string, managedHashes: string[]): void {
+    writeFileSync(join(dirname(targetPath), '.hapi-managed.json'), JSON.stringify({
+        managedHashes,
+        cliVersion: '0.0.0',
+        deployedAt: 0
+    }), 'utf-8')
+}
+
 describe('runAgentSkillDeployment', () => {
     test('first run deploys the shared artifact and reports deployed for every creatable harness', () => {
         const report = runAgentSkillDeployment()
@@ -75,11 +85,7 @@ describe('runAgentSkillDeployment', () => {
         const targetPath = resolveManagedSkillTargetPath()
         const oldContent = 'old managed skill body\n'
         writeFileSync(targetPath, oldContent, 'utf-8')
-        writeFileSync(join(dirname(targetPath), '.hapi-managed.json'), JSON.stringify({
-            managedHashes: [sha256(oldContent)],
-            cliVersion: '0.0.0',
-            deployedAt: 0
-        }), 'utf-8')
+        writeManagedManifest(targetPath, [sha256(oldContent)])
 
         const report = runAgentSkillDeployment()
         for (const result of Object.values(report.harnesses)) {
@@ -95,11 +101,7 @@ describe('runAgentSkillDeployment', () => {
         const targetPath = resolveManagedSkillTargetPath()
         const oldContent = 'interrupted managed skill body\n'
         writeFileSync(targetPath, oldContent, 'utf-8')
-        writeFileSync(join(dirname(targetPath), '.hapi-managed.json'), JSON.stringify({
-            managedHashes: [sha256(oldContent), sha256('never written new content')],
-            cliVersion: '0.0.0',
-            deployedAt: 0
-        }), 'utf-8')
+        writeManagedManifest(targetPath, [sha256(oldContent), sha256('never written new content')])
 
         const report = runAgentSkillDeployment()
         for (const result of Object.values(report.harnesses)) {
@@ -147,13 +149,84 @@ describe('runAgentSkillDeployment', () => {
         expect(report.harnesses.codex?.status).toBe('deployed')
     })
 
-    test('flavor-root copy that matches canonical content is not a conflict', () => {
+    test('probe-only reports missing without writing anything', () => {
+        const report = probeAgentSkillDeployment()
+        for (const result of Object.values(report.harnesses)) {
+            expect(result.status).toBe('missing')
+        }
+        expect(existsSync(resolveManagedSkillTargetPath())).toBe(false)
+    })
+
+    test('probe-only distinguishes current, outdated, and conflict', () => {
+        runAgentSkillDeployment()
+        expect(probeAgentSkillDeployment().harnesses.claude?.status).toBe('current')
+
+        const targetPath = resolveManagedSkillTargetPath()
+        const oldContent = 'managed but stale content\n'
+        writeFileSync(targetPath, oldContent, 'utf-8')
+        writeManagedManifest(targetPath, [sha256(oldContent)])
+        const outdated = probeAgentSkillDeployment()
+        expect(outdated.harnesses.claude?.status).toBe('outdated')
+        expect(readFileSync(targetPath, 'utf-8')).toBe(oldContent)
+
+        writeFileSync(targetPath, 'user replaced content\n', 'utf-8')
+        expect(probeAgentSkillDeployment().harnesses.claude?.status).toBe('conflict')
+        expect(readFileSync(targetPath, 'utf-8')).toBe('user replaced content\n')
+    })
+
+    test('canonical flavor-root copy keeps that harness ready when the shared artifact is stale', () => {
         runAgentSkillDeployment()
         const claudeCopy = join(testHome, '.claude', 'skills', 'hapi-agent', 'SKILL.md')
         mkdirSync(dirname(claudeCopy), { recursive: true })
         writeFileSync(claudeCopy, canonicalContent(), 'utf-8')
 
-        const report = runAgentSkillDeployment()
+        const targetPath = resolveManagedSkillTargetPath()
+        const oldContent = 'managed but stale content\n'
+        writeFileSync(targetPath, oldContent, 'utf-8')
+        writeManagedManifest(targetPath, [sha256(oldContent)])
+
+        const report = probeAgentSkillDeployment()
         expect(report.harnesses.claude?.status).toBe('current')
+        expect(report.harnesses.codex?.status).toBe('outdated')
+    })
+})
+
+describe('registerAgentSkillProbeHandler', () => {
+    test('persists the probe report before returning it', async () => {
+        runAgentSkillDeployment()
+        let handler: ((params: unknown) => unknown | Promise<unknown>) | undefined
+        let persistedHash: string | undefined
+
+        registerAgentSkillProbeHandler({
+            registerHandler: (_method, registered) => {
+                handler = registered
+            }
+        }, async (update) => {
+            const metadata = update({
+                host: 'runner',
+                platform: process.platform,
+                happyCliVersion: '1.0.0'
+            })
+            persistedHash = metadata.agentSkills?.canonicalHash
+        })
+
+        const response = await handler?.({})
+        expect(response).toEqual({
+            agentSkills: expect.objectContaining({ canonicalHash: persistedHash })
+        })
+    })
+
+    test('fails the probe RPC when machine metadata cannot be persisted', async () => {
+        let handler: ((params: unknown) => unknown | Promise<unknown>) | undefined
+        registerAgentSkillProbeHandler({
+            registerHandler: (_method, registered) => {
+                handler = registered
+            }
+        }, async () => {
+            throw new Error('metadata write failed')
+        })
+
+        expect(handler).toBeDefined()
+        await expect(handler!({})).rejects.toThrow('metadata write failed')
     })
 })

@@ -1,7 +1,7 @@
 ---
 name: hapi-agent
 summary: 在 HAPI session 内通过 hapi agent CLI 编排同机同目录、祖先/后代目录或同 worktree 家族的其他 session。
-description: Spawn, prompt, wait for, read, list, inspect, and stop scoped HAPI sessions through the hub-backed hapi agent CLI.
+description: Spawn, prompt, wait for, read, list, inspect, and stop scoped HAPI sessions through the hub-backed hapi agent CLI. Use only when running inside a HAPI session. Requires HAPI_SESSION_ID.
 ---
 
 # HAPI session 编排
