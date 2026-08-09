@@ -432,6 +432,22 @@ Every upstream sync must re-check for native CLI command registration,
 authenticated route mounting, and a public runner stop adapter. Remove each
 trunk hook as soon as an equivalent seam exists.
 
+## Session list scroll stability (2026-08-10)
+
+The scroll guards live in
+`web/src/fork-features/session-list-scroll/sessionListScroll.ts`. The existing
+session list exposes only the minimum typed DOM seam needed to bind those
+guards; the router invokes the fork-owned behavior at session navigation.
+
+| Files | Missing upstream seam | Why it cannot move out | Runtime path | Sync verification |
+|---|---|---|---|---|
+| `web/src/components/SessionList.tsx`, `web/src/router.tsx` | No session-list scroll-container ref or selection-navigation extension point | The guards need the real persistent sidebar element before navigation and the selected row ID at navigation time; both are private to these components | Session row click, route navigation, router scroll restoration, active-first reorder | Run `bun run test:e2e -- session-scroll.spec.ts`; confirm stale route scroll is rejected and the selected row remains anchored |
+| `.github/workflows/test.yml` | No fork e2e registration manifest | CI names its browser specs directly in the upstream workflow | Pull request test job runs the session-scroll regression spec | Confirm the Test workflow invokes `session-scroll.spec.ts` and fails when `onScrollContainerChange` is disconnected |
+
+Each upstream sync must check for a native per-element scroll-restoration
+opt-out and a stable session-list selection seam. Remove these trunk hooks when
+upstream provides both, and keep the browser regression spec on the replacement.
+
 ## Verification record
 
 | Date | Operation | Result |

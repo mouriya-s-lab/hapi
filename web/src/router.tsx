@@ -13,7 +13,10 @@ import {
     useSearch,
 } from '@tanstack/react-router'
 import { getScrollRestorationKey } from '@/lib/scrollRestorationKey'
-import { usePreserveSidebarScroll } from '@/hooks/usePreserveSidebarScroll'
+import {
+    useAnchoredSessionScroll,
+    usePreserveSidebarScroll,
+} from '@/fork-features/session-list-scroll/sessionListScroll'
 import { App } from '@/App'
 import { SessionChat } from '@/components/SessionChat'
 import { SessionList } from '@/components/SessionList'
@@ -159,10 +162,11 @@ function SessionsPage() {
     const { api, baseUrl } = useAppContext()
     const navigate = useNavigate()
     const pathname = useLocation({ select: location => location.pathname })
-    const sidebarScrollRef = useRef<HTMLDivElement>(null)
-    // Keep the persistent sidebar from jumping when Router's per-route scroll
-    // restoration fires on navigation (issue #31).
-    usePreserveSidebarScroll(sidebarScrollRef, pathname)
+    // SessionList reports its actual scroll node. Keeping the element in state
+    // makes both guards rebind if that keyed subtree is replaced.
+    const [sidebarScrollContainer, setSidebarScrollContainer] = useState<HTMLDivElement | null>(null)
+    usePreserveSidebarScroll(sidebarScrollContainer, pathname)
+    const captureSessionAnchor = useAnchoredSessionScroll(sidebarScrollContainer)
     const matchRoute = useMatchRoute()
     const { t } = useTranslation()
     const { addToast } = useToast()
@@ -253,10 +257,14 @@ function SessionsPage() {
                         key={initializedHub === baseUrl ? 'last-seen-ready' : 'last-seen-pending'}
                         sessions={visibleSessions}
                         selectedSessionId={selectedSessionId}
-                        onSelect={(sessionId) => navigate({
-                            to: '/sessions/$sessionId',
-                            params: { sessionId },
-                        })}
+                        onScrollContainerChange={setSidebarScrollContainer}
+                        onSelect={(sessionId) => {
+                            captureSessionAnchor(sessionId)
+                            navigate({
+                                to: '/sessions/$sessionId',
+                                params: { sessionId },
+                            })
+                        }}
                         onNewSession={() => navigate({ to: '/sessions/new' })}
                         onNewSessionInDirectory={handleNewSessionInDirectory}
                         onBrowse={canBrowse ? () => navigate({ to: '/browse' }) : undefined}
