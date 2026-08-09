@@ -1,6 +1,7 @@
 import axios from 'axios'
 import type { AgentState, ClearOpencodeSessionCallbackRequest, ClearOpencodeSessionResponse, CreateMachineResponse, CreateSessionResponse, RunnerState, Machine, MachineMetadata, Metadata, Session } from '@/api/types'
 import type { LocalResumeTarget, ResumableSession } from '@hapi/protocol'
+import type { MachineAgentSkills } from '@hapi/protocol/schemas'
 import {
     AgentStateSchema,
     ClearOpencodeSessionResponseSchema,
@@ -329,13 +330,14 @@ export class ApiClient {
 
     machineSyncClient(
         machine: Machine,
-        options?: { workspaceRoots?: string[]; ompAvailable?: boolean }
+        options?: { workspaceRoots?: string[]; ompAvailable?: boolean; agentSkills?: MachineAgentSkills }
     ): ApiMachineClient {
         return new ApiMachineClient(
             this.token,
             machine,
             options?.workspaceRoots,
-            options?.ompAvailable ?? false
+            options?.ompAvailable ?? false,
+            options?.agentSkills
         )
     }
 }

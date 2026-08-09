@@ -2,6 +2,9 @@ import { z } from 'zod'
 import { COPILOT_AGENT_MODES, type CopilotAgentMode } from './copilotModes'
 import { CODEX_COLLABORATION_MODES, PERMISSION_MODES } from './modes'
 import { OMP_EFFORT_LEVELS, OMP_THINKING_LEVELS } from './omp'
+import { MachineAgentSkillsSchema } from './forkAgentSkills'
+
+export * from './forkAgentSkills'
 
 export const PermissionModeSchema = z.enum(PERMISSION_MODES)
 export const CodexCollaborationModeSchema = z.enum(CODEX_COLLABORATION_MODES)
@@ -519,7 +522,8 @@ export const MachineMetadataSchema = z.object({
     happyLibDir: z.string().optional(),
     workspaceRoots: z.array(z.string()).optional(),
     capabilities: MachineCapabilitiesSchema.optional(),
-    usage: MachineUsageStateSchema.optional()
+    usage: MachineUsageStateSchema.optional(),
+    agentSkills: MachineAgentSkillsSchema.optional()
 })
 
 export type MachineMetadata = z.infer<typeof MachineMetadataSchema>

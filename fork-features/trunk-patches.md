@@ -432,6 +432,29 @@ Every upstream sync must re-check for native CLI command registration,
 authenticated route mounting, and a public runner stop adapter. Remove each
 trunk hook as soon as an equivalent seam exists.
 
+## hapi-agent skill deployment (2026-08-10, issue #271)
+
+Deployment/probe logic, managed-artifact manifest semantics, and tests live in
+`fork-features/agent-skill-deploy/`. The per-harness report schema lives in
+`shared/src/forkAgentSkills.ts` (fork-owned file re-exported through
+`shared/src/schemas.ts`). Upstream exposes no embedded-asset registration,
+metadata-field extension, or runner-startup hook API, so these narrow trunk
+hooks remain:
+
+| Files | Missing upstream seam | Why it cannot move out | Runtime path | Sync verification |
+|---|---|---|---|---|
+| `cli/src/runtime/embeddedAssets.bun.ts` | No embedded-asset registration API | The canonical skill must join the closed COMMON_ASSETS list compiled into the binary | build → embedded asset → runtime staging | Build a single exe, start a runner with isolated HOME, confirm the skill deploys without a repo checkout |
+| `cli/src/runtime/assets.ts` | Readiness check is a closed predicate | `isCanonicalSkillStaged` must join `runtimeAssetsReady` so same-version runtime dirs restage the skill | binary start → ensureRuntimeAssets → staged skill | Delete the staged skill from the runtime dir, restart, confirm it is restaged |
+| `shared/src/schemas.ts` | No machine-metadata field registry | zod strips undeclared keys, so `agentSkills` must be declared on `MachineMetadataSchema` (import + re-export + 1 field) | runner report → machine metadata → hub → web | `GET /api/machines` shows `metadata.agentSkills` per harness |
+| `cli/src/modules/common/skills.ts` | Discovery-root helpers are private | `getHomeDirectory`/`getUserSkillsRoots` are exported (2 keywords) so deploy/probe cannot drift from real discovery | deploy/probe → same roots as discovery | Unit tests in `fork-features/agent-skill-deploy/deploy.test.ts` |
+| `cli/src/runner/run.ts` | No runner-startup hook | Deployment must complete before `getOrCreateMachine` registers the machine as spawnable | runner start → deploy+probe → register with metadata | Runner logs per-harness statuses before "Machine registered" |
+| `cli/src/agent/sessionFactory.ts` | Metadata builder is a closed function | `buildMachineMetadata` carries the optional `agentSkills` report | same as above | — |
+| `cli/src/api/api.ts`, `cli/src/api/apiMachine.ts` | No metadata-sync extension point | Existing machines only get omp reconciled on registration, so the report must sync on socket connect (mirrors the omp pattern) | socket connect → metadata diff → `machine-update-metadata` | Restart runner against an existing machine, confirm hub metadata updates |
+
+Every upstream sync must re-check for an embedded-asset registry, a machine
+metadata extension seam, and a runner lifecycle hook; migrate and drop these
+patches when any appears.
+
 ## Verification record
 
 | Date | Operation | Result |

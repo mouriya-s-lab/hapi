@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import { ApiClient } from '@/api/api'
 import type { ApiSessionClient } from '@/api/apiSession'
 import type { AgentState, MachineMetadata, Metadata, Session } from '@/api/types'
+import type { MachineAgentSkills } from '@hapi/protocol/schemas'
 import { notifyRunnerSessionStarted } from '@/runner/controlClient'
 import { readSettings } from '@/persistence'
 import { configuration } from '@/configuration'
@@ -44,6 +45,7 @@ export type SessionBootstrapResult = {
 export function buildMachineMetadata(options?: {
     workspaceRoots?: string[]
     ompAvailable?: boolean
+    agentSkills?: MachineAgentSkills
 }): MachineMetadata {
     return {
         host: process.env.HAPI_HOSTNAME || os.hostname(),
@@ -55,7 +57,8 @@ export function buildMachineMetadata(options?: {
         workspaceRoots: options?.workspaceRoots,
         capabilities: options?.ompAvailable === undefined
             ? undefined
-            : { omp: options.ompAvailable }
+            : { omp: options.ompAvailable },
+        agentSkills: options?.agentSkills
     }
 }
 

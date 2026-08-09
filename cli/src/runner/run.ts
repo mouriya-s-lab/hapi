@@ -30,6 +30,7 @@ import { resolveWorkspaceRoots } from '@/utils/workspaceRoot';
 import { hashRunnerCliApiToken, hashRunnerExtraHeaders } from './runnerIdentity';
 import { scheduleCursorModelsPrewarm } from '@/modules/common/cursorModelsPrewarm';
 import { detectOmpMachineAvailability } from '../../../fork-features/omp-host-integration/machine';
+import { runAgentSkillDeployment } from '../../../fork-features/agent-skill-deploy/deploy';
 import { isLinkedGitWorktree } from '@/utils/isLinkedGitWorktree';
 
 /**
@@ -1129,13 +1130,21 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
       logger.debug(`[RUNNER RUN] OMP unavailable: ${ompAvailability.error}`);
     }
 
+    // Fork feature (#271): deploy the canonical hapi-agent skill before the
+    // machine registers and becomes eligible for session spawns.
+    const agentSkills = runAgentSkillDeployment();
+    for (const [flavor, result] of Object.entries(agentSkills.harnesses)) {
+      logger.debug(`[RUNNER RUN] hapi-agent skill for ${flavor}: ${result.status}${result.error ? ` (${result.error})` : ''}`);
+    }
+
     // Get or create machine (with retry for transient connection errors)
     const machine = await withRetry(
       () => api.getOrCreateMachine({
         machineId,
         metadata: buildMachineMetadata({
           workspaceRoots,
-          ompAvailable: ompAvailability.available
+          ompAvailable: ompAvailability.available,
+          agentSkills
         }),
         runnerState: initialRunnerState
       }),
@@ -1155,7 +1164,8 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
     // Create realtime machine session
     const apiMachine = api.machineSyncClient(machine, {
       workspaceRoots,
-      ompAvailable: ompAvailability.available
+      ompAvailable: ompAvailability.available,
+      agentSkills
     });
 
     // Set RPC handlers

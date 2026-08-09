@@ -131,8 +131,14 @@ function unpackTools(runtimeRoot: string): void {
     }
 }
 
+function isCanonicalSkillStaged(runtimeRoot: string): boolean {
+    return existsSync(join(runtimeRoot, 'skills', 'hapi-agent', 'SKILL.md'));
+}
+
 function runtimeAssetsReady(runtimeRoot: string): boolean {
-    return areToolsUnpacked(join(runtimeRoot, 'tools', 'unpacked')) && isTunwgReady(runtimeRoot);
+    return areToolsUnpacked(join(runtimeRoot, 'tools', 'unpacked'))
+        && isTunwgReady(runtimeRoot)
+        && isCanonicalSkillStaged(runtimeRoot);
 }
 
 export async function ensureRuntimeAssets(): Promise<void> {
