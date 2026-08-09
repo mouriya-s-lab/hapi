@@ -1,46 +1,17 @@
-import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { SessionListScrollStability } from '@/components/SessionList'
+export const DISABLED_SESSION_LIST_SCROLL_STABILITY: SessionListScrollStability = {
+    container: null,
+    bindContainer: () => {},
+    beforeSelect: () => {},
+}
 
 // TanStack Router scroll restoration tracks every scrollable element, including
 // the persistent session sidebar, and restores its scrollTop per pathname. A
 // session navigation can therefore replace the user's current sidebar position
 // with a stale value recorded for the destination route.
 const NAV_RESTORE_WINDOW_MS = 400
-
-export function usePreserveSidebarScroll(
-    container: HTMLElement | null,
-    pathname: string,
-): void {
-    const savedTopRef = useRef(0)
-    const navAtRef = useRef(0)
-
-    useEffect(() => {
-        if (!container) return undefined
-        const onScroll = () => {
-            if (Date.now() - navAtRef.current > NAV_RESTORE_WINDOW_MS) {
-                savedTopRef.current = container.scrollTop
-            }
-        }
-        container.addEventListener('scroll', onScroll, { passive: true })
-        return () => container.removeEventListener('scroll', onScroll)
-    }, [container])
-
-    useEffect(() => {
-        if (!container) return undefined
-        navAtRef.current = Date.now()
-        let raf2 = 0
-        const raf1 = requestAnimationFrame(() => {
-            raf2 = requestAnimationFrame(() => {
-                if (Math.abs(container.scrollTop - savedTopRef.current) > 1) {
-                    container.scrollTop = savedTopRef.current
-                }
-            })
-        })
-        return () => {
-            cancelAnimationFrame(raf1)
-            cancelAnimationFrame(raf2)
-        }
-    }, [container, pathname])
-}
+const ANCHOR_WINDOW_MS = 900
 
 type Anchor = {
     sessionId: string
@@ -48,7 +19,27 @@ type Anchor = {
     expiresAt: number
 }
 
-const ANCHOR_WINDOW_MS = 900
+export type SessionListScrollStabilityMode =
+    | 'all'
+    | 'preserve-only'
+    | 'anchor-only'
+    | 'off'
+
+function guardCapabilities(mode: SessionListScrollStabilityMode): {
+    preserve: boolean
+    anchor: boolean
+} {
+    switch (mode) {
+        case 'all':
+            return { preserve: true, anchor: true }
+        case 'preserve-only':
+            return { preserve: true, anchor: false }
+        case 'anchor-only':
+            return { preserve: false, anchor: true }
+        case 'off':
+            return { preserve: false, anchor: false }
+    }
+}
 
 function rowOffset(container: HTMLElement, sessionId: string): number | null {
     const row = container.querySelector(`[data-session-id="${CSS.escape(sessionId)}"]`)
@@ -57,62 +48,123 @@ function rowOffset(container: HTMLElement, sessionId: string): number | null {
 }
 
 /**
- * Keep the selected session row at the same viewport offset while opening the
- * session changes its active state and reorders its directory group.
+ * Coordinates Router restoration and active-first reordering around one desired
+ * sidebar position. SessionList consumes both callbacks as one required binding
+ * so its real scroll node and pre-navigation selection cannot drift apart.
  */
-export function useAnchoredSessionScroll(
-    container: HTMLElement | null,
-): (sessionId: string) => void {
+export function useSessionListScrollStability(
+    pathname: string,
+    mode: SessionListScrollStabilityMode = 'all',
+): SessionListScrollStability {
+    const [container, bindContainer] = useState<HTMLDivElement | null>(null)
+    const desiredTopRef = useRef(0)
+    const navigationAtRef = useRef(0)
+    const firstRestoreFrameRef = useRef<number | null>(null)
+    const secondRestoreFrameRef = useRef<number | null>(null)
     const anchorRef = useRef<Anchor | null>(null)
-    const detachRef = useRef<(() => void) | null>(null)
+    const { preserve, anchor } = guardCapabilities(mode)
 
     const clearAnchor = useCallback(() => {
         anchorRef.current = null
-        detachRef.current?.()
-        detachRef.current = null
     }, [])
 
-    useEffect(() => clearAnchor, [clearAnchor])
+    const cancelPendingRestore = useCallback(() => {
+        if (firstRestoreFrameRef.current !== null) {
+            cancelAnimationFrame(firstRestoreFrameRef.current)
+            firstRestoreFrameRef.current = null
+        }
+        if (secondRestoreFrameRef.current !== null) {
+            cancelAnimationFrame(secondRestoreFrameRef.current)
+            secondRestoreFrameRef.current = null
+        }
+    }, [])
 
-    const captureAnchor = useCallback((sessionId: string) => {
+    useEffect(() => () => {
         clearAnchor()
-        if (!container) return
+        cancelPendingRestore()
+    }, [cancelPendingRestore, clearAnchor])
+
+    useEffect(() => {
+        if (!container || !preserve) return undefined
+        const recordDesiredTop = () => {
+            if (Date.now() - navigationAtRef.current > NAV_RESTORE_WINDOW_MS) {
+                desiredTopRef.current = container.scrollTop
+            }
+        }
+        container.addEventListener('scroll', recordDesiredTop, { passive: true })
+        return () => container.removeEventListener('scroll', recordDesiredTop)
+    }, [container, preserve])
+
+    useEffect(() => {
+        if (!container || (!preserve && !anchor)) return undefined
+        const acceptUserInput = () => {
+            clearAnchor()
+            if (preserve) {
+                cancelPendingRestore()
+                navigationAtRef.current = 0
+            }
+        }
+        const passive = { passive: true } as const
+        container.addEventListener('wheel', acceptUserInput, passive)
+        container.addEventListener('touchmove', acceptUserInput, passive)
+        container.addEventListener('pointerdown', acceptUserInput, passive)
+        container.addEventListener('keydown', acceptUserInput)
+        return () => {
+            container.removeEventListener('wheel', acceptUserInput)
+            container.removeEventListener('touchmove', acceptUserInput)
+            container.removeEventListener('pointerdown', acceptUserInput)
+            container.removeEventListener('keydown', acceptUserInput)
+        }
+    }, [anchor, cancelPendingRestore, clearAnchor, container, preserve])
+
+    useLayoutEffect(() => {
+        if (!container || !preserve) return undefined
+        navigationAtRef.current = Date.now()
+        cancelPendingRestore()
+        firstRestoreFrameRef.current = requestAnimationFrame(() => {
+            firstRestoreFrameRef.current = null
+            secondRestoreFrameRef.current = requestAnimationFrame(() => {
+                secondRestoreFrameRef.current = null
+                if (Math.abs(container.scrollTop - desiredTopRef.current) > 1) {
+                    container.scrollTop = desiredTopRef.current
+                }
+            })
+        })
+        return cancelPendingRestore
+    }, [cancelPendingRestore, container, pathname, preserve])
+
+    const beforeSelect = useCallback((sessionId: string) => {
+        clearAnchor()
+        if (!anchor || !container) return
         const offset = rowOffset(container, sessionId)
         if (offset === null) return
-
         anchorRef.current = {
             sessionId,
             offset,
             expiresAt: Date.now() + ANCHOR_WINDOW_MS,
         }
-        const cancel = () => clearAnchor()
-        const passive = { passive: true } as const
-        container.addEventListener('wheel', cancel, passive)
-        container.addEventListener('touchmove', cancel, passive)
-        container.addEventListener('pointerdown', cancel, passive)
-        container.addEventListener('keydown', cancel)
-        detachRef.current = () => {
-            container.removeEventListener('wheel', cancel)
-            container.removeEventListener('touchmove', cancel)
-            container.removeEventListener('pointerdown', cancel)
-            container.removeEventListener('keydown', cancel)
-        }
-    }, [clearAnchor, container])
+    }, [anchor, clearAnchor, container])
 
     useLayoutEffect(() => {
-        const anchor = anchorRef.current
-        if (!anchor || !container) return
-        if (Date.now() >= anchor.expiresAt) {
+        const captured = anchorRef.current
+        if (!captured || !container) return
+        if (Date.now() >= captured.expiresAt) {
             clearAnchor()
             return
         }
-        const current = rowOffset(container, anchor.sessionId)
+        const current = rowOffset(container, captured.sessionId)
         if (current === null) return
-        const delta = current - anchor.offset
-        if (Math.abs(delta) > 1) {
-            container.scrollTop += delta
+        const delta = current - captured.offset
+        if (Math.abs(delta) <= 1) return
+        container.scrollTop += delta
+        if (preserve) {
+            desiredTopRef.current = container.scrollTop
         }
     })
 
-    return captureAnchor
+    return useMemo(() => ({
+        container,
+        bindContainer,
+        beforeSelect,
+    }), [beforeSelect, container])
 }

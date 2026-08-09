@@ -35,6 +35,12 @@ import { Spinner } from '@/components/Spinner'
 
 export { getWorktreeSessionLabel } from '@/lib/sessionWorktreeLabel'
 
+export type SessionListScrollStability = Readonly<{
+    container: HTMLDivElement | null
+    bindContainer: (container: HTMLDivElement | null) => void
+    beforeSelect: (sessionId: string) => void
+}>
+
 type SessionGroup = {
     key: string
     directory: string
@@ -1085,8 +1091,8 @@ export function SessionList(props: {
     machineLabelsById?: Record<string, string>
     machinesById?: Record<string, Machine>
     selectedSessionId?: string | null
-    /** Reports the real scroll node so route-level guards survive list remounts. */
-    onScrollContainerChange?: (container: HTMLDivElement | null) => void
+    /** Required binding keeps the real scroll node and pre-navigation selection coupled. */
+    scrollStability: SessionListScrollStability
 }) {
     const { t } = useTranslation()
     const {
@@ -1096,8 +1102,9 @@ export function SessionList(props: {
         machineLabelsById = {},
         machinesById = {},
         onNewSessionInDirectory,
-        onScrollContainerChange,
+        scrollStability,
     } = props
+    const { bindContainer, beforeSelect } = scrollStability
     const { sessionPreviewLimit } = useSessionPreviewLimit()
     const { sessionListStatusMode } = useSessionListStatusMode()
     const { showActiveSessionsOnly } = useShowActiveSessionsOnly()
@@ -1399,8 +1406,12 @@ export function SessionList(props: {
     const scrollContainerRef = useRef<HTMLDivElement>(null)
     const assignScrollContainer = useCallback((container: HTMLDivElement | null) => {
         scrollContainerRef.current = container
-        onScrollContainerChange?.(container)
-    }, [onScrollContainerChange])
+        bindContainer(container)
+    }, [bindContainer])
+    const selectSession = useCallback((sessionId: string) => {
+        beforeSelect(sessionId)
+        props.onSelect(sessionId)
+    }, [beforeSelect, props.onSelect])
     const [pullState, setPullState] = useState<PullToRefreshState>('idle')
     const pullStateRef = useRef<PullToRefreshState>('idle')
     const [isRefreshing, setIsRefreshing] = useState(false)
@@ -1627,7 +1638,7 @@ export function SessionList(props: {
                                                 <SessionItem
                                                     key={s.id}
                                                     session={s}
-                                                    onSelect={props.onSelect}
+                                                    onSelect={selectSession}
                                                     showPath={false}
                                                     api={api}
                                                     selected={s.id === selectedSessionId}
@@ -1709,7 +1720,7 @@ export function SessionList(props: {
                                         <SessionItem
                                             key={s.id}
                                             session={s}
-                                            onSelect={props.onSelect}
+                                            onSelect={selectSession}
                                             showPath={false}
                                             api={api}
                                             selected={s.id === selectedSessionId}

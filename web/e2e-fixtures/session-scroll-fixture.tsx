@@ -2,18 +2,18 @@
  * Fixture for the "session list jumps to a weird scroll position on click" bug
  * (issue #31 / #277).
  *
- * Mirrors router.tsx's sidebar wiring: the REAL SessionList reports its real
- * internal scroll container through `onScrollContainerChange` to the REAL
- * useAnchoredSessionScroll + usePreserveSidebarScroll hooks. A selected-session
- * state update mirrors navigate(/sessions/$id), and enough directory groups
- * overflow the list. If a future refactor disconnects the container callback,
- * both hooks receive null and the fixed-path specs fail.
+ * Uses the same required stability binding as router.tsx. The REAL SessionList
+ * reports its internal scroll node through the binding and invokes its
+ * pre-navigation selection callback before the fixture mirrors route changes.
+ * Enough directory groups overflow the real list and trigger active-first
+ * reordering.
  *
  * Query params:
- *   sel=<id>     initial selected session
- *   noanchor     disable useAnchoredSessionScroll (prove the reorder bug reproduces)
- *   nopreserve   freeze the pathname signal (prove the restoration bug reproduces)
- *   noactivate   selection does not activate the session (isolate preserve tests)
+ *   sel=<id>       initial selected session
+ *   noanchor       disable row anchoring
+ *   nopreserve     disable router-restoration rejection
+ *   noactivate     selection does not activate the session
+ *   fastactivate   activation lands inside the restoration window
  */
 
 import React from 'react'
@@ -23,8 +23,8 @@ import '../src/index.css'
 import { I18nProvider } from '../src/lib/i18n-context'
 import { SessionList } from '../src/components/SessionList'
 import {
-    useAnchoredSessionScroll,
-    usePreserveSidebarScroll,
+    useSessionListScrollStability,
+    type SessionListScrollStabilityMode,
 } from '../src/fork-features/session-list-scroll/sessionListScroll'
 import type { SessionSummary } from '../src/types/api'
 
@@ -79,14 +79,23 @@ for (const group of groups) {
     }
 }
 
-// Mirror the real app's async activation: opening a session resumes it, and the
-// active flag lands later via SSE — after usePreserveSidebarScroll's
-// post-navigation window, which is when useAnchoredSessionScroll takes over.
-const ACTIVATION_DELAY_MS = 500
+// Opening a session resumes it and the active flag lands later via SSE. The
+// fast variant exercises activation inside the Router restoration window.
+const DEFAULT_ACTIVATION_DELAY_MS = 500
 
 const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
 })
+
+function scrollStabilityMode(
+    preserveEnabled: boolean,
+    anchorEnabled: boolean,
+): SessionListScrollStabilityMode {
+    if (preserveEnabled && anchorEnabled) return 'all'
+    if (preserveEnabled) return 'preserve-only'
+    if (anchorEnabled) return 'anchor-only'
+    return 'off'
+}
 
 function App() {
     const params = new URLSearchParams(location.search)
@@ -101,12 +110,12 @@ function App() {
             session.id === activeId ? { ...session, active: true } : session
         ))
     }, [activeId, activateOnSelect])
-    const [scrollContainer, setScrollContainer] = React.useState<HTMLDivElement | null>(null)
-    const captureAnchor = useAnchoredSessionScroll(scrollContainer)
-    // Freezing the pathname disables the preserve guard: its re-assert effect
-    // never re-runs, exactly as if the hook were unwired.
     const pathname = preserveEnabled ? `/sessions/${selectedSessionId ?? 'none'}` : '/static'
-    usePreserveSidebarScroll(scrollContainer, pathname)
+    const scrollStability = useSessionListScrollStability(
+        pathname,
+        scrollStabilityMode(preserveEnabled, anchorEnabled),
+    )
+    const scrollContainer = scrollStability.container
     // Expose the real internal scroll container and a semantic readiness signal
     // to Playwright. This timer deliberately crosses the production guard's
     // 400ms wall-clock window; the spec waits on the signal, not a guessed delay.
@@ -127,8 +136,11 @@ function App() {
     // the preserve hook's nav timestamp and its double-rAF re-assert, matching
     // the real ordering (restoration fires in onRendered, re-assert after).
     const simulateRestoration = React.useCallback(() => {
+        scrollContainer?.removeAttribute('data-restoration-written')
         requestAnimationFrame(() => {
-            if (scrollContainer) scrollContainer.scrollTop = 0
+            if (!scrollContainer) return
+            scrollContainer.scrollTop = 0
+            scrollContainer.setAttribute('data-restoration-written', 'true')
         })
     }, [scrollContainer])
     return (
@@ -145,13 +157,13 @@ function App() {
                     <SessionList
                         sessions={sessions}
                         selectedSessionId={selectedSessionId}
-                        onScrollContainerChange={setScrollContainer}
+                        scrollStability={scrollStability}
                         onSelect={(id) => {
-                            if (anchorEnabled) captureAnchor(id)
                             setSelectedSessionId(id)
                             simulateRestoration()
                             if (activateOnSelect) {
-                                setTimeout(() => setActiveId(id), ACTIVATION_DELAY_MS)
+                                const delay = params.has('fastactivate') ? 0 : DEFAULT_ACTIVATION_DELAY_MS
+                                setTimeout(() => setActiveId(id), delay)
                             }
                         }}
                         onNewSession={() => {}}

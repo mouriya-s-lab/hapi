@@ -1,20 +1,16 @@
 /*
  * Regression coverage for "clicking a session makes the left list jump to a weird
- * scroll position" (issue #31 / #277). Two independent mechanisms, two guards:
+ * scroll position" (issue #31 / #277). One coordinator owns both mechanisms:
  *
  * 1. Reorder jump — opening a session resumes it → it goes active and its
- *    directory group is re-sorted to the top (SessionList sorts active-first),
- *    which lurches the scroll position. useAnchoredSessionScroll pins the
- *    clicked row's screen position across that reorder.
- * 2. Restoration jump — TanStack Router's per-route scroll restoration rewrites
- *    the persistent sidebar's scrollTop from the target route's stale bucket on
- *    every navigation. usePreserveSidebarScroll re-asserts the user's position.
+ *    directory group is re-sorted to the top (SessionList sorts active-first).
+ * 2. Restoration jump — TanStack Router rewrites the persistent sidebar's
+ *    scrollTop from the target route's stale bucket on every navigation.
  *
- * The fixture wires the REAL SessionList through its
- * `onScrollContainerChange` seam into both real hooks, exactly like router.tsx.
- * Each guard has a disabled-variant test asserting the bug still reproduces
- * without it. Disconnecting the seam therefore makes the fixed-path tests fail
- * instead of silently dropping the protection.
+ * The fixture passes the REAL SessionList the same required `scrollStability`
+ * binding as router.tsx. SessionList itself reports its internal scroll node and
+ * captures the selected row before invoking navigation. Disabled modes prove
+ * each failure still reproduces without the corresponding protection.
  */
 
 import { test, expect, type Page } from '@playwright/test'
@@ -93,17 +89,20 @@ async function clickDeltaSessionAndMeasure(
 }
 
 test.describe('session list — activation reorder (anchor guard)', () => {
-    test('without the anchor, clicking a session lurches the list (bug reproduces)', async ({ page }) => {
-        const m = await clickDeltaSessionAndMeasure(page, '&noanchor', true)
-        // The clicked row is yanked far from where it was clicked.
-        expect(Math.abs(m.after - m.before)).toBeGreaterThan(60)
-    })
+    for (const scenario of [
+        { name: 'after the restoration window', query: '' },
+        { name: 'inside the restoration window', query: '&fastactivate' },
+    ]) {
+        test(`without the anchor, activation ${scenario.name} lurches the list`, async ({ page }) => {
+            const m = await clickDeltaSessionAndMeasure(page, `${scenario.query}&noanchor`, true)
+            expect(Math.abs(m.after - m.before)).toBeGreaterThan(60)
+        })
 
-    test('with the anchor, the clicked session stays put', async ({ page }) => {
-        const m = await clickDeltaSessionAndMeasure(page, '', true)
-        // The clicked row holds its screen position despite the reorder.
-        expect(Math.abs(m.after - m.before)).toBeLessThan(8)
-    })
+        test(`with the anchor, activation ${scenario.name} keeps the clicked row put`, async ({ page }) => {
+            const m = await clickDeltaSessionAndMeasure(page, scenario.query, true)
+            expect(Math.abs(m.after - m.before)).toBeLessThan(8)
+        })
+    }
 })
 
 test.describe('session list — router scroll restoration (preserve guard)', () => {
@@ -118,5 +117,56 @@ test.describe('session list — router scroll restoration (preserve guard)', () 
         const m = await clickDeltaSessionAndMeasure(page, '&noactivate', false)
         expect(m.scrollBefore).toBeGreaterThan(200)
         expect(Math.abs(m.scrollAfter - m.scrollBefore)).toBeLessThan(5)
+    })
+
+    test('user wheel input cancels a pending restoration re-assert', async ({ page }) => {
+        await page.addInitScript(() => {
+            const frameDelayMs = 300
+            window.requestAnimationFrame = (callback) => window.setTimeout(
+                () => callback(performance.now()),
+                frameDelayMs,
+            )
+            window.cancelAnimationFrame = (handle) => window.clearTimeout(handle)
+        })
+        await page.goto('/e2e-fixtures/session-scroll-fixture.html?sel=delta-0&noactivate')
+        const container = page.getByTestId('session-scroll-container')
+        await expect(container).toBeVisible()
+        await expect(container).toHaveAttribute('data-preserve-ready', 'true')
+        await page.evaluate(() => new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        }))
+
+        const before = await container.evaluate((element) => {
+            element.scrollTop = element.scrollHeight
+            const containerRect = element.getBoundingClientRect()
+            const target = [...element.querySelectorAll<HTMLButtonElement>('button[data-session-id]')]
+                .find((button) => {
+                    const rowRect = button.getBoundingClientRect()
+                    return rowRect.top > containerRect.top + 10
+                        && rowRect.bottom < containerRect.bottom - 10
+                })
+            if (!target) return null
+            target.setAttribute('data-wheel-pick', '1')
+            return element.scrollTop
+        })
+        if (before === null) throw new Error('no session visible for wheel-input scenario')
+
+        const target = page.locator('[data-wheel-pick="1"]')
+        await target.dispatchEvent('mousedown', { button: 0, clientX: 120, clientY: 240 })
+        await target.dispatchEvent('mouseup', { button: 0, clientX: 120, clientY: 240 })
+        await expect(container).toHaveAttribute('data-restoration-written', 'true')
+        const afterRestoration = await container.evaluate((element) => element.scrollTop)
+        await container.hover()
+        await page.mouse.wheel(0, 160)
+        await expect.poll(() => container.evaluate((element) => element.scrollTop))
+            .toBeGreaterThan(afterRestoration + 100)
+        const afterInput = await container.evaluate((element) => element.scrollTop)
+
+        await page.evaluate(() => new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        }))
+        const settled = await container.evaluate((element) => element.scrollTop)
+        expect(Math.abs(settled - afterInput)).toBeLessThan(5)
+        expect(Math.abs(settled - before)).toBeGreaterThan(100)
     })
 })
