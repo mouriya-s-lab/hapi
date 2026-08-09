@@ -160,7 +160,7 @@ describe('SessionList time filter', () => {
         vi.useRealTimers()
     })
 
-    it('filters after selecting a start and end date', () => {
+    it('keeps the date filter beside collapsed search and filters without expanding it', () => {
         const recent = makeSession({
             id: 'recent',
             updatedAt: Date.now(),
@@ -188,8 +188,14 @@ describe('SessionList time filter', () => {
         expect(screen.getByRole('button', { name: /Recent session/ })).toBeInTheDocument()
         expect(screen.getByRole('button', { name: /Old session/ })).toBeInTheDocument()
 
-        fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
-        fireEvent.click(screen.getByRole('button', { name: 'Filter sessions by last activity' }))
+        const searchButton = screen.getByRole('button', { name: 'Search sessions' })
+        const filterButton = screen.getByRole('button', { name: 'Filter sessions by last activity' })
+        expect(searchButton.nextElementSibling).toBe(filterButton)
+        expect(searchButton.parentElement).toBe(filterButton.parentElement)
+        expect(searchButton.parentElement).toHaveClass('relative', 'gap-1')
+        expect(screen.queryByPlaceholderText('Search sessions…')).toBeNull()
+
+        fireEvent.click(filterButton)
         const emptyDate = screen.getByRole('button', { name: new Date(2026, 6, 17).toLocaleDateString() })
         const activeDate = screen.getByRole('button', { name: `${new Date(2026, 6, 18).toLocaleDateString()}, has session activity` })
         expect(emptyDate).toHaveClass('text-[var(--app-hint)]')
@@ -200,6 +206,10 @@ describe('SessionList time filter', () => {
 
         expect(screen.getByRole('button', { name: /Recent session/ })).toBeInTheDocument()
         expect(screen.queryByRole('button', { name: /Old session/ })).toBeNull()
+        expect(screen.queryByPlaceholderText('Search sessions…')).toBeNull()
+        expect(filterButton).toHaveAttribute('title', '2026-07-17 – 2026-07-18')
+        expect(filterButton).toHaveAccessibleName('Filter sessions by last activity: 2026-07-17 – 2026-07-18')
+        expect(filterButton).toHaveFocus()
     })
 
     it('highlights today without requiring hover or session activity', () => {

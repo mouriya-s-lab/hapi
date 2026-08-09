@@ -559,6 +559,7 @@ function SessionDateRangePicker(props: {
     onChange: (start: string, end: string) => void
     onClear: () => void
     onClose: () => void
+    align: 'left' | 'right'
 }) {
     const { t } = useTranslation()
     const initialDate = parseLocalDate(props.start) ?? new Date()
@@ -580,7 +581,10 @@ function SessionDateRangePicker(props: {
     }
 
     return (
-        <div className="absolute right-0 top-full z-30 mt-2 w-72 rounded-xl border border-[var(--app-border)] bg-[var(--app-bg)] p-3 shadow-xl">
+        <div className={cn(
+            'absolute top-full z-30 mt-2 w-72 rounded-xl border border-[var(--app-border)] bg-[var(--app-bg)] p-3 shadow-xl',
+            props.align === 'left' ? 'left-0' : 'right-0'
+        )}>
             <div className="mb-2 flex items-center justify-between">
                 <button
                     type="button"
@@ -671,8 +675,8 @@ function SessionListSearch(props: {
     const { t } = useTranslation()
     const [datePickerOpen, setDatePickerOpen] = useState(false)
     const inputRef = useRef<HTMLInputElement>(null)
+    const dateButtonRef = useRef<HTMLButtonElement>(null)
     const hasDateRange = Boolean(props.customStart && props.customEnd)
-    const hasActiveFilters = props.value.length > 0 || hasDateRange
 
     useEffect(() => {
         if (props.expanded) {
@@ -682,18 +686,87 @@ function SessionListSearch(props: {
         }
     }, [props.expanded])
 
+    const renderDateFilter = (variant: 'standalone' | 'embedded') => {
+        const returnFocus = () => {
+            (variant === 'embedded' ? inputRef.current : dateButtonRef.current)?.focus()
+        }
+
+        return (
+            <>
+                <button
+                    ref={dateButtonRef}
+                    type="button"
+                    onClick={() => setDatePickerOpen(open => !open)}
+                    className={cn(
+                        'relative shrink-0 transition-colors hover:bg-[var(--app-subtle-bg)]',
+                        variant === 'standalone'
+                            ? 'rounded-full p-1.5 hover:text-[var(--app-fg)]'
+                            : 'flex items-center rounded-r-lg rounded-l-md px-2',
+                        hasDateRange ? 'text-[var(--app-link)]' : 'text-[var(--app-hint)]'
+                    )}
+                    title={hasDateRange ? `${props.customStart} – ${props.customEnd}` : t('sessions.timeFilter.label')}
+                    aria-label={hasDateRange
+                        ? `${t('sessions.timeFilter.label')}: ${props.customStart} – ${props.customEnd}`
+                        : t('sessions.timeFilter.label')}
+                    aria-expanded={datePickerOpen}
+                >
+                    <CalendarIcon className="h-5 w-5" />
+                    {hasDateRange ? (
+                        <span className={cn(
+                            'absolute h-1.5 w-1.5 rounded-full bg-[var(--app-link)]',
+                            variant === 'standalone' ? 'right-0.5 top-0.5' : 'right-1 top-1'
+                        )} />
+                    ) : null}
+                </button>
+                {datePickerOpen ? (
+                    <>
+                        <button
+                            type="button"
+                            aria-label={t('sessions.timeFilter.close')}
+                            className="fixed inset-0 z-20 cursor-default"
+                            onClick={() => {
+                                setDatePickerOpen(false)
+                                returnFocus()
+                            }}
+                        />
+                        <SessionDateRangePicker
+                            start={props.customStart}
+                            end={props.customEnd}
+                            sessionActivityDates={props.sessionActivityDates}
+                            onChange={props.onDateRangeChange}
+                            onClear={() => {
+                                props.onDateRangeChange('', '')
+                                // The footer Clear button unmounts once the range is
+                                // empty; return focus so it does not drop to <body>.
+                                returnFocus()
+                            }}
+                            onClose={() => {
+                                setDatePickerOpen(false)
+                                returnFocus()
+                            }}
+                            align={variant === 'standalone' ? 'left' : 'right'}
+                        />
+                    </>
+                ) : null}
+            </>
+        )
+    }
+
     if (!props.expanded) {
         return (
-            <button
-                type="button"
-                onClick={() => props.onExpandedChange(true)}
-                className="relative shrink-0 rounded-full p-1.5 text-[var(--app-hint)] transition-colors hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)]"
-                title={t('sessions.search.open')}
-                aria-label={t('sessions.search.open')}
-            >
-                <SearchIcon className="h-5 w-5" />
-                {hasActiveFilters ? <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-[var(--app-link)]" /> : null}
-            </button>
+            <div className="relative flex items-center gap-1">
+                <button
+                    type="button"
+                    onClick={() => props.onExpandedChange(true)}
+                    className="relative shrink-0 rounded-full p-1.5 text-[var(--app-hint)] transition-colors hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)]"
+                    title={t('sessions.search.open')}
+                    aria-label={t('sessions.search.open')}
+                >
+                    <SearchIcon className="h-5 w-5" />
+                    {props.value.length > 0 ? <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-[var(--app-link)]" /> : null}
+                </button>
+                {renderDateFilter('standalone')}
+            </div>
         )
     }
 
@@ -733,44 +806,7 @@ function SessionListSearch(props: {
                 </button>
             ) : null}
             <div className="absolute inset-y-0 right-0 flex items-stretch">
-                <button
-                    type="button"
-                    onClick={() => setDatePickerOpen(open => !open)}
-                    className={cn(
-                        'relative flex items-center rounded-r-lg rounded-l-md px-2 transition-colors hover:bg-[var(--app-subtle-bg)]',
-                        hasDateRange ? 'text-[var(--app-link)]' : 'text-[var(--app-hint)]'
-                    )}
-                    title={hasDateRange ? `${props.customStart} – ${props.customEnd}` : t('sessions.timeFilter.label')}
-                    aria-label={t('sessions.timeFilter.label')}
-                    aria-expanded={datePickerOpen}
-                >
-                    <CalendarIcon className="h-5 w-5" />
-                    {hasDateRange ? <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--app-link)]" /> : null}
-                </button>
-                {datePickerOpen ? (
-                    <>
-                        <button type="button" aria-label={t('sessions.timeFilter.close')} className="fixed inset-0 z-20 cursor-default" onClick={() => {
-                            setDatePickerOpen(false)
-                            inputRef.current?.focus()
-                        }} />
-                        <SessionDateRangePicker
-                            start={props.customStart}
-                            end={props.customEnd}
-                            sessionActivityDates={props.sessionActivityDates}
-                            onChange={props.onDateRangeChange}
-                            onClear={() => {
-                                props.onDateRangeChange('', '')
-                                // The footer Clear button unmounts once the range is
-                                // empty; return focus so the wrapper blur still works.
-                                inputRef.current?.focus()
-                            }}
-                            onClose={() => {
-                                setDatePickerOpen(false)
-                                inputRef.current?.focus()
-                            }}
-                        />
-                    </>
-                ) : null}
+                {renderDateFilter('embedded')}
             </div>
         </div>
     )

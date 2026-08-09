@@ -2,6 +2,7 @@ import { useEffect, useState, type FC, type PropsWithChildren } from 'react'
 import { useMessage } from '@assistant-ui/react'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/use-translation'
+import { useReasoningCollapse } from '@/hooks/useReasoningCollapse'
 
 function ChevronIcon(props: { open: boolean }) {
     return (
@@ -79,10 +80,12 @@ export const ReasoningGroup: FC<PropsWithChildren> = ({ children }) => {
     const isStreaming = message.status?.type === 'running'
         && message.content.length > 0
         && message.content[message.content.length - 1]?.type === 'reasoning'
+    const { reasoningCollapsed } = useReasoningCollapse()
 
     useEffect(() => {
-        if (isStreaming) setIsOpen(true)
-    }, [isStreaming])
+        if (!isStreaming) return
+        setIsOpen(!reasoningCollapsed)
+    }, [isStreaming, reasoningCollapsed])
 
     return (
         <ReasoningGroupView
