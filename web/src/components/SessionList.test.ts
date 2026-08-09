@@ -262,7 +262,8 @@ describe('prepareSidebarSessions', () => {
             model: null,
             modelReasoningEffort: null,
             effort: null,
-            serviceTier: null
+            serviceTier: null,
+            resumeWithSessionModel: false
         }
 
         const summary = toSessionSummary(piSession)

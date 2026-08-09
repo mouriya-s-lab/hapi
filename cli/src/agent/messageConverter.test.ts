@@ -116,6 +116,36 @@ describe('convertAgentMessage', () => {
         });
     });
 
+    it('keeps native assistant usage on the visible message footer payload', () => {
+        const converted = convertAgentMessage({
+            type: 'text',
+            text: 'answer',
+            model: 'openai-codex/gpt-5.4-mini',
+            usage: {
+                inputTokens: 120,
+                outputTokens: 30,
+                totalTokens: 150,
+                cacheReadTokens: 100,
+                costUsd: 0.031
+            }
+        });
+
+        expect(converted).toEqual({
+            type: 'message',
+            message: 'answer',
+            model: 'openai-codex/gpt-5.4-mini',
+            usage: {
+                total: {
+                    inputTokens: 120,
+                    outputTokens: 30,
+                    totalTokens: 150,
+                    cachedInputTokens: 100
+                },
+                costUsd: 0.031
+            }
+        });
+    });
+
     it('converts error messages into codex error payloads', () => {
         const converted = convertAgentMessage({
             type: 'error',
@@ -208,5 +238,22 @@ describe('convertAgentMessage', () => {
         // result straight into the chat stream — so the runtime contract has to
         // be fail-closed.
         expect(convertAgentMessage({ type: 'not_a_real_type' } as never)).toBeNull();
+    });
+
+    it('converts generated_image messages into generated-image wire payloads', () => {
+        const converted = convertAgentMessage({
+            type: 'generated_image',
+            imageId: 'img-1',
+            fileName: 'inline.png',
+            mimeType: 'image/png',
+        });
+
+        expect(converted).toMatchObject({
+            type: 'generated-image',
+            imageId: 'img-1',
+            fileName: 'inline.png',
+            mimeType: 'image/png',
+        });
+        expect(converted && 'id' in converted && typeof converted.id === 'string').toBe(true);
     });
 });

@@ -3,7 +3,7 @@
  */
 
 import { io, type Socket } from 'socket.io-client'
-import { readdir, realpath, stat } from 'node:fs/promises'
+import { mkdir, readdir, realpath, stat } from 'node:fs/promises'
 import { realpathSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { logger } from '@/ui/logger'
@@ -18,7 +18,8 @@ import {
     type ListPiSessionsRpcResponse,
     type MachineDirectoryEntry,
     type MachineListDirectoryResponse,
-    type PathExistsResponse
+    type PathExistsResponse,
+    type MachineCreateDirectoryResponse
 } from '@hapi/protocol/apiTypes'
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import { RUNNER_CAPABILITIES } from '@hapi/protocol'
@@ -49,10 +50,16 @@ import { archiveLocalCodexSession, listLocalCodexSessionSummaries, listLocalCode
 import { listLocalPiSessionSummaries, listLocalPiSessionsWithMessagesByIds } from '../modules/common/piSessions'
 import { buildSocketIoExtraHeaderOptions } from './hubExtraHeaders'
 import { collectMachineHealth } from '@/utils/machineHealth'
+import { handleForkSpawnSession } from '../../../fork-features/session-fork/cliHandler'
+import { RunnerUsageMonitor } from '../modules/common/usage/runnerUsageMonitor'
 import { inspectCursorChatStore } from '@/cursor/cursorChatStoreStatus'
 import { homedir } from 'node:os'
 import type { CursorChatStoreStatus } from '@hapi/protocol/apiTypes'
 
+import {
+    registerOmpMachineHandlers,
+    type OmpMachineIntegration
+} from '../../../fork-features/omp-host-integration/machine'
 type MachineRpcHandlers = {
     spawnSession: (options: SpawnSessionOptions) => Promise<SpawnSessionResult>
     stopSession: (sessionId: string) => Promise<'stopped' | 'already_gone' | 'still_alive'>
@@ -80,6 +87,11 @@ export function normalizeWindowsDriveRoot(path: string): string {
 
 function canonicalRealpathSync(path: string): string {
     return normalizeWindowsDriveRoot(realpathSync.native(path))
+}
+
+interface CreateMachineDirectoryRequest {
+    parentPath: string
+    name: string
 }
 
 function normalizeWorkspaceRoots(paths?: string[]): string[] | undefined {
@@ -117,13 +129,16 @@ export class ApiMachineClient {
     private keepAliveInterval: NodeJS.Timeout | null = null
     private keepAliveStartTimeout: ReturnType<typeof setTimeout> | null = null
     private rpcHandlerManager: RpcHandlerManager
+    private readonly usageMonitor = new RunnerUsageMonitor()
+    private readonly ompMachineIntegration: OmpMachineIntegration | null
 
     private readonly normalizedWorkspaceRoots: string[] | undefined
 
     constructor(
         private readonly token: string,
         private readonly machine: Machine,
-        private readonly workspaceRoots?: string[]
+        private readonly workspaceRoots?: string[],
+        private readonly ompAvailable: boolean = false
     ) {
         // Realpath roots once so all subsequent comparisons are against
         // canonical, symlink-resolved locations. Falls back to lexical
@@ -136,6 +151,22 @@ export class ApiMachineClient {
         })
 
         registerCommonHandlers(this.rpcHandlerManager, getInvokedCwd())
+        this.ompMachineIntegration = this.ompAvailable
+            ? registerOmpMachineHandlers(this.rpcHandlerManager, {
+                defaultCwd: getInvokedCwd(),
+                resolveModelCwd: async (cwd) => {
+                    const resolvedCwd = await this.resolveForWorkspaceCheck(cwd)
+                    if (!this.isWithinWorkspaceRoots(resolvedCwd)) {
+                        throw new Error('Path is outside workspace roots')
+                    }
+                    const stats = await stat(resolvedCwd)
+                    if (!stats.isDirectory()) {
+                        throw new Error('Path is not a directory')
+                    }
+                    return resolvedCwd
+                }
+            })
+            : null
 
         this.rpcHandlerManager.registerHandler<PathExistsRequest, PathExistsResponse>(RPC_METHODS.PathExists, async (params) => {
             const rawPaths = Array.isArray(params?.paths) ? params.paths : []
@@ -237,6 +268,38 @@ export class ApiMachineClient {
                 return { success: true, entries }
             } catch (error) {
                 return { success: false, error: error instanceof Error ? error.message : 'Failed to list directory' }
+            }
+        })
+
+        this.rpcHandlerManager.registerHandler<CreateMachineDirectoryRequest, MachineCreateDirectoryResponse>(RPC_METHODS.CreateMachineDirectory, async (params) => {
+            if (!this.normalizedWorkspaceRoots?.length) {
+                return { success: false, error: 'Workspace browsing is not enabled for this machine' }
+            }
+
+            const rawParentPath = typeof params?.parentPath === 'string' ? params.parentPath.trim() : ''
+            const name = typeof params?.name === 'string' ? params.name.trim() : ''
+            if (!rawParentPath || !name) {
+                return { success: false, error: 'Parent path and directory name are required' }
+            }
+            if (name === '.' || name === '..' || name.includes('/') || name.includes('\\')) {
+                return { success: false, error: 'Directory name must be a single path segment' }
+            }
+
+            const parentPath = await this.resolveForWorkspaceCheck(rawParentPath)
+            if (!this.isWithinWorkspaceRoots(parentPath)) {
+                return { success: false, error: 'Path is outside workspace roots' }
+            }
+
+            const targetPath = join(parentPath, name)
+            if (!this.isWithinWorkspaceRoots(targetPath)) {
+                return { success: false, error: 'Path is outside workspace roots' }
+            }
+
+            try {
+                await mkdir(targetPath)
+                return { success: true, path: targetPath }
+            } catch (error) {
+                return { success: false, error: error instanceof Error ? error.message : 'Failed to create directory' }
             }
         })
 
@@ -408,7 +471,7 @@ export class ApiMachineClient {
 
     setRPCHandlers({ spawnSession, stopSession, requestShutdown }: MachineRpcHandlers): void {
         this.rpcHandlerManager.registerHandler(RPC_METHODS.SpawnHappySession, async (params: any) => {
-            const { directory, sessionId, existingSessionId, resumeSessionId, machineId, approvedNewDirectoryCreation, agent, model, effort, modelReasoningEffort, yolo, permissionMode, serviceTier, collaborationMode, copilotAgentMode, token, sessionType, worktreeName, startingMode, forkSession } = params || {}
+            const { directory, sessionId, existingSessionId, resumeSessionId, machineId, approvedNewDirectoryCreation, agent, model, effort, modelReasoningEffort, yolo, permissionMode, serviceTier, collaborationMode, copilotAgentMode, token, sessionType, worktreeName, startingMode, forkSession, claudeLaunch, ccSwitchProviderId } = params || {}
 
             if (!directory) {
                 throw new Error('Directory is required')
@@ -420,7 +483,7 @@ export class ApiMachineClient {
             }
 
             const result = await spawnSession({
-                directory,
+                directory: resolvedDirectory,
                 sessionId,
                 existingSessionId,
                 resumeSessionId,
@@ -439,7 +502,9 @@ export class ApiMachineClient {
                 sessionType,
                 worktreeName,
                 startingMode,
-                forkSession: forkSession === true
+                forkSession: forkSession === true,
+                claudeLaunch,
+                ccSwitchProviderId
             })
 
             switch (result.type) {
@@ -465,6 +530,10 @@ export class ApiMachineClient {
         this.rpcHandlerManager.registerHandler(RPC_METHODS.StopRunner, () => {
             setTimeout(() => requestShutdown(), 100)
             return { message: 'Runner stop request acknowledged' }
+        })
+
+        this.rpcHandlerManager.registerHandler(RPC_METHODS.ForkSpawnSession, async (params: any) => {
+            return handleForkSpawnSession(params)
         })
     }
 
@@ -590,13 +659,40 @@ export class ApiMachineClient {
                 console.log(`[HAPI] Workspace roots already up to date on hub: ${formatWorkspaceRoots(desiredWorkspaceRoots)}`)
             }
 
+            const hubOmpAvailable = this.machine.metadata?.capabilities?.omp === true
+            if (hubOmpAvailable !== this.ompAvailable) {
+                this.updateMachineMetadata((current) => {
+                    const base = current ?? this.machine.metadata
+                    if (!base) throw new Error('Machine metadata unavailable for capability sync')
+                    return {
+                        ...base,
+                        capabilities: {
+                            ...base.capabilities,
+                            omp: this.ompAvailable
+                        }
+                    }
+                }).catch((error) => {
+                    logger.debug('[API MACHINE] Failed to sync runner capabilities', error)
+                })
+            }
+
             this.startKeepAlive()
+            void this.usageMonitor.connect(async (usage) => {
+                await this.updateMachineMetadata((current) => {
+                    const base = current ?? this.machine.metadata
+                    if (!base) throw new Error('Machine metadata unavailable for usage sync')
+                    return { ...base, usage }
+                })
+            }).catch((error) => {
+                logger.debug('[API MACHINE] Failed to start usage monitor', error)
+            })
         })
 
         this.socket.on('disconnect', () => {
             logger.debug('[API MACHINE] Disconnected from bot')
             this.rpcHandlerManager.onSocketDisconnect()
             this.stopKeepAlive()
+            this.usageMonitor.disconnect()
         })
 
         this.socket.on('rpc-request', async (data: { method: string; params: string }, callback: (response: string) => void) => {
@@ -679,6 +775,7 @@ export class ApiMachineClient {
 
     shutdown(): void {
         this.stopKeepAlive()
+        void this.ompMachineIntegration?.shutdown()
         if (this.socket) {
             this.socket.close()
         }

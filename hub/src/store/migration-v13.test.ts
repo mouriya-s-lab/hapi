@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Store } from './index'
 
-describe('Store V12/V13→V14 schema reconciliation', () => {
+describe('Store V12/V13→V16 schema reconciliation', () => {
     it('fresh DB has both reconciled tables', () => {
         const store = new Store(':memory:')
         expect(tableExists(store, 'message_epochs')).toBe(true)
@@ -14,8 +14,8 @@ describe('Store V12/V13→V14 schema reconciliation', () => {
         store.close()
     })
 
-    it('scratchlist V12 DB migrates to V14 and preserves existing messages', () => {
-        const dir = mkdtempSync(join(tmpdir(), 'hapi-migration-v14-test-'))
+    it('scratchlist V12 DB migrates to V16 and preserves existing messages', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'hapi-migration-v16-test-'))
         const dbPath = join(dir, 'test.db')
         let store: Store | undefined
         try {

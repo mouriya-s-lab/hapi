@@ -3,6 +3,7 @@ import {
     AttachmentMetadataSchema,
     MachineMetadataSchema,
     MetadataSchema,
+    OmpInputModeSchema,
     RunnerStateSchema
 } from '@hapi/protocol/schemas'
 import {
@@ -71,6 +72,7 @@ export type {
 
 export const MessageMetaSchema = z.object({
     sentFrom: z.string().optional(),
+    ompInputMode: OmpInputModeSchema.optional(),
     // Queue remains the default for existing clients. Pi-aware callers may
     // explicitly request native steering while a turn is streaming.
     deliveryMode: z.enum(['queue', 'steer']).optional(),

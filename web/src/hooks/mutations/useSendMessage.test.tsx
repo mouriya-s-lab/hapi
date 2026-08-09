@@ -124,6 +124,7 @@ describe('useSendMessage', () => {
                 'local-id-1',
                 undefined,
                 null,
+                undefined,
                 'steer',
             )
         })
@@ -771,13 +772,14 @@ describe('useSendMessage', () => {
             expect(sendMock).toHaveBeenCalled()
         })
 
-        // api.sendMessage(sessionId, text, localId, attachments, scheduledAt, deliveryMode)
+        // api.sendMessage(sessionId, text, localId, attachments, scheduledAt, ompInputMode, deliveryMode)
         expect(sendMock).toHaveBeenCalledWith(
             'session-A',
             'hi later',
             'local-retry-1',
             undefined,
             scheduledAt,
+            undefined,
             'queue',
         )
     })
@@ -820,6 +822,7 @@ describe('useSendMessage', () => {
                 'local-steer-1',
                 undefined,
                 null,
+                undefined,
                 'queue',
             )
         })

@@ -193,7 +193,7 @@ describe('agy hook carrier location (Phase 2.8)', () => {
             // recorded under a different scope must never be probed by this
             // host's sweep. See computeLocalCarrierScope's docstring for why
             // hostname alone (the original Fix N6) wasn't enough.
-            expect(owner.scope).toBe(computeLocalCarrierScope());
+            expect(owner.scope).toBe(computeLocalCarrierScope() ?? '');
             // Must not land inside .agents/ — that's the directory agy itself
             // reads (hooks.json, plugins/), and owner metadata is HAPI-only
             // bookkeeping that must not pollute it.
@@ -205,12 +205,13 @@ describe('agy hook carrier location (Phase 2.8)', () => {
 });
 
 describe('computeLocalCarrierScope', () => {
-    it('computes a linux:<bootId>:<nsId> scope from real /proc reads on this (Linux) test host', () => {
-        // Non-vacuous: this sandbox's /proc is genuinely readable (verified
-        // manually before writing this test), so this pins the real Linux
-        // success path, not just the fallback.
-        const scope = computeLocalCarrierScope();
-        expect(scope).toMatch(/^linux:[0-9a-f-]{36}:\d+$/);
+    it('computes a linux:<bootId>:<nsId> scope from boot and PID namespace probes', () => {
+        const scope = computeLocalCarrierScope({
+            readBootId: () => '12345678-1234-1234-1234-123456789abc',
+            readPidNamespaceId: () => '4026531836',
+            hostname: () => 'unused'
+        });
+        expect(scope).toBe('linux:12345678-1234-1234-1234-123456789abc:4026531836');
     });
 
     it('refuses to fall back to hostname when the Linux probe fails — hostname is not an identity', () => {
@@ -267,12 +268,17 @@ describe('sweepAgyHookCarriers', () => {
     it('③ sweeps a carrier whose owner scope matches AND whose process has died', async () => {
         const deadPid = await spawnAndReapDeadPid();
         const carrierDir = makeCarrierDir('dead-owner-matching-scope');
+        const scopeProbe: ScopeProbe = {
+            readBootId: () => '12345678-1234-1234-1234-123456789abc',
+            readPidNamespaceId: () => '4026531836',
+            hostname: () => 'unused'
+        };
         writeFileSync(
             join(carrierDir, 'owner.json'),
-            JSON.stringify({ pid: deadPid, scope: computeLocalCarrierScope() })
+            JSON.stringify({ pid: deadPid, scope: computeLocalCarrierScope(scopeProbe) })
         );
 
-        sweepAgyHookCarriers();
+        sweepAgyHookCarriers(scopeProbe);
 
         // Fails if the scope-match requirement (Fix 2b) or the liveness
         // check regresses to always-preserve — this is the one combination

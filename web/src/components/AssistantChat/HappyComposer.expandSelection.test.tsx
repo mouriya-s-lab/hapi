@@ -17,7 +17,10 @@ vi.mock('@/components/AssistantChat/ComposerButtons', () => ({
     ),
 }))
 
-vi.mock('@/components/AssistantChat/StatusBar', () => ({ StatusBar: () => null }))
+vi.mock('@/components/AssistantChat/StatusBar', () => ({
+    shouldShowComposerStatusBar: () => true,
+    StatusBar: () => null,
+}))
 vi.mock('@/hooks/useComposerDraft', () => ({ useComposerDraft: () => {} }))
 vi.mock('@/hooks/usePlatform', () => ({
     usePlatform: () => ({

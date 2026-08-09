@@ -97,11 +97,13 @@ describe('setupRegistrationUpdateChecks', () => {
 })
 
 describe('requestPwaUpdateReload', () => {
-    it('reloads immediately when updateSW is unavailable', async () => {
+    it('reloads immediately when no update is pending', async () => {
+        const updateSW = vi.fn()
         const reloadPage = vi.fn()
 
-        await requestPwaUpdateReload(null, { reloadPage })
+        await requestPwaUpdateReload(false, updateSW, { reloadPage })
 
+        expect(updateSW).not.toHaveBeenCalled()
         expect(reloadPage).toHaveBeenCalledTimes(1)
     })
 
@@ -113,7 +115,7 @@ describe('requestPwaUpdateReload', () => {
         })
         const reloadPage = vi.fn()
 
-        await requestPwaUpdateReload(updateSW, { reloadPage })
+        await requestPwaUpdateReload(true, updateSW, { reloadPage })
 
         expect(updateSW).toHaveBeenCalledWith(true)
         expect(reloadPage).toHaveBeenCalledTimes(1)
@@ -125,7 +127,7 @@ describe('requestPwaUpdateReload', () => {
         const updateSW = vi.fn().mockResolvedValue(undefined)
         const reloadPage = vi.fn()
 
-        const pending = requestPwaUpdateReload(updateSW, {
+        const pending = requestPwaUpdateReload(true, updateSW, {
             reloadPage,
             setTimeoutFn: vi.fn((callback, delay) => {
                 expect(delay).toBe(PWA_UPDATE_RELOAD_FALLBACK_MS)
@@ -172,24 +174,26 @@ describe('usePwaUpdate', () => {
         expect(result.current.needRefresh).toBe(true)
     })
 
-    it('reloads through updateSW when reload is called', async () => {
-        const updateSW = vi.fn().mockImplementation(async () => {
-            for (const listener of serviceWorkerListeners.get('controllerchange') ?? []) {
-                listener(new Event('controllerchange'))
-            }
-        })
+    it('reloads through updateSW when an update is pending', async () => {
+        vi.useFakeTimers()
+        const updateSW = vi.fn().mockResolvedValue(undefined)
         registerSWMock.mockImplementation((options) => {
             capturedOptions = options
             return updateSW
         })
 
         const { result } = renderHook(() => usePwaUpdate())
+        act(() => {
+            capturedOptions.onNeedRefresh?.()
+        })
 
         await act(async () => {
             result.current.reload()
         })
 
         expect(updateSW).toHaveBeenCalledWith(true)
+        vi.clearAllTimers()
+        vi.useRealTimers()
     })
 
     it('keeps needRefresh true until a successful reload clears the page', () => {

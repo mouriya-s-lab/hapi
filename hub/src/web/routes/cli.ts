@@ -64,7 +64,10 @@ function clearErrorStatus(code: string): 403 | 404 | 409 | 500 {
                 : 500
 }
 
-export function createCliRoutes(getSyncEngine: () => SyncEngine | null): Hono<CliEnv> {
+export function createCliRoutes(
+    getSyncEngine: () => SyncEngine | null,
+    resolveExternalNamespace?: (token: string) => string | null
+): Hono<CliEnv> {
     const app = new Hono<CliEnv>()
 
     app.use('*', async (c, next) => {
@@ -84,7 +87,10 @@ export function createCliRoutes(getSyncEngine: () => SyncEngine | null): Hono<Cl
         const configuration = getConfiguration()
         const parsedToken = parseAccessToken(token)
         if (!parsedToken || !constantTimeEquals(parsedToken.baseToken, configuration.cliApiToken)) {
-            return c.json({ error: 'Invalid token' }, 401)
+            const namespace = resolveExternalNamespace?.(token) ?? null
+            if (!namespace) return c.json({ error: 'Invalid token' }, 401)
+            c.set('namespace', namespace)
+            return await next()
         }
 
         c.set('namespace', parsedToken.namespace)

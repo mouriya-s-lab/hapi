@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { getDraft, saveDraft } from '@/lib/composer-drafts'
+import { clearDraft, getDraft, saveDraft } from '@/lib/composer-drafts'
+import { consumeForkedFromText } from '@/lib/fork-restore'
 import {
     getDraftAttachments,
     saveDraftAttachments,
@@ -17,15 +18,16 @@ export type ComposerDraftHydration = {
 /**
  * Manages draft save/restore lifecycle for a composer.
  *
- * - On mount: restores saved draft via `setText` (deferred by one animation frame)
- * - On mount: restores saved attachment files through the composer adapter
- * - On unmount: saves current text and attachment files as a draft
+ * - On mount: consume any one-shot fork-restore text stashed by #62 c5;
+ *   if none, restore saved draft via `setText`. Deferred by one animation
+ *   frame so both branches see the runtime's committed initial text.
+ * - On unmount: saves current text as draft
  * - The `draftReady` guard prevents saving before the initial restore completes,
  *   avoiding the case where the runtime's empty initial text overwrites a real draft.
  *
- * The returned status is deliberately session-keyed. Consumers that must not
- * overwrite persisted drafts (for example failed-send recovery after a keyed
- * remount) can wait until `complete` and then respect `restoredAny`.
+ * Fork-restore takes precedence over a persisted draft because it is the text
+ * the user just rewound from. The returned status is session-keyed so consumers
+ * can wait for hydration and avoid overwriting restored content after remount.
  */
 export function useComposerDraft(
     sessionId: string | undefined,
@@ -60,13 +62,16 @@ export function useComposerDraft(
 
         let disposed = false
         const frame = requestAnimationFrame(() => {
-            const draft = getDraft(sessionId)
-            const restoreText = Boolean(draft && !composerTextRef.current)
+            const forkedFrom = consumeForkedFromText(sessionId)
+            const draft = forkedFrom ? null : getDraft(sessionId)
+            const restoredText = !composerTextRef.current ? forkedFrom || draft : null
+            const restoreText = Boolean(restoredText)
             if (restoreText) {
+                if (forkedFrom) clearDraft(sessionId)
                 // Mark before the external composer store gets its render so a
                 // consumer never mistakes this persisted replacement for empty.
                 setHydration({ sessionId, complete: !canRestoreAttachments, restoredAny: true })
-                setText(draft!)
+                setText(restoredText!)
             }
             draftReadyRef.current = true
 

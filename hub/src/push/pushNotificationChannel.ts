@@ -5,13 +5,15 @@ import { getAgentName, getSessionName } from '../notifications/sessionInfo'
 import type { SSEManager } from '../sse/sseManager'
 import type { VisibilityTracker } from '../visibility/visibilityTracker'
 import type { PushPayload, PushService } from './pushService'
+import type { PushEndpointResolver } from '../../../fork-features/multi-user/notificationAdapter'
 
 export class PushNotificationChannel implements NotificationChannel {
     constructor(
         private readonly pushService: PushService,
         private readonly sseManager: SSEManager,
         private readonly visibilityTracker: VisibilityTracker,
-        _appUrl: string
+        _appUrl: string,
+        private readonly resolvePushEndpoints?: PushEndpointResolver
     ) {}
 
     /**
@@ -132,7 +134,23 @@ export class PushNotificationChannel implements NotificationChannel {
         }
 
         this.logBranch(method, session.namespace, 'web-push-fired')
-        await this.pushService.sendToNamespace(session.namespace, payload)
+        await this.sendPush(
+            session,
+            payload,
+            method === 'permission' ? 'operate' : 'read'
+        )
+    }
+
+    private async sendPush(
+        session: Session,
+        payload: PushPayload,
+        capability: 'read' | 'operate'
+    ): Promise<void> {
+        await this.pushService.sendToNamespace(
+            session.namespace,
+            payload,
+            this.resolvePushEndpoints?.(session, capability)
+        )
     }
 
     private buildSessionPath(sessionId: string): string {

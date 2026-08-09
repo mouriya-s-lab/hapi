@@ -23,7 +23,7 @@ function getNamespace(token: string): string | null {
 
 export function SettingsNav(props: { activeId?: string; mobile?: boolean }) {
     const navigate = useNavigate()
-    const { token } = useAppContext()
+    const { token, user } = useAppContext()
     const { t, locale } = useTranslation()
     const { appearance } = useAppearance()
     const { fontScale } = useFontScale()
@@ -36,10 +36,17 @@ export function SettingsNav(props: { activeId?: string; mobile?: boolean }) {
         voice: t('settings.hub.voice.summary'),
         machines: t('settings.hub.machines.summary'),
         storage: t('settings.storage.summary'),
+        account: t('settings.fork.account.description'),
+        users: t('settings.fork.users.description'),
+        fork: t('settings.fork.summary'),
         usage: t('settings.usage.summary'),
         about: `v${__APP_VERSION__}`,
     }
-    const visibleCategories = settingsCategories.filter((category) => !OWNER_ONLY_CATEGORIES.has(category.id) || getNamespace(token) === 'default')
+    const namespace = getNamespace(token)
+    const visibleCategories = settingsCategories.filter(
+        (category) => (!OWNER_ONLY_CATEGORIES.has(category.id) || namespace === 'default')
+            && (category.id !== 'users' || user.role === 'admin')
+    )
 
     return (
         <nav aria-label={t('settings.title')} className={props.mobile ? 'divide-y divide-[var(--app-divider)]' : 'space-y-1 p-3'}>

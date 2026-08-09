@@ -105,7 +105,6 @@ describe('shouldIgnoreTerminalEvent', () => {
 
         expect(ignored).toBe(true);
     });
-
     it('still ignores stale-turn terminal events for a different thread when thread matching is allowed', () => {
         const ignored = shouldIgnoreTerminalEvent({
             eventTurnId: 'turn-old',

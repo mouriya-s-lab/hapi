@@ -102,7 +102,7 @@ describe('Pi conversation-history hub integration', () => {
             let spawnArgs: unknown[] = []
             ;(engine as any).rpcGateway.spawnSession = async (...args: unknown[]) => {
                 spawnArgs = args
-                return { type: 'success', sessionId: args[12] }
+                return { type: 'success', sessionId: args[14] }
             }
             const exactBinds: unknown[][] = []
             ;(engine as any).waitForExactNativeForkBound = async (...args: unknown[]) => {

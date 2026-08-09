@@ -642,7 +642,6 @@ describe('SessionList collapse behavior', () => {
             expect(firstPanel?.getAttribute('data-open')).toBe('true')
         })
     })
-
     it('keeps the configured session preview fold while searching', () => {
         localStorage.setItem('hapi-session-preview-limit', '2')
         const sessions = Array.from({ length: 4 }, (_, index) => makeSession({

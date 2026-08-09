@@ -53,6 +53,7 @@ const ATTENTION_DOT_CLASS = {
     permission: 'bg-amber-500 animate-pulse',
     input: 'bg-blue-500',
     background: 'bg-blue-400',
+    ready: 'bg-blue-500',
     unread: 'bg-[var(--app-link)]',
 } as const
 

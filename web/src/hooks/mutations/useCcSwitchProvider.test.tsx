@@ -1,0 +1,42 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { act, renderHook } from '@testing-library/react'
+import type { ReactNode } from 'react'
+import { describe, expect, it, vi } from 'vitest'
+import type { ApiClient } from '@/api/client'
+import { useCcSwitchProvider } from './useCcSwitchProvider'
+
+function createWrapper() {
+    const queryClient = new QueryClient({
+        defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
+    })
+    return function Wrapper({ children }: { children: ReactNode }) {
+        return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    }
+}
+
+describe('useCcSwitchProvider', () => {
+    it('restarts an active session through the ordered restart endpoint after switching', async () => {
+        const calls: string[] = []
+        const api = {
+            restartSession: vi.fn(async () => {
+                calls.push('restart')
+                return 'session-2'
+            }),
+        } as unknown as ApiClient
+
+        const { result } = renderHook(() => useCcSwitchProvider({
+            api,
+            machineId: 'machine-1',
+            sessionId: 'session-1',
+        }), { wrapper: createWrapper() })
+
+        let restartedSessionId: string | undefined
+        await act(async () => {
+            restartedSessionId = await result.current.switchProvider('provider-1')
+        })
+
+        expect(calls).toEqual(['restart'])
+        expect(api.restartSession).toHaveBeenCalledWith('session-1', 'provider-1')
+        expect(restartedSessionId).toBe('session-2')
+    })
+})

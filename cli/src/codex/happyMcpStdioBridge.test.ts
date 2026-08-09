@@ -62,7 +62,9 @@ describe('runHappyMcpStdioBridge tool forwarding', () => {
             'ping_peer',
             'inspect_peer',
             'list_peers',
-            'skill_lookup'
+            'skill_lookup',
+            'display_video',
+            'send_file'
         ])
 
         const handler = harness.tools.get('skill_lookup')
@@ -90,7 +92,9 @@ describe('runHappyMcpStdioBridge tool forwarding', () => {
             'display_image',
             'ping_peer',
             'inspect_peer',
-            'list_peers'
+            'list_peers',
+            'display_video',
+            'send_file'
         ])
     })
 })
