@@ -32,6 +32,7 @@ import { useSessionListMachineFilter } from '@/hooks/useSessionListMachineFilter
 import { useCursorChatStoreStatus } from '@/hooks/queries/useCursorChatStoreStatus'
 import { SessionRowSummary } from '@/components/SessionRowSummary'
 import { Spinner } from '@/components/Spinner'
+import { DISABLED_SESSION_LIST_SCROLL_STABILITY } from '@/fork-features/session-list-scroll/sessionListScroll'
 
 export { getWorktreeSessionLabel } from '@/lib/sessionWorktreeLabel'
 
@@ -1091,8 +1092,8 @@ export function SessionList(props: {
     machineLabelsById?: Record<string, string>
     machinesById?: Record<string, Machine>
     selectedSessionId?: string | null
-    /** Required binding keeps the real scroll node and pre-navigation selection coupled. */
-    scrollStability: SessionListScrollStability
+    /** Optional; defaults to no-op so upstream SessionList tests stay type-clean. */
+    scrollStability?: SessionListScrollStability
 }) {
     const { t } = useTranslation()
     const {
@@ -1102,7 +1103,7 @@ export function SessionList(props: {
         machineLabelsById = {},
         machinesById = {},
         onNewSessionInDirectory,
-        scrollStability,
+        scrollStability = DISABLED_SESSION_LIST_SCROLL_STABILITY,
     } = props
     const { bindContainer, beforeSelect } = scrollStability
     const { sessionPreviewLimit } = useSessionPreviewLimit()
