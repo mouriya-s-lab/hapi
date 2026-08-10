@@ -24,6 +24,8 @@ import {
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import { RUNNER_CAPABILITIES } from '@hapi/protocol'
 import type { RunnerState, Machine, MachineMetadata } from './types'
+import type { MachineAgentSkills } from '@hapi/protocol/schemas'
+import { registerAgentSkillProbeHandler } from '../../../fork-features/agent-skill-deploy/deploy'
 import { RunnerStateSchema, MachineMetadataSchema } from './types'
 import { backoff } from '@/utils/time'
 import { getInvokedCwd } from '@/utils/invokedCwd'
@@ -138,7 +140,8 @@ export class ApiMachineClient {
         private readonly token: string,
         private readonly machine: Machine,
         private readonly workspaceRoots?: string[],
-        private readonly ompAvailable: boolean = false
+        private readonly ompAvailable: boolean = false,
+        private readonly agentSkills?: MachineAgentSkills
     ) {
         // Realpath roots once so all subsequent comparisons are against
         // canonical, symlink-resolved locations. Falls back to lexical
@@ -151,6 +154,7 @@ export class ApiMachineClient {
         })
 
         registerCommonHandlers(this.rpcHandlerManager, getInvokedCwd())
+        registerAgentSkillProbeHandler(this.rpcHandlerManager, (handler) => this.updateMachineMetadata(handler))
         this.ompMachineIntegration = this.ompAvailable
             ? registerOmpMachineHandlers(this.rpcHandlerManager, {
                 defaultCwd: getInvokedCwd(),
@@ -673,6 +677,21 @@ export class ApiMachineClient {
                     }
                 }).catch((error) => {
                     logger.debug('[API MACHINE] Failed to sync runner capabilities', error)
+                })
+            }
+
+            // Fork feature (#271): sync per-harness hapi-agent skill deployment
+            // results. getOrCreateMachine only reconciles omp capability for an
+            // existing machine, so a fresh deployment report must be pushed here.
+            const desiredAgentSkills = this.agentSkills
+            if (desiredAgentSkills
+                && JSON.stringify(this.machine.metadata?.agentSkills) !== JSON.stringify(desiredAgentSkills)) {
+                this.updateMachineMetadata((current) => {
+                    const base = current ?? this.machine.metadata
+                    if (!base) throw new Error('Machine metadata unavailable for agent skills sync')
+                    return { ...base, agentSkills: desiredAgentSkills }
+                }).catch((error) => {
+                    logger.debug('[API MACHINE] Failed to sync agent skill deployment results', error)
                 })
             }
 

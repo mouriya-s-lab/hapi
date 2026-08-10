@@ -47,6 +47,7 @@ import type { MultiUserGatewayStore } from '../../../fork-features/multi-user/ga
 import { createExecutionMiddleware, mountExecutionRoutes } from '../../../fork-features/multi-user/executionMount'
 import { resolveGatewayCliNamespace } from '../../../fork-features/multi-user/cliAdapter'
 import { mountAgentOrchestrationRoutes } from '../../../fork-features/agent-orchestration/hub'
+import { mountAgentSkillRoutes } from '../../../fork-features/agent-skill-deploy/hubRoutes'
 
 // Normalise upstream close codes before forwarding to the browser client.
 // Codes 1005/1006/1015 are reserved and cannot be sent in a close frame;
@@ -321,6 +322,11 @@ function createWebApp(options: {
     app.route('/api', createDevicesRoutes(options.store))
     app.route('/api', createVoiceRoutes())
     mountAgentOrchestrationRoutes(app, options.getSyncEngine)
+
+    // fork-features/agent-skill-deploy (#261): POST
+    // /api/machines/:id/agent-skills/refresh. Trunk patch — full handler
+    // lives in fork-features/agent-skill-deploy/hubRoutes.ts.
+    mountAgentSkillRoutes(app, options.getSyncEngine)
 
     // fork-features/session-fork: POST /api/sessions/:id/fork +
     // GET /api/flavors/capabilities. Trunk patch — full handler lives

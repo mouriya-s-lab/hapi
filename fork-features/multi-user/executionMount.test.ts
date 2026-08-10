@@ -28,6 +28,46 @@ describe('createExecutionMiddleware', () => {
         store.close()
     })
 
+    it('allows viewers to refresh machine skill readiness without granting machine operations', async () => {
+        const store = new MultiUserGatewayStore(':memory:')
+        const owner = store.createAccount('owner', 'user', 'owner-namespace', null)
+        const viewer = store.createAccount('viewer', 'user', 'viewer-namespace', null)
+        store.bindResource({
+            resourceType: 'machine',
+            resourceId: 'shared-machine',
+            ownerAccountId: owner.id,
+            coreNamespace: owner.defaultNamespace
+        })
+        store.grant('machine', 'shared-machine', viewer.id, 'viewer')
+        const jwtSecret = new TextEncoder().encode('test-secret-test-secret-test-secret')
+        const token = await new SignJWT({ gaid: viewer.id }).setProtectedHeader({ alg: 'HS256' }).sign(jwtSecret)
+        const app = new Hono<WebAppEnv>()
+        app.use('*', createExecutionMiddleware({ store, jwtSecret }))
+        app.post('/api/machines/:id/agent-skills/refresh', c => c.json({ refreshed: true }))
+        app.post('/api/machines/:id/spawn', c => c.json({ started: true }))
+
+        app.delete('/api/machines/:id/agent-skills/refresh', c => c.json({ deleted: true }))
+        const headers = { authorization: `Bearer ${token}` }
+        const refreshResponse = await app.request('/api/machines/shared-machine/agent-skills/refresh', {
+            method: 'POST',
+            headers
+        })
+        const spawnResponse = await app.request('/api/machines/shared-machine/spawn', {
+            method: 'POST',
+            headers
+        })
+
+        const deleteResponse = await app.request('/api/machines/shared-machine/agent-skills/refresh', {
+            method: 'DELETE',
+            headers
+        })
+        expect(refreshResponse.status).toBe(200)
+        expect(await refreshResponse.json()).toEqual({ refreshed: true })
+        expect(spawnResponse.status).toBe(403)
+        expect(deleteResponse.status).toBe(403)
+        store.close()
+    })
+
     it('binds a fork-created session to the source session owner', async () => {
         const store = new MultiUserGatewayStore(':memory:')
         const owner = store.createAccount('owner', 'user', 'owner-namespace', null)

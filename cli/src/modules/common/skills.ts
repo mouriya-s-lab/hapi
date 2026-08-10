@@ -38,7 +38,7 @@ type DiscoveredSkill = ResolvedSkill & {
     fileSize: number;
 };
 
-function getHomeDirectory(): string {
+export function getHomeDirectory(): string {
     return process.env.HOME ?? process.env.USERPROFILE ?? homedir();
 }
 
@@ -60,7 +60,7 @@ function getAgentConfigDir(flavor?: string): string {
     }
 }
 
-function getUserSkillsRoots(flavor?: string): string[] {
+export function getUserSkillsRoots(flavor?: string): string[] {
     const home = getHomeDirectory();
     const roots = [join(home, '.agents', 'skills')];
     switch (normalizeFlavor(flavor)) {

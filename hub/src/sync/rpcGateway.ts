@@ -1,5 +1,6 @@
 import type { AgentFlavor, ClaudeLaunch, CodexCollaborationMode, CopilotAgentMode, PermissionMode } from '@hapi/protocol/types'
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
+import { PROBE_AGENT_SKILLS_RPC_METHOD, ProbeAgentSkillsResponseSchema, type ProbeAgentSkillsResponse } from '@hapi/protocol/schemas'
 import {
     ArchiveCodexSessionRpcResponseSchema,
     CursorChatStoreStatusSchema,
@@ -178,6 +179,13 @@ export class RpcGateway {
         const status = result && typeof result === 'object' ? (result as { status?: unknown }).status : undefined
         if (status === 'stopped' || status === 'already_gone' || status === 'still_alive') return status
         throw new Error('Unexpected stop-session response')
+    }
+
+    async probeMachineAgentSkills(machineId: string): Promise<ProbeAgentSkillsResponse> {
+        const result = await this.machineRpc(machineId, PROBE_AGENT_SKILLS_RPC_METHOD, {})
+        const parsed = ProbeAgentSkillsResponseSchema.safeParse(result)
+        if (!parsed.success) throw new Error('Unexpected agent-skills probe response')
+        return parsed.data
     }
 
     async handoffSessionToLocal(sessionId: string): Promise<void> {
