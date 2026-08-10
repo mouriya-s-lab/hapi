@@ -25,6 +25,7 @@ import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import { RUNNER_CAPABILITIES } from '@hapi/protocol'
 import type { RunnerState, Machine, MachineMetadata } from './types'
 import type { MachineAgentSkills } from '@hapi/protocol/schemas'
+import { registerAgentSkillProbeHandler } from '../../../fork-features/agent-skill-deploy/deploy'
 import { RunnerStateSchema, MachineMetadataSchema } from './types'
 import { backoff } from '@/utils/time'
 import { getInvokedCwd } from '@/utils/invokedCwd'
@@ -153,6 +154,7 @@ export class ApiMachineClient {
         })
 
         registerCommonHandlers(this.rpcHandlerManager, getInvokedCwd())
+        registerAgentSkillProbeHandler(this.rpcHandlerManager, (handler) => this.updateMachineMetadata(handler))
         this.ompMachineIntegration = this.ompAvailable
             ? registerOmpMachineHandlers(this.rpcHandlerManager, {
                 defaultCwd: getInvokedCwd(),

@@ -62,7 +62,7 @@ import type {
     UploadFileResponse
 } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor, MessageDeliveryMode } from '@hapi/protocol'
-import type { CancelMessageResponse } from '@hapi/protocol/schemas'
+import type { CancelMessageResponse, ProbeAgentSkillsResponse } from '@hapi/protocol/schemas'
 import type { TranscriptionMode, TranscriptionProvider, TranscriptionProviderInfo } from '@hapi/protocol/voice'
 import type { ForkRouteResult } from '../../../fork-features/session-fork/rpcPayloads'
 
@@ -762,6 +762,12 @@ export class ApiClient {
 
     async getMachines(): Promise<MachinesResponse> {
         return await this.request<MachinesResponse>('/api/machines')
+    }
+
+    async refreshMachineAgentSkills(machineId: string): Promise<ProbeAgentSkillsResponse> {
+        return await this.request(`/api/machines/${encodeURIComponent(machineId)}/agent-skills/refresh`, {
+            method: 'POST'
+        })
     }
 
     /** Pass an empty string to clear the custom name and fall back to the hostname. */

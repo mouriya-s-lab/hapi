@@ -29,7 +29,13 @@ const resourceFromPath = (path: string): { type: ResourceType; id: string } | nu
     return { type: match[1] === 'machines' ? 'machine' : 'session', id: decodeURIComponent(match[2]) }
 }
 
-const capabilityFor = (method: string): Capability => method === 'GET' ? 'read' : 'operate'
+const capabilityFor = (method: string, path: string): Capability => (
+    method === 'GET'
+    || method === 'HEAD'
+    || (method === 'POST' && /^\/api\/machines\/[^/]+\/agent-skills\/refresh$/.test(path))
+        ? 'read'
+        : 'operate'
+)
 
 export function createExecutionMiddleware(deps: {
     store: MultiUserGatewayStore
@@ -41,7 +47,7 @@ export function createExecutionMiddleware(deps: {
         if (!resource) { await next(); return }
         const accountId = await gatewayAccountId(c.req.raw, deps.jwtSecret)
         if (accountId === null) return c.json({ error: 'Invalid gateway identity' }, 401)
-        const decision = dispatcher.authorize({ accountId, capability: capabilityFor(c.req.method), resource })
+        const decision = dispatcher.authorize({ accountId, capability: capabilityFor(c.req.method, c.req.path), resource })
         if (decision.kind === 'deny') return c.json({ error: 'Insufficient permissions' }, 403)
         c.set('namespace', decision.context.namespace)
         c.set('deliveryMetadata', { gatewayAccountId: accountId })
@@ -61,9 +67,11 @@ export function createExecutionMiddleware(deps: {
             const createdSessionId = c.req.path.endsWith('/fork')
                 ? (body as { newSessionId?: unknown } | null)?.newSessionId
                 : body?.sessionId
+
             if (typeof createdSessionId === 'string') {
                 deps.store.bindResource({
-                    resourceType: 'session', resourceId: createdSessionId,
+                    resourceType: 'session',
+                    resourceId: createdSessionId,
                     ownerAccountId: accountId, coreNamespace: decision.context.namespace
                 })
             }

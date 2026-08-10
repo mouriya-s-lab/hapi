@@ -1135,7 +1135,7 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
     // machine registers and becomes eligible for session spawns.
     const agentSkills = runAgentSkillDeployment();
     for (const [flavor, result] of Object.entries(agentSkills.harnesses)) {
-      logger.debug(`[RUNNER RUN] hapi-agent skill for ${flavor}: ${result.status}${result.error ? ` (${result.error})` : ''}`);
+      logger.debug(`[RUNNER RUN] hapi-agent skill for ${flavor}: ${result.status}`);
     }
 
     // Get or create machine (with retry for transient connection errors)

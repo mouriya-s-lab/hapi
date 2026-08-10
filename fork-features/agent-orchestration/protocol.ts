@@ -17,6 +17,7 @@ export const AgentErrorCodeSchema = z.enum([
     'dead_target',
     'auth_failed',
     'bad_args',
+    'not_hapi_session',
     'spawn_failed',
     'stop_failed',
     'internal_error'

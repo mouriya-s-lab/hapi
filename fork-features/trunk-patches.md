@@ -470,6 +470,25 @@ Each upstream sync must check for a native per-element scroll-restoration
 opt-out and a stable session-list selection seam. Remove these trunk hooks when
 upstream provides both, and keep the browser regression spec on the replacement.
 
+## hapi-agent skill readiness + session boundary (2026-08-10, issue #261)
+
+The read-only probe, refresh route, and offline-retaining machine query live in
+`fork-features/agent-skill-deploy/` and
+`web/src/fork-features/agent-skill-readiness/`. The badge component lives in
+`web/src/components/MachineAgentSkills.tsx`. The CLI `not_hapi_session`
+boundary lives in `fork-features/agent-orchestration/` (fork-owned).
+Remaining trunk hooks:
+
+| Files | Missing upstream seam | Why it cannot move out | Runtime path | Sync verification |
+|---|---|---|---|---|
+| `cli/src/api/apiMachine.ts` | No machine RPC-handler registration API | The probe handler must join the machine-scoped RpcHandlerManager next to `registerCommonHandlers` (1 import + 1 call) | hub RPC → runner probe → metadata push | Refresh from Settings and confirm per-harness statuses update |
+| `hub/src/sync/rpcGateway.ts`, `hub/src/sync/syncEngine.ts` | `machineRpc` is private; no generic machine-RPC adapter | One narrow typed adapter per layer (mirrors agent-orchestration's stop adapter) | fork route → syncEngine → rpcGateway → machine socket | Cold-start hub, POST `/api/machines/:id/agent-skills/refresh` |
+| `hub/src/web/server.ts` | No authenticated route registration API | The refresh route must mount after auth middleware (1 import + 1 call) | web → auth/namespace → fork route | Same as above with/without JWT |
+| `web/src/api/client.ts` | No API-client extension point | `refreshMachineAgentSkills` joins the closed client class | Settings button → hub route | Click refresh in a real browser session |
+| `web/src/routes/settings/machines.tsx` | No machine-row content slot | Imports the fork-owned all-machines query and mounts `<MachineAgentSkillsRow>` inside the upstream row | machines list → fork badge row | Open `/settings/machines`, see live and offline per-harness badges |
+| `web/src/hooks/useSSE.ts` | No machine-update cache extension point | One import + one invalidation keeps the fork-owned all-machines query current without changing the upstream online-only cache | machine SSE event → refetch all accessible machines → retain offline runner | Stop a runner while Settings is open and confirm its badges switch to `offline` |
+| `web/src/lib/locales/en.ts`, `web/src/lib/locales/zh-CN.ts` | No locale extension mechanism | `settings.machines.skills.*` keys must live in the closed locale tables | badge/refresh labels | Render page in both locales |
+
 ## Verification record
 
 | Date | Operation | Result |

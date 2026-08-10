@@ -238,7 +238,7 @@ function resolveApiUrl(): string {
 
 function resolveCallerId(): string {
     const caller = process.env.HAPI_SESSION_ID?.trim()
-    if (!caller) throw new AgentCliError('bad_args', 'HAPI_SESSION_ID is required; run this command inside a HAPI session')
+    if (!caller) throw new AgentCliError('not_hapi_session', 'not running inside a HAPI session; every hapi agent verb except --help requires HAPI_SESSION_ID')
     return caller
 }
 
@@ -326,10 +326,14 @@ async function runAgentCommand(args: string[]): Promise<void> {
         return
     }
 
+    // Session boundary first (#261): a plain shell must be rejected with a
+    // structured not_hapi_session error before token initialization, auth,
+    // or any hub request happens.
+    const caller = resolveCallerId()
+
     await initializeToken()
     const accessToken = getAuthToken().trim()
     if (!accessToken) throw new AgentCliError('bad_args', 'CLI_API_TOKEN is required; run `hapi auth login`')
-    const caller = resolveCallerId()
     const client = new AgentHubClient(resolveApiUrl(), accessToken)
 
     switch (parsed.verb) {
