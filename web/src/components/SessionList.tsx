@@ -760,17 +760,29 @@ function SessionListSearch(props: {
     }
 
     if (!props.expanded) {
+        const hasTextQuery = props.value.length > 0
+        const openLabel = t('sessions.search.open')
+        const collapsedLabel = hasTextQuery ? `${openLabel}: ${props.value}` : openLabel
         return (
             <div className="relative flex items-center gap-1">
                 <button
                     type="button"
                     onClick={() => props.onExpandedChange(true)}
-                    className="relative shrink-0 rounded-full p-1.5 text-[var(--app-hint)] transition-colors hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)]"
-                    title={t('sessions.search.open')}
-                    aria-label={t('sessions.search.open')}
+                    className={cn(
+                        'relative flex min-w-0 max-w-[9rem] items-center gap-1 rounded-full transition-colors',
+                        hasTextQuery
+                            // Dedicated chip tokens (blue wash) so the active query stays
+                            // readable when truncated text disappears at small widths.
+                            ? 'bg-[var(--app-chat-user-chip-bg)] px-2 py-1 text-[var(--app-chat-user-chip-fg)] hover:opacity-90'
+                            : 'shrink-0 p-1.5 text-[var(--app-hint)] hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)]'
+                    )}
+                    title={collapsedLabel}
+                    aria-label={collapsedLabel}
                 >
-                    <SearchIcon className="h-5 w-5" />
-                    {props.value.length > 0 ? <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-[var(--app-link)]" /> : null}
+                    <SearchIcon className="h-5 w-5 shrink-0" />
+                    {hasTextQuery ? (
+                        <span className="min-w-0 truncate text-xs font-medium">{props.value}</span>
+                    ) : null}
                 </button>
                 {renderDateFilter('standalone')}
             </div>

@@ -825,8 +825,49 @@ describe('SessionList search toggle', () => {
         // Blur collapses back to the icon; the query stays applied.
         fireEvent.blur(input)
         expect(screen.queryByPlaceholderText('Search sessions…')).toBeNull()
-        expect(screen.getByRole('button', { name: 'Search sessions' })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /Search sessions/ })).toBeInTheDocument()
         expect(screen.getByRole('button', { name: /Matching task/ })).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: /Other task/ })).toBeNull()
+    })
+
+    it('shows truncated query text on the collapsed search control when a text filter is active', () => {
+        const sessions = [
+            makeSession({
+                id: 'session-jelly',
+                updatedAt: 100,
+                metadata: { path: '/work/hapi', name: 'jellybot task', flavor: 'codex' },
+            }),
+            makeSession({
+                id: 'session-other',
+                updatedAt: 90,
+                metadata: { path: '/work/hapi', name: 'Other task', flavor: 'codex' },
+            }),
+        ]
+
+        renderWithProviders(
+            <SessionList
+                sessions={sessions}
+                selectedSessionId={null}
+                onSelect={vi.fn()}
+                onNewSession={vi.fn()}
+                onRefresh={vi.fn()}
+                isLoading={false}
+                renderHeader={false}
+                api={null}
+            />
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
+        const input = screen.getByPlaceholderText('Search sessions…')
+        fireEvent.change(input, { target: { value: 'jellybot' } })
+        fireEvent.blur(input)
+
+        expect(screen.queryByPlaceholderText('Search sessions…')).toBeNull()
+        const collapsed = screen.getByRole('button', { name: /Search sessions/ })
+        expect(collapsed).toHaveTextContent('jellybot')
+        expect(collapsed.className).toContain('bg-[var(--app-chat-user-chip-bg)]')
+        expect(collapsed.className).toContain('text-[var(--app-chat-user-chip-fg)]')
+        expect(screen.getByRole('button', { name: /jellybot task/ })).toBeInTheDocument()
         expect(screen.queryByRole('button', { name: /Other task/ })).toBeNull()
     })
 
