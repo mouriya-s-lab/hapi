@@ -76,6 +76,24 @@ describe('extractTextFromResult', () => {
         const result = '<tool_use_error>Permission denied</tool_use_error>'
         expect(extractTextFromResult(result)).toBe('Permission denied')
     })
+
+    it('prefers OMP details.displayContent.text over a truncation notice in content[]', () => {
+        const body = 'export function ok() {\n    return 1\n}\n'
+        expect(extractTextFromResult({
+            content: [{ type: 'text', text: '\n\n[Showing lines 1-3 of 3 (20.0KB limit). Read artifact://2 for full output]' }],
+            details: {
+                totalLines: 3,
+                displayContent: { text: body, startLine: 1, lineNumbers: [1, 2, 3] }
+            }
+        })).toBe(body)
+    })
+
+    it('accepts OMP details.displayContent as a plain string', () => {
+        expect(extractTextFromResult({
+            content: [{ type: 'text', text: 'short notice' }],
+            details: { displayContent: 'line one\nline two' }
+        })).toBe('line one\nline two')
+    })
 })
 
 describe('extractImagesFromResult', () => {
@@ -227,6 +245,111 @@ describe('getToolResultViewComponent registry', () => {
         const agentView = getToolResultViewComponent('Agent')
         const genericView = getToolResultViewComponent('SomeUnknownTool')
         expect(agentView).toBe(genericView)
+    })
+
+    it('maps OMP lowercase tool names onto the Claude-style result views', () => {
+        expect(getToolResultViewComponent('read')).toBe(getToolResultViewComponent('Read'))
+        expect(getToolResultViewComponent('bash')).toBe(getToolResultViewComponent('Bash'))
+        expect(getToolResultViewComponent('grep')).toBe(getToolResultViewComponent('Grep'))
+        expect(getToolResultViewComponent('edit')).toBe(getToolResultViewComponent('Edit'))
+        expect(getToolResultViewComponent('write')).toBe(getToolResultViewComponent('Write'))
+        expect(getToolResultViewComponent('todo')).toBe(getToolResultViewComponent('TodoWrite'))
+    })
+
+    it('renders OMP read results as a code block instead of collapsed markdown prose', () => {
+        const ReadView = getToolResultViewComponent('read')
+        const body = [
+            "export async function runHappyMcpStdioBridge(argv: string[]): Promise<void> {",
+            '  try {',
+            "    const sendFileInputSchema: z.ZodTypeAny = z.object({",
+            '    });',
+            '}'
+        ].join('\n')
+        const block: ToolCallBlock = {
+            id: 'tool-read-1',
+            localId: null,
+            createdAt: 0,
+            kind: 'tool-call',
+            children: [],
+            tool: {
+                id: 'tool-read-1',
+                name: 'read',
+                state: 'completed',
+                input: { path: 'cli/src/codex/happyMcpStdioBridge.ts' },
+                result: {
+                    content: [{ type: 'text', text: body }],
+                    details: {
+                        displayContent: { text: body, startLine: 44 },
+                        resolvedPath: '/repo/cli/src/codex/happyMcpStdioBridge.ts'
+                    }
+                },
+                createdAt: 0,
+                startedAt: null,
+                completedAt: 0,
+                execStartedAt: null,
+                execCompletedAt: null,
+                description: null
+            }
+        }
+
+        const { container } = render(
+            <I18nProvider>
+                <ReadView block={block} metadata={null} surface="inline" />
+            </I18nProvider>
+        )
+
+        const code = container.querySelector('pre code')
+        expect(code).not.toBeNull()
+        expect(code?.textContent).toContain('runHappyMcpStdioBridge')
+        expect(code?.textContent).toContain('\n')
+        // Must not collapse into a single whitespace-squashed run.
+        expect(code?.textContent).not.toBe(body.replace(/\s+/g, ' ').trim())
+    })
+
+    it('honours OMP details.displayContent.startLine for the CodeBlock gutter', () => {
+        const ReadView = getToolResultViewComponent('read')
+        const body = [
+            "const { attentionId, scheduleId } = useSessionRowTooltipIds(",
+            "    ...longPressHandlers,",
+            ")"
+        ].join('\n')
+        const block: ToolCallBlock = {
+            id: 'tool-read-startline',
+            localId: null,
+            createdAt: 0,
+            kind: 'tool-call',
+            children: [],
+            tool: {
+                id: 'tool-read-startline',
+                name: 'read',
+                state: 'completed',
+                input: { path: 'web/src/components/SessionList.tsx:997-1000' },
+                result: {
+                    content: [{ type: 'text', text: '\n\n[Showing lines 997-1000]' }],
+                    details: { displayContent: { text: body, startLine: 997 } }
+                },
+                createdAt: 0,
+                startedAt: null,
+                completedAt: 0,
+                execStartedAt: null,
+                execCompletedAt: null,
+                description: null
+            }
+        }
+
+        const { container } = render(
+            <I18nProvider>
+                <ReadView block={block} metadata={null} surface="inline" />
+            </I18nProvider>
+        )
+
+        const pre = container.querySelector('pre[data-start-line]')
+        expect(pre?.getAttribute('data-start-line')).toBe('997')
+        // Language must NOT drift to "json" just because the body begins with a
+        // curly/bracket-heavy fragment — the .tsx extension wins even when the
+        // path carries an OMP `:997-1000` line selector.
+        const code = container.querySelector('pre[data-language]')
+        expect(code?.getAttribute('data-language')).toBe('tsx')
     })
 })
 
