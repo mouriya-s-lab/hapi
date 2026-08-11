@@ -19,7 +19,7 @@ import {
 } from './utils/grokBackend'
 import { GrokPermissionHandler } from './utils/permissionHandler'
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
-import { GROK_TITLE_INSTRUCTION } from './utils/systemPrompt'
+import { getGrokTitleInstruction } from './utils/systemPrompt'
 import { GrokConversationHistory } from './conversationHistory'
 import { isObject } from '@hapi/protocol'
 
@@ -306,7 +306,7 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
                 ? `${PLAN_MODE_INSTRUCTION}\n\n${batch.message}`
                 : batch.message
             if (!this.instructionsSent && !isSlashCommand) {
-                text = `${GROK_TITLE_INSTRUCTION}\n\n${text}`
+                text = `${getGrokTitleInstruction()}\n\n${text}`
                 this.instructionsSent = true
             }
             const promptContent: PromptContent[] = [{ type: 'text', text }]
@@ -412,6 +412,9 @@ class GrokRemoteLauncher extends RemoteLauncherBase {
                 break
             case 'error':
                 this.messageBuffer.addMessage(message.message, 'status')
+                break
+            case 'generated_image':
+                this.messageBuffer.addMessage(`Generated image: ${message.fileName}`, 'assistant')
                 break
             case 'turn_complete':
                 this.messageBuffer.addMessage('Turn complete', 'status')

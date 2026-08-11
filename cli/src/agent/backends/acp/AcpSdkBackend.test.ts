@@ -1165,6 +1165,7 @@ describe('AcpSdkBackend', () => {
             } | null;
             handleSessionUpdate: (params: unknown) => void;
             messageHandler: unknown;
+            sessionUpdateQueue: Promise<void>;
         };
         backendInternal.transport = {
             sendRequest: async () => ({ stopReason: 'end_turn' }),
@@ -1194,12 +1195,16 @@ describe('AcpSdkBackend', () => {
 
         expect(result).toBe('compact result');
         expect(handlerDuringSuppression).toBeNull();
+        await backendInternal.sessionUpdateQueue;
         expect(turn1.some((m) => m.type === 'plan')).toBe(false);
 
         // The previous turn's handler must be back in place afterward so
         // ordinary straggler-forwarding (covered elsewhere) is unaffected.
         expect(backendInternal.messageHandler).toBe(handlerBeforeSuppression);
         emitPlanUpdate();
+        // #958 queues message-handler work (async image registration); await
+        // before asserting delivery — upstream assumed sync handleUpdate.
+        await backendInternal.sessionUpdateQueue;
         expect(turn1.some((m) => m.type === 'plan')).toBe(true);
     });
 
@@ -1223,6 +1228,7 @@ describe('AcpSdkBackend', () => {
             } | null;
             handleSessionUpdate: (params: unknown) => void;
             messageHandler: unknown;
+            sessionUpdateQueue: Promise<void>;
         };
         backendInternal.transport = {
             sendRequest: async () => ({ stopReason: 'end_turn' }),
@@ -1264,13 +1270,64 @@ describe('AcpSdkBackend', () => {
         expect(handlerDuringDrainWindow).toBeNull();
         // Neither the immediate update nor the +15ms straggler leaked —
         // messageHandler was null (suppressed) for both.
+        await backendInternal.sessionUpdateQueue;
         expect(turn1.some((m) => m.type === 'plan')).toBe(false);
 
         expect(backendInternal.messageHandler).toBe(handlerBeforeSuppression);
 
         // Normal forwarding resumes once actually restored.
         emitPlanUpdate();
+        await backendInternal.sessionUpdateQueue;
         expect(turn1.some((m) => m.type === 'plan')).toBe(true);
+    });
+
+    it('drops updates enqueued while suppressed even if the queue drains after the handler is restored', async () => {
+        // If handleSessionUpdate looked up this.messageHandler when the queued
+        // microtask ran (instead of capturing it at enqueue), a compact-era
+        // update stuck behind earlier async image work would leak into the
+        // restored handler after suppressUpdatesDuring returns.
+        backendStatics.PRE_PROMPT_UPDATE_QUIET_PERIOD_MS = 5;
+        backendStatics.PRE_PROMPT_UPDATE_DRAIN_TIMEOUT_MS = 50;
+
+        const backend = new AcpSdkBackend({ command: 'opencode' });
+        const backendInternal = backend as unknown as {
+            transport: {
+                sendRequest: (...args: unknown[]) => Promise<unknown>;
+                close: () => Promise<void>;
+            } | null;
+            handleSessionUpdate: (params: unknown) => void;
+            messageHandler: unknown;
+            sessionUpdateQueue: Promise<void>;
+        };
+        backendInternal.transport = {
+            sendRequest: async () => ({ stopReason: 'end_turn' }),
+            close: async () => {}
+        };
+
+        const turn1: AgentMessage[] = [];
+        await backend.prompt('session-1', [{ type: 'text', text: 'hi' }], (m) => turn1.push(m));
+
+        let releaseBlocker!: () => void;
+        const blocker = new Promise<void>((resolve) => {
+            releaseBlocker = resolve;
+        });
+        backendInternal.sessionUpdateQueue = backendInternal.sessionUpdateQueue.then(() => blocker);
+
+        await backend.suppressUpdatesDuring(async () => {
+            backendInternal.handleSessionUpdate({
+                sessionId: 'session-1',
+                update: {
+                    sessionUpdate: ACP_SESSION_UPDATE_TYPES.plan,
+                    entries: [{ content: 'queued-during-suppress', priority: 'medium', status: 'pending' }]
+                }
+            });
+            return 'compact';
+        });
+
+        expect(backendInternal.messageHandler).not.toBeNull();
+        releaseBlocker();
+        await backendInternal.sessionUpdateQueue;
+        expect(turn1.some((m) => m.type === 'plan')).toBe(false);
     });
 
     it('does not let compact thought/text chunks escape through the next prompt pre-swap drain, while preserving the new prompt response', async () => {
@@ -1293,6 +1350,7 @@ describe('AcpSdkBackend', () => {
                 close: () => Promise<void>;
             } | null;
             handleSessionUpdate: (params: unknown) => void;
+            sessionUpdateQueue: Promise<void>;
         };
         let promptRequestCount = 0;
         backendInternal.transport = {
@@ -1353,5 +1411,84 @@ describe('AcpSdkBackend', () => {
             { type: 'text', text: 'new prompt answer' },
             { type: 'turn_complete', stopReason: 'end_turn' }
         ]);
+    });
+
+    it('notifies agent-activity listener for harness-wake activity, not usage noise (#1470)', () => {
+        const backend = new AcpSdkBackend({ command: 'agent' });
+        const activity: boolean[] = [];
+        backend.setAgentActivityListener((thinking) => {
+            activity.push(thinking);
+        });
+
+        const backendInternal = backend as unknown as {
+            handleSessionUpdate: (params: unknown) => void;
+        };
+
+        backendInternal.handleSessionUpdate({
+            sessionId: 'session-1',
+            update: {
+                sessionUpdate: ACP_SESSION_UPDATE_TYPES.agentMessageChunk,
+                content: { type: 'text', text: 'resumed' }
+            }
+        });
+        backendInternal.handleSessionUpdate({
+            sessionId: 'session-1',
+            update: { sessionUpdate: 'usage_update', used: 1_000, size: 200_000 }
+        });
+        backendInternal.handleSessionUpdate({
+            sessionId: 'session-1',
+            update: {
+                sessionUpdate: ACP_SESSION_UPDATE_TYPES.sessionInfoUpdate,
+                title: 'noise'
+            }
+        });
+        backendInternal.handleSessionUpdate({
+            sessionId: 'session-1',
+            update: { sessionUpdate: 'state_update', state: 'running' }
+        });
+        backendInternal.handleSessionUpdate({
+            sessionId: 'session-1',
+            update: { sessionUpdate: 'state_update', state: 'idle' }
+        });
+
+        expect(activity).toEqual([true, true, false]);
+    });
+
+    it('notifies agent-activity listener when a permission request arrives (#1470)', async () => {
+        const backend = new AcpSdkBackend({ command: 'agent' });
+        const activity: boolean[] = [];
+        backend.setAgentActivityListener((thinking) => {
+            activity.push(thinking);
+        });
+        backend.onPermissionRequest(() => {
+            // leave pending; we only care that activity fired first
+        });
+
+        const backendInternal = backend as unknown as {
+            handlePermissionRequest: (params: unknown, requestId: string) => Promise<unknown>;
+        };
+
+        const pending = backendInternal.handlePermissionRequest({
+            sessionId: 'session-1',
+            toolCall: {
+                toolCallId: 'tc-1',
+                title: 'Shell',
+                kind: 'execute',
+                status: 'pending'
+            },
+            options: [{ optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' }]
+        }, 'req-1');
+
+        expect(activity).toEqual([true]);
+        // Cancel so the promise does not hang the suite.
+        await backend.respondToPermission('session-1', {
+            id: 'tc-1',
+            sessionId: 'session-1',
+            toolCallId: 'tc-1',
+            title: 'Shell',
+            kind: 'execute',
+            options: []
+        }, { outcome: 'cancelled' });
+        await pending;
     });
 });

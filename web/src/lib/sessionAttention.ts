@@ -7,6 +7,14 @@ export type SessionAttention =
     | { kind: 'ready' }
     | { kind: 'unread' }
 
+/** True when the session has activity newer than the operator's last-seen watermark. */
+export function sessionIsUnread(
+    summary: SessionSummary,
+    options: { lastSeenAt: number }
+): boolean {
+    return summary.updatedAt > options.lastSeenAt
+}
+
 export function classifySessionAttention(
     summary: SessionSummary,
     options: { selected: boolean; lastSeenAt: number }
@@ -41,7 +49,7 @@ export function classifySessionAttention(
         return { kind: 'ready' }
     }
 
-    if (summary.updatedAt > options.lastSeenAt) {
+    if (sessionIsUnread(summary, { lastSeenAt: options.lastSeenAt })) {
         return { kind: 'unread' }
     }
 

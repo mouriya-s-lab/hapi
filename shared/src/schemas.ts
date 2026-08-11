@@ -347,6 +347,8 @@ export const SessionSchema = z.object({
     seq: z.number(),
     createdAt: z.number(),
     updatedAt: z.number(),
+    pinned: z.boolean().optional(),
+    globalPinned: z.boolean().optional(),
     active: z.boolean(),
     // Hub may still emit null for legacy SQLite rows; keep output type number.
     activeAt: z.number().nullish().transform((value) => value ?? 0),

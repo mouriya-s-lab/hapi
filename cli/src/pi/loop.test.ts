@@ -293,6 +293,62 @@ describe('wireTransportEvents', () => {
         expect(session.client.emitSessionReady).toHaveBeenCalledTimes(1);
     });
 
+    it('syncs a native sessionName from get_state as the HAPI title', () => {
+        const transport = createMockTransport();
+        wireTransportEvents(transport, session, []);
+
+        emitEvent({
+            type: 'response',
+            command: 'get_state',
+            success: true,
+            data: { sessionName: '  Native Pi Title  ' },
+        });
+
+        expect(session.client.updateMetadata).toHaveBeenCalledTimes(1);
+        const updateMetadata = session.client.updateMetadata as ReturnType<typeof vi.fn>;
+        expect(updateMetadata.mock.calls[0]![0]({ path: '/tmp/test', host: 'localhost' })).toMatchObject({
+            summary: { text: 'Native Pi Title' },
+        });
+    });
+
+    it('syncs a live native rename from session_info_changed as the HAPI title', () => {
+        const transport = createMockTransport();
+        wireTransportEvents(transport, session, []);
+
+        emitEvent({ type: 'session_info_changed', name: 'Renamed Pi Session' });
+
+        expect(session.client.updateMetadata).toHaveBeenCalledTimes(1);
+        const updateMetadata = session.client.updateMetadata as ReturnType<typeof vi.fn>;
+        expect(updateMetadata.mock.calls[0]![0]({ path: '/tmp/test', host: 'localhost' })).toMatchObject({
+            summary: { text: 'Renamed Pi Session' },
+        });
+    });
+
+    it('dedupes identical native titles across get_state and session_info_changed', () => {
+        const transport = createMockTransport();
+        wireTransportEvents(transport, session, []);
+
+        emitEvent({
+            type: 'response',
+            command: 'get_state',
+            success: true,
+            data: { sessionName: 'Same Title' },
+        });
+        emitEvent({ type: 'session_info_changed', name: 'Same Title' });
+
+        expect(session.client.updateMetadata).toHaveBeenCalledTimes(1);
+    });
+
+    it('ignores malformed or empty session_info_changed events', () => {
+        const transport = createMockTransport();
+        wireTransportEvents(transport, session, []);
+
+        emitEvent({ type: 'session_info_changed' });
+        emitEvent({ type: 'session_info_changed', name: '   ' });
+
+        expect(session.client.updateMetadata).not.toHaveBeenCalled();
+    });
+
     it('marks session ready on get_state response (drains buffered sends) — issue #1143', () => {
         const transport = createMockTransport();
         wireTransportEvents(transport, session, []);

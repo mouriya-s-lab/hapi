@@ -185,6 +185,8 @@ describe('convertAgentMessage', () => {
         expect(converted).toEqual({
             type: 'token_count',
             model: 'kimi-k2.5',
+            usageSchema: 'hapi.usage.v1',
+            inputTokenSemantics: 'includes-cache',
             info: {
                 total: {
                     inputTokens: 13879,
@@ -230,7 +232,9 @@ describe('convertAgentMessage', () => {
 
         expect(converted).toMatchObject({
             type: 'token_count',
-            model: null
+            model: null,
+            usageSchema: 'hapi.usage.v1',
+            inputTokenSemantics: 'includes-cache'
         });
     });
     it('returns null instead of echoing an unrecognized message shape', () => {
@@ -246,6 +250,7 @@ describe('convertAgentMessage', () => {
             imageId: 'img-1',
             fileName: 'inline.png',
             mimeType: 'image/png',
+            source: { ingress: 'mcp', toolName: 'display_image' },
         });
 
         expect(converted).toMatchObject({
@@ -253,6 +258,7 @@ describe('convertAgentMessage', () => {
             imageId: 'img-1',
             fileName: 'inline.png',
             mimeType: 'image/png',
+            source: { ingress: 'mcp', toolName: 'display_image' },
         });
         expect(converted && 'id' in converted && typeof converted.id === 'string').toBe(true);
     });

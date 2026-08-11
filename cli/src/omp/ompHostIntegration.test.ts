@@ -119,7 +119,7 @@ describe('OMP host tool bridge', () => {
         const videoPath = join(sourceDir, 'actual.webm');
         const filePath = join(sourceDir, 'report.pdf');
         const imageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
-        const videoBytes = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x01, 0x02]);
+        const videoBytes = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x42, 0x82, 0x84, 0x77, 0x65, 0x62, 0x6d]);
         const fileBytes = Buffer.from('real text bytes');
         await Promise.all([
             writeFile(imagePath, imageBytes),

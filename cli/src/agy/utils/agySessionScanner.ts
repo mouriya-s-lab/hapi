@@ -5,6 +5,7 @@ import { BaseSessionScanner } from "@/modules/common/session/BaseSessionScanner"
 import { logger } from "@/lib"
 import type { AgyTranscriptEntry } from "./agyTranscriptTypes"
 import { resolveAgyTurnModels } from "./agyConversationModel"
+import { readAgyConversationTitle, type ReadAgyConversationTitle } from "./agySessionTitle"
 
 const AGY_BRAIN_DIR = join(homedir(), '.gemini', 'antigravity-cli', 'brain')
 const LOG_REL_PATH = join('.system_generated', 'logs', 'transcript_full.jsonl')
@@ -72,6 +73,10 @@ function brainLogPath(uuid: string): string {
 
 type CreateAgySessionScannerOpts = {
     onEntry: (entry: AgyTranscriptEntry) => void
+    /** Called with the current native title while the known brain is scanned. */
+    onTitle?: (title: string | null) => void
+    /** Injectable for tests; production reads Anti-Gravity's summary database. */
+    readTitle?: ReadAgyConversationTitle
     /**
      * When set, the scanner seeds the existing transcript as processed and
      * uses this brain UUID directly. Used on resume: the launcher knows the
@@ -100,12 +105,16 @@ export async function createAgySessionScanner(opts: CreateAgySessionScannerOpts)
 
 class AgySessionScanner extends BaseSessionScanner<AgyTranscriptEntry> {
     private readonly onEntry: (entry: AgyTranscriptEntry) => void
+    private readonly onTitle: ((title: string | null) => void) | undefined
+    private readonly readTitle: ReadAgyConversationTitle
     private foundBrainUuid: string | null = null
     private readonly modelSettlingAbortController = new AbortController()
 
     constructor(opts: CreateAgySessionScannerOpts) {
         super({ intervalMs: 5000 })
         this.onEntry = opts.onEntry
+        this.onTitle = opts.onTitle
+        this.readTitle = opts.readTitle ?? readAgyConversationTitle
         if (opts.resumeBrainUuid) {
             this.foundBrainUuid = opts.resumeBrainUuid
             logger.debug(`[agy-scanner] resume: pre-seeded brain UUID ${opts.resumeBrainUuid}`)
@@ -139,6 +148,11 @@ class AgySessionScanner extends BaseSessionScanner<AgyTranscriptEntry> {
 
     protected shouldScan(): boolean {
         return this.foundBrainUuid !== null
+    }
+
+    protected async beforeScan(): Promise<void> {
+        if (!this.foundBrainUuid || !this.onTitle) return
+        this.onTitle(await this.readTitle(this.foundBrainUuid))
     }
 
     /**

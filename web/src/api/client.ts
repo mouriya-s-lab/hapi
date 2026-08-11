@@ -58,6 +58,7 @@ import type {
     GetOmpExtensionUiResponse,
     ReopenSessionResponse,
     SqliteStorageUsageResponse,
+    HubSettingsResponse,
     UsageSummaryResponse,
     UploadFileResponse
 } from '@hapi/protocol/apiTypes'
@@ -65,6 +66,50 @@ import type { AgentFlavor, MessageDeliveryMode } from '@hapi/protocol'
 import type { CancelMessageResponse, ProbeAgentSkillsResponse } from '@hapi/protocol/schemas'
 import type { TranscriptionMode, TranscriptionProvider, TranscriptionProviderInfo } from '@hapi/protocol/voice'
 import type { ForkRouteResult } from '../../../fork-features/session-fork/rpcPayloads'
+
+export type ProviderCredentialSource = 'env' | 'settings' | 'none'
+
+export interface MaskedCredentialStatus {
+    configured: boolean
+    source: ProviderCredentialSource
+    hint: string | null
+    editable: boolean
+}
+
+export interface TranscriptionCredentialStatus {
+    openai: MaskedCredentialStatus
+    elevenlabs: MaskedCredentialStatus
+    deepgram: MaskedCredentialStatus
+    groq: MaskedCredentialStatus
+    openaiCompatible: {
+        configured: boolean
+        source: ProviderCredentialSource
+        baseUrl: string | null
+        model: string | null
+        baseUrlEditable: boolean
+        modelEditable: boolean
+        apiKey: MaskedCredentialStatus
+    }
+    voiceBackends: {
+        elevenlabs: MaskedCredentialStatus
+        geminiLive: MaskedCredentialStatus
+        qwenRealtime: MaskedCredentialStatus
+    }
+}
+
+export interface TranscriptionCredentialsUpdate {
+    openai?: string | null
+    elevenlabs?: string | null
+    deepgram?: string | null
+    groq?: string | null
+    openaiCompatible?: {
+        baseUrl?: string | null
+        model?: string | null
+        apiKey?: string | null
+    }
+    geminiLive?: string | null
+    qwenRealtime?: string | null
+}
 
 type ApiClientOptions = {
     baseUrl?: string
@@ -402,6 +447,8 @@ export class ApiClient {
         }
         const url = this.buildUrl(`/api/sessions/${encodeURIComponent(sessionId)}/generated-images/${encodeURIComponent(imageId)}`)
         let res = await fetch(url, { headers })
+        // Hub returns ETag + immutable Cache-Control (#927). Default fetch cache stores 200
+        // responses so remounts avoid RPC; on 304 the body is empty — read from cache.
         if (res.status === 304) {
             res = await fetch(url, { headers, cache: 'force-cache' })
         }
@@ -782,6 +829,17 @@ export class ApiClient {
         return await this.request<SqliteStorageUsageResponse>('/api/storage/sqlite')
     }
 
+    async getHubSettings(): Promise<HubSettingsResponse> {
+        return await this.request<HubSettingsResponse>('/api/hub-settings')
+    }
+
+    async updateHubSettings(settings: HubSettingsResponse): Promise<HubSettingsResponse> {
+        return await this.request<HubSettingsResponse>('/api/hub-settings', {
+            method: 'PUT',
+            body: JSON.stringify(settings)
+        })
+    }
+
     async listImportableSessions(
         machineId: string,
         provider: import('@hapi/protocol/apiTypes').ImportableSessionProvider,
@@ -902,11 +960,18 @@ export class ApiClient {
         )
     }
 
+    async getSessionCodexModels(sessionId: string): Promise<CodexModelsResponse> {
+        return await this.request<CodexModelsResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/codex-models`
+        )
+    }
+
     async getMachineCcSwitchProviders(machineId: string): Promise<ListCcSwitchProvidersResponse> {
         return await this.request<ListCcSwitchProvidersResponse>(
             `/api/machines/${encodeURIComponent(machineId)}/cc-switch/providers`
         )
     }
+
     async getSessionOpencodeModels(sessionId: string): Promise<OpencodeModelsResponse> {
         return await this.request<OpencodeModelsResponse>(
             `/api/sessions/${encodeURIComponent(sessionId)}/opencode-models`
@@ -1063,6 +1128,13 @@ export class ApiClient {
         await this.request(`/api/sessions/${encodeURIComponent(sessionId)}`, {
             method: 'PATCH',
             body: JSON.stringify({ name })
+        })
+    }
+
+    async setSessionPinMode(sessionId: string, mode: 'none' | 'project' | 'global'): Promise<void> {
+        await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/pin`, {
+            method: 'PUT',
+            body: JSON.stringify({ mode })
         })
     }
 
@@ -1236,6 +1308,19 @@ export class ApiClient {
 
     async fetchTranscriptionProviders(): Promise<{ providers: TranscriptionProviderInfo[] }> {
         return await this.request('/api/voice/transcription/providers')
+    }
+
+    async fetchTranscriptionCredentials(): Promise<TranscriptionCredentialStatus> {
+        return await this.request('/api/voice/transcription/credentials')
+    }
+
+    async updateTranscriptionCredentials(
+        update: TranscriptionCredentialsUpdate
+    ): Promise<TranscriptionCredentialStatus> {
+        return await this.request('/api/voice/transcription/credentials', {
+            method: 'PUT',
+            body: JSON.stringify(update),
+        })
     }
 
     async transcribeVoice(options: {

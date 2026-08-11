@@ -148,6 +148,75 @@ describe('AgySessionScanner — resume support', () => {
         await scanner.cleanup()
     })
 
+    it('forwards the native title while scanning a known brain', async () => {
+        const emitted: AgyTranscriptEntry[] = []
+        const onTitle = vi.fn()
+        const readTitle = vi.fn(async () => 'Native AGY title')
+        const scanner = await createAgySessionScanner({
+            resumeBrainUuid: TEST_UUID,
+            onEntry: (e) => emitted.push(e),
+            onTitle,
+            readTitle,
+        })
+
+        await vi.waitFor(() => expect(onTitle).toHaveBeenCalledWith('Native AGY title'), { timeout: 1200 })
+        expect(readTitle).toHaveBeenCalledWith(TEST_UUID)
+        await scanner.cleanup()
+    })
+
+    it('re-reads the native title when it appears late or changes (delayed generation, renames)', async () => {
+        // Pre-existing transcript so the known brain has something to watch; the
+        // title DB is not the watched file, so appends drive the rescan that
+        // re-reads the title (mirrors the "new entry appended" test below).
+        const existingLines = makeTranscriptLine(0, 'USER_INPUT', 'prior-msg') + '\n'
+        const { logPath } = makeTempBrain(TEST_UUID, existingLines)
+
+        const emitted: AgyTranscriptEntry[] = []
+        const onTitle = vi.fn()
+        let currentTitle: string | null = null
+        const readTitle = vi.fn(async () => currentTitle)
+        const scanner = await createAgySessionScanner({
+            resumeBrainUuid: TEST_UUID,
+            onEntry: (e) => emitted.push(e),
+            onTitle,
+            readTitle,
+        })
+
+        // Title not generated yet at first scan.
+        await vi.waitFor(() => expect(onTitle).toHaveBeenCalledWith(null), { timeout: 1200 })
+
+        // Late generation: the next scan picks it up.
+        currentTitle = 'Delayed title'
+        writeFileSync(logPath, existingLines + makeTranscriptLine(1, 'PLANNER_RESPONSE', 'a') + '\n', 'utf-8')
+        await vi.waitFor(() => expect(onTitle).toHaveBeenCalledWith('Delayed title'), { timeout: 1200 })
+
+        // Rename: picked up on a later scan.
+        currentTitle = 'Renamed title'
+        writeFileSync(logPath, existingLines + makeTranscriptLine(1, 'PLANNER_RESPONSE', 'a') + makeTranscriptLine(2, 'PLANNER_RESPONSE', 'b') + '\n', 'utf-8')
+        await vi.waitFor(() => expect(onTitle).toHaveBeenCalledWith('Renamed title'), { timeout: 1200 })
+
+        await scanner.cleanup()
+    })
+
+    it('stops reading the native title after scanner cleanup', async () => {
+        const emitted: AgyTranscriptEntry[] = []
+        const onTitle = vi.fn()
+        const readTitle = vi.fn(async () => 'Title')
+        const scanner = await createAgySessionScanner({
+            resumeBrainUuid: TEST_UUID,
+            onEntry: (e) => emitted.push(e),
+            onTitle,
+            readTitle,
+        })
+
+        await vi.waitFor(() => expect(onTitle).toHaveBeenCalledWith('Title'), { timeout: 1200 })
+        const readsBeforeCleanup = readTitle.mock.calls.length
+        await scanner.cleanup()
+        // Give the (now stopped) interval a chance to fire; it must not re-read.
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        expect(readTitle.mock.calls.length).toBe(readsBeforeCleanup)
+    })
+
     it('new entry appended after resume is emitted (only the new one)', async () => {
         // Pre-existing transcript.
         const existingLines = [

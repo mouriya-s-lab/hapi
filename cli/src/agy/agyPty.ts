@@ -93,12 +93,8 @@ export const AGY_AUTH_FAILURE_MARKERS = ['Select login method']
 // Generating frame is an explicit user-message agent-run boundary.
 export const AGY_IDLE_MARKERS = ['? for shortcuts']
 
-// agy animates a "Generating..." spinner continuously while it works — it does
-// NOT sit silent mid-turn. This busy marker flags thinking=true AND, crucially,
-// enables runAgentPty's output-silence watchdog (gated on hasBusyMarkers): once
-// the turn ends and the spinner stops repainting, the watchdog clears the
-// thinking state. Without it the optimistic post-submit setThinking(true) would
-// never clear and the chat would sit "busy" forever.
+// agy may be silent mid-turn. This marker lets native terminal activity set
+// thinking=true; completion relies on AGY_IDLE_MARKERS.
 export const AGY_BUSY_MARKERS = ['Generating']
 
 // After the input footer appears, give the TUI time to finish painting before
@@ -143,6 +139,7 @@ export async function agyPty(opts: AgyPtyOpts): Promise<void> {
         busyMarkers: AGY_BUSY_MARKERS,
         idleReadyMs: AGY_IDLE_READY_MS,
         idleMarkers: AGY_IDLE_MARKERS,
+        thinkingSilenceTimeoutMs: null,
         debugPrefix: '[agyPty]',
         signal: opts.signal,
         nextMessage: opts.nextMessage,

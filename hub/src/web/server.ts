@@ -8,6 +8,7 @@ import { serveStatic } from 'hono/bun'
 import { getConfiguration } from '../configuration'
 import { PROTOCOL_VERSION } from '@hapi/protocol'
 import { buildGeminiLiveSetupMessage, QWEN_REALTIME_MODEL } from '@hapi/protocol/voice'
+import { getProviderEnvironment } from '../config/providerCredentials'
 import { createQwenProxyWebSocketHandler } from './qwenProxyHandler'
 import { decodeVoiceSystemPromptParam } from '../voiceSystemPromptParam'
 import type { SyncEngine } from '../sync/syncEngine'
@@ -28,6 +29,8 @@ import { createPiSessionRoutes } from './routes/piSessions'
 import { createPushRoutes } from './routes/push'
 import { createDevicesRoutes } from './routes/devices'
 import { createVoiceRoutes } from './routes/voice'
+import { createHubSettingsRoutes } from './routes/hubSettings'
+import { createWorkGraphRoutes } from './routes/workGraph'
 import { createImportableSessionsRoutes } from '../../../fork-features/history-import/hub/routes'
 import { mountForkRoutes } from '../../../fork-features/session-fork/hubMount'
 import { buildForkDeps } from '../../../fork-features/session-fork/hubSyncEngineAdapter'
@@ -239,15 +242,20 @@ function createWebApp(options: {
 
     app.use('*', logger())
 
-    // Health check endpoint (no auth required)
-    app.get('/health', (c) => c.json({ status: 'ok', protocolVersion: PROTOCOL_VERSION }))
+    // Health check endpoint (no auth required).
+    // capabilities.workGraph is additive: old clients ignore unknown fields.
+    app.get('/health', (c) => c.json({
+        status: 'ok',
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: { workGraph: true }
+    }))
 
     const configuration = getConfiguration()
     const corsOrigins = options.corsOrigins ?? configuration.corsOrigins
     const corsOriginOption = corsOrigins.includes('*') ? '*' : corsOrigins
     const corsMiddleware = cors({
         origin: corsOriginOption,
-        allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+        allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
         // last-event-id: browsers attach it to EventSource reconnects for
         // SSE replay; allow it in case a browser preflights the request.
         allowHeaders: ['authorization', 'content-type', 'last-event-id']
@@ -306,6 +314,7 @@ function createWebApp(options: {
     app.route('/api', createPermissionsRoutes(options.getSyncEngine))
     app.route('/api', createMachinesRoutes(options.getSyncEngine))
     app.route('/api', createStorageRoutes(configuration.dbPath))
+    app.route('/api', createHubSettingsRoutes(configuration.dataDir))
     app.route('/api', createImportableSessionsRoutes(options.getSyncEngine))
     app.route('/api', createUsageRoutes(options.store))
     app.route('/api', createGitRoutes(options.getSyncEngine))
@@ -320,7 +329,9 @@ function createWebApp(options: {
     }))
     app.route('/api', createPushRoutes(options.store, options.vapidPublicKey))
     app.route('/api', createDevicesRoutes(options.store))
-    app.route('/api', createVoiceRoutes())
+    app.route('/api', createVoiceRoutes({ dataDir: configuration.dataDir }))
+    // Path is intentionally NOT `/api/events` — that route is the SSE stream.
+    app.route('/api', createWorkGraphRoutes(options.store))
     mountAgentOrchestrationRoutes(app, options.getSyncEngine)
 
     // fork-features/agent-skill-deploy (#261): POST
@@ -544,7 +555,8 @@ export async function startWebServer(options: {
 
             // Gemini Live WebSocket proxy
             if (url.pathname === '/api/voice/gemini-ws') {
-                const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
+                const env = getProviderEnvironment()
+                const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY
                 if (!apiKey) {
                     return new Response('Gemini API key not configured', { status: 400 })
                 }
@@ -562,7 +574,8 @@ export async function startWebServer(options: {
             }
             // Qwen Realtime WebSocket proxy
             if (url.pathname === '/api/voice/qwen-ws') {
-                const apiKey = process.env.DASHSCOPE_API_KEY || process.env.QWEN_API_KEY
+                const env = getProviderEnvironment()
+                const apiKey = env.DASHSCOPE_API_KEY || env.QWEN_API_KEY
                 const model = QWEN_REALTIME_MODEL
                 const language = url.searchParams.get('language') ?? undefined
                 const voiceParam = url.searchParams.get('voice')?.trim() || undefined

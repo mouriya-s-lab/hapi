@@ -88,6 +88,21 @@ describe('extractAssistantPlainText', () => {
         expect(extractAssistantPlainText(content)).toBeNull()
     })
 
+    test('extracts AGY agy_message prose', () => {
+        const content = {
+            type: 'output',
+            data: { type: 'agy_message', content: 'PINGOK\n\nAGENT_NOTIFY_SUMMARY {"status":"done","summary":"ok"}' }
+        }
+        expect(extractAssistantPlainText(content)).toContain('AGENT_NOTIFY_SUMMARY')
+    })
+
+    test('returns null for empty AGY agy_message', () => {
+        expect(extractAssistantPlainText({
+            type: 'output',
+            data: { type: 'agy_message', content: '   ' }
+        })).toBeNull()
+    })
+
     test('returns null for unknown content shapes', () => {
         expect(extractAssistantPlainText({ type: 'event', data: {} })).toBeNull()
         expect(extractAssistantPlainText({ type: 'text' })).toBeNull()
@@ -123,6 +138,23 @@ describe('extractNotifySummary', () => {
         expect(r?.summary).toBe('Published v0.1.0')
     })
 
+    test('parses when prose is glued onto the same last line before the token', () => {
+        // Agents sometimes omit the newline before the footer.
+        const glued = 'Ownership session pinged.AGENT_NOTIFY_SUMMARY {"version":1,"status":"done","summary":"ok"}'
+        const r = extractNotifySummary(glued)
+        expect(r).not.toBeNull()
+        expect(r?.version).toBe(1)
+        expect(r?.status).toBe('done')
+        expect(r?.summary).toBe('ok')
+    })
+
+    test('parses glued token after multi-line prose (token still on last line)', () => {
+        const text = `Did the work.\n\nOwnership session pinged.AGENT_NOTIFY_SUMMARY {"version":1,"status":"done","summary":"ok"}`
+        const r = extractNotifySummary(text)
+        expect(r?.summary).toBe('ok')
+        expect(r?.status).toBe('done')
+    })
+
     test('tolerates trailing whitespace and blank lines', () => {
         const r = extractNotifySummary(`prose\n\n${FULL_LINE}\n\n  \n`)
         expect(r?.summary).toBe('Published v0.1.0')
@@ -131,6 +163,14 @@ describe('extractNotifySummary', () => {
     test('returns null when summary is not on the LAST non-empty line', () => {
         // Operator wrote prose AFTER the line - non-compliant.
         const text = `${FULL_LINE}\nOh, one more thing.`
+        expect(extractNotifySummary(text)).toBeNull()
+    })
+
+    test('ignores mid-message token that is not on the last non-empty line', () => {
+        const text = [
+            'See AGENT_NOTIFY_SUMMARY {"version":1,"status":"done","summary":"mid"} for the contract.',
+            'More prose after that quote.',
+        ].join('\n')
         expect(extractNotifySummary(text)).toBeNull()
     })
 
@@ -169,6 +209,21 @@ describe('extractNotifySummary', () => {
         const text = 'AGENT_NOTIFY_SUMMARY {"summary":"thing {nested} thing","status":"done"}'
         const r = extractNotifySummary(text)
         expect(r?.summary).toBe('thing {nested} thing')
+        expect(r?.status).toBe('done')
+    })
+
+    test('parses when a JSON string value mentions the token literal', () => {
+        // lastIndexOf would start inside the summary value and fail.
+        const text = 'AGENT_NOTIFY_SUMMARY {"summary":"Fixed AGENT_NOTIFY_SUMMARY parsing","status":"done"}'
+        const r = extractNotifySummary(text)
+        expect(r?.summary).toBe('Fixed AGENT_NOTIFY_SUMMARY parsing')
+        expect(r?.status).toBe('done')
+    })
+
+    test('parses glued prose when a JSON string value mentions the token', () => {
+        const text = 'Done.AGENT_NOTIFY_SUMMARY {"summary":"mentions AGENT_NOTIFY_SUMMARY here","status":"done"}'
+        const r = extractNotifySummary(text)
+        expect(r?.summary).toBe('mentions AGENT_NOTIFY_SUMMARY here')
         expect(r?.status).toBe('done')
     })
 })

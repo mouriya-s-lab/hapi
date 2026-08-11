@@ -255,6 +255,8 @@ function createSessionStub(opts?: {
             waitForMessagesAndGetAsString: vi.fn().mockResolvedValue(null),
         },
         client: {
+            getMetadata: vi.fn().mockReturnValue(null),
+            updateMetadata: vi.fn(),
             sendAgySessionMessage: vi.fn(),
             sendSessionEvent: vi.fn(),
             emitSessionReady: vi.fn(),
@@ -440,6 +442,20 @@ describe('agyPtyLauncher session-found wiring (brain UUID -> scanner)', () => {
         harness.exitReason = 'exit'
         msgPromise.resolve(null)
         await launcherPromise
+    })
+
+    it('wires the native title callback into HAPI metadata synchronization', async () => {
+        const { session } = createSessionStub()
+        await agyPtyLauncher(session as never)
+
+        const onTitle = harness.scannerOpts!.onTitle as (title: unknown) => void
+        onTitle('Native AGY title')
+
+        expect(session.client.updateMetadata).toHaveBeenCalledWith(expect.any(Function))
+        const update = vi.mocked(session.client.updateMetadata).mock.calls[0][0]
+        expect(update({ path: '/tmp/agy-pty-test' })).toMatchObject({
+            summary: { text: 'Native AGY title' },
+        })
     })
 
     it('persists the discovered UUID through a respawn, so the next agy spawn resumes via --conversation instead of silently starting a fresh brain (hostile-review finding: crash-recovery resume gap)', async () => {

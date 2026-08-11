@@ -1,9 +1,13 @@
 import { describe, expect, it, mock, test, afterEach } from 'bun:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Hono } from 'hono'
 import { SignJWT } from 'jose'
 import type { WebAppEnv } from '../middleware/auth'
 import { createAuthMiddleware } from '../middleware/auth'
 import { createVoiceRoutes } from './voice'
+import { resetProviderCredentialEnvLocksForTests } from '../../config/providerCredentials'
 
 const JWT_SECRET = new TextEncoder().encode('test-secret')
 
@@ -16,10 +20,10 @@ async function authHeaders() {
     return { authorization: `Bearer ${token}` }
 }
 
-function createApp() {
+function createApp(dataDir?: string) {
     const app = new Hono<WebAppEnv>()
     app.use('*', createAuthMiddleware(JWT_SECRET))
-    app.route('/api', createVoiceRoutes())
+    app.route('/api', createVoiceRoutes(dataDir ? { dataDir } : {}))
     return app
 }
 
@@ -155,6 +159,46 @@ describe('voice transcription routes', () => {
         global.fetch = originalFetch
         if (previousKey === undefined) delete process.env.OPENAI_API_KEY
         else process.env.OPENAI_API_KEY = previousKey
+    })
+
+    test('preserves the selected locale for OpenAI-compatible transcription', async () => {
+        const app = createApp()
+        const headers = await authHeaders()
+        const previous = {
+            baseUrl: process.env.TRANSCRIPTION_BASE_URL,
+            model: process.env.TRANSCRIPTION_MODEL,
+            apiKey: process.env.TRANSCRIPTION_API_KEY
+        }
+        process.env.TRANSCRIPTION_BASE_URL = 'http://localhost:8000/v1'
+        process.env.TRANSCRIPTION_MODEL = 'local-whisper'
+        process.env.TRANSCRIPTION_API_KEY = 'server-only-key'
+        const originalFetch = global.fetch
+        let upstreamInit: RequestInit | undefined
+        // @ts-expect-error test override
+        global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+            upstreamInit = init
+            return new Response(JSON.stringify({ text: 'transcribed text' }), { status: 200 })
+        }) as typeof fetch
+
+        const form = new FormData()
+        form.set('provider', 'openai-compatible')
+        form.set('mode', 'standard')
+        form.set('language', 'zh-TW')
+        form.set('file', new File(['audio bytes'], 'speech.webm', { type: 'audio/webm' }))
+        const res = await app.request('/api/voice/transcription', { method: 'POST', headers, body: form })
+
+        expect(res.status).toBe(200)
+        expect((upstreamInit?.body as FormData).get('language')).toBe('zh-TW')
+
+        global.fetch = originalFetch
+        for (const [key, value] of Object.entries({
+            TRANSCRIPTION_BASE_URL: previous.baseUrl,
+            TRANSCRIPTION_MODEL: previous.model,
+            TRANSCRIPTION_API_KEY: previous.apiKey
+        })) {
+            if (value === undefined) delete process.env[key]
+            else process.env[key] = value
+        }
     })
 
     test('rejects unsupported files before calling a provider', async () => {
@@ -661,5 +705,124 @@ describe('POST /api/voice/qwen-token', () => {
         expect(body.allowed).toBe(true)
         expect(body.wsUrl).toContain('/api/voice/qwen-ws')
         expect(body).not.toHaveProperty('apiKey')
+    })
+})
+
+describe('transcription credentials onboarding', () => {
+    const managedKeys = [
+        'OPENAI_API_KEY',
+        'ELEVENLABS_API_KEY',
+        'DEEPGRAM_API_KEY',
+        'GROQ_API_KEY',
+        'TRANSCRIPTION_BASE_URL',
+        'TRANSCRIPTION_MODEL',
+        'TRANSCRIPTION_API_KEY',
+    ] as const
+    const previous = new Map<string, string | undefined>()
+    let dir: string | null = null
+
+    afterEach(() => {
+        for (const key of managedKeys) {
+            const value = previous.get(key)
+            if (value === undefined) delete process.env[key]
+            else process.env[key] = value
+        }
+        previous.clear()
+        resetProviderCredentialEnvLocksForTests()
+        if (dir) {
+            rmSync(dir, { recursive: true, force: true })
+            dir = null
+        }
+    })
+
+    function clearManagedEnv(): void {
+        for (const key of managedKeys) {
+            previous.set(key, process.env[key])
+            delete process.env[key]
+        }
+        resetProviderCredentialEnvLocksForTests()
+    }
+
+    test('PUT saves a key, masks GET response, and discovers the provider live', async () => {
+        clearManagedEnv()
+        dir = mkdtempSync(join(tmpdir(), 'hapi-voice-creds-'))
+        writeFileSync(join(dir, 'settings.json'), JSON.stringify({}))
+        const app = createApp(dir)
+        const headers = await authHeaders()
+
+        const put = await app.request('/api/voice/transcription/credentials', {
+            method: 'PUT',
+            headers: { ...headers, 'content-type': 'application/json' },
+            body: JSON.stringify({ openai: 'sk-live-onboard-secret' }),
+        })
+        expect(put.status).toBe(200)
+        const putBody = await put.json() as { openai: { configured: boolean; hint: string | null; source: string } }
+        expect(putBody.openai.configured).toBe(true)
+        expect(putBody.openai.source).toBe('settings')
+        expect(putBody.openai.hint).toBe('••••cret')
+        expect(JSON.stringify(putBody)).not.toContain('sk-live-onboard-secret')
+        // Settings-backed secrets must stay out of process.env (tunnel/ACP/Codex inherit it).
+        expect(process.env.OPENAI_API_KEY).toBeUndefined()
+
+        const providers = await app.request('/api/voice/transcription/providers', { headers })
+        expect(await providers.json()).toEqual({
+            providers: [{ id: 'openai', label: 'OpenAI', modes: ['standard', 'realtime'] }],
+        })
+
+        const get = await app.request('/api/voice/transcription/credentials', { headers })
+        expect(get.status).toBe(200)
+        const getBody = await get.json() as { openai: { hint: string | null } }
+        expect(getBody.openai.hint).toBe('••••cret')
+        expect(JSON.stringify(getBody)).not.toContain('sk-live-onboard-secret')
+    })
+
+    test('PUT refuses to overwrite an env-locked key', async () => {
+        clearManagedEnv()
+        process.env.OPENAI_API_KEY = 'env-locked-key'
+        resetProviderCredentialEnvLocksForTests()
+        // Re-lock as if hub started with this env
+        const { applyProviderCredentialsFromSettings } = await import('../../config/providerCredentials')
+        dir = mkdtempSync(join(tmpdir(), 'hapi-voice-creds-env-'))
+        writeFileSync(join(dir, 'settings.json'), JSON.stringify({}))
+        await applyProviderCredentialsFromSettings(dir)
+
+        const app = createApp(dir)
+        const headers = await authHeaders()
+        const put = await app.request('/api/voice/transcription/credentials', {
+            method: 'PUT',
+            headers: { ...headers, 'content-type': 'application/json' },
+            body: JSON.stringify({ openai: 'ui-attempt' }),
+        })
+        expect(put.status).toBe(409)
+        expect(process.env.OPENAI_API_KEY).toBe('env-locked-key')
+    })
+
+    test('credentials routes refuse non-owner namespaces', async () => {
+        clearManagedEnv()
+        dir = mkdtempSync(join(tmpdir(), 'hapi-voice-creds-ns-'))
+        writeFileSync(join(dir, 'settings.json'), JSON.stringify({}))
+        const app = createApp(dir)
+        const token = await new SignJWT({ uid: 2, ns: 'other' })
+            .setProtectedHeader({ alg: 'HS256' })
+            .setIssuedAt()
+            .setExpirationTime('1h')
+            .sign(JWT_SECRET)
+        const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' }
+
+        const get = await app.request('/api/voice/transcription/credentials', { headers })
+        expect(get.status).toBe(403)
+
+        const put = await app.request('/api/voice/transcription/credentials', {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify({ openai: 'ns-attack' }),
+        })
+        expect(put.status).toBe(403)
+        expect(process.env.OPENAI_API_KEY).toBeUndefined()
+        const { readFileSync } = await import('node:fs')
+        const saved = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as {
+            providerCredentials?: Record<string, string>
+        }
+        expect(saved.providerCredentials?.OPENAI_API_KEY).toBeUndefined()
     })
 })

@@ -204,6 +204,151 @@ describe('runAgentPty', () => {
         vi.useRealTimers()
     })
 
+    it('keeps thinking through a quiet turn when the silence watchdog is disabled', async () => {
+        vi.useFakeTimers()
+        const thinking = vi.fn()
+        const promise = runAgentPty(makeOpts({
+            promptMarkers: ['READY'],
+            busyMarkers: ['Generating'],
+            idleMarkers: ['? for shortcuts'],
+            requirePromptMarker: true,
+            thinkingSilenceTimeoutMs: null,
+            nextMessage: vi.fn()
+                .mockResolvedValueOnce({ message: 'first' })
+                .mockImplementationOnce(() => new Promise<{ message: string } | null>(() => {})),
+            onThinkingChange: thinking,
+        }))
+
+        harness.triggerData('READY')
+        await vi.advanceTimersByTimeAsync(520)
+        expect(thinking).toHaveBeenLastCalledWith(true)
+
+        await vi.advanceTimersByTimeAsync(3000)
+        expect(thinking).not.toHaveBeenCalledWith(false)
+
+        harness.triggerData('? for shortcuts')
+        expect(thinking).toHaveBeenLastCalledWith(false)
+
+        harness.triggerExit(0)
+        await vi.advanceTimersByTimeAsync(100)
+        await promise
+        vi.useRealTimers()
+    })
+
+    it('lets a trailing idle marker win when it shares a chunk with a busy marker (no watchdog)', async () => {
+        vi.useFakeTimers()
+        const thinking = vi.fn()
+        const nextMessage = vi.fn()
+            .mockResolvedValueOnce({ message: 'first' })
+            .mockImplementationOnce(() => new Promise<{ message: string } | null>(() => {}))
+        const promise = runAgentPty(makeOpts({
+            promptMarkers: ['READY'],
+            busyMarkers: ['Generating'],
+            idleMarkers: ['? for shortcuts'],
+            requirePromptMarker: true,
+            thinkingSilenceTimeoutMs: null,
+            nextMessage,
+            onThinkingChange: thinking,
+        }))
+
+        harness.triggerData('READY')
+        await vi.advanceTimersByTimeAsync(520)
+        expect(thinking).toHaveBeenLastCalledWith(true)
+
+        // One ANSI-decorated chunk carries both the busy frame and the final
+        // idle footer. With the watchdog disabled the busy marker alone would
+        // strand the run in the running state forever; the trailing idle marker
+        // must win and make the prompt input-ready again.
+        harness.triggerData('Generating \x1b[31m...\x1b[0m\r\n? for shortcuts')
+        expect(thinking).toHaveBeenLastCalledWith(false)
+        await vi.advanceTimersByTimeAsync(200)
+        expect(nextMessage).toHaveBeenCalledTimes(2)
+
+        harness.triggerExit(0)
+        await vi.advanceTimersByTimeAsync(100)
+        await promise
+        vi.useRealTimers()
+    })
+
+    it('sees a busy marker in a single callback larger than the prompt buffer', async () => {
+        vi.useFakeTimers()
+        const thinking = vi.fn()
+        const onAgentRunCompleted = vi.fn()
+        const promise = runAgentPty(makeOpts({
+            promptMarkers: ['READY'],
+            busyMarkers: ['Generating'],
+            idleMarkers: ['? for shortcuts'],
+            requirePromptMarker: true,
+            thinkingSilenceTimeoutMs: null,
+            nextMessage: vi.fn()
+                .mockResolvedValueOnce({ message: 'first' })
+                .mockImplementationOnce(() => new Promise<{ message: string } | null>(() => {})),
+            onThinkingChange: thinking,
+            onAgentRunCompleted,
+        }))
+
+        harness.triggerData('READY')
+        await vi.advanceTimersByTimeAsync(520)
+        expect(thinking).toHaveBeenLastCalledWith(true)
+
+        // One callback: busy marker, then more than PROMPT_BUFFER_SIZE bytes,
+        // then the idle footer. The busy marker must not be lost to the
+        // truncation, or the agent run never completes and the pending web
+        // delivery stays blocked.
+        const filler = 'x'.repeat(5000)
+        harness.triggerData(`Generating ${filler}\r\n? for shortcuts`)
+        expect(thinking).toHaveBeenLastCalledWith(false)
+        expect(onAgentRunCompleted).toHaveBeenCalledTimes(1)
+
+        harness.triggerExit(0)
+        await vi.advanceTimersByTimeAsync(100)
+        await promise
+        vi.useRealTimers()
+    })
+
+    it('recognizes a busy marker fragmented across PTY output chunks', async () => {
+        const pending = deferred<{ message: string } | null>()
+        const thinking = vi.fn()
+        const promise = runAgentPty(makeOpts({
+            promptMarkers: ['READY'],
+            busyMarkers: ['Generating'],
+            requirePromptMarker: true,
+            nextMessage: () => pending.promise,
+            onThinkingChange: thinking,
+        }))
+
+        harness.triggerData('READY')
+        await tick(220)
+        harness.triggerData('Gener')
+        harness.triggerData('ating...')
+
+        expect(thinking).toHaveBeenCalledWith(true)
+
+        harness.triggerExit(0)
+        await promise
+    })
+
+    it('recognizes a busy marker interrupted by ANSI output', async () => {
+        const pending = deferred<{ message: string } | null>()
+        const thinking = vi.fn()
+        const promise = runAgentPty(makeOpts({
+            promptMarkers: ['READY'],
+            busyMarkers: ['Generating'],
+            requirePromptMarker: true,
+            nextMessage: () => pending.promise,
+            onThinkingChange: thinking,
+        }))
+
+        harness.triggerData('READY')
+        await tick(220)
+        harness.triggerData('Gener\x1b[31mating...')
+
+        expect(thinking).toHaveBeenCalledWith(true)
+
+        harness.triggerExit(0)
+        await promise
+    })
+
     it('does not let an armed silence watchdog complete a run after its idle marker already did', async () => {
         vi.useFakeTimers()
         const done = deferred<{ message: string } | null>()

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import { useSendMessage } from './useSendMessage'
+import { useSendMessage, type SendMessageAcceptance } from './useSendMessage'
 import { ApiError, type ApiClient } from '@/api/client'
 
 vi.mock('@/lib/message-window-store', () => ({
@@ -63,6 +63,10 @@ describe('useSendMessage', () => {
 
         await waitFor(() => {
             expect(onSuccess).toHaveBeenCalledWith('session-A')
+        })
+        expect(result.current.sendSettlement).toEqual({
+            attemptId: 'local-id-1',
+            status: 'success',
         })
     })
 
@@ -145,7 +149,7 @@ describe('useSendMessage', () => {
         const { result } = renderHook(
             () => useSendMessage(api, 'session-original', {
                 onSuccess,
-                resolveSessionId: async () => 'session-resolved',
+                resolveSessionId: async () => ({ sessionId: 'session-resolved', resumed: true }),
                 onSessionResolved: vi.fn(),
             }),
             { wrapper: createWrapper() },
@@ -433,7 +437,7 @@ describe('useSendMessage', () => {
             const { result } = renderHook(
                 () => useSendMessage(api, 'session-original', {
                     onError,
-                    resolveSessionId: async () => 'session-resolved',
+                    resolveSessionId: async () => ({ sessionId: 'session-resolved', resumed: true }),
                     onSessionResolved: vi.fn(),
                 }),
                 { wrapper: createWrapper() },
@@ -478,6 +482,10 @@ describe('useSendMessage', () => {
 
             await waitFor(() => {
                 expect(updateMock).toHaveBeenCalledWith('session-A', 'local-id-1', 'failed')
+            })
+            expect(result.current.sendSettlement).toEqual({
+                attemptId: 'local-id-1',
+                status: 'error',
             })
             // No composer-restore: onError is NOT fired and the optimistic
             // row is NOT removed -- both would destroy the attachment UX.
@@ -556,17 +564,17 @@ describe('useSendMessage', () => {
         expect(onSuccess).not.toHaveBeenCalled()
     })
 
-    it('resolves true when the send is accepted', async () => {
+    it('returns the attempt id when the send is accepted', async () => {
         const api = createMockApi()
         const { result } = renderHook(
             () => useSendMessage(api, 'session-A'),
             { wrapper: createWrapper() },
         )
-        let acceptedPromise: Promise<boolean> | undefined
+        let acceptedPromise: Promise<SendMessageAcceptance | false> | undefined
         act(() => {
             acceptedPromise = result.current.sendMessage('hello')
         })
-        await expect(acceptedPromise!).resolves.toBe(true)
+        await expect(acceptedPromise!).resolves.toEqual({ attemptId: 'local-id-1' })
     })
 
     it('resolves false when blocked (no api) so the caller can preserve schedule state', async () => {
@@ -575,7 +583,7 @@ describe('useSendMessage', () => {
             () => useSendMessage(null, 'session-A', { onBlocked }),
             { wrapper: createWrapper() },
         )
-        let acceptedPromise: Promise<boolean> | undefined
+        let acceptedPromise: Promise<SendMessageAcceptance | false> | undefined
         act(() => {
             acceptedPromise = result.current.sendMessage('hello')
         })
@@ -589,7 +597,7 @@ describe('useSendMessage', () => {
             () => useSendMessage(api, null),
             { wrapper: createWrapper() },
         )
-        let acceptedPromise: Promise<boolean> | undefined
+        let acceptedPromise: Promise<SendMessageAcceptance | false> | undefined
         act(() => {
             acceptedPromise = result.current.sendMessage('hello')
         })
@@ -606,27 +614,131 @@ describe('useSendMessage', () => {
             }),
             { wrapper: createWrapper() },
         )
-        let acceptedPromise: Promise<boolean> | undefined
+        let acceptedPromise: Promise<SendMessageAcceptance | false> | undefined
         act(() => {
             acceptedPromise = result.current.sendMessage('hello')
         })
         await expect(acceptedPromise!).resolves.toBe(false)
     })
 
-    it('resolves true after async resolveSessionId succeeds and mutation starts', async () => {
+    it('returns the attempt id after async resolveSessionId succeeds and mutation starts', async () => {
         const api = createMockApi()
         const { result } = renderHook(
             () => useSendMessage(api, 'session-original', {
-                resolveSessionId: async () => 'session-resolved',
+                resolveSessionId: async () => ({ sessionId: 'session-resolved', resumed: true }),
                 onSessionResolved: vi.fn(),
             }),
             { wrapper: createWrapper() },
         )
-        let acceptedPromise: Promise<boolean> | undefined
+        let acceptedPromise: Promise<SendMessageAcceptance | false> | undefined
         act(() => {
             acceptedPromise = result.current.sendMessage('hello')
         })
-        await expect(acceptedPromise!).resolves.toBe(true)
+        await expect(acceptedPromise!).resolves.toEqual({ attemptId: 'local-id-1' })
+    })
+
+    it('awaits onSessionResolved before starting the send mutation', async () => {
+        const order: string[] = []
+        const gate = deferred<void>()
+        const sendMessage = vi.fn(async () => {
+            order.push('mutate')
+        })
+        const api = createMockApi(sendMessage)
+        const { result } = renderHook(
+            () => useSendMessage(api, 'session-original', {
+                resolveSessionId: async () => ({ sessionId: 'session-resolved', resumed: true }),
+                onSessionResolved: async (_id, context) => {
+                    expect(context).toEqual({ text: 'hello with draft', attachments: undefined })
+                    order.push('resolved')
+                    await gate.promise
+                    order.push('resolved-done')
+                },
+            }),
+            { wrapper: createWrapper() },
+        )
+
+        act(() => {
+            void result.current.sendMessage('hello with draft')
+        })
+
+        await waitFor(() => {
+            expect(order).toEqual(['resolved'])
+        })
+        expect(sendMessage).not.toHaveBeenCalled()
+
+        await act(async () => {
+            gate.resolve()
+        })
+
+        await waitFor(() => {
+            expect(order).toEqual(['resolved', 'resolved-done', 'mutate'])
+        })
+        expect(sendMessage).toHaveBeenCalled()
+    })
+
+    it('does not mutate when onSessionResolved defers for draft hydration', async () => {
+        const sendMessage = vi.fn(async () => {})
+        const api = createMockApi(sendMessage)
+        const { result } = renderHook(
+            () => useSendMessage(api, 'session-original', {
+                resolveSessionId: async () => ({ sessionId: 'session-resolved', resumed: true }),
+                onSessionResolved: async () => ({ deferUntilDraftHydrated: true }),
+            }),
+            { wrapper: createWrapper() },
+        )
+
+        let accepted: Awaited<ReturnType<typeof result.current.sendMessage>> | undefined
+        await act(async () => {
+            accepted = await result.current.sendMessage('hello with hidden file')
+        })
+
+        expect(accepted).toBe(false)
+        expect(sendMessage).not.toHaveBeenCalled()
+    })
+
+    it('defers after a same-id resume when onSessionResolved asks to wait', async () => {
+        const sendMessage = vi.fn(async () => {})
+        const api = createMockApi(sendMessage)
+        const onSessionResolved = vi.fn(async () => ({ deferUntilDraftHydrated: true as const }))
+        const { result } = renderHook(
+            () => useSendMessage(api, 'session-same', {
+                resolveSessionId: async () => ({ sessionId: 'session-same', resumed: true }),
+                onSessionResolved,
+            }),
+            { wrapper: createWrapper() },
+        )
+
+        let accepted: Awaited<ReturnType<typeof result.current.sendMessage>> | undefined
+        await act(async () => {
+            accepted = await result.current.sendMessage('same-id with hidden file')
+        })
+
+        expect(onSessionResolved).toHaveBeenCalledWith('session-same', {
+            text: 'same-id with hidden file',
+            attachments: undefined,
+        })
+        expect(accepted).toBe(false)
+        expect(sendMessage).not.toHaveBeenCalled()
+    })
+
+    it('does not call onSessionResolved when the session was already active', async () => {
+        const sendMessage = vi.fn(async () => {})
+        const api = createMockApi(sendMessage)
+        const onSessionResolved = vi.fn()
+        const { result } = renderHook(
+            () => useSendMessage(api, 'session-active', {
+                resolveSessionId: async () => ({ sessionId: 'session-active', resumed: false }),
+                onSessionResolved,
+            }),
+            { wrapper: createWrapper() },
+        )
+
+        await act(async () => {
+            await result.current.sendMessage('already active')
+        })
+
+        expect(onSessionResolved).not.toHaveBeenCalled()
+        expect(sendMessage).toHaveBeenCalled()
     })
 
     // #918: the inactive-session 409 path

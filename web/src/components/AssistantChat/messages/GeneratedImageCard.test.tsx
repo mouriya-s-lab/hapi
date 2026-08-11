@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ApiClient } from '@/api/client'
 import type { GeneratedImageBlock } from '@/chat/types'
 import { HappyChatProvider, type HappyChatContextValue } from '@/components/AssistantChat/context'
@@ -47,6 +47,7 @@ describe('GeneratedImageCard', () => {
         )
 
         expect(await screen.findByText('Generated video · recording.mp4')).toBeInTheDocument()
+        fireEvent.click(await screen.findByRole('button', { name: 'Load video' }))
         await waitFor(() => expect(container.querySelector('video')).not.toBeNull())
         const video = container.querySelector('video')
         expect(video?.getAttribute('src')).toBe('blob:video-1')

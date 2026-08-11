@@ -95,6 +95,8 @@ export type RunAgentPtyOpts = {
      * Strings match as substrings; RegExps match with `.test()`.
      */
     idleMarkers?: (string | RegExp)[]
+    /** Time without PTY output before clearing thinking; null waits for an idle marker. */
+    thinkingSilenceTimeoutMs?: number | null
     debugPrefix: string
     signal?: AbortSignal
     nextMessage: () => Promise<{ message: string } | null>
@@ -184,6 +186,26 @@ export async function runAgentPty(opts: RunAgentPtyOpts): Promise<void> {
         typeof marker === 'string' ? data.includes(marker) : marker.test(data)
     const anyMarker = (data: string, list: (string | RegExp)[]): boolean =>
         list.some((m) => markerMatches(data, m))
+    // Position of the last marker occurrence in the chunk, or -1 when absent.
+    // When a chunk contains both busy and idle markers, the one whose text
+    // appears last reflects the final repaint, so it decides the state.
+    const lastMarkerIndex = (data: string, list: (string | RegExp)[]): number =>
+        list.reduce((last, marker) => {
+            if (typeof marker === 'string') {
+                return Math.max(last, data.lastIndexOf(marker))
+            }
+            // Non-global RegExp (as required above): clone with the g flag and
+            // scan the original string so anchors keep their meaning, and bump
+            // past zero-width matches so the scan terminates.
+            const scan = new RegExp(marker.source, `${marker.flags}g`)
+            let markerLast = -1
+            let match: RegExpExecArray | null
+            while ((match = scan.exec(data)) !== null) {
+                markerLast = match.index
+                if (match[0].length === 0) scan.lastIndex += 1
+            }
+            return Math.max(last, markerLast)
+        }, -1)
 
     const markers = opts.promptMarkers ?? []
     const hasMarkers = markers.length > 0
@@ -223,10 +245,11 @@ export async function runAgentPty(opts: RunAgentPtyOpts): Promise<void> {
     // turn never started (a --resume replay swallowed the first message). A working
     // claude repaints its spinner footer every few hundred ms, so once output has
     // been SILENT for IDLE_SILENCE_MS while we still think it's busy, the turn is
-    // really over → force idle. Scoped to agents with a busy marker (claude): agy
-    // can sit silent mid-inference (no animated spinner), so it keeps marker-only
-    // clearing and no silence watchdog.
-    const IDLE_SILENCE_MS = 3000
+    // really over → force idle. Agents with a reliable idle marker can disable
+    // this and wait for that explicit completion signal instead.
+    const thinkingSilenceTimeoutMs = opts.thinkingSilenceTimeoutMs === undefined
+        ? 3000
+        : opts.thinkingSilenceTimeoutMs
     let idleWatchdog: ReturnType<typeof setTimeout> | null = null
     let agentRunActive = false
     let agentRunSawBusyMarker = false
@@ -245,12 +268,12 @@ export async function runAgentPty(opts: RunAgentPtyOpts): Promise<void> {
     // (Re)start the silence timer. Called when thinking begins and on every output
     // chunk while thinking, so the window only elapses once claude has gone quiet.
     const armIdleWatchdog = (): void => {
-        if (!hasBusyMarkers || !thinking) return
+        if (!hasBusyMarkers || !thinking || thinkingSilenceTimeoutMs === null) return
         disarmIdleWatchdog()
         idleWatchdog = setTimeout(() => {
             idleWatchdog = null
             if (thinking) {
-                logger.debug(`${debugPrefix} idle watchdog: ${IDLE_SILENCE_MS}ms of silence; forcing idle`)
+                logger.debug(`${debugPrefix} idle watchdog: ${thinkingSilenceTimeoutMs}ms of silence; forcing idle`)
                 thinking = false
                 // The turn really ended even though no idle marker arrived, so the
                 // prompt is usable again — let the next queued message proceed.
@@ -258,7 +281,7 @@ export async function runAgentPty(opts: RunAgentPtyOpts): Promise<void> {
                 opts.onThinkingChange?.(false)
                 completeAgentRun()
             }
-        }, IDLE_SILENCE_MS)
+        }, thinkingSilenceTimeoutMs)
         idleWatchdog.unref?.()
     }
     const setThinking = (next: boolean): void => {
@@ -370,7 +393,12 @@ export async function runAgentPty(opts: RunAgentPtyOpts): Promise<void> {
                 let reachedIdleMarker = false
                 sawOutput = true
                 lastOutputAt = Date.now()
-                promptBuffer = (promptBuffer + data).slice(-PROMPT_BUFFER_SIZE)
+                // Scan the full incoming chunk (plus the retained tail) before
+                // truncating, so a busy marker followed by more than
+                // PROMPT_BUFFER_SIZE bytes in one callback is still seen.
+                const markerInput = promptBuffer + data
+                promptBuffer = markerInput.slice(-PROMPT_BUFFER_SIZE)
+                const markerBuffer = markerInput.replace(/\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))/g, '')
                 // Auto-approve the first-run trust/safety prompt (Enter = default
                 // "Yes"). Do this BEFORE prompt detection so the trust screen
                 // isn't mistaken for the input prompt — otherwise the first user
@@ -379,7 +407,7 @@ export async function runAgentPty(opts: RunAgentPtyOpts): Promise<void> {
                     trustHandled = true
                     logger.debug(`${debugPrefix} trust prompt detected; auto-approving with Enter`)
                     manager.write('\r')
-                } else if (hasMarkers && !promptSeen && anyMarker(promptBuffer, markers)) {
+                } else if (hasMarkers && !promptSeen && anyMarker(markerBuffer, markers)) {
                     promptSeen = true
                     inputReady = true
                 }
@@ -392,18 +420,26 @@ export async function runAgentPty(opts: RunAgentPtyOpts): Promise<void> {
                     && anyMarker(data, authFailureMarkers)) {
                     sawAuthFailureScreen = true
                 }
-                // Track the working/idle state from the live footer. The busy
-                // marker (spinner/"esc to interrupt") wins when both appear in a
-                // chunk; chunks with neither leave the state unchanged.
-                if (busyMarkers.length > 0 && anyMarker(data, busyMarkers)) {
-                    if (agentRunActive) agentRunSawBusyMarker = true
-                    setThinking(true)
-                    inputReady = false
-                    promptBuffer = ''
-                } else if (idleMarkers.length > 0 && anyMarker(promptBuffer, idleMarkers)) {
+                // Track the working/idle state from the live footer. When a
+                // chunk carries both a busy and an idle marker, the marker whose
+                // text comes LAST wins: a trailing idle footer means the turn
+                // completed, while trailing "Generating" output means it is still
+                // running. Chunks with neither marker leave the state unchanged.
+                const busyAt = busyMarkers.length > 0 ? lastMarkerIndex(markerBuffer, busyMarkers) : -1
+                const idleAt = idleMarkers.length > 0 ? lastMarkerIndex(markerBuffer, idleMarkers) : -1
+                if (idleAt > busyAt) {
+                    // The busy marker was seen earlier in this same chunk: the
+                    // run that produced it is the one ending now, so keep the
+                    // confirmation that lets completeAgentRun fire.
+                    if (agentRunActive && busyAt >= 0) agentRunSawBusyMarker = true
                     setThinking(false)
                     inputReady = true
                     reachedIdleMarker = true
+                    promptBuffer = ''
+                } else if (busyAt >= 0) {
+                    if (agentRunActive) agentRunSawBusyMarker = true
+                    setThinking(true)
+                    inputReady = false
                     promptBuffer = ''
                 } else if (thinking) {
                     // Still producing output (e.g. streaming response text with no

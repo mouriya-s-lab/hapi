@@ -5,6 +5,8 @@ import {
     deduplicateSessionsByAgentId,
     expandSelectedSessionCollapseOverrides,
     filterActiveSessionsOnly,
+    filterUnreadSessionsOnly,
+    UNKNOWN_MACHINE_ID,
     getSessionTimeRange,
     getNextSessionVisibleCount,
     getPullRefreshIndicatorRotation,
@@ -18,6 +20,7 @@ import {
     prepareSidebarSessions,
     sessionMatchesQuery,
     sessionMatchesTimeRange,
+    shouldShowPinnedDivider,
     shouldShowSessionInSidebar
 } from './SessionList'
 
@@ -89,6 +92,27 @@ describe('getWorktreeSessionLabel', () => {
     })
 })
 
+describe('shouldShowPinnedDivider', () => {
+    it('shows one divider at the visible pinned-to-unpinned boundary', () => {
+        const sessions = [
+            makeSession({ id: 'pinned-a', pinned: true }),
+            makeSession({ id: 'pinned-b', pinned: true }),
+            makeSession({ id: 'regular-a' }),
+            makeSession({ id: 'regular-b' })
+        ]
+
+        expect(sessions.map((_, index) => shouldShowPinnedDivider(sessions, index)))
+            .toEqual([false, false, true, false])
+    })
+
+    it('does not show a divider when all visible sessions have the same pin state', () => {
+        expect(shouldShowPinnedDivider([
+            makeSession({ id: 'a' }),
+            makeSession({ id: 'b' })
+        ], 1)).toBe(false)
+    })
+})
+
 describe('deduplicateSessionsByAgentId', () => {
     it('deduplicates sessions with the same agentSessionId', () => {
         const sessions = [
@@ -118,6 +142,26 @@ describe('deduplicateSessionsByAgentId', () => {
         const result = deduplicateSessionsByAgentId(sessions, 'a')
         expect(result).toHaveLength(1)
         expect(result[0].id).toBe('a') // selected wins despite older updatedAt
+    })
+
+    it('preserves a pinned session when deduplicating by recency', () => {
+        const sessions = [
+            makeSession({ id: 'pinned', pinned: true, metadata: { path: '/p', agentSessionId: 'thread-1' }, updatedAt: 100 }),
+            makeSession({ id: 'recent', metadata: { path: '/p', agentSessionId: 'thread-1' }, updatedAt: 200 })
+        ]
+        const result = deduplicateSessionsByAgentId(sessions)
+        expect(result).toHaveLength(1)
+        expect(result[0].id).toBe('pinned')
+    })
+
+    it('keeps the selected inactive session ahead of a pinned duplicate', () => {
+        const sessions = [
+            makeSession({ id: 'selected', metadata: { path: '/p', agentSessionId: 'thread-1' }, updatedAt: 100 }),
+            makeSession({ id: 'pinned', pinned: true, metadata: { path: '/p', agentSessionId: 'thread-1' }, updatedAt: 200 })
+        ]
+        const result = deduplicateSessionsByAgentId(sessions, 'selected')
+        expect(result).toHaveLength(1)
+        expect(result[0].id).toBe('selected')
     })
 
     it('active always wins over selected inactive', () => {
@@ -285,6 +329,16 @@ describe('prepareSidebarSessions', () => {
         expect(result.map(session => session.id).sort()).toEqual(['real', 'stub'])
     })
 
+    it('keeps a pinned inactive stub visible', () => {
+        const sessions = [
+            makeSession({ id: 'pinned-stub', pinned: true, metadata: { path: '/work/hapi' } }),
+            makeSession({ id: 'stub', metadata: { path: '/work/hapi' } })
+        ]
+
+        const result = prepareSidebarSessions(sessions)
+        expect(result.map(session => session.id)).toEqual(['pinned-stub'])
+    })
+
     it('deduplicates before filtering stubs', () => {
         const sessions = [
             makeSession({ id: 'stub', metadata: { path: '/work/hapi' } }),
@@ -306,11 +360,12 @@ describe('prepareSidebarSessions', () => {
 })
 
 describe('shouldShowSessionInSidebar', () => {
-    it('always shows active and selected sessions', () => {
+    it('always shows active, selected, and pinned sessions', () => {
         const stub = makeSession({ id: 'stub', metadata: { path: '/work/hapi' } })
         expect(shouldShowSessionInSidebar(stub)).toBe(false)
         expect(shouldShowSessionInSidebar(stub, 'stub')).toBe(true)
         expect(shouldShowSessionInSidebar({ ...stub, active: true })).toBe(true)
+        expect(shouldShowSessionInSidebar({ ...stub, pinned: true })).toBe(true)
     })
 })
 
@@ -450,6 +505,62 @@ describe('filterActiveSessionsOnly', () => {
             makeSession({ id: 'c', active: true, metadata: { path: '/p' } })
         ]
         expect(filterActiveSessionsOnly(sessions).map(s => s.id)).toEqual(['a', 'c'])
+    })
+})
+
+describe('filterUnreadSessionsOnly', () => {
+    const lastSeen = (id: string): number => {
+        if (id === 'unread') return 1000
+        return 10_000
+    }
+
+    it('keeps only sessions newer than lastSeen; drops seen and selected-only quiet rows stay when selected', () => {
+        const sessions = [
+            makeSession({ id: 'unread', updatedAt: 5000, metadata: { path: '/p' } }),
+            makeSession({ id: 'seen', updatedAt: 1000, metadata: { path: '/p' } }),
+            makeSession({
+                id: 'permission-but-seen',
+                pendingRequestKinds: ['permission'],
+                pendingRequestsCount: 1,
+                updatedAt: 1000,
+                metadata: { path: '/p' },
+            }),
+        ]
+        expect(filterUnreadSessionsOnly(sessions, null, lastSeen).map(s => s.id))
+            .toEqual(['unread'])
+    })
+
+    it('keeps the selected session visible even when it would otherwise filter out', () => {
+        const sessions = [
+            makeSession({ id: 'unread', updatedAt: 5000, metadata: { path: '/p' } }),
+            makeSession({ id: 'selected-quiet', updatedAt: 1000, metadata: { path: '/p' } }),
+        ]
+        expect(filterUnreadSessionsOnly(sessions, 'selected-quiet', lastSeen).map(s => s.id))
+            .toEqual(['unread', 'selected-quiet'])
+    })
+
+    it('composes with machine filter as empty intersection (unread after machine scope stays selected)', () => {
+        // Mirrors SessionList pipeline: unread on visibleSessions, then machine filter.
+        // Machine B selected + only machine A unread → empty list, not "all unread".
+        const sessions = [
+            makeSession({
+                id: 'unread-a',
+                updatedAt: 5000,
+                metadata: { path: '/a', machineId: 'machine-a' },
+            }),
+            makeSession({
+                id: 'seen-b',
+                updatedAt: 1000,
+                metadata: { path: '/b', machineId: 'machine-b' },
+            }),
+        ]
+        const lastSeenById = (id: string) => (id === 'unread-a' ? 0 : 10_000)
+        const unreadFiltered = filterUnreadSessionsOnly(sessions, null, lastSeenById)
+        const machineB = unreadFiltered.filter(
+            session => (session.metadata?.machineId ?? UNKNOWN_MACHINE_ID) === 'machine-b'
+        )
+        expect(unreadFiltered.map(s => s.id)).toEqual(['unread-a'])
+        expect(machineB).toEqual([])
     })
 })
 

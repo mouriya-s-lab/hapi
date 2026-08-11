@@ -7,6 +7,7 @@ interface CodexSessionScannerOptions {
     transcriptPath: string | null;
     onEvent: (event: CodexSessionEvent, context: { replayedHistory: boolean }) => void;
     onSessionId?: (sessionId: string) => void;
+    onReplayComplete?: () => void;
     replayExistingHistory?: boolean;
 }
 
@@ -37,6 +38,7 @@ class CodexSessionScannerImpl extends BaseSessionScanner<CodexSessionEvent> {
     private transcriptPath: string | null;
     private readonly onEvent: (event: CodexSessionEvent, context: { replayedHistory: boolean }) => void;
     private readonly onSessionId?: (sessionId: string) => void;
+    private readonly onReplayComplete?: () => void;
     private readonly fileEpochByPath = new Map<string, number>();
     private readonly fileStateByPath = new Map<string, {
         device: number;
@@ -53,6 +55,7 @@ class CodexSessionScannerImpl extends BaseSessionScanner<CodexSessionEvent> {
         this.transcriptPath = opts.transcriptPath;
         this.onEvent = opts.onEvent;
         this.onSessionId = opts.onSessionId;
+        this.onReplayComplete = opts.onReplayComplete;
         this.replayExistingHistoryOnNextAttach = opts.replayExistingHistory ?? false;
     }
 
@@ -100,6 +103,9 @@ class CodexSessionScannerImpl extends BaseSessionScanner<CodexSessionEvent> {
             }
         } finally {
             this.replayingExistingHistory = false;
+        }
+        if (replayedHistory) {
+            this.onReplayComplete?.();
         }
         if (stats.newCount > 0) {
             logger.debug(`[codex-session-scanner] ${stats.newCount} new events from ${stats.filePath}`);

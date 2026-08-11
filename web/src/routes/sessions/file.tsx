@@ -13,13 +13,7 @@ import { useShikiHighlighter } from '@/lib/shiki'
 import { useTranslation } from '@/lib/use-translation'
 import { decodeBase64, encodeBase64 } from '@/lib/utils'
 import { ImagePreview } from '@/components/ImagePreview'
-import { MarkdownRenderer } from '@/components/MarkdownRenderer'
-import {
-    getInitialMarkdownPreviewMode,
-    isMarkdownFile,
-    persistMarkdownPreviewMode,
-    type MarkdownPreviewMode,
-} from '@/lib/file-markdown-preview'
+import { formatFileMetadata } from '@/lib/file-metadata'
 import { downloadBase64File } from '@/lib/file-download'
 import { FileMarkdownView } from '@/components/FileMarkdownView'
 import { useFileWordWrap, useFileMarkdownPreview } from '@/hooks/useFileViewPrefs'
@@ -195,7 +189,7 @@ function extractCommandError(result: GitCommandResponse | undefined): string | n
 
 export default function FilePage() {
     const { api } = useAppContext()
-    const { t } = useTranslation()
+    const { t, locale } = useTranslation()
     const toast = useToast()
     const queryClient = useQueryClient()
     const { copied: pathCopied, copy: copyPath } = useCopyToClipboard()
@@ -364,6 +358,7 @@ export default function FilePage() {
     const missingPath = !filePath
     const diffErrorMessage = diffError ? formatDiffError(diffError, t) : null
     const fileErrorMessage = fileError ? formatReadFileError(fileError, t) : null
+    const fileMetadata = formatFileMetadata(fileContentResult?.size, fileContentResult?.modified, locale)
 
     return (
         <div className="flex h-full min-h-0 flex-col">
@@ -378,7 +373,7 @@ export default function FilePage() {
                     </button>
                     <div className="min-w-0 flex-1">
                         <div className="truncate font-semibold">{fileName}</div>
-                        <div className="truncate text-xs text-[var(--app-hint)]">{filePath || t('file.page.unknownPath')}</div>
+                        <div className="truncate text-xs text-[var(--app-hint)]">{fileMetadata ?? (filePath || t('file.page.unknownPath'))}</div>
                     </div>
                 </div>
             </div>

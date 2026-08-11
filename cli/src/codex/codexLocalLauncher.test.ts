@@ -76,6 +76,15 @@ function createSessionStub(
     const sessionEvents: Array<{ type: string; message?: string }> = [];
     const userMessages: string[] = [];
     const agentMessages: unknown[] = [];
+    const messageEvents: Array<{
+        type: 'user-message';
+        message: string;
+    } | {
+        type: 'user-activity';
+    } | {
+        type: 'agent-message';
+        message: unknown;
+    }> = [];
     let userActivityCount = 0;
     let localLaunchFailure: { message: string; exitReason: 'switch' | 'exit' } | null = null;
     let sessionId: string | null = null;
@@ -142,18 +151,22 @@ function createSessionStub(
             },
             sendUserMessage: (message: string) => {
                 userMessages.push(message);
+                messageEvents.push({ type: 'user-message', message });
             },
             notifyUserActivity: () => {
                 userActivityCount += 1;
+                messageEvents.push({ type: 'user-activity' });
             },
             sendAgentMessage: (message: unknown) => {
                 agentMessages.push(message);
+                messageEvents.push({ type: 'agent-message', message });
             },
             queue: createQueueStub()
         },
         sessionEvents,
         userMessages,
         agentMessages,
+        messageEvents,
         getUserActivityCount: () => userActivityCount,
         getLocalLaunchFailure: () => localLaunchFailure,
         getModelReasoningEffort: () => modelReasoningEffort,
@@ -411,7 +424,9 @@ describe('codexLocalLauncher', () => {
         expect(getModelReasoningEffort()).toBeNull();
         expect(agentMessages).toContainEqual(expect.objectContaining({
             type: 'token_count',
-            model: 'gpt-5.4'
+            model: 'gpt-5.4',
+            usageSchema: 'hapi.usage.v1',
+            inputTokenSemantics: 'includes-cache'
         }));
     });
 
@@ -735,12 +750,18 @@ describe('codexLocalLauncher', () => {
             message as { type?: string }
         ).type === 'token_count') as Array<Record<string, unknown>>;
         expect(tokenMessages).toHaveLength(2);
-        expect(tokenMessages[0]).toMatchObject({ hapiUsageScope: 'imported-history' });
+        expect(tokenMessages[0]).toMatchObject({
+            hapiUsageScope: 'imported-history',
+            usageSchema: 'hapi.usage.v1',
+            inputTokenSemantics: 'includes-cache'
+        });
         expect(tokenMessages[0]).not.toHaveProperty('thread_id');
         expect(tokenMessages[1]).toMatchObject({
             threadId: 'codex-thread-import',
             thread_id: 'codex-thread-import',
-            hapiUsageScope: 'managed'
+            hapiUsageScope: 'managed',
+            usageSchema: 'hapi.usage.v1',
+            inputTokenSemantics: 'includes-cache'
         });
     });
 
@@ -1019,6 +1040,258 @@ describe('codexLocalLauncher', () => {
         });
     });
 
+    it('dispatches buffered finals before later user and semantic actions', async () => {
+        const transcriptPath = join(tempDir, 'codex-ordered-actions-transcript.jsonl');
+        const { session, messageEvents } = createSessionStub(
+            'default',
+            undefined,
+            '/tmp/worktree',
+            null,
+            true
+        );
+        let releaseRunBarrier: (() => void) | undefined;
+        harness.runBarrier = new Promise((resolve) => {
+            releaseRunBarrier = resolve;
+        });
+
+        await writeFile(
+            transcriptPath,
+            [
+                JSON.stringify({ type: 'session_meta', payload: { id: 'codex-thread-ordered' } }),
+                JSON.stringify({ type: 'turn_context', payload: { turn_id: 'turn-ordered' } }),
+                JSON.stringify({
+                    type: 'response_item',
+                    payload: {
+                        type: 'message',
+                        id: 'final-a',
+                        role: 'assistant',
+                        phase: 'final_answer',
+                        content: [{ type: 'output_text', text: 'visible final A' }],
+                        internal_chat_message_metadata_passthrough: { turn_id: 'turn-ordered' }
+                    }
+                }),
+                JSON.stringify({
+                    type: 'event_msg',
+                    payload: { type: 'user_message', message: 'queued follow-up' }
+                }),
+                JSON.stringify({
+                    type: 'response_item',
+                    payload: {
+                        type: 'message',
+                        id: 'final-b',
+                        role: 'assistant',
+                        phase: 'final_answer',
+                        content: [{ type: 'output_text', text: 'visible final B' }],
+                        internal_chat_message_metadata_passthrough: { turn_id: 'turn-ordered' }
+                    }
+                }),
+                JSON.stringify({
+                    type: 'event_msg',
+                    payload: {
+                        type: 'item_completed',
+                        turn_id: 'turn-ordered',
+                        item: {
+                            type: 'AgentMessage',
+                            id: 'final-b',
+                            phase: 'final_answer',
+                            content: [{ type: 'Text', text: 'visible final B' }]
+                        }
+                    }
+                }),
+                JSON.stringify({
+                    type: 'event_msg',
+                    payload: { type: 'task_complete', turn_id: 'turn-ordered' }
+                })
+            ].join('\n') + '\n'
+        );
+
+        const launcherPromise = codexLocalLauncher(session as never);
+        await wait(50);
+
+        harness.sessionHookHandlers[0]?.('codex-thread-ordered', {
+            transcript_path: transcriptPath
+        });
+        await wait(300);
+
+        releaseRunBarrier?.();
+        await launcherPromise;
+
+        expect(messageEvents).toEqual([{
+            type: 'agent-message',
+            message: {
+                type: 'message',
+                message: 'visible final A',
+                id: 'final-a'
+            }
+        }, {
+            type: 'user-message',
+            message: 'queued follow-up'
+        }, {
+            type: 'agent-message',
+            message: {
+                type: 'message',
+                message: 'visible final B',
+                id: 'final-b'
+            }
+        }]);
+    });
+
+    it('replays Codex 0.147 completed messages and response-only final answers once', async () => {
+        const transcriptPath = join(tempDir, 'codex-import-0.147-transcript.jsonl');
+        const { session, userMessages, agentMessages, getUserActivityCount } = createSessionStub(
+            'default',
+            undefined,
+            '/tmp/worktree',
+            null,
+            true
+        );
+        let releaseRunBarrier: (() => void) | undefined;
+        harness.runBarrier = new Promise((resolve) => {
+            releaseRunBarrier = resolve;
+        });
+
+        await writeFile(
+            transcriptPath,
+            [
+                JSON.stringify({ type: 'session_meta', payload: { id: 'codex-thread-147' } }),
+                JSON.stringify({
+                    type: 'turn_context',
+                    payload: { turn_id: 'turn-147', model: 'gpt-5.6-sol' }
+                }),
+                JSON.stringify({
+                    type: 'event_msg',
+                    payload: {
+                        type: 'item_completed',
+                        turn_id: 'turn-147',
+                        item: {
+                            type: 'UserMessage',
+                            id: 'user-147',
+                            content: [{ type: 'Text', text: 'visible 0.147 prompt' }]
+                        }
+                    }
+                }),
+                JSON.stringify({
+                    type: 'event_msg',
+                    payload: {
+                        type: 'item_completed',
+                        turn_id: 'turn-147',
+                        item: {
+                            type: 'AgentMessage',
+                            id: 'commentary-147',
+                            phase: 'commentary',
+                            content: [{ type: 'Text', text: 'visible 0.147 commentary' }]
+                        }
+                    }
+                }),
+                JSON.stringify({
+                    type: 'response_item',
+                    payload: {
+                        type: 'message',
+                        id: 'commentary-147',
+                        role: 'assistant',
+                        phase: 'commentary',
+                        content: [{ type: 'output_text', text: 'visible 0.147 commentary' }],
+                        internal_chat_message_metadata_passthrough: { turn_id: 'turn-147' }
+                    }
+                }),
+                JSON.stringify({
+                    type: 'response_item',
+                    payload: {
+                        type: 'message',
+                        id: 'final-147',
+                        role: 'assistant',
+                        phase: 'final_answer',
+                        content: [{ type: 'output_text', text: 'visible 0.147 final answer' }],
+                        internal_chat_message_metadata_passthrough: { turn_id: 'turn-147' }
+                    }
+                }),
+                JSON.stringify({
+                    type: 'event_msg',
+                    payload: { type: 'task_complete', turn_id: 'turn-147' }
+                })
+            ].join('\n') + '\n'
+        );
+
+        const launcherPromise = codexLocalLauncher(session as never);
+        await wait(50);
+
+        harness.sessionHookHandlers[0]?.('codex-thread-147', {
+            transcript_path: transcriptPath
+        });
+        await wait(300);
+
+        releaseRunBarrier?.();
+        await launcherPromise;
+
+        expect(userMessages).toEqual(['visible 0.147 prompt']);
+        expect(getUserActivityCount()).toBe(0);
+        expect(agentMessages).toEqual([{
+            type: 'message',
+            message: 'visible 0.147 commentary',
+            id: 'commentary-147'
+        }, {
+            type: 'message',
+            message: 'visible 0.147 final answer',
+            id: 'final-147'
+        }]);
+    });
+
+    it('finalizes a response-only answer when an imported transcript ends without a boundary', async () => {
+        const transcriptPath = join(tempDir, 'codex-import-final-at-eof.jsonl');
+        const { session, agentMessages } = createSessionStub(
+            'default',
+            undefined,
+            '/tmp/worktree',
+            null,
+            true
+        );
+        let releaseRunBarrier: (() => void) | undefined;
+        harness.runBarrier = new Promise((resolve) => {
+            releaseRunBarrier = resolve;
+        });
+
+        await writeFile(
+            transcriptPath,
+            [
+                JSON.stringify({ type: 'session_meta', payload: { id: 'codex-thread-final-at-eof' } }),
+                JSON.stringify({ type: 'turn_context', payload: { turn_id: 'turn-final-at-eof' } }),
+                JSON.stringify({
+                    type: 'response_item',
+                    payload: {
+                        type: 'message',
+                        id: 'final-at-eof',
+                        role: 'assistant',
+                        phase: 'final_answer',
+                        content: [{ type: 'output_text', text: 'visible answer at EOF' }],
+                        internal_chat_message_metadata_passthrough: { turn_id: 'turn-final-at-eof' }
+                    }
+                })
+            ].join('\n') + '\n'
+        );
+
+        const launcherPromise = codexLocalLauncher(session as never);
+        await wait(50);
+
+        harness.sessionHookHandlers[0]?.('codex-thread-final-at-eof', {
+            transcript_path: transcriptPath
+        });
+        await wait(300);
+        expect(agentMessages).toEqual([{
+            type: 'message',
+            message: 'visible answer at EOF',
+            id: 'final-at-eof'
+        }]);
+
+        releaseRunBarrier?.();
+        await launcherPromise;
+
+        expect(agentMessages).toEqual([{
+            type: 'message',
+            message: 'visible answer at EOF',
+            id: 'final-at-eof'
+        }]);
+    });
+
     it('replays a plan-only turn when the turn completes', async () => {
         const transcriptPath = join(tempDir, 'codex-import-plan-only-transcript.jsonl');
         const { session, agentMessages } = createSessionStub('default', undefined, '/tmp/worktree', null, true);
@@ -1149,7 +1422,7 @@ describe('codexLocalLauncher', () => {
     it('allows a clear hook to replace the primary session', async () => {
         const primaryTranscriptPath = await writeTranscriptMeta('primary-before-clear.jsonl', 'primary-thread');
         const clearTranscriptPath = await writeTranscriptMeta('clear-transcript.jsonl', 'clear-thread');
-        const { session } = createSessionStub('default');
+        const { session, agentMessages } = createSessionStub('default');
         let releaseRunBarrier: (() => void) | undefined;
         harness.runBarrier = new Promise((resolve) => {
             releaseRunBarrier = resolve;
@@ -1164,11 +1437,33 @@ describe('codexLocalLauncher', () => {
         });
         await wait(100);
 
+        await appendFile(
+            primaryTranscriptPath,
+            JSON.stringify({
+                type: 'response_item',
+                payload: {
+                    type: 'message',
+                    role: 'assistant',
+                    content: [{ type: 'output_text', text: 'same text in both threads' }]
+                }
+            }) + '\n'
+        );
+        await wait(300);
+
         harness.sessionHookHandlers[0]?.('clear-thread', {
             transcript_path: clearTranscriptPath,
             source: 'clear'
         });
         await wait(100);
+
+        await appendFile(
+            clearTranscriptPath,
+            JSON.stringify({
+                type: 'event_msg',
+                payload: { type: 'agent_message', message: 'same text in both threads' }
+            }) + '\n'
+        );
+        await wait(300);
 
         if (releaseRunBarrier) {
             releaseRunBarrier();
@@ -1177,6 +1472,9 @@ describe('codexLocalLauncher', () => {
 
         expect(session.sessionId).toBe('clear-thread');
         expect(session.transcriptPath).toBe(clearTranscriptPath);
+        expect(agentMessages.filter((message) => (
+            message as { message?: string }
+        ).message === 'same text in both threads')).toHaveLength(2);
     });
 
     it('ignores mismatched session metadata from the active transcript scanner', async () => {

@@ -205,6 +205,11 @@ const PiSummarizationRetryScheduledEventSchema = z.object({
     errorMessage: z.string(),
 });
 
+export const PiSessionInfoChangedEventSchema = z.object({
+    type: z.literal('session_info_changed'),
+    name: z.string(),
+}).passthrough();
+
 export const PiLifecycleEventSchema = z.union([
     PiCompactionStartEventSchema,
     PiCompactionEndEventSchema,
@@ -321,6 +326,7 @@ export const PiStateDataSchema = z.object({
         provider: z.string().optional(),
     }).passthrough().optional(),
     sessionId: z.string().optional(),
+    sessionName: z.string().optional(),
     sessionFile: z.string().optional(),
     thinkingLevel: z.string().optional(),
     steeringMode: z.enum(['all', 'one-at-a-time']).optional(),

@@ -8,6 +8,7 @@ import {
     PROTOCOL_VERSION
 } from '@hapi/protocol'
 import { getConfiguration } from '../../configuration'
+import { readSessionSummaryContractEnabled } from '../../config/sessionSummaryContract'
 import { constantTimeEquals } from '../../utils/crypto'
 import { parseAccessToken } from '../../utils/accessToken'
 import type { Machine, Session, SyncEngine } from '../../sync/syncEngine'
@@ -134,7 +135,10 @@ export function createCliRoutes(
                 parsed.data.modelReasoningEffort,
                 parsed.data.id
             )
-            return c.json({ session })
+            const sessionSummaryContract = await readSessionSummaryContractEnabled(
+                getConfiguration().dataDir
+            )
+            return c.json({ session, sessionSummaryContract })
         } catch (error) {
             if (error instanceof SessionIdentityConflictError) {
                 return c.json({ error: error.message }, 409)
@@ -240,7 +244,7 @@ export function createCliRoutes(
         return c.json({ ok: true, sessionId: result.sessionId })
     })
 
-    app.get('/sessions/:id', (c) => {
+    app.get('/sessions/:id', async (c) => {
         const engine = getSyncEngine()
         if (!engine) {
             return c.json({ error: 'Not ready' }, 503)
@@ -251,7 +255,10 @@ export function createCliRoutes(
         if (!resolved.ok) {
             return c.json({ error: resolved.error }, resolved.status)
         }
-        return c.json({ session: resolved.session })
+        const sessionSummaryContract = await readSessionSummaryContractEnabled(
+            getConfiguration().dataDir
+        )
+        return c.json({ session: resolved.session, sessionSummaryContract })
     })
 
     app.get('/sessions/:id/messages', (c) => {

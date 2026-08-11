@@ -1,10 +1,11 @@
 import { logger } from '@/ui/logger';
 import { convertAgentMessage } from '@/agent/messageConverter';
+import { createNativeSessionTitleMetadataSync } from '@/agent/nativeSessionTitle';
 import { PiTransport } from './piTransport';
 import { convertPiEvent, convertPiTurnUsage } from './piEventConverter';
 import { PiMessageAccumulator } from './piMessageAccumulator';
 import { PiExtensionUiHandler } from './extensionUiHandler';
-import { parsePiModels, parsePiCommands, parsePiContextUsage, PiAgentEndEventSchema, PiAgentSettledEventSchema, PiExtensionUiRequestSchema, PiLifecycleEventSchema, PiResponseEventSchema, PiStateDataSchema, PiSetModelDataSchema } from './schemas';
+import { parsePiModels, parsePiCommands, parsePiContextUsage, PiAgentEndEventSchema, PiAgentSettledEventSchema, PiExtensionUiRequestSchema, PiLifecycleEventSchema, PiResponseEventSchema, PiSessionInfoChangedEventSchema, PiStateDataSchema, PiSetModelDataSchema } from './schemas';
 import type { PiContextUsage, PiResponseEvent, PiRpcCommand, PiThinkingLevel, PiTurnEndEvent } from './types';
 import type { PiSession } from './session';
 import type { PiConversationHistory } from './conversationHistory';
@@ -117,11 +118,13 @@ function applyGetState(
     data: {
         model?: { id?: string; modelId?: string; provider?: string };
         sessionId?: string;
+        sessionName?: string;
         thinkingLevel?: string;
         steeringMode?: 'all' | 'one-at-a-time';
         isStreaming?: boolean;
     },
     session: PiSession,
+    syncNativeTitle: (title: unknown) => void,
     applyStreamingState = true,
 ): void {
 
@@ -153,6 +156,8 @@ function applyGetState(
         logger.debug(`[pi] Session ID persisted to metadata: ${data.sessionId}`);
     }
 
+    syncNativeTitle(data.sessionName);
+
     if (data.thinkingLevel) {
         session.currentThinkingLevel = data.thinkingLevel as PiThinkingLevel;
         logger.debug(`[pi] Initial thinking level: ${data.thinkingLevel}`);
@@ -179,6 +184,7 @@ function handleResponse(
     conversationHistory?: PiConversationHistory,
     onReady?: () => void,
     shouldApplyGetStateStreaming?: (isStreaming: boolean) => boolean,
+    syncNativeTitle?: (title: unknown) => void,
 ): { rejectedPromptLocalId?: string } {
     const { command, success } = response;
     const resolver = session.rpcResolver!;
@@ -248,7 +254,7 @@ function handleResponse(
                 if (!applyStreamingState) {
                     logger.debug('[pi] Ignoring get_state isStreaming=false during an active prompt lifecycle');
                 }
-                applyGetState(state, session, applyStreamingState);
+                applyGetState(state, session, syncNativeTitle ?? (() => {}), applyStreamingState);
                 onReady?.();
             }
             resolvePendingRpc(resolver, response);
@@ -498,6 +504,10 @@ export function wireTransportEvents(
         session: session.client,
         sendResponse: (response) => transport.send(response),
     });
+    // Shared dedup state for native Pi titles (get_state startup/resume and
+    // live session_info_changed renames) so repeated identical names do not
+    // trigger redundant updateMetadata calls.
+    const syncNativeTitle = createNativeSessionTitleMetadataSync(session.client);
     const lifecycleTimeline = new PiLifecycleTimeline();
     let latestContextUsageRequest = 0;
     let deliveredSettlement = false;
@@ -688,6 +698,7 @@ export function wireTransportEvents(
                             && (activePromptId !== null || agentLifecycleSeen);
                         return !promptLifecycleActive;
                     },
+                    syncNativeTitle,
                 );
                 if (isCurrentPrompt && !parsed.data.success) {
                     const rejectedLocalId = responseOutcome.rejectedPromptLocalId ?? activePromptLocalId;
@@ -728,6 +739,19 @@ export function wireTransportEvents(
                 extensionUi.handle(parsed.data);
             } else {
                 logger.debug('[pi] Ignoring malformed extension_ui_request');
+            }
+            return;
+        }
+
+        if (event.type === 'session_info_changed') {
+            // Pi emits this for `/name` and the set_session_name RPC. Mirror the
+            // native rename into HAPI metadata so the web title stays in sync
+            // without any HAPI-injected change_title flow (issue #1440).
+            const parsed = PiSessionInfoChangedEventSchema.safeParse(event);
+            if (parsed.success) {
+                syncNativeTitle(parsed.data.name);
+            } else {
+                logger.debug('[pi] Ignoring malformed session_info_changed');
             }
             return;
         }

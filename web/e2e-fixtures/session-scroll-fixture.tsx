@@ -21,6 +21,7 @@ import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import '../src/index.css'
 import { I18nProvider } from '../src/lib/i18n-context'
+import { ToastProvider } from '../src/lib/toast-context'
 import { SessionList } from '../src/components/SessionList'
 import {
     useSessionListScrollStability,
@@ -146,6 +147,7 @@ function App() {
     return (
         <QueryClientProvider client={queryClient}>
             <I18nProvider>
+                <ToastProvider>
                 <div style={{ height: 420, width: 360, border: '1px solid #ccc' }} className="flex flex-col">
                     <div
                         data-testid="selected-readout"
@@ -173,6 +175,7 @@ function App() {
                         api={null}
                     />
                 </div>
+                </ToastProvider>
             </I18nProvider>
         </QueryClientProvider>
     )

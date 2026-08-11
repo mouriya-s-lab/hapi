@@ -298,6 +298,190 @@ describe('session model', () => {
         expect(store.sessions.getSession(newSession.id)?.serviceTier).toBe('fast')
     })
 
+    it('preserves pin from old session when merging into resumed session', async () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+
+        const oldSession = cache.getOrCreateSession(
+            'session-pin-old',
+            { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
+            null,
+            'default'
+        )
+        store.sessions.setSessionPinMode(oldSession.id, 'project', 'default')
+        const newSession = cache.getOrCreateSession(
+            'session-pin-new',
+            { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
+            null,
+            'default'
+        )
+
+        await cache.mergeSessions(oldSession.id, newSession.id, 'default')
+
+        expect(store.sessions.getSession(oldSession.id)).toBeNull()
+        expect(store.sessions.getSession(newSession.id)?.pinned).toBe(true)
+        expect(store.sessions.getSession(newSession.id)?.globalPinned).toBe(false)
+        expect(cache.getSession(newSession.id)?.pinned).toBe(true)
+    })
+
+    it('preserves global pin from old session when merging into resumed session', async () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+
+        const oldSession = cache.getOrCreateSession(
+            'session-global-pin-old',
+            { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
+            null,
+            'default'
+        )
+        store.sessions.setSessionPinMode(oldSession.id, 'global', 'default')
+        const newSession = cache.getOrCreateSession(
+            'session-global-pin-new',
+            { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
+            null,
+            'default'
+        )
+
+        await cache.mergeSessions(oldSession.id, newSession.id, 'default')
+
+        expect(store.sessions.getSession(oldSession.id)).toBeNull()
+        expect(store.sessions.getSession(newSession.id)?.pinned).toBe(false)
+        expect(store.sessions.getSession(newSession.id)?.globalPinned).toBe(true)
+        expect(cache.getSession(newSession.id)?.globalPinned).toBe(true)
+    })
+
+    it('keeps a global-pinned merge target when the source is only project-pinned', async () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+
+        const oldSession = cache.getOrCreateSession(
+            'session-pin-downgrade-old',
+            { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
+            null,
+            'default'
+        )
+        store.sessions.setSessionPinMode(oldSession.id, 'project', 'default')
+        const newSession = cache.getOrCreateSession(
+            'session-pin-downgrade-new',
+            { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
+            null,
+            'default'
+        )
+        store.sessions.setSessionPinMode(newSession.id, 'global', 'default')
+
+        await cache.mergeSessions(oldSession.id, newSession.id, 'default')
+
+        expect(store.sessions.getSession(oldSession.id)).toBeNull()
+        expect(store.sessions.getSession(newSession.id)?.pinned).toBe(false)
+        expect(store.sessions.getSession(newSession.id)?.globalPinned).toBe(true)
+        expect(cache.getSession(newSession.id)?.globalPinned).toBe(true)
+    })
+
+    it('accepts a merge target pinned concurrently during pin preservation', async () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+
+        const oldSession = cache.getOrCreateSession(
+            'session-pin-race-old',
+            { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
+            null,
+            'default'
+        )
+        const newSession = cache.getOrCreateSession(
+            'session-pin-race-new',
+            { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
+            null,
+            'default'
+        )
+        store.sessions.setSessionPinMode(oldSession.id, 'project', 'default')
+
+        const setSessionPinMode = store.sessions.setSessionPinMode.bind(store.sessions)
+        store.sessions.setSessionPinMode = ((sessionId, mode, namespace) => {
+            setSessionPinMode(sessionId, mode, namespace)
+            return false
+        }) as typeof store.sessions.setSessionPinMode
+
+        await cache.mergeSessions(oldSession.id, newSession.id, 'default')
+
+        expect(store.sessions.getSession(oldSession.id)).toBeNull()
+        expect(store.sessions.getSession(newSession.id)?.pinned).toBe(true)
+        expect(cache.getSession(newSession.id)?.pinned).toBe(true)
+    })
+
+    it('keeps a concurrent global pin on the merge target when the source is project-pinned', async () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+
+        const oldSession = cache.getOrCreateSession(
+            'session-pin-global-race-old',
+            { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
+            null,
+            'default'
+        )
+        const newSession = cache.getOrCreateSession(
+            'session-pin-global-race-new',
+            { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
+            null,
+            'default'
+        )
+        store.sessions.setSessionPinMode(oldSession.id, 'project', 'default')
+
+        const getSessionByNamespace = store.sessions.getSessionByNamespace.bind(store.sessions)
+        let targetReads = 0
+        store.sessions.getSessionByNamespace = ((sessionId, namespace) => {
+            if (sessionId === newSession.id && ++targetReads === 1) {
+                store.sessions.setSessionPinMode(newSession.id, 'global', 'default')
+            }
+            return getSessionByNamespace(sessionId, namespace)
+        }) as typeof store.sessions.getSessionByNamespace
+
+        await cache.mergeSessions(oldSession.id, newSession.id, 'default')
+
+        expect(store.sessions.getSession(oldSession.id)).toBeNull()
+        expect(store.sessions.getSession(newSession.id)?.pinned).toBe(false)
+        expect(store.sessions.getSession(newSession.id)?.globalPinned).toBe(true)
+        expect(cache.getSession(newSession.id)?.globalPinned).toBe(true)
+    })
+
+    it('preserves the latest source pin when it changes during a merge', async () => {
+        const store = new Store(':memory:')
+        const events: SyncEvent[] = []
+        const cache = new SessionCache(store, createPublisher(events))
+
+        const oldSession = cache.getOrCreateSession(
+            'session-source-pin-race-old',
+            { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
+            null,
+            'default'
+        )
+        const newSession = cache.getOrCreateSession(
+            'session-source-pin-race-new',
+            { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
+            null,
+            'default'
+        )
+
+        const getSessionByNamespace = store.sessions.getSessionByNamespace.bind(store.sessions)
+        let sourceReads = 0
+        store.sessions.getSessionByNamespace = ((sessionId, namespace) => {
+            if (sessionId === oldSession.id && ++sourceReads === 2) {
+                store.sessions.setSessionPinMode(oldSession.id, 'project', 'default')
+            }
+            return getSessionByNamespace(sessionId, namespace)
+        }) as typeof store.sessions.getSessionByNamespace
+
+        await cache.mergeSessions(oldSession.id, newSession.id, 'default')
+
+        expect(store.sessions.getSession(oldSession.id)).toBeNull()
+        expect(store.sessions.getSession(newSession.id)?.pinned).toBe(true)
+        expect(cache.getSession(newSession.id)?.pinned).toBe(true)
+    })
+
     it('persists applied session model updates, including clear-to-auto', () => {
         const store = new Store(':memory:')
         const events: SyncEvent[] = []

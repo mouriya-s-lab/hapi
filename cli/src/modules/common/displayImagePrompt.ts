@@ -28,6 +28,30 @@ export const DISPLAY_VIDEO_PROMPT_HAPI_MCP = trimIdent(`
     When you create or find a local mp4 or webm recording the user should see, call the tool "hapi_display_video" with the file path so HAPI can show it inline. If that exact tool name is unavailable, use an equivalent alias such as display_video or mcp__hapi__display_video.
 `);
 
+export const DISPLAY_IMAGE_PROMPT_CURSOR = trimIdent(`
+    When you create or find a local image file that the user should see, call the tool "display_image" with the absolute filesystem path so HAPI can show it inline.
+`);
+
+export const DISPLAY_VIDEO_PROMPT_CURSOR = trimIdent(`
+    When you create or find a local mp4 or webm recording the user should see, call the tool "display_video" with the absolute filesystem path so HAPI can show it inline.
+`);
+
+export const DISPLAY_MEDIA_PROMPT_CLAUDE = trimIdent(`
+    When you create or find a local audio file or other non-image file that the user should receive, call the tool "mcp__hapi__display_media" with the file path so HAPI can show a player or download card.
+`);
+
+export const DISPLAY_MEDIA_PROMPT_CODEX = trimIdent(`
+    When you create or find a local audio file or other non-image file that the user should receive, call functions.hapi__display_media with the file path. If that exact tool name is unavailable, use an equivalent alias such as hapi__display_media, mcp__hapi__display_media, or hapi_display_media.
+`);
+
+export const DISPLAY_MEDIA_PROMPT_HAPI_MCP = trimIdent(`
+    When you create or find a local audio file or other non-image file that the user should receive, call the tool "hapi_display_media" with the file path. If that exact tool name is unavailable, use an equivalent alias such as display_media or mcp__hapi__display_media.
+`);
+
+export const DISPLAY_MEDIA_PROMPT_CURSOR = trimIdent(`
+    When you create or find a local audio file or other non-image file that the user should receive, call the tool "display_media" with the absolute filesystem path so HAPI can show a player or download card.
+`);
+
 export const SEND_FILE_PROMPT_CLAUDE = trimIdent(`
     When you produce a deliverable file the user asked for (a report, document, archive, spreadsheet, etc.), call the tool "mcp__hapi__send_file" with the file path so HAPI can share it in the chat for the user to download.
 `);

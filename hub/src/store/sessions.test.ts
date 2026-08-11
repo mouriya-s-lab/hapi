@@ -35,6 +35,31 @@ describe('getOrCreateSession: active_at', () => {
     })
 })
 
+describe('session pinning', () => {
+    it('persists project and global pin modes without changing session recency', () => {
+        const store = makeStore()
+        const session = store.sessions.getOrCreateSession('pin-test', {}, null, 'default')
+
+        expect(session.pinned).toBe(false)
+        expect(session.globalPinned).toBe(false)
+        expect(store.sessions.setSessionPinMode(session.id, 'project', 'default')).toBe(true)
+
+        const projectPinned = store.sessions.getSession(session.id)
+        expect(projectPinned?.pinned).toBe(true)
+        expect(projectPinned?.globalPinned).toBe(false)
+        expect(projectPinned?.updatedAt).toBe(session.updatedAt)
+
+        expect(store.sessions.setSessionPinMode(session.id, 'global', 'default')).toBe(true)
+        const globalPinned = store.sessions.getSession(session.id)
+        expect(globalPinned?.pinned).toBe(false)
+        expect(globalPinned?.globalPinned).toBe(true)
+
+        expect(store.sessions.setSessionPinMode(session.id, 'none', 'other')).toBe(false)
+        expect(store.sessions.getSession(session.id)?.globalPinned).toBe(true)
+        store.close()
+    })
+})
+
 describe('getOrCreateSession: requested identity', () => {
     it('creates and idempotently reloads a client-requested id', () => {
         const store = makeStore()

@@ -67,6 +67,15 @@ describe('RpcGateway RPC timeouts', () => {
         expect(timeouts).toEqual([120_000])
     })
 
+    it('uses the session RPC for explicit Codex fallback discovery', async () => {
+        const { gateway, calls, timeouts } = createGateway()
+
+        await gateway.listCodexModelsForSession('session-1')
+
+        expect(calls.map((call) => call.method)).toEqual(['session-1:listCodexModels'])
+        expect(timeouts).toEqual([120_000])
+    })
+
     it('uses an extended RPC timeout when listing Cursor models for a machine', async () => {
         const { gateway, timeouts } = createGateway()
 

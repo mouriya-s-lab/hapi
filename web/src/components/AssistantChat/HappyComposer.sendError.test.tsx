@@ -14,6 +14,7 @@ import { HappyComposer, type ComposerSendError } from './HappyComposer'
  */
 type FakeAttachment = { id: string; status: { type: 'complete' } }
 type MockComposerInputProps = TextareaHTMLAttributes<HTMLTextAreaElement> & {
+    asChild?: boolean
     maxRows?: number
     submitOnEnter?: boolean
     cancelOnEscape?: boolean
@@ -31,6 +32,7 @@ const runtime = vi.hoisted(() => ({
     setSnapshot: null as null | ((updater: (current: FakeRuntimeState) => FakeRuntimeState) => void),
     pendingSendIntentRef: null as null | { current: ComposerSendIntent },
     sentIntents: [] as ComposerSendIntent[],
+    modelChanges: [] as Array<{ provider: string; modelId: string } | string | null>,
 }))
 
 vi.mock('@assistant-ui/react', async () => {
@@ -63,7 +65,14 @@ vi.mock('@assistant-ui/react', async () => {
                 <form onSubmit={onSubmit}>{children}</form>
             ),
             Input: React.forwardRef<HTMLTextAreaElement, MockComposerInputProps>(
-                ({ onChange, maxRows: _maxRows, submitOnEnter: _submitOnEnter, cancelOnEscape: _cancelOnEscape, ...props }, ref) => (
+                ({
+                    asChild: _asChild,
+                    onChange,
+                    maxRows: _maxRows,
+                    submitOnEnter: _submitOnEnter,
+                    cancelOnEscape: _cancelOnEscape,
+                    ...props
+                }, ref) => (
                     <textarea
                         {...props}
                         ref={ref}
@@ -89,7 +98,7 @@ vi.mock('@/lib/composerSegments', () => ({
         showContinueHint ? 'misc.typeMessage' : 'misc.typeAMessage',
 }))
 vi.mock('@/hooks/useComposerDraft', () => ({
-    useComposerDraft: (sessionId: string | undefined) => ({ sessionId, complete: true, restoredAny: false }),
+    useComposerDraft: (sessionId: string | undefined) => ({ sessionId, complete: true, restoredAny: false, hasStoredAttachments: false }),
 }))
 vi.mock('@/hooks/useComposerEnterBehavior', () => ({ useComposerEnterBehavior: () => ({ composerEnterBehavior: 'send' }) }))
 vi.mock('@/hooks/usePlatform', () => ({ usePlatform: () => ({ haptic: { impact: () => {}, notification: () => {} }, isTouch: false }) }))
@@ -102,7 +111,20 @@ vi.mock('@/components/AssistantChat/StatusBar', () => ({
     shouldShowComposerStatusBar: () => true,
     StatusBar: () => null,
 }))
-vi.mock('./PiModelPanel', () => ({ PiModelPanel: () => null }))
+vi.mock('./PiModelPanel', () => ({
+    PiModelPanel: (props: {
+        controlsDisabled?: boolean
+        onSelect: (model: { provider: string; modelId: string }) => void
+    }) => (
+        <button
+            type="button"
+            disabled={props.controlsDisabled}
+            onClick={() => props.onSelect({ provider: 'pi', modelId: 'pi-next' })}
+        >
+            select model
+        </button>
+    ),
+}))
 vi.mock('./PiThinkingLevelPanel', () => ({ PiThinkingLevelPanel: () => null }))
 vi.mock('@/components/AssistantChat/ComposerButtons', () => ({
     ComposerButtons: (props: {
@@ -110,11 +132,22 @@ vi.mock('@/components/AssistantChat/ComposerButtons', () => ({
         onSchedule: (pending: PendingSchedule) => void
         onClearSchedule: () => void
         pendingSchedule: PendingSchedule | null
+        expanded: boolean
+        onExpandedToggle: () => void
+        piModelLabel?: string
+        piModelDisabled?: boolean
+        onPiModelToggle?: () => void
     }) => (
         <div>
             <button type="button" onClick={props.onSend}>send</button>
+            <button type="button" onClick={props.onExpandedToggle}>
+                {props.expanded ? 'collapse' : 'expand'}
+            </button>
             <button type="button" onClick={() => props.onSchedule({ type: 'absolute', ms: 9000 })}>select schedule</button>
             <button type="button" onClick={props.onClearSchedule}>clear schedule</button>
+            {props.piModelLabel ? (
+                <button type="button" disabled={props.piModelDisabled} onClick={props.onPiModelToggle}>model</button>
+            ) : null}
             <output data-testid="pending-schedule">{JSON.stringify(props.pendingSchedule)}</output>
         </div>
     ),
@@ -127,6 +160,11 @@ type HarnessControls = {
     acceptAndClearSchedule: () => void
     remount: () => void
     programmaticSetText: (text: string) => void
+    acceptSend: () => void
+    setSending: (sending: boolean) => void
+    setThreadDisabled: (disabled: boolean) => void
+    settleSend: (error?: ComposerSendError) => void
+    settleAttachmentSendFailure: () => void
     getClearErrorCalls: () => number
 }
 
@@ -142,7 +180,13 @@ function ComposerHarness(props: {
     }))
     const [schedule, setSchedule] = useState<PendingSchedule | null>(props.initialSchedule ?? null)
     const [sendError, setSendError] = useState<ComposerSendError | null>(null)
+    const [isSending, setIsSending] = useState(false)
     const [composerKey, setComposerKey] = useState('composer-a')
+    const [sendAcceptance, setSendAcceptance] = useState<{ attemptId: string | null } | null>(null)
+    const [sendSettlement, setSendSettlement] = useState<{
+        attemptId: string
+        status: 'success' | 'error'
+    } | null>(null)
     const clearErrorCallsRef = useRef(0)
     const pendingSendIntentRef = useRef<ComposerSendIntent>('default')
 
@@ -168,6 +212,25 @@ function ComposerHarness(props: {
             ...current,
             composer: { ...current.composer, text },
         })),
+        acceptSend: () => {
+            setIsSending(true)
+            setSendSettlement(null)
+            setSendAcceptance({ attemptId: 'attempt-1' })
+        },
+        setSending: setIsSending,
+        setThreadDisabled: (disabled) => setSnapshot((current) => ({
+            ...current,
+            thread: { ...current.thread, isDisabled: disabled },
+        })),
+        settleSend: (error) => {
+            if (error) setSendError(error)
+            setSendSettlement({ attemptId: 'attempt-1', status: error ? 'error' : 'success' })
+            setIsSending(false)
+        },
+        settleAttachmentSendFailure: () => {
+            setSendSettlement({ attemptId: 'attempt-1', status: 'error' })
+            setIsSending(false)
+        },
         getClearErrorCalls: () => clearErrorCallsRef.current,
     }
 
@@ -176,7 +239,10 @@ function ComposerHarness(props: {
             <HappyComposer
                 key={composerKey}
                 sessionId={composerKey}
+                disabled={isSending}
                 pendingSchedule={schedule}
+                sendAcceptance={sendAcceptance}
+                sendSettlement={sendSettlement}
                 onSchedule={setSchedule}
                 onClearSchedule={() => setSchedule(null)}
                 sendError={sendError}
@@ -191,6 +257,8 @@ function ComposerHarness(props: {
                 )}
                 agentFlavor="pi"
                 thinking={props.piRunning}
+                piModels={[{ provider: 'pi', modelId: 'pi-model', name: 'Pi model' }]}
+                onModelChange={(model) => runtime.modelChanges.push(model)}
                 pendingSendIntentRef={pendingSendIntentRef}
             />
         </I18nProvider>
@@ -204,6 +272,7 @@ function renderComposer(
 ) {
     const controls: { current: HarnessControls | null } = { current: null }
     runtime.sentIntents = []
+    runtime.modelChanges = []
     render(<ComposerHarness initialText={initialText} initialSchedule={initialSchedule} piRunning={piRunning} controls={controls} />)
     return controls
 }
@@ -221,6 +290,18 @@ function send() {
     fireEvent.click(screen.getByRole('button', { name: 'send' }))
 }
 
+it('keeps Pi model selection available while a message is pending', () => {
+    const controls = renderComposer()
+
+    act(() => controls.current!.setThreadDisabled(true))
+
+    expect(screen.getByRole('button', { name: 'model' })).not.toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'model' }))
+    expect(screen.getByRole('button', { name: 'select model' })).not.toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'select model' }))
+    expect(runtime.modelChanges).toEqual([{ provider: 'pi', modelId: 'pi-next' }])
+})
+
 function acceptAndClearSchedule(controls: { current: HarnessControls | null }) {
     act(() => controls.current!.acceptAndClearSchedule())
 }
@@ -237,6 +318,46 @@ describe('HappyComposer send-error atomic restore', () => {
     afterEach(() => {
         cleanup()
         runtime.setSnapshot = null
+    })
+
+    it('collapses an expanded composer only after an accepted send succeeds', async () => {
+        const controls = renderComposer('message', null)
+        fireEvent.click(screen.getByRole('button', { name: 'expand' }))
+        expect(screen.getByTestId('composer-shell')).toHaveAttribute('data-expanded', 'true')
+
+        send()
+        expect(screen.getByTestId('composer-shell')).toHaveAttribute('data-expanded', 'true')
+
+        act(() => controls.current!.acceptSend())
+        expect(screen.getByTestId('composer-shell')).toHaveAttribute('data-expanded', 'true')
+
+        act(() => controls.current!.settleSend())
+        await waitFor(() => expect(screen.getByTestId('composer-shell')).not.toHaveAttribute('data-expanded'))
+    })
+
+    it('keeps the composer expanded when an accepted send later fails', async () => {
+        const controls = renderComposer('message', null)
+        fireEvent.click(screen.getByRole('button', { name: 'expand' }))
+        send()
+
+        act(() => controls.current!.acceptSend())
+        act(() => controls.current!.settleSend(fail(1, 'message', null)))
+
+        await waitFor(() => expect(input()).toHaveValue('message'))
+        expect(screen.getByTestId('composer-shell')).toHaveAttribute('data-expanded', 'true')
+    })
+
+    it('keeps the composer expanded when an attachment send later fails', () => {
+        const controls = renderComposer('', null)
+        act(() => controls.current!.addAttachment())
+        fireEvent.click(screen.getByRole('button', { name: 'expand' }))
+        send()
+
+        act(() => controls.current!.acceptSend())
+        act(() => controls.current!.settleAttachmentSendFailure())
+
+        expect(screen.getByTestId('composer-shell')).toHaveAttribute('data-expanded', 'true')
+        expect(screen.queryByTestId('composer-send-error')).toBeNull()
     })
 
     it('restores untouched text and its absolute schedule after accepted-send clear', async () => {

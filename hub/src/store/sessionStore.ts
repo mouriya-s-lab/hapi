@@ -13,6 +13,9 @@ import {
     setSessionModelReasoningEffort,
     setSessionServiceTier,
     setSessionActive,
+    setSessionPinned,
+    setSessionPinMode,
+    type SessionPinMode,
     setSessionResumeWithSessionModel,
     setSessionTeamState,
     setSessionTodos,
@@ -100,6 +103,14 @@ export class SessionStore {
 
     setSessionActive(id: string, active: boolean, activeAt: number, namespace: string): boolean {
         return setSessionActive(this.db, id, active, activeAt, namespace)
+    }
+
+    setSessionPinned(id: string, pinned: boolean, namespace: string): boolean {
+        return setSessionPinned(this.db, id, pinned, namespace)
+    }
+
+    setSessionPinMode(id: string, mode: SessionPinMode, namespace: string): boolean {
+        return setSessionPinMode(this.db, id, mode, namespace)
     }
 
     setSessionResumeWithSessionModel(

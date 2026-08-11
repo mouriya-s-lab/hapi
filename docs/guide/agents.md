@@ -51,6 +51,8 @@ hapi resume <session-id>   # Resume a specific HAPI session
 
 HAPI supports [Cursor Agent CLI](https://cursor.com/docs/cli/using) for running Cursor's AI coding agent with remote control via web and phone.
 
+When Cursor resumes mid-idle (for example after a Shell `notify_on_output` wake) and emits ACP activity, HAPI bumps session thinking over the normal `session-alive` keepalive so the list does not stay stuck idle. See [FAQ](./faq.md#why-did-my-session-look-idle-when-the-agent-woke-itself).
+
 ### Prerequisites
 
 Install Cursor Agent CLI:

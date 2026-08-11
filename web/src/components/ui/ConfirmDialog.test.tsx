@@ -27,9 +27,11 @@ describe('ConfirmDialog', () => {
 
         const dialog = screen.getByRole('dialog')
         const title = within(dialog).getByRole('heading', { name: 'Archive Session' })
+        const description = within(dialog).getByText('Archive this session?')
 
         expect(title.parentElement).toHaveClass('pr-0')
         expect(title).toHaveClass('min-h-6', 'px-10', 'text-center', 'leading-6')
+        expect(description).toHaveClass('mt-2', 'text-left')
         expect(within(dialog).getByRole('button', { name: 'Close' })).toHaveClass('top-3', 'h-8')
     })
 

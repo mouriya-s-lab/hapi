@@ -105,9 +105,13 @@ describe('codexSessionScanner', () => {
         );
 
         const replayFlags: boolean[] = [];
+        let replayCompleteCount = 0;
         scanner = await createCodexSessionScanner({
             transcriptPath,
             replayExistingHistory: true,
+            onReplayComplete: () => {
+                replayCompleteCount += 1;
+            },
             onEvent: (event, context) => {
                 events.push(event);
                 replayFlags.push(context.replayedHistory);
@@ -119,6 +123,7 @@ describe('codexSessionScanner', () => {
         expect(events[0]?.type).toBe('session_meta');
         expect(events[1]?.payload).toEqual({ type: 'agent_message', message: 'old' });
         expect(replayFlags).toEqual([true, true]);
+        expect(replayCompleteCount).toBe(1);
 
         await appendFile(
             transcriptPath,
@@ -126,6 +131,7 @@ describe('codexSessionScanner', () => {
         );
         await scanner.flush();
         expect(replayFlags).toEqual([true, true, false]);
+        expect(replayCompleteCount).toBe(1);
     });
 
     it('reports session id from the transcript metadata', async () => {

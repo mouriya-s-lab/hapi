@@ -949,6 +949,8 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         await vi.waitFor(() => expect(agentMessages).toContainEqual({
             type: 'token_count',
             model: null,
+            inputTokenSemantics: 'includes-cache',
+            usageSchema: 'hapi.usage.v1',
             info: {
                 total: {
                     inputTokens: 130,

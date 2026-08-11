@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { INCLUSIVE_INPUT_TOKEN_USAGE_MARKER, type InclusiveInputTokenUsageMarker } from '@hapi/protocol/usage';
 import type { AgentMessage, AgentUsage, PlanItem } from './types';
+import type { InlineMediaSource } from '@/modules/common/inlineMediaSource';
 
 type CodexUsageInfo = {
     total: {
@@ -37,6 +39,8 @@ export type CodexMessage =
     | {
         type: 'token_count';
         model: string | null;
+        usageSchema: InclusiveInputTokenUsageMarker['usageSchema'];
+        inputTokenSemantics: InclusiveInputTokenUsageMarker['inputTokenSemantics'];
         info: CodexUsageInfo;
     }
     | {
@@ -65,6 +69,7 @@ export type CodexMessage =
         fileName: string;
         mimeType: string;
         id: string;
+        source?: InlineMediaSource;
     };
 
 export function convertAgentMessage(message: AgentMessage, model?: string | null): CodexMessage | null {
@@ -93,6 +98,7 @@ export function convertAgentMessage(message: AgentMessage, model?: string | null
             return {
                 type: 'token_count',
                 model: typeof model === 'string' && model.trim() ? model.trim() : null,
+                ...INCLUSIVE_INPUT_TOKEN_USAGE_MARKER,
                 info: {
                     total: {
                         inputTokens: message.inputTokens
@@ -143,6 +149,7 @@ export function convertAgentMessage(message: AgentMessage, model?: string | null
                 fileName: message.fileName,
                 mimeType: message.mimeType,
                 id: randomUUID(),
+                source: message.source,
             };
         case 'error':
             return { type: 'error', message: message.message };

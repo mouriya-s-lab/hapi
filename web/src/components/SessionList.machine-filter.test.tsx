@@ -148,7 +148,7 @@ describe('SessionList machine filter', () => {
         ])
 
         fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
-        fireEvent.change(screen.getByPlaceholderText('Search sessions…'), { target: { value: 'alpha' } })
+        fireEvent.change(screen.getByPlaceholderText('Search sessions'), { target: { value: 'alpha' } })
         fireEvent.click(screen.getByRole('button', { name: /Teemo \(1\)/ }))
 
         expect(screen.getByText('No sessions match your filters.')).toBeTruthy()

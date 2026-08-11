@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ComponentProps, PropsWithChildren } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { I18nProvider } from '@/lib/i18n-context'
@@ -13,6 +13,7 @@ const auiState = {
     message: { id: 'msg-1', createdAt: new Date(2026, 6, 12, 10, 30) },
     thread: {
         isRunning: false,
+        messages: [],
         extras: {
             shareHiddenByMessageId: new Set<string>(),
         },
@@ -48,6 +49,10 @@ vi.mock('@radix-ui/react-popover', () => ({
 
 vi.mock('@/hooks/useCopyToClipboard', () => ({
     useCopyToClipboard: () => ({ copied: false, copy })
+}))
+
+vi.mock('@/components/AssistantChat/context', () => ({
+    useOptionalHappyChatContext: () => ({ onShareTurn: vi.fn() })
 }))
 
 function renderActions(props: ComponentProps<typeof MessageActions>) {
@@ -209,6 +214,85 @@ describe('MessageActions', () => {
             expect(button.className.split(' ')).toContain('w-5')
             expect(button.querySelector('svg')).not.toBeNull()
         }
+    })
+
+    it('hides Fork and Rewind while the thread is running', () => {
+        auiState.thread.isRunning = true
+
+        renderActions({
+            align: 'end',
+            copyText: 'body',
+            showFork: true,
+            showRewind: true,
+            onFork: async () => {},
+            onRewind: async () => {}
+        })
+
+        expect(screen.queryByRole('button', { name: 'Fork' })).toBeNull()
+        expect(screen.queryByRole('button', { name: 'Rewind' })).toBeNull()
+    })
+
+    it('hides Fork and Rewind while a history action is pending', () => {
+        renderActions({
+            align: 'end',
+            copyText: 'body',
+            showFork: true,
+            showRewind: true,
+            historyActionPending: true,
+            onFork: async () => {},
+            onRewind: async () => {}
+        })
+
+        expect(screen.queryByRole('button', { name: 'Fork' })).toBeNull()
+        expect(screen.queryByRole('button', { name: 'Rewind' })).toBeNull()
+    })
+
+    it('hides all history actions while a confirmation is pending', async () => {
+        let resolveFork: (() => void) | undefined
+        const onFork = vi.fn(() => new Promise<void>((resolve) => {
+            resolveFork = resolve
+        }))
+
+        renderActions({
+            align: 'end',
+            copyText: 'body',
+            showFork: true,
+            showRewind: true,
+            onFork,
+            onRewind: async () => {}
+        })
+
+        fireEvent.click(screen.getByRole('button', { name: 'Fork' }))
+        fireEvent.click(screen.getAllByRole('button', { name: 'Fork' }).at(-1)!)
+
+        await waitFor(() => {
+            expect(document.querySelector('.happy-message-actions')?.querySelectorAll('button')).toHaveLength(1)
+        })
+        expect(screen.queryByRole('button', { name: 'Rewind' })).toBeNull()
+
+        resolveFork?.()
+        await waitFor(() => expect(onFork).toHaveBeenCalledTimes(1))
+    })
+
+    it('orders user actions as Share, Rewind, Fork, Copy', () => {
+        renderActions({
+            align: 'end',
+            copyText: 'body',
+            messageElementId: 'message-1',
+            showFork: true,
+            showRewind: true,
+            onFork: async () => {},
+            onRewind: async () => {}
+        })
+
+        const row = document.querySelector('.happy-message-actions')
+        expect(row).not.toBeNull()
+        expect(Array.from(row!.querySelectorAll('button')).map((button) => button.getAttribute('aria-label'))).toEqual([
+            'Share turn as image',
+            'Rewind',
+            'Fork',
+            'Copy'
+        ])
     })
 
     it('shows Fork confirm dialog and calls onFork only after confirm', async () => {

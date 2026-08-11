@@ -9,7 +9,7 @@ import { ChevronRightIcon } from './SettingsPrimitives'
 
 const OWNER_ONLY_CATEGORIES = new Set(['storage', 'usage'])
 
-function getNamespace(token: string): string | null {
+export function getNamespaceFromToken(token: string): string | null {
     try {
         const payload = token.split('.')[1]
         if (!payload) return null
@@ -42,9 +42,8 @@ export function SettingsNav(props: { activeId?: string; mobile?: boolean }) {
         usage: t('settings.usage.summary'),
         about: `v${__APP_VERSION__}`,
     }
-    const namespace = getNamespace(token)
     const visibleCategories = settingsCategories.filter(
-        (category) => (!OWNER_ONLY_CATEGORIES.has(category.id) || namespace === 'default')
+        (category) => (!OWNER_ONLY_CATEGORIES.has(category.id) || getNamespaceFromToken(token) === 'default')
             && (category.id !== 'users' || user.role === 'admin')
     )
 

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { logger } from '@/ui/logger';
 import type { AgentMessage, PlanItem } from '@/agent/types';
 import { registerGeneratedImageFromAcpBlock } from '@/modules/common/generatedImages';
+import type { InlineMediaSource } from '@/modules/common/inlineMediaSource';
 import { asString, isObject } from '@hapi/protocol';
 import { deriveToolNameWithSource, isPlaceholderToolName } from '@/agent/utils';
 import { parseRateLimitText } from '@/agent/rateLimitParser';
@@ -411,9 +412,9 @@ export class AcpMessageHandler {
 
     constructor(
         private readonly onMessage: (message: AgentMessage) => void,
-        options: { textChunkMode?: AcpTextChunkMode } = {}
+        private readonly options: { textChunkMode?: AcpTextChunkMode; flavor?: string } = {}
     ) {
-        this.textChunkMode = options.textChunkMode ?? 'dedupe';
+        this.textChunkMode = this.options.textChunkMode ?? 'dedupe';
     }
 
     /**
@@ -698,7 +699,16 @@ export class AcpMessageHandler {
             imageId: image.id,
             fileName: image.fileName,
             mimeType: image.mimeType,
+            source: this.buildAcpInlineMediaSource(),
         });
+    }
+
+    private buildAcpInlineMediaSource(): InlineMediaSource {
+        const source: InlineMediaSource = { ingress: 'acp' };
+        if (this.options?.flavor) {
+            source.flavor = this.options.flavor;
+        }
+        return source;
     }
 
     private handleToolCall(update: Record<string, unknown>): void {

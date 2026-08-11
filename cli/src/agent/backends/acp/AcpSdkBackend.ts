@@ -4,6 +4,7 @@ import { asString, isObject } from '@hapi/protocol';
 import { AcpStdioTransport, type AcpStderrError } from './AcpStdioTransport';
 import { AcpMessageHandler, type AcpTextChunkMode } from './AcpMessageHandler';
 import { ACP_SESSION_UPDATE_TYPES } from './constants';
+import { thinkingHintFromSessionUpdate } from './shouldBumpThinkingFromSessionUpdate';
 import { logger } from '@/ui/logger';
 import { withRetry } from '@/utils/time';
 import packageJson from '../../../../package.json';
@@ -82,7 +83,10 @@ export class AcpSdkBackend implements AgentBackend {
     private promptUsageCallback: ((msg: AgentMessage) => void) | null = null;
     private usageUpdateListener: ((msg: AgentMessage) => void) | null = null;
     private sessionInfoUpdateListener: ((update: AcpSessionInfoUpdate) => void) | null = null;
+    /** Fired on real agent activity so launchers can bump hub thinking (#1470). */
+    private agentActivityListener: ((thinking: boolean) => void) | null = null;
     private lastForwardedUsageUpdate: AcpUsageUpdate | null = null;
+    private sessionUpdateQueue: Promise<void> = Promise.resolve();
 
     /** Retry configuration for ACP initialization */
     private static readonly INIT_RETRY_OPTIONS = {
@@ -120,6 +124,7 @@ export class AcpSdkBackend implements AgentBackend {
         args?: string[];
         env?: Record<string, string>;
         textChunkMode?: AcpTextChunkMode;
+        flavor?: AgentFlavor;
     }) {}
 
     async initialize(): Promise<void> {
@@ -438,6 +443,16 @@ export class AcpSdkBackend implements AgentBackend {
         this.sessionInfoUpdateListener = listener;
     }
 
+    /**
+     * Called when ACP reports thinking transitions for harness wake (#1470).
+     * `true` = activity / running / permission; `false` = state_update idle.
+     * Usage/title noise does not fire. Launchers should ignore no-ops when
+     * session.thinking already matches.
+     */
+    setAgentActivityListener(listener: ((thinking: boolean) => void) | null): void {
+        this.agentActivityListener = listener;
+    }
+
     /** Reads the agent's persisted native title through stable ACP session/list. */
     async refreshSessionInfo(sessionId: string, cwd: string): Promise<void> {
         const existingTimer = this.sessionInfoRefreshTimers.get(sessionId);
@@ -509,8 +524,12 @@ export class AcpSdkBackend implements AgentBackend {
             AcpSdkBackend.PRE_PROMPT_UPDATE_QUIET_PERIOD_MS,
             AcpSdkBackend.PRE_PROMPT_UPDATE_DRAIN_TIMEOUT_MS
         );
+        await this.sessionUpdateQueue;
         this.messageHandler?.drainBuffers();
-        this.messageHandler = new AcpMessageHandler(onUpdate, { textChunkMode: this.options.textChunkMode });
+        this.messageHandler = new AcpMessageHandler(onUpdate, {
+            textChunkMode: this.options.textChunkMode,
+            flavor: this.options.flavor,
+        });
         this.isProcessingMessage = true;
         this.lastSessionUpdateAt = Date.now();
         this.latestUsageUpdate = null;
@@ -540,12 +559,17 @@ export class AcpSdkBackend implements AgentBackend {
                 AcpSdkBackend.UPDATE_QUIET_PERIOD_MS,
                 AcpSdkBackend.UPDATE_DRAIN_TIMEOUT_MS
             );
+            await this.sessionUpdateQueue;
             this.messageHandler?.drainBuffers();
             // Block here until the model truly stops streaming straggler
             // chunks (or LATE_FLUSH_WINDOW_MS elapses), so turn_complete and
             // the launcher's ready signal only fire once every chunk has been
             // emitted to this turn's onUpdate.
             await this.drainLateBuffers();
+            // Late window can enqueue async image registration; drain again
+            // before turn_complete so generated_image precedes turn boundary.
+            await this.sessionUpdateQueue;
+            this.messageHandler?.drainBuffers();
             try {
                 const latestUsageUpdate = this.readLatestUsageUpdate();
                 if (promptUsage) {
@@ -731,6 +755,7 @@ export class AcpSdkBackend implements AgentBackend {
             clearTimeout(timer);
         }
         this.sessionInfoRefreshTimers.clear();
+        await this.sessionUpdateQueue;
         this.messageHandler?.drainBuffers();
         this.messageHandler = null;
         this.activeSessionId = null;
@@ -752,12 +777,43 @@ export class AcpSdkBackend implements AgentBackend {
         }
         this.lastSessionUpdateAt = Date.now();
         const update = params.update;
+        // Title/usage/commands stay synchronous (#1028). Only message-handler
+        // work is queued so async image registration preserves event order.
         if (sessionId) {
             this.captureAvailableCommands(sessionId, update);
         }
         this.forwardSessionInfoUpdate(sessionId, update);
         this.captureUsageUpdate(update);
-        this.messageHandler?.handleUpdate(update);
+        this.notifyAgentActivity(update);
+        // Capture the handler at enqueue time. Looking up `this.messageHandler`
+        // when the queued microtask runs can leak a suppressUpdatesDuring
+        // update into the restored handler if earlier async image work kept
+        // the queue busy past restore.
+        const handler = this.messageHandler;
+        this.sessionUpdateQueue = this.sessionUpdateQueue
+            .then(async () => {
+                await handler?.handleUpdate(update);
+            })
+            .catch((error) => {
+                logger.debug(
+                    '[AcpSdkBackend] session update failed:',
+                    error instanceof Error ? error.message : String(error)
+                );
+            });
+    }
+
+    private notifyAgentActivity(update: unknown): void {
+        if (!this.agentActivityListener) {
+            return;
+        }
+        if (!isObject(update)) {
+            return;
+        }
+        const hint = thinkingHintFromSessionUpdate(update);
+        if (hint === null) {
+            return;
+        }
+        this.agentActivityListener(hint);
     }
 
     private forwardSessionInfoUpdate(sessionId: string | null, update: unknown): void {
@@ -935,6 +991,8 @@ export class AcpSdkBackend implements AgentBackend {
 
         if (this.permissionHandler) {
             try {
+                // Permission prompts imply the agent is awake (#1470).
+                this.agentActivityListener?.(true);
                 this.permissionHandler(request);
             } catch (error) {
                 this.pendingPermissions.delete(toolCallId);

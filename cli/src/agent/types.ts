@@ -1,4 +1,5 @@
 import type { AgentFlavor } from '@hapi/protocol';
+import type { InlineMediaSource } from '@/modules/common/inlineMediaSource';
 
 export type McpEnvVar = {
     name: string;
@@ -58,7 +59,7 @@ export type AgentMessage =
     | { type: 'tool_result'; id: string; output: unknown; status: 'completed' | 'failed' }
     | ({ type: 'usage' } & AgentUsage)
     | { type: 'plan'; items: PlanItem[] }
-    | { type: 'generated_image'; imageId: string; fileName: string; mimeType: string }
+    | { type: 'generated_image'; imageId: string; fileName: string; mimeType: string; source?: InlineMediaSource }
     | { type: 'turn_complete'; stopReason: string }
     | { type: 'error'; message: string };
 

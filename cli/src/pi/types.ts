@@ -49,7 +49,7 @@ export interface PiAgentSettledEvent { type: 'agent_settled' }
 export interface PiTurnStartEvent { type: 'turn_start' }
 export interface PiTurnEndEvent {
     type: 'turn_end';
-    message?: { usage?: PiUsage; stopReason?: string };
+    message?: { usage?: PiUsage; stopReason?: string; errorMessage?: string };
     toolResults?: unknown[];
 }
 export interface PiMessageStartEvent { type: 'message_start'; message: unknown }

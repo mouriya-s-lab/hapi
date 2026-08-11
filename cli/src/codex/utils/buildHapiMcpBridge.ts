@@ -90,12 +90,23 @@ export async function buildHapiMcpBridge(
         happyServer.toolNames.join(',')
     ]);
     const tools: Record<string, McpServerToolConfig> = {
-        display_image: { approval_mode: 'approve' },
-        display_video: { approval_mode: 'approve' },
-        send_file: { approval_mode: 'approve' }
+        display_image: {
+            approval_mode: 'prompt'
+        },
+        display_video: {
+            approval_mode: 'prompt'
+        },
+        display_media: {
+            approval_mode: 'prompt'
+        },
+        send_file: {
+            approval_mode: 'prompt'
+        }
     };
     if (options.enableChangeTitle !== false) {
-        tools.change_title = { approval_mode: 'approve' };
+        tools.change_title = {
+            approval_mode: 'approve'
+        };
     }
     // Discovery shortlist only - same trust as skill_lookup / change_title.
     tools.list_peers = {

@@ -1,24 +1,28 @@
 /**
- * OpenCode-specific system prompt for hapi MCP tools (change_title, display_image, display_video).
+ * OpenCode-specific system prompt for hapi MCP tools (change_title, display_image, display_video, display_media, send_file).
  *
  * OpenCode exposes MCP tools with the naming pattern: <server-name>_<tool-name>
- * The hapi MCP server exposes `change_title`, `display_image`, and `display_video`.
+ * The hapi MCP server exposes `change_title`, `display_image`, `display_video`, `display_media`, and `send_file`.
  */
 
 import { trimIdent } from '@/utils/trimIdent';
-import { DISPLAY_IMAGE_PROMPT_HAPI_MCP, DISPLAY_VIDEO_PROMPT_HAPI_MCP, SEND_FILE_PROMPT_HAPI_MCP } from '@/modules/common/displayImagePrompt';
 import { buildSessionCitationSteerInstruction } from '@hapi/protocol/sessionCitation';
+import { HAPI_MCP_BRIDGE_PROMPT } from '@/modules/common/hapiMcpBridgePrompt';
+import {
+    DISPLAY_IMAGE_PROMPT_HAPI_MCP,
+    DISPLAY_MEDIA_PROMPT_HAPI_MCP,
+    DISPLAY_VIDEO_PROMPT_HAPI_MCP,
+    SEND_FILE_PROMPT_HAPI_MCP,
+} from '@/modules/common/displayImagePrompt';
 import { SKILL_LOOKUP_INSTRUCTION } from '@/modules/common/skillLookupInstruction';
+import { withSessionSummaryInstruction } from '@/modules/common/sessionSummaryInstruction';
 
 /**
- * Title and display_image instructions for OpenCode to call the hapi MCP tools.
+ * Title and display_image / display_video / display_media / send_file instructions for OpenCode to call the hapi MCP tools.
  */
 export const TITLE_INSTRUCTION = trimIdent(`
-    Use the title tool sparingly. For a new chat, call the tool "hapi_change_title" once after the user's initial request is clear, and set a concise task title. Do not rename the chat for routine progress, substeps, implementation details, or a slightly better wording. Rename only when the user's primary objective changes substantially and the existing title would be misleading.
-    ${DISPLAY_IMAGE_PROMPT_HAPI_MCP}
-    ${DISPLAY_VIDEO_PROMPT_HAPI_MCP}
+    ${HAPI_MCP_BRIDGE_PROMPT}
     ${SEND_FILE_PROMPT_HAPI_MCP}
-    When you create or find a local image file that the user should see, call the tool "hapi_display_image" with the image path so HAPI can show it inline.
     ${buildSessionCitationSteerInstruction({
         inspectTool: 'hapi_inspect_peer',
         pingTool: 'hapi_ping_peer',
@@ -26,13 +30,20 @@ export const TITLE_INSTRUCTION = trimIdent(`
     })}
     ${SKILL_LOOKUP_INSTRUCTION}
 `);
+
+export function getTitleInstruction(env: NodeJS.ProcessEnv = process.env): string {
+    return withSessionSummaryInstruction(TITLE_INSTRUCTION, env)
+}
 
 /**
  * Tool instructions for native ACP sessions. Title updates come from ACP, so
  * advertise only the MCP tools that remain available to the model.
  */
 export const OPENCODE_NATIVE_TOOL_INSTRUCTION = trimIdent(`
-    When you create or find a local image file that the user should see, call the tool "hapi_display_image" with the image path so HAPI can show it inline.
+    ${DISPLAY_IMAGE_PROMPT_HAPI_MCP}
+    ${DISPLAY_VIDEO_PROMPT_HAPI_MCP}
+    ${DISPLAY_MEDIA_PROMPT_HAPI_MCP}
+    ${SEND_FILE_PROMPT_HAPI_MCP}
     ${buildSessionCitationSteerInstruction({
         inspectTool: 'hapi_inspect_peer',
         pingTool: 'hapi_ping_peer',
@@ -40,6 +51,10 @@ export const OPENCODE_NATIVE_TOOL_INSTRUCTION = trimIdent(`
     })}
     ${SKILL_LOOKUP_INSTRUCTION}
 `);
+
+export function getOpencodeNativeToolInstruction(env: NodeJS.ProcessEnv = process.env): string {
+    return withSessionSummaryInstruction(OPENCODE_NATIVE_TOOL_INSTRUCTION, env)
+}
 
 /**
  * The system prompt to inject for OpenCode sessions.

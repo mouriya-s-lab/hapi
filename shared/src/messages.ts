@@ -110,7 +110,16 @@ export function extractAssistantPlainText(content: unknown): string | null {
 
     if (content.type === 'output') {
         const data = isObject(content.data) ? content.data : null
-        if (!data || data.type !== 'assistant') return null
+        if (!data) return null
+
+        // AGY planner prose (cli wraps PLANNER_RESPONSE as agy_message).
+        if (data.type === 'agy_message') {
+            return typeof data.content === 'string' && data.content.trim().length > 0
+                ? data.content
+                : null
+        }
+
+        if (data.type !== 'assistant') return null
         const message = isObject(data.message) ? data.message : null
         const blocks = Array.isArray(message?.content) ? message.content : null
         if (!blocks) return null
@@ -140,14 +149,40 @@ export type NotifySummary = {
 }
 
 /**
- * Look for an `AGENT_NOTIFY_SUMMARY {...json...}` line as the **last
+ * Match a well-formed `AGENT_NOTIFY_SUMMARY {...}` footer on a single line.
+ *
+ * Allows an optional prose prefix on the same line (agents sometimes glue
+ * trailing text and the token without a newline). Scans left-to-right and
+ * returns the first token occurrence whose remainder is valid JSON through
+ * end of line - so a literal `AGENT_NOTIFY_SUMMARY ` inside a JSON string
+ * value does not steal the match from the real footer.
+ */
+function matchNotifySummaryLine(line: string): string | null {
+    for (
+        let idx = line.indexOf(NOTIFY_SUMMARY_PREFIX);
+        idx >= 0;
+        idx = line.indexOf(NOTIFY_SUMMARY_PREFIX, idx + NOTIFY_SUMMARY_PREFIX.length)
+    ) {
+        const jsonPart = line.slice(idx + NOTIFY_SUMMARY_PREFIX.length).trim()
+        if (!jsonPart.startsWith('{') || !jsonPart.endsWith('}')) continue
+        try {
+            if (isObject(JSON.parse(jsonPart))) return jsonPart
+        } catch {
+            // Try the next occurrence (e.g. token mentioned inside a value).
+        }
+    }
+    return null
+}
+
+/**
+ * Look for an `AGENT_NOTIFY_SUMMARY {...json...}` footer as the **last
  * non-empty line** of an agent's plain-text message.
  *
- * Strict end-anchor: anything below the JSON line (even whitespace) is
- * fine, but if the agent wrote prose AFTER the line we treat it as
- * non-compliant and return null. This also makes false positives from
- * `AGENT_NOTIFY_SUMMARY` quoted inside an earlier paragraph harmless,
- * because such a quote is never the last line.
+ * End-anchor: trailing blank lines are fine, but prose on a later
+ * non-empty line is non-compliant and returns null. Mid-body quotes of
+ * the token are ignored for the same reason. An optional prose prefix on
+ * the last line itself is tolerated when the line still ends with a
+ * well-formed `AGENT_NOTIFY_SUMMARY {…}` payload.
  *
  * Returns the parsed object on success, `null` on any deviation. The
  * shape is intentionally loose - we only trust `summary`, `action`, and
@@ -162,11 +197,8 @@ export function extractNotifySummary(text: unknown): NotifySummary | null {
     while (lastIdx >= 0 && lines[lastIdx].trim() === '') lastIdx -= 1
     if (lastIdx < 0) return null
 
-    const lastLine = lines[lastIdx].trim()
-    if (!lastLine.startsWith(NOTIFY_SUMMARY_PREFIX)) return null
-
-    const jsonPart = lastLine.slice(NOTIFY_SUMMARY_PREFIX.length).trim()
-    if (!jsonPart.startsWith('{') || !jsonPart.endsWith('}')) return null
+    const jsonPart = matchNotifySummaryLine(lines[lastIdx].trim())
+    if (jsonPart === null) return null
 
     try {
         const parsed: unknown = JSON.parse(jsonPart)

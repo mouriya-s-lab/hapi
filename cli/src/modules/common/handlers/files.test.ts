@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager'
 import { registerFileHandlers } from './files'
 
@@ -10,6 +10,8 @@ type FileResponse = {
     success: boolean
     content?: string
     hash?: string
+    size?: number
+    modified?: number
     error?: string
 }
 
@@ -36,14 +38,27 @@ describe('file RPC handlers', () => {
         return JSON.parse(response) as FileResponse
     }
 
+    it('returns file metadata alongside content', async () => {
+        const filePath = join(rootDir, 'README.md')
+        await writeFile(filePath, '# test')
+        const expectedStats = await stat(filePath)
+        const expectedHash = createHash('sha256').update('# test').digest('hex')
+
+        const response = await request('readFile', { path: 'README.md' })
+
+        expect(response.success).toBe(true)
+        expect(response.content).toBe(Buffer.from('# test').toString('base64'))
+        expect(response.hash).toBe(expectedHash)
+        expect(response.size).toBe(expectedStats.size)
+        expect(response.modified).toBe(expectedStats.mtime.getTime())
+    })
+
     it('returns the content hash and writes relative to the session directory', async () => {
         const originalHash = createHash('sha256').update('original').digest('hex')
         const read = await request('readFile', { path: 'note.txt' })
-        expect(read).toEqual({
-            success: true,
-            content: Buffer.from('original').toString('base64'),
-            hash: originalHash
-        })
+        expect(read.success).toBe(true)
+        expect(read.content).toBe(Buffer.from('original').toString('base64'))
+        expect(read.hash).toBe(originalHash)
 
         const write = await request('writeFile', {
             path: 'note.txt',

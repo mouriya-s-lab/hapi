@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import type { CodexModelsResponse, CodexModelSummary } from '@hapi/protocol/apiTypes';
 import { CodexAppServerClient } from '@/codex/codexAppServerClient';
 import { getErrorMessage } from './rpcResponses';
@@ -81,7 +82,9 @@ function normalizeModel(entry: unknown): CodexModelSummary | null {
 }
 
 export async function listCodexModels(includeHidden: boolean = false): Promise<CodexModelSummary[]> {
-    const client = new CodexAppServerClient();
+    // Model discovery is account-scoped. Never inherit a session/runner cwd:
+    // project config or a deleted worktree must not alter or break the catalog.
+    const client = new CodexAppServerClient({ cwd: homedir() });
 
     try {
         await client.connect();

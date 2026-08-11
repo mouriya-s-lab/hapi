@@ -48,7 +48,7 @@ describe('Store V10→V11 migration: fcm_devices', () => {
 
             const migrated = new Database(dbPath, { readonly: true, strict: true })
             try {
-                expect(readUserVersion(migrated)).toBe(20)
+                expect(readUserVersion(migrated)).toBe(23)
             } finally {
                 migrated.close()
             }

@@ -40,6 +40,40 @@ beforeEach(() => {
     vi.clearAllMocks()
 })
 
+describe('SessionActionMenu - Pin action', () => {
+    it('renders project and global pin actions', () => {
+        const onSetPinMode = vi.fn()
+        const { rerender } = renderMenu({ onSetPinMode, sessionPinned: false, sessionGlobalPinned: false })
+
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Pin in project' }))
+        expect(onSetPinMode).toHaveBeenCalledWith('project')
+
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Pin globally' }))
+        expect(onSetPinMode).toHaveBeenCalledWith('global')
+
+        rerender(
+            <I18nProvider>
+                <SessionActionMenu
+                    isOpen={true}
+                    onClose={vi.fn()}
+                    sessionId="session-1"
+                    sessionTitle="Session 1"
+                    sessionActive={false}
+                    sessionPinned={true}
+                    sessionGlobalPinned={true}
+                    onSetPinMode={onSetPinMode}
+                    onRename={vi.fn()}
+                    onArchive={vi.fn()}
+                    onDelete={vi.fn()}
+                    anchorPoint={{ x: 0, y: 0 }}
+                />
+            </I18nProvider>
+        )
+        expect(screen.getByRole('menuitem', { name: 'Unpin from project' })).toBeInTheDocument()
+        expect(screen.getByRole('menuitem', { name: 'Unpin globally' })).toBeInTheDocument()
+    })
+})
+
 describe('SessionActionMenu - Reopen action', () => {
     it('renders the Reopen item on inactive sessions when onReopen is provided', () => {
         renderMenu({ sessionActive: false })

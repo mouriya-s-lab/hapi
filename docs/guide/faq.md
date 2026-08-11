@@ -93,6 +93,10 @@ In the session view, tap the "Files" tab to:
 
 Yes. Open any session and use the chat interface to send messages directly to the AI agent.
 
+### Why did my session look idle when the agent woke itself?
+
+Some agents (especially Cursor) can resume after idle from harness signals such as background Shell `notify_on_output` or `/loop`, without you sending a new HAPI message. HAPI treats real ACP agent activity (and permission requests) as thinking again so the session list matches the agent - same keepalive path as a normal turn. This is different from session-attached jobs (`hapi job`), which show progress while the agent stays idle on purpose.
+
 ### Can I access a terminal remotely?
 
 Yes. Open a session in the web app and tap the Terminal tab for a remote shell.

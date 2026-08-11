@@ -69,6 +69,13 @@ describe('getPendingRequestKinds', () => {
 })
 
 describe('toSessionSummary', () => {
+    it('includes the pinned state', () => {
+        expect(toSessionSummary(makeSession({ pinned: true })).pinned).toBe(true)
+        expect(toSessionSummary(makeSession({ globalPinned: true })).globalPinned).toBe(true)
+        expect(toSessionSummary(makeSession()).pinned).toBe(false)
+        expect(toSessionSummary(makeSession()).globalPinned).toBe(false)
+    })
+
     it('uses grokSessionId as the native resume token', () => {
         const summary = toSessionSummary(makeSession({
             metadata: {
@@ -176,6 +183,18 @@ it('uses the native id matching the current flavor instead of a stale id', () =>
         }))
 
         expect(summary.metadata?.lifecycleState).toBe('archived')
+    })
+
+    it('includes hapiMcpUrl in summary metadata when session bridge is live', () => {
+        const summary = toSessionSummary(makeSession({
+            metadata: {
+                path: '/proj',
+                host: 'local',
+                hapiMcpUrl: 'http://127.0.0.1:42133/'
+            }
+        }))
+
+        expect(summary.metadata?.hapiMcpUrl).toBe('http://127.0.0.1:42133/')
     })
 
     it('includes structured pendingRequests for hover-tooltip copy', () => {

@@ -66,8 +66,11 @@ function createApp(session: Session, opts?: {
     sessionExists?: boolean
     archiveSession?: (sessionId: string) => Promise<void>
     getCursorChatStoreStatus?: SyncEngine['getCursorChatStoreStatus']
+    listCodexModelsForSession?: SyncEngine['listCodexModelsForSession']
     forkConversation?: SyncEngine['forkConversation']
     rewindConversation?: SyncEngine['rewindConversation']
+    setSessionPinned?: (sessionId: string, pinned: boolean) => void
+    setSessionPinMode?: (sessionId: string, mode: 'none' | 'project' | 'global') => void
     getOmpExtensionUiRequestForSession?: SyncEngine['getOmpExtensionUiRequestForSession']
 }) {
     const applySessionConfigCalls: Array<[string, Record<string, unknown>]> = []
@@ -152,6 +155,10 @@ function createApp(session: Session, opts?: {
             : { ok: false, reason: 'not-found' },
         applySessionConfig,
         listCursorModelsForSession,
+        listCodexModelsForSession: opts?.listCodexModelsForSession ?? (async () => ({
+            success: true,
+            models: []
+        })),
         listOpencodeModelsForSession,
         listOpencodeReasoningEffortOptionsForSession,
         listOmpModelsForSession,
@@ -166,6 +173,8 @@ function createApp(session: Session, opts?: {
             status: { onDisk: true, store: 'acp' as const }
         })),
         archiveSession: archiveSessionMock,
+        setSessionPinned: opts?.setSessionPinned ?? (() => {}),
+        setSessionPinMode: opts?.setSessionPinMode ?? (() => {}),
         getSessionExport: opts?.getSessionExport ?? (() => ({
             type: 'success',
             payload: {
@@ -195,6 +204,63 @@ function createApp(session: Session, opts?: {
 }
 
 describe('sessions routes', () => {
+    it('updates the persisted pin mode', async () => {
+        const calls: Array<[string, 'none' | 'project' | 'global']> = []
+        const { app } = createApp(createSession(), {
+            setSessionPinMode: (sessionId, mode) => calls.push([sessionId, mode])
+        })
+
+        const response = await app.request('/api/sessions/session-1/pin', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'global' })
+        })
+
+        expect(response.status).toBe(200)
+        expect(calls).toEqual([['session-1', 'global']])
+    })
+
+    it('rejects an invalid pin body', async () => {
+        const { app } = createApp(createSession())
+        const response = await app.request('/api/sessions/session-1/pin', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'yes' })
+        })
+
+        expect(response.status).toBe(400)
+    })
+
+    it('uses session-scoped Codex model discovery for the fallback endpoint', async () => {
+        const session = createSession({
+            metadata: {
+                path: '/tmp/project',
+                host: 'localhost',
+                flavor: 'codex',
+                machineId: 'machine-1'
+            }
+        })
+        const captured: string[] = []
+        const { app } = createApp(session, {
+            listCodexModelsForSession: async (sessionId) => {
+                captured.push(sessionId)
+                return {
+                    success: true,
+                    models: [{ id: 'gpt-5.5', displayName: 'GPT-5.5', isDefault: true }]
+                }
+            }
+        })
+
+        const response = await app.request('/api/sessions/session-1/codex-models')
+
+        expect(response.status).toBe(200)
+        expect(captured).toEqual(['session-1'])
+        expect(await response.json()).toEqual({
+            success: true,
+            models: [{ id: 'gpt-5.5', displayName: 'GPT-5.5', isDefault: true }]
+        })
+    })
+
     it('returns the machine-scoped Cursor chat store status', async () => {
         const session = createSession({
             active: false,

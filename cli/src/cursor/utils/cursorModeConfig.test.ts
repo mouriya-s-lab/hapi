@@ -138,10 +138,19 @@ describe('wireIdForCursorSessionState', () => {
         ).toBe('cursor-grok-4.5-medium');
     });
 
-    it('uses resolved wire id for base-only requests', () => {
+    it('keeps spawn-safe bare/SKU requests instead of re-persisting ACP wires (#1430)', () => {
         expect(
             wireIdForCursorSessionState('composer-2.5', 'composer-2.5[fast=true]')
-        ).toBe('composer-2.5[fast=true]');
+        ).toBe('composer-2.5');
+        expect(
+            wireIdForCursorSessionState('gpt-5.3-codex', 'gpt-5.3-codex[reasoning=medium,fast=false]')
+        ).toBe('gpt-5.3-codex');
+    });
+
+    it('prefers spawn-safe bare/SKU resolved ids over bracketed requests (#1428)', () => {
+        expect(
+            wireIdForCursorSessionState('gpt-5.3-codex[fast=false]', 'gpt-5.3-codex')
+        ).toBe('gpt-5.3-codex');
     });
 });
 
@@ -196,6 +205,37 @@ describe('applyCursorAcpModel', () => {
             applyCursorAcpModel(backend, 's1', 'claude-opus-4-8[effort=high]')
         ).resolves.toEqual({ applied: false });
         expect(setConfigOption).not.toHaveBeenCalled();
+    });
+
+    it('prefers compatible option wires over bare metadata bases (#1430)', async () => {
+        const setConfigOption = vi.fn(async () => {});
+        const backend = mockModelBackend({
+            setConfigOption,
+            getSessionModelsMetadata: vi.fn(() => ({
+                availableModels: [{ modelId: 'claude-opus-4-8' }],
+                currentModelId: 'claude-opus-4-8'
+            })),
+            getConfigOptionByCategory: vi.fn(() => ({
+                id: 'model-opt',
+                options: [
+                    { value: 'claude-opus-4-8[thinking=true,context=300k,effort=low,fast=false]' },
+                    { value: 'claude-opus-4-8[thinking=true,context=300k,effort=high,fast=false]' },
+                ]
+            }))
+        });
+
+        await expect(
+            applyCursorAcpModel(backend, 's1', 'claude-opus-4-8[effort=high]')
+        ).resolves.toEqual({
+            applied: true,
+            resolvedWireId: 'claude-opus-4-8[thinking=true,context=300k,effort=high,fast=false]',
+            requestedWireId: 'claude-opus-4-8[effort=high]'
+        });
+        expect(setConfigOption).toHaveBeenCalledWith(
+            's1',
+            'model-opt',
+            'claude-opus-4-8[thinking=true,context=300k,effort=high,fast=false]'
+        );
     });
 
     it('resolves spawn wire id via config option list when metadata lists one variant', async () => {
@@ -390,10 +430,10 @@ describe('resolveCursorAcpWireId', () => {
         );
     });
 
-    it('does not match partial ACP parameter requests against full config option wire ids', () => {
+    it('maps partial hub wires onto the nearest full ACP config option wire (#1428)', () => {
         expect(resolveCursorAcpWireId('claude-opus-4-8[effort=high]', [
             { modelId: 'claude-opus-4-8[thinking=true,context=300k,effort=low,fast=false]' },
             { modelId: 'claude-opus-4-8[thinking=true,context=300k,effort=high,fast=false]' }
-        ])).toBe(null);
+        ])).toBe('claude-opus-4-8[thinking=true,context=300k,effort=high,fast=false]');
     });
 });

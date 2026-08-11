@@ -150,7 +150,7 @@ export function SessionHeader(props: {
     canReopen?: boolean
     reopenDisabledReason?: string
     onSessionDeleted?: () => void
-    onSessionReopened?: (newSessionId: string) => void
+onSessionReopened?: (newSessionId: string) => void | Promise<void>
     onSessionForked?: (newSessionId: string) => void
 }) {
     const { t, locale } = useTranslation()
@@ -232,7 +232,7 @@ export function SessionHeader(props: {
     const [isSyncingCodex, setIsSyncingCodex] = useState(false)
     const [isSyncingPi, setIsSyncingPi] = useState(false)
 
-    const { archiveSession, reopenSession, renameSession, deleteSession, forkSession, isPending } = useSessionActions(
+    const { archiveSession, reopenSession, renameSession, setPinMode, deleteSession, forkSession, isPending } = useSessionActions(
         api,
         session.id,
         session.metadata?.flavor ?? null
@@ -243,6 +243,19 @@ export function SessionHeader(props: {
         Boolean(sessionFlavor) &&
         getFlavorForkCapability(capabilities, sessionFlavor).fork !== 'none'
     const [reopenError, setReopenError] = useState<string | null>(null)
+
+    const handleSetPinMode = async (mode: 'none' | 'project' | 'global') => {
+        try {
+            await setPinMode(mode)
+        } catch (error) {
+            addToast({
+                title: t('session.action.pinFailed'),
+                body: error instanceof Error ? error.message : t('dialog.error.default'),
+                sessionId: session.id,
+                url: `/sessions/${session.id}`
+            })
+        }
+    }
     // Surface the scratchlist entry count in the delete confirmation so the
     // operator knows what cascades when the session is removed.
     const scratchlistCount = useScratchlistCount(session.id, api)
@@ -258,7 +271,7 @@ export function SessionHeader(props: {
         try {
             const result = await reopenSession()
             if (result.sessionId && result.sessionId !== session.id) {
-                onSessionReopened?.(result.sessionId)
+                await onSessionReopened?.(result.sessionId)
             }
         } catch (error) {
             setReopenError(formatReopenError(error))
@@ -529,7 +542,10 @@ export function SessionHeader(props: {
                 sessionId={session.id}
                 sessionTitle={title}
                 sessionActive={session.active}
+                sessionPinned={Boolean(session.pinned)}
+                sessionGlobalPinned={Boolean(session.globalPinned)}
                 onRename={() => setRenameOpen(true)}
+                onSetPinMode={api ? (mode) => void handleSetPinMode(mode) : undefined}
                 onShowSessionId={() => setSessionIdOpen(true)}
                 onExport={() => setExportOpen(true)}
                 onSyncCodex={api && codexSessionId ? handleSyncCodex : undefined}

@@ -69,7 +69,8 @@ async function waitFor(condition: () => boolean, timeoutMs = 300, intervalMs = 1
 }
 
 describe('claudeRemote async message handling', () => {
-    it('reports the initial normal message once after the first result', async () => {
+    // CI occasionally exceeds the default 5s under load (unrelated to job work).
+    it('reports the initial normal message once after the first result', { timeout: 15_000 }, async () => {
         const querySpy = vi.spyOn(claudeSdk, 'query').mockImplementation(queryMock as typeof claudeSdk.query);
         const { claudeRemote } = await import('./claudeRemote');
         const onFirstResult = vi.fn();

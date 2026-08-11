@@ -204,6 +204,8 @@ export class SessionCache {
             seq: stored.seq,
             createdAt: stored.createdAt,
             updatedAt: stored.updatedAt,
+            pinned: stored.pinned,
+            globalPinned: stored.globalPinned,
             active: existing?.active ?? stored.active,
             // Legacy / idle rows may still have active_at NULL in SQLite.
             // Public Session.activeAt is always a number for CLI Zod parse.
@@ -244,6 +246,17 @@ export class SessionCache {
         for (const session of sessions) {
             this.refreshSession(session.id)
         }
+    }
+
+    setSessionPinned(sessionId: string, pinned: boolean): void {
+        this.setSessionPinMode(sessionId, pinned ? 'project' : 'none')
+    }
+
+    setSessionPinMode(sessionId: string, mode: 'none' | 'project' | 'global'): void {
+        const session = this.sessions.get(sessionId) ?? this.refreshSession(sessionId)
+        if (!session) throw new Error('Session not found')
+        this.store.sessions.setSessionPinMode(sessionId, mode, session.namespace)
+        this.refreshSession(sessionId)
     }
 
     markSessionActive(sessionId: string, time: number = Date.now()): void {
@@ -1215,6 +1228,36 @@ export class SessionCache {
             })
             if (!updated) {
                 throw new Error('Failed to preserve session service tier during merge')
+            }
+        }
+
+        const latestSource = this.store.sessions.getSessionByNamespace(oldSessionId, namespace)
+        const latestSourceMode = latestSource?.globalPinned
+            ? 'global' as const
+            : latestSource?.pinned
+                ? 'project' as const
+                : 'none' as const
+        if (latestSourceMode !== 'none') {
+            const latest = this.store.sessions.getSessionByNamespace(newSessionId, namespace)
+            if (!latest) {
+                throw new Error('Session not found for merge')
+            }
+            const latestMode = latest.globalPinned ? 'global' : latest.pinned ? 'project' : 'none'
+            // Prefer the stronger pin: global > project > none. Never downgrade a
+            // concurrently (or already) global-pinned target to project-only.
+            const desiredMode =
+                latestSourceMode === 'global' || latestMode === 'global'
+                    ? 'global' as const
+                    : latestSourceMode === 'project' || latestMode === 'project'
+                        ? 'project' as const
+                        : 'none' as const
+            if (desiredMode !== latestMode) {
+                const updated = this.store.sessions.setSessionPinMode(newSessionId, desiredMode, namespace)
+                const now = this.store.sessions.getSessionByNamespace(newSessionId, namespace)
+                const nowMode = now?.globalPinned ? 'global' : now?.pinned ? 'project' : 'none'
+                if (!updated && nowMode !== desiredMode) {
+                    throw new Error('Failed to preserve session pin during merge')
+                }
             }
         }
 

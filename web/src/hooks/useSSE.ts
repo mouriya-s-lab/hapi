@@ -94,6 +94,12 @@ const RECONNECT_SLOW_MAX_DELAY_MS = 300_000
 const INVALIDATION_BATCH_MS = 16
 
 function sortSessionSummaries(left: SessionSummary, right: SessionSummary): number {
+    if (Boolean(left.globalPinned) !== Boolean(right.globalPinned)) {
+        return left.globalPinned ? -1 : 1
+    }
+    if (Boolean(left.pinned) !== Boolean(right.pinned)) {
+        return left.pinned ? -1 : 1
+    }
     if (left.active !== right.active) {
         return left.active ? -1 : 1
     }

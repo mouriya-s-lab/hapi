@@ -23,10 +23,28 @@ type Segment = {
  * accumulator instance has a nonce as a session resume/restart must not reuse a
  * previous timeline stream id.
  */
+/**
+ * Extract the failure text from a Pi assistant message that ended in error.
+ *
+ * On a mid-turn LLM/API failure (auth, 5xx, network drop) Pi finalizes the
+ * assistant message with `stopReason: 'error'` and an `errorMessage`, emitted
+ * on both `message_end` and `turn_end`. `aborted` is user-initiated (web Abort)
+ * and intentionally not surfaced as an error. Returns null for anything else.
+ */
+export function extractPiTurnError(message: unknown): string | null {
+    if (typeof message !== 'object' || message === null) return null;
+    const record = message as { stopReason?: unknown; errorMessage?: unknown };
+    if (record.stopReason !== 'error') return null;
+    return typeof record.errorMessage === 'string' && record.errorMessage.length > 0
+        ? record.errorMessage
+        : 'Pi agent error';
+}
+
 export class PiMessageAccumulator {
     private active = false;
     private turnSequence = 0;
     private messageSequence = 0;
+    private errorEmitted = false;
     private readonly streamNonce: string;
     private readonly textSegments = new Map<number, Segment>();
     private readonly reasoningSegments = new Map<number, Segment>();
@@ -68,7 +86,24 @@ export class PiMessageAccumulator {
             return this.snapshotIfDue();
         }
 
-        if (event.type === 'message_end' || event.type === 'turn_end' || event.type === 'agent_end') {
+        if (event.type === 'message_end' || event.type === 'turn_end') {
+            const wasActive = this.active;
+            const messages = this.flush();
+            // Pi reports the failure on both message_end and turn_end; emit the
+            // error once (first boundary wins) so the web shows a failed turn
+            // instead of silent partial text. turn_end doubles as the safety
+            // net for Pi builds that skip message_end on stream failure.
+            if (wasActive && !this.errorEmitted && 'message' in event) {
+                const errorMessage = extractPiTurnError(event.message);
+                if (errorMessage) {
+                    messages.push({ type: 'error', message: errorMessage });
+                    this.errorEmitted = true;
+                }
+            }
+            return messages;
+        }
+
+        if (event.type === 'agent_end') {
             return this.flush();
         }
 
@@ -86,6 +121,7 @@ export class PiMessageAccumulator {
     private startMessage(): void {
         this.active = true;
         this.messageSequence += 1;
+        this.errorEmitted = false;
         this.textSegments.clear();
         this.reasoningSegments.clear();
         this.lastSnapshotAt = null;

@@ -8,6 +8,7 @@ import { isAgyAskQuestionToolCall, buildCanonicalAskUserQuestionInput, type AgyA
 import { buildAgyQuestionKeys } from "./utils/agyQuestionKeys"
 import { buildAgyModelNavigationKeys, buildAgyModelPickerTarget, findAgyCurrentModelRow } from './utils/agyModelKeys'
 import { agyHookCarrierIsIntact, prepareAgyHookCarrier, writeAgyHooksJsonAtomic } from './utils/agyHookCarrier'
+import { createNativeSessionTitleMetadataSync } from '@/agent/nativeSessionTitle'
 import { logger } from "@/ui/logger"
 import {
     RemoteLauncherBase,
@@ -123,6 +124,7 @@ export function userRequestMatches(message: string, content: string): boolean {
 
 class AgyPtyLauncher extends RemoteLauncherBase {
     private readonly session: AgySession
+    private readonly syncNativeTitle: (title: unknown) => void
     private scanner: any = null
     // The agy brain UUID for the current conversation. Set from the pre-known
     // resume ID (if this is a resume) or adopted via handleSessionFound, which
@@ -350,6 +352,7 @@ class AgyPtyLauncher extends RemoteLauncherBase {
     constructor(session: AgySession) {
         super(process.env.DEBUG ? session.logPath : undefined)
         this.session = session
+        this.syncNativeTitle = createNativeSessionTitleMetadataSync(session.client)
         // If the session already carries an agySessionId (passed in from the
         // hub on resume), pre-seed it so the first spawn can --conversation to it.
         this.agySessionId = session.sessionId
@@ -758,6 +761,7 @@ class AgyPtyLauncher extends RemoteLauncherBase {
         const resumeBrainUuid = this.agySessionId ?? undefined
         this.scanner = await createAgySessionScanner({
             resumeBrainUuid,
+            onTitle: this.syncNativeTitle,
             onEntry: (entry) => {
                 if (entry.type === 'USER_INPUT') {
                     if (!this.observeUserInput(entry.content ?? '')) {

@@ -71,7 +71,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
                     >
                         {title}
                     </DialogTitle>
-                    <DialogDescription className="mt-2 whitespace-pre-line">
+                    <DialogDescription className="mt-2 whitespace-pre-line text-left">
                         {description}
                     </DialogDescription>
                 </DialogHeader>

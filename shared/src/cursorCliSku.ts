@@ -279,6 +279,100 @@ export function parseCursorAvailableModelsFromRejection(text: string): string[] 
         .filter((part) => part.length > 0 && part.toLowerCase() !== 'auto');
 }
 
+function rewriteSkuBase(sku: string, fromBase: string, toBase: string): string {
+    if (fromBase === toBase || !sku.startsWith(fromBase)) {
+        return sku;
+    }
+    return `${toBase}${sku.slice(fromBase.length)}`;
+}
+
+/**
+ * Prefer a `--model`-safe catalog id (bare base or CLI SKU) over an ACP wire.
+ * Cursor rejects many bracketed wires on process start even when session/new
+ * later exposes parameterized `currentModelId` wires.
+ */
+function preferSpawnSafeCatalogId(
+    candidate: string,
+    requestedWire: string,
+    available: readonly { modelId: string }[]
+): string {
+    if (!isCursorAcpWireModelId(candidate)) {
+        return candidate;
+    }
+
+    const wireBase = cursorModelBaseId(requestedWire);
+    const legacyBase = resolveCursorLegacyModelBase(wireBase);
+    const syntheticSku = rewriteSkuBase(
+        syntheticSkuFromWireParams(wireBase, parseCursorWireParams(requestedWire)),
+        wireBase,
+        legacyBase
+    );
+    const fromSku = pickBestCatalogSku(syntheticSku, available);
+    if (fromSku) {
+        return fromSku;
+    }
+
+    for (const base of [legacyBase, wireBase]) {
+        const bare = available.find(
+            (entry) => entry.modelId === base && !isCursorAcpWireModelId(entry.modelId)
+        );
+        if (bare) {
+            return bare.modelId;
+        }
+    }
+
+    return candidate;
+}
+
+function pickBestCatalogWire(
+    requestedWire: string,
+    available: readonly { modelId: string }[]
+): string | null {
+    const wireBase = cursorModelBaseId(requestedWire);
+    const legacyBase = resolveCursorLegacyModelBase(wireBase);
+    const acceptedBases = new Set([wireBase, legacyBase]);
+    const requestedParams = Object.entries(parseCursorWireParams(requestedWire));
+    const wires = available.filter((entry) => {
+        const modelId = entry.modelId.trim();
+        if (
+            !modelId
+            || !isCursorAcpWireModelId(modelId)
+            || !acceptedBases.has(resolveCursorLegacyModelBase(cursorModelBaseId(modelId)))
+        ) {
+            return false;
+        }
+        // Every explicit request param must be present on the candidate (do not
+        // drop context/thinking/etc. via synthetic-SKU scoring alone).
+        if (requestedParams.length === 0) {
+            return true;
+        }
+        const candidateParams = parseCursorWireParams(modelId);
+        return requestedParams.every(([key, value]) => candidateParams[key] === value);
+    });
+    if (wires.length === 0) {
+        return null;
+    }
+    if (wires.length === 1) {
+        return wires[0].modelId;
+    }
+
+    const syntheticSku = rewriteSkuBase(
+        syntheticSkuFromWireParams(wireBase, parseCursorWireParams(requestedWire)),
+        wireBase,
+        legacyBase
+    );
+    let best = wires[0].modelId;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    for (const entry of wires) {
+        const score = scoreWireAgainstSku(syntheticSku, entry.modelId);
+        if (score > bestScore) {
+            bestScore = score;
+            best = entry.modelId;
+        }
+    }
+    return best;
+}
+
 /**
  * Remap a stale hub/ACP wire id onto a live Cursor catalog entry.
  * Returns null when no catalog candidate matches.
@@ -296,20 +390,42 @@ export function remapStaleCursorModelId(
     const legacyWire = isCursorAcpWireModelId(trimmed)
         && resolveCursorLegacyModelBase(cursorModelBaseId(trimmed)) !== cursorModelBaseId(trimmed);
     if (exact && !legacyWire) {
-        return trimmed;
+        // Mixed caches often list the exact ACP wire *and* a CLI SKU. Prefer the
+        // spawn-safe id so `agent --model` does not receive a rejected bracket wire.
+        return isCursorAcpWireModelId(trimmed)
+            ? preferSpawnSafeCatalogId(trimmed, trimmed, available)
+            : trimmed;
     }
 
     if (isCursorAcpWireModelId(trimmed)) {
         const wireBase = cursorModelBaseId(trimmed);
-        if (resolveCursorLegacyModelBase(wireBase) === wireBase) {
-            return null;
-        }
-        const syntheticSku = syntheticSkuFromWireParams(
+        const legacyBase = resolveCursorLegacyModelBase(wireBase);
+        const syntheticSku = rewriteSkuBase(
+            syntheticSkuFromWireParams(wireBase, parseCursorWireParams(trimmed)),
             wireBase,
-            parseCursorWireParams(trimmed)
+            legacyBase
         );
-        return pickBestCatalogSku(syntheticSku, available)
-            ?? matchCliSkuToAcpWireId(syntheticSku, available);
+
+        // Prefer bare / CLI SKU rows (what `agent --model … acp` accepts).
+        const fromSku = pickBestCatalogSku(syntheticSku, available);
+        if (fromSku) {
+            return fromSku;
+        }
+
+        for (const base of [legacyBase, wireBase]) {
+            const bare = available.find(
+                (entry) => entry.modelId === base && !isCursorAcpWireModelId(entry.modelId)
+            );
+            if (bare) {
+                return bare.modelId;
+            }
+        }
+
+        // Wire-only catalogs (session configOptions): nearest compatible same-base wire.
+        // Do not fall through to SKU→wire matching — that drops explicit params like
+        // thinking/context and can pick a contradictory variant.
+        const fromWire = pickBestCatalogWire(trimmed, available);
+        return fromWire ? preferSpawnSafeCatalogId(fromWire, trimmed, available) : null;
     }
 
     const legacyBase = resolveCursorLegacyModelBase(cursorCliSkuBaseId(trimmed));
@@ -319,6 +435,8 @@ export function remapStaleCursorModelId(
             ?? matchCliSkuToAcpWireId(rewritten, available);
     }
 
+    // Non-legacy, non-wire ids must remain exact; let Cursor report unavailability
+    // instead of silently downgrading e.g. gpt-5.5-high-fast → gpt-5.5-medium.
     return null;
 }
 
@@ -340,10 +458,8 @@ export function matchCliSkuToAcpWireId(
     }
 
     if (isCursorAcpWireModelId(trimmed)) {
-        if (resolveCursorLegacyModelBase(cursorModelBaseId(trimmed)) !== cursorModelBaseId(trimmed)) {
-            return remapStaleCursorModelId(trimmed, available);
-        }
-        return null;
+        // Bracketed hub wires (including non-legacy) must remap onto live catalog rows.
+        return remapStaleCursorModelId(trimmed, available);
     }
 
     const skuBase = cursorCliSkuBaseId(trimmed);

@@ -127,6 +127,29 @@ describe('generated images route', () => {
         expect(rpcCalls).toBe(0)
     })
 
+    it('serves audio inline and generic files as downloads with nosniff', async () => {
+        const session = { id: 'session-1', namespace: 'default', active: true } as unknown as Session
+        let mimeType = 'audio/wav'
+        const engine = {
+            resolveSessionAccess: () => ({ ok: true as const, sessionId: 'session-1', session }),
+            readGeneratedImage: async () => ({
+                success: true,
+                content: Buffer.from('media').toString('base64'),
+                mimeType,
+                fileName: mimeType === 'audio/wav' ? 'sample.wav' : 'archive.bin'
+            })
+        } as unknown as Partial<SyncEngine>
+
+        const audio = await buildApp(engine).request('/api/sessions/session-1/generated-images/audio-1')
+        expect(audio.headers.get('content-disposition')).toStartWith('inline;')
+        expect(audio.headers.get('x-content-type-options')).toBe('nosniff')
+
+        mimeType = 'application/octet-stream'
+        const file = await buildApp(engine).request('/api/sessions/session-1/generated-images/file-1')
+        expect(file.headers.get('content-disposition')).toStartWith('attachment;')
+        expect(file.headers.get('content-type')).toContain('application/octet-stream')
+    })
+
     it('serves registered MP4 bytes with their video MIME type', async () => {
         const mp4Bytes = Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d])
         const session = { id: 'session-1', namespace: 'default', active: true } as unknown as Session

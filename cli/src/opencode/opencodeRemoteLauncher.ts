@@ -14,8 +14,15 @@ import type { OpencodeMode, PermissionMode } from './types';
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 import { allocateFreePort, createOpencodeBackend } from './utils/opencodeBackend';
 import { captureCompactionMarkerSnapshot, fetchCompactionResult, splitProviderModel, triggerOpencodeCompact } from './utils/opencodeCompactBridge';
+import { formatOpencodePromptError } from './utils/opencodeErrorText';
+import {
+    formatOpencodeRetryStatus,
+    subscribeToOpencodeEvents,
+    type OpencodeEventSubscription,
+    type OpencodeRetryStatus
+} from './utils/opencodeEventStream';
 import { OpencodePermissionHandler } from './utils/permissionHandler';
-import { OPENCODE_NATIVE_TOOL_INSTRUCTION, PLAN_MODE_INSTRUCTION } from './utils/systemPrompt';
+import { getOpencodeNativeToolInstruction, PLAN_MODE_INSTRUCTION } from './utils/systemPrompt';
 import { resolveThoughtLevelEffort } from './thoughtLevelEffort';
 
 type OpencodeRemoteLauncherOptions = {
@@ -124,6 +131,8 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
     private setModelSupported: boolean | undefined = undefined;
     private setEffortSupported: boolean | undefined = undefined;
     private activeAcpSessionId: string | null = null;
+    /** Subscription to the agent's own server event stream; null until the ACP session id is known, closed in cleanup(). */
+    private eventStream: OpencodeEventSubscription | null = null;
     private stallErrorReportedForPrompt = false;
 
     constructor(
@@ -163,7 +172,8 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
         // opencodeCompactBridge.ts).
         const hostname = '127.0.0.1';
         const port = await allocateFreePort(hostname);
-        this.baseUrl = `http://${hostname}:${port}`;
+        const baseUrl = `http://${hostname}:${port}`;
+        this.baseUrl = baseUrl;
 
         const backend = createOpencodeBackend({
             cwd: session.path,
@@ -208,6 +218,28 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
         }
         session.onSessionFound(acpSessionId);
         this.activeAcpSessionId = acpSessionId;
+
+        // Upstream retries are announced only on the agent's own event
+        // stream — not as ACP notifications and not on stderr. Measured
+        // against a provider stubbed to answer 429: 40 minutes, 85 retries,
+        // zero ACP updates, zero stderr bytes, and a prompt that never
+        // settled. Without this the user watches a session that looks like
+        // it is thinking and never learns it is rate limited.
+        //
+        // Attached here rather than at spawn time because the stream is
+        // filtered by ACP session id, which only exists once new/loadSession
+        // has answered. Failing to subscribe degrades that visibility and
+        // nothing else, so it is deliberately neither awaited nor
+        // error-checked; the subscription reports its own failures at debug
+        // level and keeps the session running.
+        this.eventStream = subscribeToOpencodeEvents({
+            baseUrl,
+            // Required. Omitting it yields heartbeats and no session events
+            // at all, with no error to notice — see the subscription's doc.
+            directory: session.path,
+            sessionId: acpSessionId,
+            onRetry: (retry) => this.surfaceUpstreamRetry(retry)
+        });
 
         // Seed currentBackendModel from the ACP session metadata so the first
         // batch — whose model the hub mirrors from the just-discovered session —
@@ -565,13 +597,13 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
                 messageText = `${PLAN_MODE_INSTRUCTION}\n\n${messageText}`;
             }
             if (!this.instructionsSent) {
-                messageText = `${OPENCODE_NATIVE_TOOL_INSTRUCTION}\n\n${messageText}`;
+                messageText = `${getOpencodeNativeToolInstruction()}\n\n${messageText}`;
                 this.instructionsSent = true;
             }
 
             const promptContent: PromptContent[] = [{
                 type: 'text',
-                text: messageText
+                text: messageText,
             }];
 
             this.stallErrorReportedForPrompt = false;
@@ -584,7 +616,7 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
                 void backend.refreshSessionInfo(acpSessionId, session.path);
             } catch (error) {
                 logger.warn('[opencode-remote] prompt failed', error);
-                this.surfaceAgentError('OpenCode prompt failed. Check logs for details.');
+                this.reportPromptFailure(error);
             } finally {
                 session.onThinkingChange(false);
                 await this.permissionHandler?.cancelAll('Prompt finished');
@@ -614,6 +646,10 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
     }
 
     protected async cleanup(): Promise<void> {
+        // Before anything that can fail: a stream left open would keep
+        // reconnecting to a subprocess that is on its way out.
+        this.eventStream?.close();
+        this.eventStream = null;
         this.clearAbortHandlers(this.session.client.rpcHandlerManager);
         const failures: unknown[] = [];
         if (this.permissionHandler) {
@@ -670,6 +706,77 @@ class OpencodeRemoteLauncher extends RemoteLauncherBase {
         if (isStall) {
             void this.clearStalledPrompt();
         }
+    }
+
+    /**
+     * Reports an upstream retry as progress, not as a failure: the agent is
+     * still working and will try again on its own.
+     *
+     * Sent as the `api_error` system message Claude sessions already use for
+     * the same situation, rather than as a new message type, so the web
+     * timeline folds consecutive retries into a single block instead of
+     * stacking one warning per attempt (`foldApiErrorEvents` in
+     * web/src/chat/reducerEvents.ts). `maxRetries` is 0 because OpenCode
+     * announces no ceiling — it retries until the provider lets it through
+     * (its own issue tracker has the missing circuit breaker open) — and the
+     * presentation already has a branch for exactly that. The provider's own
+     * text rides in `error` so the reader learns *why* the session is
+     * waiting, which is the entire point; without it the timeline says only
+     * "Retrying...".
+     *
+     * `thinking` is deliberately untouched. During a retry the session
+     * really is busy, and the hub composes the flag it shows from what this
+     * session reports plus its own queue grace
+     * (`hub/src/sync/sessionCache.ts`) — this side reports what is true and
+     * does not reach across that seam.
+     */
+    private surfaceUpstreamRetry(retry: OpencodeRetryStatus): void {
+        const text = formatOpencodeRetryStatus(retry);
+        this.session.client.sendClaudeSessionMessage({
+            type: 'system',
+            uuid: randomUUID(),
+            subtype: 'api_error',
+            retryAttempt: retry.attempt,
+            maxRetries: 0,
+            error: { message: text }
+        });
+        this.messageBuffer.addMessage(text, 'status');
+    }
+
+    /**
+     * Reports a rejected `session/prompt` to the user in the provider's own
+     * words.
+     *
+     * Nothing had to be detected to make this possible: `AcpStdioTransport`
+     * already rejects the pending request with the JSON-RPC `error.message`
+     * verbatim, and this catch used to log it and hand the user a fixed
+     * "check logs for details" line instead. A remote user is by definition
+     * not at the machine holding those logs.
+     *
+     * This reports unconditionally, and that is a decision rather than an
+     * omission. On a hard error OpenCode also dumps the same JSON-RPC error
+     * onto stderr, which the shared ACP reader reports a line at a time, so
+     * the user sees three raw fragments and then this one sentence. An
+     * earlier revision tried to suppress the sentence as a duplicate; do
+     * not add that back:
+     *
+     * - The fragments are a JSON dump split at newlines. This sentence is
+     *   the only line of the four a person can read. It follows them as a
+     *   summary, which is not the same thing as a repeat.
+     * - Suppressing on containment deleted it in every measured hard error,
+     *   because a fragment embeds it as a substring; suppressing on exact
+     *   equivalence never fired at all, because the fragment and this
+     *   sentence are differently worded. There was no observed case where
+     *   the check both fired and was right.
+     * - Doing it at all needs a per-turn ledger of what has been shown, and
+     *   the stderr path has no turn boundary of its own to reset it on: a
+     *   /compact batch never reaches this loop's per-prompt reset, so the
+     *   ledger leaked across batches and silently muted the stderr channel
+     *   for the rest of such a session. That channel discarded nothing
+     *   before this branch existed and should keep discarding nothing.
+     */
+    private reportPromptFailure(error: unknown): void {
+        this.surfaceAgentError(formatOpencodePromptError(error));
     }
 
     private surfaceAgentError(message: string): void {

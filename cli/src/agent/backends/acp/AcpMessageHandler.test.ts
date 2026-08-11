@@ -2444,6 +2444,7 @@ describe('AcpMessageHandler', () => {
         expect(imageMessage?.mimeType).toBe('image/png');
         expect(imageMessage?.fileName).toBeTruthy();
         expect(imageMessage?.imageId).toBeTruthy();
+        expect(imageMessage?.source).toEqual({ ingress: 'acp' });
         clearGeneratedImages();
     });
 
@@ -2477,7 +2478,7 @@ describe('AcpMessageHandler', () => {
 
     it('emits buffered text before generated_image when text precedes an ACP image block', async () => {
         const messages: AgentMessage[] = [];
-        const handler = new AcpMessageHandler((message) => messages.push(message));
+        const handler = new AcpMessageHandler((message) => messages.push(message), { flavor: 'cursor' });
         const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x00]);
 
         await handler.handleUpdate({
@@ -2501,6 +2502,9 @@ describe('AcpMessageHandler', () => {
         const imageIndex = messages.findIndex((message) => message.type === 'generated_image');
         expect(textIndex).toBeGreaterThanOrEqual(0);
         expect(imageIndex).toBeGreaterThan(textIndex);
+        if (messages[imageIndex]?.type === 'generated_image') {
+            expect(messages[imageIndex].source).toEqual({ ingress: 'acp', flavor: 'cursor' });
+        }
         clearGeneratedImages();
     });
 });

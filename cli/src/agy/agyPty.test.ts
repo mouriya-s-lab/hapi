@@ -23,7 +23,12 @@
  *    first message is submitted.
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+
+const { runAgentPty } = vi.hoisted(() => ({ runAgentPty: vi.fn() }))
+
+vi.mock('@/agent/runAgentPty', () => ({ runAgentPty }))
+
 import {
     AGY_PROMPT_MARKERS,
     AGY_TRUST_MARKERS,
@@ -33,6 +38,7 @@ import {
     AGY_IDLE_READY_MS,
     buildAgyPtyArgs,
     buildAgyPtyExtraEnv,
+    agyPty,
     type AgyPtyOpts,
 } from './agyPty'
 
@@ -134,16 +140,14 @@ describe('AGY_IDLE_MARKERS', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Busy markers — enable the silence watchdog that clears the thinking state
+// Busy markers — detect native terminal activity
 // ---------------------------------------------------------------------------
 describe('AGY_BUSY_MARKERS', () => {
     it('contains the "Generating" spinner text agy 1.0.8 animates while working', () => {
         expect(AGY_BUSY_MARKERS).toContain('Generating')
     })
 
-    it('is non-empty so runAgentPty enables the output-silence watchdog (clears thinking)', () => {
-        // With no busy marker hasBusyMarkers is false and the watchdog never runs,
-        // leaving the optimistic post-submit thinking=true stuck forever.
+    it('is non-empty so direct terminal input can enter the thinking state', () => {
         expect(AGY_BUSY_MARKERS.length).toBeGreaterThan(0)
     })
 
@@ -174,6 +178,22 @@ describe('buildAgyPtyArgs', () => {
 describe('AGY_IDLE_READY_MS', () => {
     it('is at least 1000 ms to accommodate banner render after sign-in', () => {
         expect(AGY_IDLE_READY_MS).toBeGreaterThanOrEqual(1000)
+    })
+})
+
+describe('agyPty', () => {
+    it('waits for the explicit idle marker instead of a silence timeout', async () => {
+        await agyPty({
+            sessionId: null,
+            path: '/tmp',
+            nextMessage: async () => null,
+            onReady: () => {},
+            onMessage: () => {},
+        })
+
+        expect(runAgentPty).toHaveBeenCalledWith(expect.objectContaining({
+            thinkingSilenceTimeoutMs: null,
+        }))
     })
 })
 
