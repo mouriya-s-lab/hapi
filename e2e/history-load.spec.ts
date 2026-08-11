@@ -613,3 +613,58 @@ test('scroll events cannot bypass backoff before an epoch-reset stop', async ({ 
     )
     expect(afterStop).toBe(2)
 })
+
+// Regression: once loaded history exceeds the 800-row cap, the evicted tail
+// marks the window as requiring a latest reset. A tail sync fired while the
+// user was still browsing (SSE reconnect, onRefresh, queued-state
+// reconciliation) used to run that reset immediately — replacing the loaded
+// history with the newest page and snapping the view back to the initial
+// pagination. The reset must be deferred until the window returns to tail mode.
+test('a tail sync while browsing capped history does not snap back to the latest page', async ({ page }) => {
+    await page.goto('/e2e-fixtures/history-load-fixture.html')
+    const viewport = page.locator('.app-scroll-y')
+    await expect(viewport).toBeVisible()
+    await page.waitForTimeout(3500)
+
+    const approachTop = async () => {
+        await viewport.dispatchEvent('pointerdown', { button: 0, pointerType: 'mouse' })
+        await page.evaluate(() => {
+            const element = document.querySelector('.app-scroll-y') as HTMLElement
+            element.scrollTop = 0
+            element.dispatchEvent(new Event('scroll'))
+        })
+        await viewport.dispatchEvent('pointerup', { button: 0, pointerType: 'mouse' })
+    }
+
+    // Four older pages: 200 initial + 4×200 = 1000 rows, capped to the oldest
+    // 800 (m-201…m-1000) with the newest 200 evicted.
+    for (let pageNumber = 1; pageNumber <= 4; pageNumber += 1) {
+        await approachTop()
+        await expect.poll(async () => await page.evaluate(() => ({
+            beforeReqs: window.__probe.requests.filter((request) => request.direction === 'before').length,
+            childCount: document.querySelector('.happy-thread-messages')?.childElementCount ?? 0
+        }))).toEqual({
+            beforeReqs: pageNumber,
+            childCount: Math.min(200 + pageNumber * 200, 800)
+        })
+    }
+    const beforeSync = await page.evaluate(() => window.__probe.windowState())
+    expect(beforeSync).toEqual({ messageCount: 800, oldestSeq: 201, newestSeq: 1000 })
+
+    await page.evaluate(async () => {
+        await window.__probe.refetch()
+    })
+    // Give a (wrong) latest-page application time to land before asserting.
+    await page.waitForTimeout(1000)
+
+    const afterSync = await page.evaluate(() => ({
+        windowState: window.__probe.windowState(),
+        latestReqs: window.__probe.requests.filter((request) => request.direction === 'latest').length,
+        childCount: document.querySelector('.happy-thread-messages')?.childElementCount ?? 0
+    }))
+    expect(afterSync).toEqual({
+        windowState: beforeSync,
+        latestReqs: 1,
+        childCount: 800
+    })
+})

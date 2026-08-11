@@ -8,9 +8,10 @@
  */
 
 import { isKnownFlavor, type LocalResumeTarget, type ResumableSession, type SessionEndReason } from '@hapi/protocol'
-import type { CursorChatStoreStatus, CursorMigrateOutcome, CursorMigrateToAcpRequest, MessageDeliveryMode, MessagesResponse, QueuedStateResponse, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
-import type { AgentFlavor, CodexCollaborationMode, CopilotAgentMode, DecryptedMessage, PermissionMode, Session, SyncEvent } from '@hapi/protocol/types'
+import type { CursorChatStoreStatus, CursorMigrateOutcome, CursorMigrateToAcpRequest, ImportableSessionProvider, ImportProviderSessionResponse, ListCcSwitchProvidersResponse, ListImportableSessionsResponse, MessageDeliveryMode, MessagesResponse, QueuedStateResponse, SlashCommandsResponse } from '@hapi/protocol/apiTypes'
+import type { AgentFlavor, ClaudeLaunch, CodexCollaborationMode, CopilotAgentMode, DecryptedMessage, PermissionMode, Session, SyncEvent } from '@hapi/protocol/types'
 import { unwrapRoleWrappedRecordEnvelope } from '@hapi/protocol/messages'
+import type { ProbeAgentSkillsResponse } from '@hapi/protocol/schemas'
 import type { Server } from 'socket.io'
 import { randomUUID } from 'node:crypto'
 import type { Store, CancelQueuedMessageResult } from '../store'
@@ -30,6 +31,7 @@ import {
     type RpcCodexModel,
     type RpcCommandResponse,
     type RpcDeleteUploadResponse,
+    type RpcGeneratedFileResponse,
     type RpcGeneratedImageResponse,
     type RpcListDirectoryResponse,
     type RpcStatFilesResponse,
@@ -39,6 +41,12 @@ import {
     type RpcArchiveCodexSessionResponse,
     type RpcListCursorModelsResponse,
     type RpcListOpencodeModelsResponse,
+    type RpcListOmpModelsResponse,
+    type RpcListOmpThinkingOptionsResponse,
+    type RpcListOmpLoginProvidersResponse,
+    type RpcStartOmpLoginResponse,
+    type RpcRespondOmpLoginInputResponse,
+    type RpcGetOmpExtensionUiResponse,
     type RpcListGrokModelsResponse,
     type RpcListCopilotModelsResponse,
     type RpcListGrokReasoningEffortOptionsResponse,
@@ -48,6 +56,7 @@ import {
     type RpcOpencodeModel,
     type RpcPathExistsResponse,
     type RpcReadFileResponse,
+    type RpcWriteFileResponse,
     type RpcUploadFileResponse
 } from './rpcGateway'
 import { SessionCache } from './sessionCache'
@@ -63,6 +72,7 @@ export type {
     RpcCodexModel,
     RpcCommandResponse,
     RpcDeleteUploadResponse,
+    RpcGeneratedFileResponse,
     RpcGeneratedImageResponse,
     RpcListDirectoryResponse,
     RpcStatFilesResponse,
@@ -71,6 +81,12 @@ export type {
     RpcListPiSessionsResponse,
     RpcListCursorModelsResponse,
     RpcListOpencodeModelsResponse,
+    RpcListOmpModelsResponse,
+    RpcListOmpThinkingOptionsResponse,
+    RpcListOmpLoginProvidersResponse,
+    RpcStartOmpLoginResponse,
+    RpcRespondOmpLoginInputResponse,
+    RpcGetOmpExtensionUiResponse,
     RpcListGrokModelsResponse,
     RpcListCopilotModelsResponse,
     RpcListGrokReasoningEffortOptionsResponse,
@@ -196,7 +212,8 @@ export class SyncEngine {
         private readonly store: Store,
         private readonly io: Server,
         rpcRegistry: RpcRegistry,
-        sseManager: SSEManager
+        sseManager: SSEManager,
+        decorateMessageForCli?: (content: unknown) => unknown
     ) {
         this.eventPublisher = new EventPublisher(sseManager, (event) => this.resolveNamespace(event))
         this.sessionCache = new SessionCache(store, this.eventPublisher)
@@ -205,7 +222,8 @@ export class SyncEngine {
             store,
             io,
             this.eventPublisher,
-            (sessionId, updatedAt) => this.recordSessionActivity(sessionId, updatedAt)
+            (sessionId, updatedAt) => this.recordSessionActivity(sessionId, updatedAt),
+            decorateMessageForCli
         )
         this.rpcGateway = new RpcGateway(io, rpcRegistry)
         this.reloadAll()
@@ -365,6 +383,10 @@ export class SyncEngine {
 
     getMachineByNamespace(machineId: string, namespace: string): Machine | undefined {
         return this.machineCache.getMachineByNamespace(machineId, namespace)
+    }
+
+    async probeMachineAgentSkills(machineId: string): Promise<ProbeAgentSkillsResponse> {
+        return await this.rpcGateway.probeMachineAgentSkills(machineId)
     }
 
     getOnlineMachines(): Machine[] {
@@ -960,8 +982,10 @@ async uploadScratchlistAttachment(
                 path: string
                 previewUrl?: string
             }>
+            ompInputMode?: import('@hapi/protocol/types').OmpInputMode
             sentFrom?: 'telegram-bot' | 'webapp'
             scheduledAt?: number | null
+            deliveryMetadata?: Record<string, unknown>
             deliveryMode?: MessageDeliveryMode
         }
     ): Promise<void> {
@@ -1381,6 +1405,8 @@ async uploadScratchlistAttachment(
                 forkEffort,
                 source.permissionMode,
                 source.serviceTier ?? undefined,
+                undefined,
+                undefined,
                 childId,
                 source.collaborationMode,
                 undefined,
@@ -1537,6 +1563,68 @@ async uploadScratchlistAttachment(
         }
     }
 
+    async stopSessionOnMachine(machineId: string, sessionId: string): Promise<void> {
+        const status = await this.rpcGateway.stopRunnerSession(machineId, sessionId)
+        if (status === 'still_alive') {
+            throw new Error('Session process is still alive')
+        }
+    }
+
+    async restartSession(sessionId: string, namespace: string, ccSwitchProviderId?: string): Promise<ResumeSessionResult> {
+        const access = this.sessionCache.resolveSessionAccess(sessionId, namespace)
+        if (!access.ok) {
+            return {
+                type: 'error',
+                message: access.reason === 'access-denied' ? 'Session access denied' : 'Session not found',
+                code: access.reason === 'access-denied' ? 'access_denied' : 'session_not_found'
+            }
+        }
+        const machineId = access.session.metadata?.machineId
+        if (!machineId) {
+            return { type: 'error', message: 'Session machine is unavailable', code: 'resume_unavailable' }
+        }
+
+        if (ccSwitchProviderId) {
+            const validation = await this.rpcGateway.validateCcSwitchProviderForMachine(machineId, ccSwitchProviderId)
+            if (!validation.success) {
+                return { type: 'error', message: validation.error ?? 'Invalid cc-switch provider', code: 'resume_unavailable' }
+            }
+        }
+
+        if (ccSwitchProviderId) {
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+                const latest = this.sessionCache.getSessionByNamespace(access.sessionId, namespace)
+                    ?? this.sessionCache.refreshSession(access.sessionId)
+                if (!latest?.metadata) break
+                const result = this.store.sessions.updateSessionMetadata(
+                    access.sessionId,
+                    { ...latest.metadata, ccSwitchProviderId },
+                    latest.metadataVersion,
+                    namespace,
+                    { touchUpdatedAt: false }
+                )
+                if (result.result === 'success') { this.sessionCache.refreshSession(access.sessionId); break }
+                if (result.result !== 'version-mismatch') break
+                this.sessionCache.refreshSession(access.sessionId)
+            }
+        }
+
+        // Runner 的 stop-session handler 等待整个进程树退出后才应答；之后才允许重新 spawn。
+        const stopStatus = await this.rpcGateway.stopRunnerSession(machineId, access.sessionId)
+        if (stopStatus === 'still_alive') {
+            return {
+                type: 'error',
+                message: 'Failed to stop session before restart',
+                code: 'resume_failed',
+                rollbackSafe: true
+            }
+        }
+        if (this.getSession(access.sessionId)?.active) {
+            this.handleSessionEnd({ sid: access.sessionId, time: Date.now(), reason: 'terminated' })
+        }
+        return await this.resumeSession(access.sessionId, namespace, { ccSwitchProviderId })
+    }
+
     async archiveSession(sessionId: string): Promise<void> {
         // tiann/hapi#916: when the CLI is already gone (e.g. after a
         // hub-restart cascade SIGTERMed the runner but the in-memory
@@ -1557,6 +1645,36 @@ async uploadScratchlistAttachment(
             }
         }
         this.handleSessionEnd({ sid: sessionId, time: Date.now() })
+        // Persist an explicit archive marker so the web can hide user-archived
+        // sessions. This runs ONLY here, on the explicit archive path — NOT in
+        // the shared handleSessionEnd/expireInactive — so naturally-ended or
+        // timed-out sessions are never mistaken for user-archived ones.
+        this.markSessionArchived(sessionId)
+    }
+
+    private markSessionArchived(sessionId: string): void {
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            const latest = this.sessionCache.getSession(sessionId)
+                ?? this.sessionCache.refreshSession(sessionId)
+            if (!latest) return
+            if (latest.metadata?.archivedAt != null) return
+
+            const nextMetadata = { ...(latest.metadata ?? {}), archivedAt: Date.now() }
+            const result = this.store.sessions.updateSessionMetadata(
+                sessionId,
+                nextMetadata,
+                latest.metadataVersion,
+                latest.namespace,
+                { touchUpdatedAt: false }
+            )
+            if (result.result === 'success') {
+                this.sessionCache.refreshSession(sessionId)
+                return
+            }
+            if (result.result !== 'version-mismatch') {
+                return
+            }
+        }
     }
 
     /**
@@ -1751,20 +1869,30 @@ async uploadScratchlistAttachment(
             modelReasoningEffort?: string | null
             effort?: string | null
             serviceTier?: string | null
+            resumeWithSessionModel?: boolean
             collaborationMode?: CodexCollaborationMode
             copilotAgentMode?: CopilotAgentMode
         }
     ): Promise<void> {
         const session = this.sessionCache.getSession(sessionId)
+
+        const { resumeWithSessionModel, ...runtimeConfig } = config
+        if (resumeWithSessionModel !== undefined) {
+            this.sessionCache.applySessionConfig(sessionId, { resumeWithSessionModel })
+        }
+        if (Object.keys(runtimeConfig).length === 0) {
+            return
+        }
+
         if (!session?.active) {
             // For inactive sessions, update the in-memory cache directly without
             // an RPC call — the CLI is not running yet. The updated value will be
             // passed to the spawned process when the session is resumed.
-            this.sessionCache.applySessionConfig(sessionId, config)
+            this.sessionCache.applySessionConfig(sessionId, runtimeConfig)
             return
         }
 
-        const result = await this.rpcGateway.requestSessionConfig(sessionId, config) as Record<string, unknown>
+        const result = await this.rpcGateway.requestSessionConfig(sessionId, runtimeConfig)
         if (!result || typeof result !== 'object') {
             throw new Error('Invalid response from session config RPC')
         }
@@ -1788,7 +1916,7 @@ async uploadScratchlistAttachment(
             throw new Error(`Missing applied session config, got: ${JSON.stringify(result)}`)
         }
 
-        const requestedKeys = Object.keys(config) as Array<keyof typeof config>
+        const requestedKeys = Object.keys(runtimeConfig) as Array<keyof typeof runtimeConfig>
         for (const key of requestedKeys) {
             if (!(key in applied)) {
                 throw new Error(`Session did not apply ${key}`)
@@ -1811,6 +1939,8 @@ async uploadScratchlistAttachment(
         effort?: string,
         permissionMode?: PermissionMode,
         serviceTier?: string,
+        claudeLaunch?: ClaudeLaunch,
+        ccSwitchProviderId?: string,
         existingSessionId?: string,
         collaborationMode?: CodexCollaborationMode,
         copilotAgentMode?: CopilotAgentMode,
@@ -1829,6 +1959,8 @@ async uploadScratchlistAttachment(
             effort,
             permissionMode,
             serviceTier,
+            claudeLaunch,
+            ccSwitchProviderId,
             existingSessionId,
             collaborationMode,
             copilotAgentMode,
@@ -2081,6 +2213,8 @@ async uploadScratchlistAttachment(
             source.effort ?? undefined,
             source.permissionMode ?? metadata.preferredPermissionMode,
             source.serviceTier ?? undefined,
+            undefined,
+            undefined,
             operation.replacementSessionId,
             source.collaborationMode
         )
@@ -2251,6 +2385,18 @@ async uploadScratchlistAttachment(
         return false
     }
 
+    /**
+     * Trigger a provider-native session fork on the target machine.
+     * Wraps rpcGateway.forkProviderSessionOnMachine for fork-features/session-fork.
+     * Returned shape matches ForkSpawnResult (validated by the caller).
+     */
+    async forkProviderSession(
+        machineId: string,
+        request: { flavor: string; payload: unknown }
+    ): Promise<unknown> {
+        return await this.rpcGateway.forkProviderSessionOnMachine(machineId, request)
+    }
+
     private resolveFlavor(session: Session): AgentFlavor {
         const flavor = session.metadata?.flavor
         return isKnownFlavor(flavor) ? flavor : 'claude'
@@ -2274,8 +2420,11 @@ async uploadScratchlistAttachment(
         if (flavor === 'kimi') return metadata.kimiSessionId ?? null
         if (flavor === 'copilot') return metadata.copilotSessionId ?? null
         if (flavor === 'pi') return metadata.piSessionId ?? null
+        if (flavor === 'omp') return metadata.ompSession?.id ?? null
 
-        return metadata.claudeSessionId ?? this.recoverClaudeSessionIdFromMessages(session.id, namespace)
+        return metadata.claudeSessionId
+            ?? metadata.pendingClaudeLaunch?.resumeSessionId
+            ?? this.recoverClaudeSessionIdFromMessages(session.id, namespace)
     }
 
     resolveLocalResumeTarget(sessionId: string, namespace: string): LocalResumeTargetResult {
@@ -2303,11 +2452,14 @@ async uploadScratchlistAttachment(
             }
         }
 
+        const flavor = this.resolveFlavor(session)
+        const includeStoredModelParameters = flavor !== 'claude' || session.resumeWithSessionModel
+
         return {
             type: 'success',
             target: {
                 sessionId: access.sessionId,
-                flavor: this.resolveFlavor(session),
+                flavor,
                 directory: metadata.path,
                 machineId: metadata.machineId,
                 host: metadata.host,
@@ -2315,8 +2467,8 @@ async uploadScratchlistAttachment(
                 thinking: session.thinking,
                 controlledByUser: session.agentState?.controlledByUser === true,
                 agentSessionId,
-                model: session.model ?? null,
-                effort: session.effort ?? null,
+                model: includeStoredModelParameters ? session.model ?? null : null,
+                effort: includeStoredModelParameters ? session.effort ?? null : null,
                 modelReasoningEffort: session.modelReasoningEffort ?? null,
                 permissionMode: session.permissionMode,
                 collaborationMode: session.collaborationMode,
@@ -2650,7 +2802,7 @@ async uploadScratchlistAttachment(
         }
     }
 
-    async resumeSession(sessionId: string, namespace: string, opts?: { permissionMode?: PermissionMode }): Promise<ResumeSessionResult> {
+    async resumeSession(sessionId: string, namespace: string, opts?: { permissionMode?: PermissionMode; ccSwitchProviderId?: string }): Promise<ResumeSessionResult> {
         const access = this.sessionCache.resolveSessionAccess(sessionId, namespace)
         if (!access.ok) {
             return {
@@ -2712,11 +2864,15 @@ async uploadScratchlistAttachment(
         let flavor: AgentFlavor
         let resumeToken: string | undefined
         let directory: string
+        let claudeLaunch: ClaudeLaunch | undefined
 
         if (targetResult.type === 'success') {
             flavor = targetResult.target.flavor
             resumeToken = targetResult.target.agentSessionId
             directory = targetResult.target.directory
+            claudeLaunch = session.metadata?.claudeSessionId
+                ? undefined
+                : session.metadata?.pendingClaudeLaunch?.launch
         } else if (
             targetResult.code === 'resume_unavailable'
             && this.canFreshSpawnNeverStartedSession(session, access.sessionId, namespace)
@@ -2827,19 +2983,22 @@ async uploadScratchlistAttachment(
         }
         let piResumeSucceeded = false
         try {
+            const includeStoredModelParameters = flavor !== 'claude' || session.resumeWithSessionModel
             const spawnResult = await this.rpcGateway.spawnSession(
                 targetMachine.id,
                 directory,
                 flavor,
-                session.model ?? undefined,
+                includeStoredModelParameters ? session.model ?? undefined : undefined,
                 session.modelReasoningEffort ?? undefined,
                 undefined,
                 undefined,
                 undefined,
                 resumeToken,
-                session.effort ?? undefined,
+                includeStoredModelParameters ? session.effort ?? undefined : undefined,
                 preferredPermissionMode,
-                session.serviceTier ?? undefined,
+                includeStoredModelParameters ? session.serviceTier ?? undefined : undefined,
+                claudeLaunch,
+                opts?.ccSwitchProviderId ?? metadata.ccSwitchProviderId,
                 access.sessionId,
                 session.collaborationMode ?? undefined,
                 session.copilotAgentMode ?? undefined,
@@ -3710,6 +3869,10 @@ async uploadScratchlistAttachment(
         return await this.rpcGateway.listMachineDirectory(machineId, path, includeHidden)
     }
 
+    async createMachineDirectory(machineId: string, parentPath: string, name: string) {
+        return await this.rpcGateway.createMachineDirectory(machineId, parentPath, name)
+    }
+
     async getGitStatus(sessionId: string, cwd?: string): Promise<RpcCommandResponse> {
         return await this.rpcGateway.getGitStatus(sessionId, cwd)
     }
@@ -3726,8 +3889,16 @@ async uploadScratchlistAttachment(
         return await this.rpcGateway.readSessionFile(sessionId, path)
     }
 
+    async writeSessionFile(sessionId: string, path: string, content: string, expectedHash: string): Promise<RpcWriteFileResponse> {
+        return await this.rpcGateway.writeSessionFile(sessionId, path, content, expectedHash)
+    }
+
     async readGeneratedImage(sessionId: string, imageId: string): Promise<RpcGeneratedImageResponse> {
         return await this.rpcGateway.readGeneratedImage(sessionId, imageId)
+    }
+
+    async readGeneratedFile(sessionId: string, fileId: string): Promise<RpcGeneratedFileResponse> {
+        return await this.rpcGateway.readGeneratedFile(sessionId, fileId)
     }
 
     async listDirectory(sessionId: string, path: string): Promise<RpcListDirectoryResponse> {
@@ -3786,6 +3957,14 @@ async uploadScratchlistAttachment(
         return await this.rpcGateway.archiveCodexSessionForMachine(machineId, sessionId)
     }
 
+    async listImportableSessionsForMachine(machineId: string, request: { provider: ImportableSessionProvider; cursor?: string; cwd?: string; query?: string }): Promise<ListImportableSessionsResponse> {
+        return await this.rpcGateway.listImportableSessions(machineId, request)
+    }
+
+    async importProviderSessionForMachine(machineId: string, provider: ImportableSessionProvider, externalSessionId: string): Promise<ImportProviderSessionResponse> {
+        return await this.rpcGateway.importProviderSession(machineId, { provider, externalSessionId })
+    }
+
     async listCursorModelsForSession(sessionId: string): Promise<RpcListCursorModelsResponse> {
         return await this.rpcGateway.listCursorModelsForSession(sessionId)
     }
@@ -3794,8 +3973,61 @@ async uploadScratchlistAttachment(
         return await this.rpcGateway.listCursorModelsForMachine(machineId)
     }
 
+    async listCcSwitchProvidersForMachine(machineId: string): Promise<ListCcSwitchProvidersResponse> {
+        return await this.rpcGateway.listCcSwitchProvidersForMachine(machineId)
+    }
+
     async listOpencodeModelsForSession(sessionId: string): Promise<RpcListOpencodeModelsResponse> {
         return await this.rpcGateway.listOpencodeModelsForSession(sessionId)
+    }
+
+    async listOmpModelsForSession(sessionId: string): Promise<RpcListOmpModelsResponse> {
+        return await this.rpcGateway.listOmpModelsForSession(sessionId)
+    }
+    async listOmpModelsForMachine(machineId: string, cwd: string): Promise<RpcListOmpModelsResponse> {
+        return await this.rpcGateway.listOmpModelsForMachine(machineId, cwd)
+    }
+
+
+    async listOmpThinkingOptionsForSession(sessionId: string): Promise<RpcListOmpThinkingOptionsResponse> {
+        return await this.rpcGateway.listOmpThinkingOptionsForSession(sessionId)
+    }
+
+    async listOmpLoginProvidersForMachine(machineId: string): Promise<RpcListOmpLoginProvidersResponse> {
+        return await this.rpcGateway.listOmpLoginProvidersForMachine(machineId)
+    }
+
+    async startOmpLoginForMachine(machineId: string, providerId: string): Promise<RpcStartOmpLoginResponse> {
+        return await this.rpcGateway.startOmpLoginForMachine(machineId, providerId)
+    }
+
+    async respondOmpLoginInputForMachine(
+        machineId: string,
+        flowId: string,
+        value: string
+    ): Promise<RpcRespondOmpLoginInputResponse> {
+        return await this.rpcGateway.respondOmpLoginInputForMachine(machineId, flowId, value)
+    }
+
+    async getOmpExtensionUiRequestForSession(
+        sessionId: string,
+        requestId: string
+    ): Promise<RpcGetOmpExtensionUiResponse> {
+        return await this.rpcGateway.getOmpExtensionUiRequestForSession(sessionId, requestId)
+    }
+
+    async cycleOmpModelForSession(sessionId: string): Promise<import('@hapi/protocol/apiTypes').CycleOmpModelResponse> {
+        const result = await this.rpcGateway.cycleOmpModelForSession(sessionId)
+        if (result.success && result.currentModel) {
+            // Route the native cycle result back through the normal CLI config
+            // acknowledgement path. Besides persisting the Hub value, this
+            // updates the CLI's per-turn model snapshot so the next queued turn
+            // does not restore the model that was active before the cycle.
+            await this.applySessionConfig(sessionId, {
+                model: `${result.currentModel.provider}/${result.currentModel.modelId}`
+            })
+        }
+        return result
     }
 
     async listOpencodeModelsForCwd(machineId: string, cwd: string): Promise<RpcListOpencodeModelsResponse> {

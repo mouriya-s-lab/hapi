@@ -27,7 +27,7 @@ import {
 } from '@/components/AssistantChat/RichComposerInput'
 import { useFue } from '@/lib/use-fue'
 import { FueCallout, FueDot } from '@/components/Fue'
-import type { AgentState, CodexCollaborationMode, PermissionMode, PiModelSummary } from '@/types/api'
+import type { AgentState, CodexCollaborationMode, OmpThinkingState, PermissionMode, PiModelSummary, ThreadGoal } from '@/types/api'
 import type { Suggestion } from '@/hooks/useActiveSuggestions'
 import type { ConversationStatus } from '@/realtime/types'
 import { useActiveWord } from '@/hooks/useActiveWord'
@@ -44,14 +44,15 @@ import { persistInactiveComposerAttachments, setComposerDraftSnapshot, updateCom
 import { useComposerEnterBehavior } from '@/hooks/useComposerEnterBehavior'
 import { FloatingOverlay } from '@/components/ChatInput/FloatingOverlay'
 import { Autocomplete } from '@/components/ChatInput/Autocomplete'
-import { StatusBar } from '@/components/AssistantChat/StatusBar'
 import { ComposerButtons } from '@/components/AssistantChat/ComposerButtons'
 import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import { AttachmentItem } from '@/components/AssistantChat/AttachmentItem'
-import { ComposerParkingContext } from '@/components/AssistantChat/composerParkingContext'
+import { shouldShowComposerStatusBar, StatusBar } from '@/components/AssistantChat/StatusBar'
 import type { ScratchlistParkResult } from '@/lib/scratchlistAttachmentFlow'
+import { ComposerParkingContext } from '@/components/AssistantChat/composerParkingContext'
 import { useTranslation } from '@/lib/use-translation'
 import { getModelOptionsForFlavor, getNextModelForFlavor } from './modelOptions'
+import { isListedClaudeModel, normalizeCustomClaudeModelId } from './claudeModelOptions'
 import { getClaudeComposerEffortOptions } from './claudeEffortOptions'
 import { getCodexComposerReasoningEffortOptions } from './codexReasoningEffortOptions'
 import { getDisplayedCodexServiceTier } from './codexFastMode'
@@ -290,6 +291,7 @@ export function HappyComposer(props: {
     model?: string | null
     modelReasoningEffort?: string | null
     effort?: string | null
+    resumeWithSessionModel?: boolean
     active?: boolean
     allowSendWhenInactive?: boolean
     thinking?: boolean
@@ -310,6 +312,8 @@ export function HappyComposer(props: {
     piSelectedModel?: { provider: string; modelId: string } | null
     availableModelReasoningEffortOptions?: Array<{ value: string; name?: string }>
     availableEffortOptions?: Array<{ value: string; name?: string }>
+    ompThinkingState?: OmpThinkingState
+    threadGoal?: ThreadGoal | null
     /** Cursor: selected base model key (not wire id). */
     selectedModelBase?: string | null
     /** Cursor: selected variant sku/wire for highlight when session stores an ACP wire id. */
@@ -322,6 +326,11 @@ export function HappyComposer(props: {
     onCopilotAgentModeChange?: (mode: CopilotAgentMode) => void
     onPermissionModeChange?: (mode: PermissionMode) => void
     onModelChange?: (model: { provider: string; modelId: string } | string | null) => void
+    onCycleModel?: () => void
+    ccSwitchProviders?: Array<{ id: string; name: string; isCurrent: boolean }>
+    currentCcSwitchProviderId?: string | null
+    onCcSwitchProviderChange?: (providerId: string) => void
+    onResumeWithSessionModelChange?: (enabled: boolean) => void
     /** Cursor: effort/variant wire id (separate from base model change). */
     onModelEffortChange?: (wireId: string | null) => void
     onModelReasoningEffortChange?: (modelReasoningEffort: string | null) => void
@@ -395,6 +404,7 @@ export function HappyComposer(props: {
         model: rawModel,
         modelReasoningEffort: rawModelReasoningEffort,
         effort: rawEffort,
+        resumeWithSessionModel = false,
         active = true,
         allowSendWhenInactive = false,
         thinking = false,
@@ -411,6 +421,8 @@ export function HappyComposer(props: {
         piSelectedModel,
         availableModelReasoningEffortOptions,
         availableEffortOptions,
+        ompThinkingState,
+        threadGoal,
         selectedModelBase,
         selectedModelVariant,
         modelEffortOptions,
@@ -419,6 +431,11 @@ export function HappyComposer(props: {
         onCopilotAgentModeChange,
         onPermissionModeChange,
         onModelChange,
+        onCycleModel,
+        ccSwitchProviders,
+        currentCcSwitchProviderId,
+        onCcSwitchProviderChange,
+        onResumeWithSessionModelChange,
         onModelEffortChange,
         onModelReasoningEffortChange,
         onEffortChange,
@@ -526,6 +543,7 @@ export function HappyComposer(props: {
     const lastSendAcceptanceRef = useRef(props.sendAcceptance)
     const pendingSendAttemptIdRef = useRef<string | null>(null)
     const [showSettings, setShowSettings] = useState(false)
+    const [customModelDraft, setCustomModelDraft] = useState('')
     const [showPiModelPanel, setShowPiModelPanel] = useState(false)
     const [showPiThinkingPanel, setShowPiThinkingPanel] = useState(false)
     const [isAborting, setIsAborting] = useState(false)
@@ -1060,9 +1078,9 @@ export function HappyComposer(props: {
     const claudeEffortOptions = useMemo(
         () => agentFlavor === 'pi'
             ? getPiThinkingLevelOptions(effort, selectedPiModel?.thinkingLevelMap)
-            : agentFlavor === 'grok' && availableEffortOptions && availableEffortOptions.length > 0
+            : (agentFlavor === 'grok' || agentFlavor === 'omp') && availableEffortOptions && availableEffortOptions.length > 0
                 ? [
-                    { value: null, label: 'Default' },
+                    ...(agentFlavor === 'grok' ? [{ value: null, label: 'Default' }] : []),
                     ...availableEffortOptions.map((option) => ({
                         value: option.value,
                         label: option.name ?? option.value
@@ -1228,8 +1246,11 @@ export function HappyComposer(props: {
     const handleKeyDown = useCallback((e: ReactKeyboardEvent<HTMLTextAreaElement | HTMLDivElement>) => {
         const key = e.key
 
-        // Avoid intercepting IME composition keystrokes (Enter, arrows, etc.)
-        if (e.nativeEvent.isComposing) {
+        // Avoid intercepting IME composition keystrokes (Enter, arrows, etc.).
+        // `isComposing` covers most browsers; keyCode 229 covers IME-handled
+        // keydowns where isComposing is momentarily false (Safari + some
+        // Windows IMEs on the "confirm candidate with Enter" keystroke).
+        if (e.nativeEvent.isComposing || e.keyCode === 229) {
             return
         }
 
@@ -1362,16 +1383,20 @@ export function HappyComposer(props: {
             // would lose the provider and can pick the wrong cached match or clear
             // the model. Pi model changes go only through the dedicated PiModelPanel.
             if (agentFlavor === 'pi') return
-            if (e.key === 'm' && (e.metaKey || e.ctrlKey) && onModelChange && supportsModelChange(agentFlavor)) {
+            if (e.key === 'm' && (e.metaKey || e.ctrlKey) && (onCycleModel || onModelChange) && supportsModelChange(agentFlavor)) {
                 e.preventDefault()
-                onModelChange(getNextModelForFlavor(agentFlavor, model, availableModelOptions))
+                if (onCycleModel) {
+                    onCycleModel()
+                } else {
+                    onModelChange?.(getNextModelForFlavor(agentFlavor, model, availableModelOptions))
+                }
                 haptic('light')
             }
         }
 
         window.addEventListener('keydown', handleGlobalKeyDown)
         return () => window.removeEventListener('keydown', handleGlobalKeyDown)
-    }, [model, onModelChange, haptic, agentFlavor, availableModelOptions])
+    }, [model, onModelChange, onCycleModel, haptic, agentFlavor, availableModelOptions])
 
     const handleChange = useCallback((e: ReactChangeEvent<HTMLTextAreaElement>) => {
         const selection = {
@@ -1441,9 +1466,27 @@ export function HappyComposer(props: {
     const handleModelChange = useCallback((nextModel: { provider: string; modelId: string } | string | null) => {
         if (!onModelChange || configurationControlsDisabled) return
         onModelChange(nextModel)
+        if (
+            agentFlavor === 'claude'
+            && !active
+            && nextModel !== null
+            && !resumeWithSessionModel
+            && onResumeWithSessionModelChange
+        ) {
+            onResumeWithSessionModelChange(true)
+        }
         dismissSettings()
         haptic('light')
-    }, [onModelChange, configurationControlsDisabled, haptic, dismissSettings])
+}, [
+        onModelChange,
+        configurationControlsDisabled,
+        agentFlavor,
+        active,
+        resumeWithSessionModel,
+        onResumeWithSessionModelChange,
+        dismissSettings,
+        haptic,
+    ])
 
     const handleCursorModelRowClick = useCallback((nextModel: string | null) => {
         if (!onModelChange || controlsDisabled) return
@@ -1523,6 +1566,36 @@ export function HappyComposer(props: {
         haptic('light')
     }, [onCollaborationModeChange, controlsDisabled, haptic, dismissSettings])
 
+    useEffect(() => {
+        if (showSettings) {
+            setCustomModelDraft(
+                agentFlavor === 'claude' && model && !isListedClaudeModel(model)
+                    ? model
+                    : ''
+            )
+        }
+    }, [showSettings, agentFlavor, model])
+
+    const handleCustomModelSubmit = useCallback(() => {
+        const modelId = normalizeCustomClaudeModelId(customModelDraft)
+        if (!modelId) return
+        handleModelChange(modelId)
+    }, [customModelDraft, handleModelChange])
+
+    const handleResumeWithSessionModelChange = useCallback(() => {
+        if (!onResumeWithSessionModelChange || controlsDisabled) return
+        onResumeWithSessionModelChange(!resumeWithSessionModel)
+        dismissSettings()
+        haptic('light')
+    }, [onResumeWithSessionModelChange, controlsDisabled, haptic, resumeWithSessionModel, dismissSettings])
+
+    const handleCcSwitchProviderChange = useCallback((providerId: string) => {
+        if (!onCcSwitchProviderChange || controlsDisabled) return
+        if (providerId !== currentCcSwitchProviderId) onCcSwitchProviderChange(providerId)
+        dismissSettings()
+        haptic('light')
+    }, [onCcSwitchProviderChange, currentCcSwitchProviderId, controlsDisabled, haptic, dismissSettings])
+
     const handleCopilotAgentModeChange = useCallback((mode: CopilotAgentMode) => {
         if (!onCopilotAgentModeChange || controlsDisabled) return
         onCopilotAgentModeChange(mode)
@@ -1561,8 +1634,11 @@ export function HappyComposer(props: {
     const showCollaborationSettings = Boolean(onCollaborationModeChange && collaborationModeOptions.length > 0)
     const showCopilotAgentModeSettings = Boolean(onCopilotAgentModeChange && copilotAgentModeOptions.length > 0)
     const showPermissionSettings = Boolean(onPermissionModeChange && permissionModeOptions.length > 0)
+    const showCcSwitchSettings = Boolean(onCcSwitchProviderChange && ccSwitchProviders?.length)
     const showModelSettings = Boolean(onModelChange && supportsModelChange(agentFlavor) && (piModels && piModels.length > 0 || modelOptions.length > 0))
         && !cursorVariantDrillDownActive
+    const showCustomModelInput = showModelSettings && agentFlavor === 'claude'
+    const showResumeModelSettings = Boolean(agentFlavor === 'claude' && onResumeWithSessionModelChange)
     const showModelEffortSettings = cursorVariantDrillDownActive
         ? Boolean((onModelEffortChange ?? onModelChange) && visibleModelEffortOptions && visibleModelEffortOptions.length > 0)
         : Boolean(
@@ -1579,7 +1655,9 @@ export function HappyComposer(props: {
         showCollaborationSettings
         || showCopilotAgentModeSettings
         || showPermissionSettings
+        || showCcSwitchSettings
         || showModelSettings
+        || showResumeModelSettings
         || showModelEffortSettings
         || showModelReasoningEffortSettings
         || showEffortSettings
@@ -1676,7 +1754,7 @@ export function HappyComposer(props: {
         }
 
         // Non-Pi flavors: original unified gear menu
-        if (showSettings && (showCollaborationSettings || showCopilotAgentModeSettings || showPermissionSettings || showModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings || showFastModeSettings)) {
+        if (showSettings && (showCollaborationSettings || showCopilotAgentModeSettings || showPermissionSettings || showCcSwitchSettings || showModelSettings || showResumeModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings || showFastModeSettings)) {
             return (
                 <div ref={settingsOverlayRef} className={`${overlayPositionClass} w-full`}>
                     <FloatingOverlay maxHeight={320}>
@@ -1754,7 +1832,7 @@ export function HappyComposer(props: {
                             </div>
                         ) : null}
 
-                        {(showCollaborationSettings || showCopilotAgentModeSettings) && (showPermissionSettings || showModelSettings || showModelReasoningEffortSettings || showEffortSettings) ? (
+                        {(showCollaborationSettings || showCopilotAgentModeSettings) && (showPermissionSettings || showCcSwitchSettings || showModelSettings || showResumeModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings || showFastModeSettings) ? (
                             <div className="mx-3 h-px bg-[var(--app-divider)]" />
                         ) : null}
 
@@ -1795,7 +1873,30 @@ export function HappyComposer(props: {
                             </div>
                         ) : null}
 
-                        {(showCollaborationSettings || showCopilotAgentModeSettings || showPermissionSettings) && (showModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings) ? (
+                        {(showCollaborationSettings || showCopilotAgentModeSettings || showPermissionSettings) && (showCcSwitchSettings || showModelSettings || showResumeModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings) ? (
+                            <div className="mx-3 h-px bg-[var(--app-divider)]" />
+                        ) : null}
+
+                        {showCcSwitchSettings ? (
+                            <div className="py-2">
+                                <div className="px-3 pb-1 text-xs font-semibold text-[var(--app-hint)]">{t('misc.provider')}</div>
+                                {ccSwitchProviders!.map((provider) => {
+                                    const selected = currentCcSwitchProviderId === provider.id
+                                    return (
+                                        <button key={provider.id} type="button" disabled={controlsDisabled}
+                                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--app-secondary-bg)] disabled:opacity-50"
+                                            onClick={() => handleCcSwitchProviderChange(provider.id)} onMouseDown={(event) => event.preventDefault()}>
+                                            <span className={`flex h-4 w-4 items-center justify-center rounded-full border-2 ${selected ? 'border-[var(--app-link)]' : 'border-[var(--app-hint)]'}`}>
+                                                {selected ? <span className="h-2 w-2 rounded-full bg-[var(--app-link)]" /> : null}
+                                            </span>
+                                            <span className={selected ? 'text-[var(--app-link)]' : ''}>{provider.name}</span>
+                                        </button>
+                                    )
+                                })}
+                            </div>
+                        ) : null}
+
+                        {showCcSwitchSettings && (showModelSettings || showResumeModelSettings || showModelEffortSettings || showModelReasoningEffortSettings || showEffortSettings) ? (
                             <div className="mx-3 h-px bg-[var(--app-divider)]" />
                         ) : null}
 
@@ -1883,10 +1984,87 @@ export function HappyComposer(props: {
                                         )
                                     })
                                 )}
+                                {showCustomModelInput ? (
+                                    <div className="flex items-center gap-2 px-3 py-2">
+                                        <button
+                                            type="button"
+                                            role="radio"
+                                            aria-checked={Boolean(model && !isListedClaudeModel(model))}
+                                            aria-label={t('composer.customModel')}
+                                            disabled={controlsDisabled}
+                                            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${
+                                                model && !isListedClaudeModel(model)
+                                                    ? 'border-[var(--app-link)]'
+                                                    : 'border-[var(--app-hint)]'
+                                            }`}
+                                            onClick={handleCustomModelSubmit}
+                                            onMouseDown={(event) => event.preventDefault()}
+                                        >
+                                            {model && !isListedClaudeModel(model) ? (
+                                                <div className="h-2 w-2 rounded-full bg-[var(--app-link)]" />
+                                            ) : null}
+                                        </button>
+                                        <input
+                                            type="text"
+                                            value={customModelDraft}
+                                            disabled={controlsDisabled}
+                                            spellCheck={false}
+                                            autoCapitalize="off"
+                                            autoCorrect="off"
+                                            aria-label={t('composer.customModel')}
+                                            placeholder={t('composer.customModelPlaceholder')}
+                                            data-testid="custom-model-input"
+                                            className="min-w-0 flex-1 rounded-md border border-[var(--app-border)] bg-[var(--app-subtle-bg)] px-2 py-1.5 text-sm text-[var(--app-fg)] outline-none placeholder:text-[var(--app-hint)] focus:border-[var(--app-link)]"
+                                            onChange={(event) => setCustomModelDraft(event.target.value)}
+                                            onKeyDown={(event) => {
+                                                if (event.key === 'Enter') {
+                                                    event.preventDefault()
+                                                    handleCustomModelSubmit()
+                                                }
+                                            }}
+                                        />
+                                    </div>
+                                ) : null}
                             </div>
                         ) : null}
 
-                        {showModelSettings && showModelEffortSettings ? (
+                        {showResumeModelSettings ? (
+                            <div className="py-2">
+                                <button
+                                    type="button"
+                                    role="checkbox"
+                                    aria-checked={resumeWithSessionModel}
+                                    disabled={controlsDisabled}
+                                    className={`flex w-full items-start gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                                        controlsDisabled
+                                            ? 'cursor-not-allowed opacity-50'
+                                            : 'cursor-pointer hover:bg-[var(--app-secondary-bg)]'
+                                    }`}
+                                    onClick={handleResumeWithSessionModelChange}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                >
+                                    <div
+                                        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 ${
+                                            resumeWithSessionModel
+                                                ? 'border-[var(--app-link)] bg-[var(--app-link)] text-white'
+                                                : 'border-[var(--app-hint)]'
+                                        }`}
+                                    >
+                                        {resumeWithSessionModel ? (
+                                            <span className="text-[10px] leading-none">✓</span>
+                                        ) : null}
+                                    </div>
+                                    <span className={resumeWithSessionModel ? 'text-[var(--app-link)]' : ''}>
+                                        <span className="block">{t('misc.resumeWithSessionModel')}</span>
+                                        <span className="block text-xs text-[var(--app-hint)]">
+                                            {t('misc.resumeWithSessionModelHint')}
+                                        </span>
+                                    </span>
+                                </button>
+                            </div>
+                        ) : null}
+
+                        {(showModelSettings || showResumeModelSettings) && showModelEffortSettings ? (
                             <div className="mx-3 h-px bg-[var(--app-divider)]" />
                         ) : null}
 
@@ -1909,10 +2087,14 @@ export function HappyComposer(props: {
                             />
                         ) : null}
 
-                        {(showModelSettings || showModelEffortSettings) && showModelReasoningEffortSettings ? (
+                        {(showModelSettings || showResumeModelSettings || showModelEffortSettings) && showModelReasoningEffortSettings ? (
                             <div className="mx-3 h-px bg-[var(--app-divider)]" />
                         ) : null}
 
+
+                        {(showModelSettings || showModelEffortSettings || showModelReasoningEffortSettings) && showEffortSettings ? (
+                            <div className="mx-3 h-px bg-[var(--app-divider)]" />
+                        ) : null}
                         {showModelReasoningEffortSettings ? (
                             <div className="py-2">
                                 <div className="px-3 pb-1 text-xs font-semibold text-[var(--app-hint)]">
@@ -1991,6 +2173,12 @@ export function HappyComposer(props: {
                             </div>
                         ) : null}
 
+                        {agentFlavor === 'omp' ? (
+                            <div className="border-t border-[var(--app-divider)] px-3 py-2 text-xs text-[var(--app-hint)]">
+                                {t('misc.ompClaudeOnly')}
+                            </div>
+                        ) : null}
+
                         {(showModelReasoningEffortSettings || showEffortSettings) && showFastModeSettings ? (
                             <div className="mx-3 h-px bg-[var(--app-divider)]" />
                         ) : null}
@@ -2062,7 +2250,11 @@ export function HappyComposer(props: {
         showCollaborationSettings,
         showCopilotAgentModeSettings,
         showPermissionSettings,
+        showCcSwitchSettings,
         showModelSettings,
+        showCustomModelInput,
+        customModelDraft,
+        showResumeModelSettings,
         showModelEffortSettings,
         visibleModelEffortOptions,
         cursorVariantDrillDownActive,
@@ -2086,17 +2278,23 @@ export function HappyComposer(props: {
         collaborationMode,
         permissionMode,
         model,
+        resumeWithSessionModel,
         modelReasoningEffort,
         effort,
         displayedServiceTier,
         collaborationModeOptions,
         copilotAgentModeOptions,
         permissionModeOptions,
+        ccSwitchProviders,
+        currentCcSwitchProviderId,
         handleCollaborationChange,
         handleCopilotAgentModeChange,
         copilotAgentMode,
         handlePermissionChange,
         handleModelChange,
+        handleCustomModelSubmit,
+        handleResumeWithSessionModelChange,
+        handleCcSwitchProviderChange,
         handleCursorModelRowClick,
         handleModelEffortChange,
         handleModelReasoningEffortChange,
@@ -2129,25 +2327,29 @@ export function HappyComposer(props: {
                 <ComposerPrimitive.Root className={rootClassName} onSubmit={handleSubmit}>
                     {overlays}
 
-                    <StatusBar
-                        active={active}
-                        thinking={thinking}
-                        agentState={agentState}
-                        backgroundTaskCount={backgroundTaskCount}
-                        contextSize={contextSize}
-                        contextCacheRead={contextCacheRead}
-                        contextWindow={contextWindow}
-                        contextModel={contextModel}
-                        model={model}
-                        modelReasoningEffort={modelReasoningEffort}
-                        effort={effort}
-                        serviceTier={serviceTier}
-                        permissionMode={permissionMode}
-                        collaborationMode={collaborationMode}
-                        copilotAgentMode={copilotAgentMode}
-                        agentFlavor={agentFlavor}
-                        voiceStatus={effectiveVoiceStatus}
-                    />
+                    {shouldShowComposerStatusBar(agentFlavor) ? (
+                        <StatusBar
+                            active={active}
+                            thinking={thinking}
+                            agentState={agentState}
+                            backgroundTaskCount={backgroundTaskCount}
+                            contextSize={contextSize}
+                            contextCacheRead={contextCacheRead}
+                            contextWindow={contextWindow}
+                            contextModel={contextModel}
+                            model={model}
+                            modelReasoningEffort={modelReasoningEffort}
+                            effort={effort}
+                            ompThinkingState={ompThinkingState}
+                            serviceTier={serviceTier}
+                            permissionMode={permissionMode}
+                            collaborationMode={collaborationMode}
+                            copilotAgentMode={copilotAgentMode}
+                            threadGoal={threadGoal}
+                            agentFlavor={agentFlavor}
+                            voiceStatus={effectiveVoiceStatus}
+                        />
+                    ) : null}
 
                     {dictationActive && dictation.partialTranscript ? (
                         <div

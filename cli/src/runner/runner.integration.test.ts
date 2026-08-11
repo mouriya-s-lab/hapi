@@ -15,9 +15,9 @@
  * - CLI_API_TOKEN=... (must match the hub)
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { spawn } from 'child_process';
-import { existsSync, unlinkSync, readFileSync, writeFileSync, readdirSync } from 'fs';
+import { existsSync, mkdirSync, unlinkSync, readFileSync, writeFileSync, readdirSync, rmSync } from 'fs';
 import path, { join } from 'path';
 import { configuration } from '@/configuration';
 import { 
@@ -79,6 +79,26 @@ async function isServerHealthy(): Promise<boolean> {
 }
 
 describe.skipIf(!await isServerHealthy())('Runner Integration Tests', { timeout: 20_000 }, () => {
+  const runnerUserHome = join(configuration.happyHomeDir, 'runner-user-home');
+  const runnerSkillPath = join(runnerUserHome, '.agents', 'skills', 'hapi-agent', 'SKILL.md');
+  const originalHome = process.env.HOME;
+  const originalUserProfile = process.env.USERPROFILE;
+
+  beforeAll(() => {
+    rmSync(runnerUserHome, { recursive: true, force: true });
+    mkdirSync(runnerUserHome, { recursive: true });
+    process.env.HOME = runnerUserHome;
+    process.env.USERPROFILE = runnerUserHome;
+  });
+
+  afterAll(() => {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = originalUserProfile;
+    rmSync(runnerUserHome, { recursive: true, force: true });
+  });
+
   let runnerPid: number;
 
   beforeEach(async () => {
@@ -102,6 +122,7 @@ describe.skipIf(!await isServerHealthy())('Runner Integration Tests', { timeout:
       throw new Error('Runner failed to start within timeout');
     }
     runnerPid = runnerState.pid;
+    await waitFor(async () => existsSync(runnerSkillPath), 5_000, 50);
 
     console.log(`[TEST] Runner started for test: PID=${runnerPid}`);
     console.log(`[TEST] Runner log file: ${runnerState?.runnerLogPath}`);

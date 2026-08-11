@@ -258,6 +258,8 @@ export class CopilotRemoteLauncher extends RemoteLauncherBase {
                 break;
             case 'usage':
                 break;
+            case 'generated_image':
+                break;
             case 'plan':
                 this.messageBuffer.addMessage('Plan updated', 'status');
                 break;

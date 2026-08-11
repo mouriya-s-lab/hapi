@@ -3,6 +3,7 @@ import {
     extractAssistantPlainText,
     extractNotifySummary,
     isRedundantGoalStatusEventContent,
+    isClaudeChatVisibleMessage,
     type NotifySummary
 } from './messages'
 
@@ -272,5 +273,14 @@ describe('isRedundantGoalStatusEventContent (regression-guard for messages.ts ed
             }
         }
         expect(isRedundantGoalStatusEventContent(value)).toBe(true)
+    })
+})
+
+describe('isClaudeChatVisibleMessage', () => {
+    test('keeps model refusal fallback system events visible for the web warning toast', () => {
+        expect(isClaudeChatVisibleMessage({
+            type: 'system',
+            subtype: 'model_refusal_fallback'
+        })).toBe(true)
     })
 })

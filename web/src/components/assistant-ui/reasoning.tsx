@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useLayoutEffect, useRef, type FC, typ
 import { useMessage } from '@assistant-ui/react'
 import { MarkdownTextPrimitive } from '@assistant-ui/react-markdown'
 import { cn } from '@/lib/utils'
+import { useTranslation } from '@/lib/use-translation'
 import { useReasoningCollapse } from '@/hooks/useReasoningCollapse'
 import { useOptionalHappyChatContext } from '@/components/AssistantChat/context'
 import {
@@ -65,6 +66,7 @@ export const ReasoningGroup: FC<PropsWithChildren> = ({ children }) => {
     const pointerActiveRef = useRef(false)
     const pointerCleanupRef = useRef<(() => void) | null>(null)
     const followSyncFrameRef = useRef<number | null>(null)
+    const { t } = useTranslation()
 
     const message = useMessage()
     const isStreaming = message.status?.type === 'running'
@@ -169,14 +171,15 @@ export const ReasoningGroup: FC<PropsWithChildren> = ({ children }) => {
     }, [])
 
     return (
-        <div data-hapi-share-exclude="true" className="aui-reasoning-group my-3 overflow-hidden rounded-2xl bg-[var(--app-reasoning-bg)]">
+        <div data-hapi-share-exclude="true" className="aui-reasoning-group my-3 rounded-2xl bg-[var(--app-reasoning-bg)]">
             <button
                 type="button"
                 onClick={handleToggle}
                 className={cn(
-                    'flex w-full items-center gap-1.5 px-3.5 py-2.5 text-left text-xs font-medium',
-                    'text-[var(--app-hint)] hover:text-[var(--app-fg)]',
-                    'transition-colors cursor-pointer select-none'
+                    'sticky top-0 z-10 flex w-full items-center gap-1.5 px-3.5 py-2.5 text-left text-xs font-medium',
+                    'bg-[var(--app-reasoning-bg)] text-[var(--app-hint)] hover:text-[var(--app-fg)]',
+                    'transition-colors cursor-pointer select-none',
+                    isOpen ? 'rounded-t-2xl' : 'rounded-2xl'
                 )}
             >
                 <ChevronIcon open={isOpen} />
@@ -186,11 +189,16 @@ export const ReasoningGroup: FC<PropsWithChildren> = ({ children }) => {
                         <ShimmerDot />
                     </span>
                 )}
+                {isOpen && (
+                    <span className="ml-auto text-[10px] uppercase tracking-wide text-[var(--app-hint)] opacity-60">
+                        {t('reasoning.collapseHint')}
+                    </span>
+                )}
             </button>
 
             <div
                 className={cn(
-                    'overflow-hidden transition-all duration-200 ease-in-out',
+                    'overflow-hidden rounded-b-2xl transition-all duration-200 ease-in-out',
                     isOpen ? 'max-h-[5000px] opacity-100' : 'max-h-0 opacity-0'
                 )}
             >

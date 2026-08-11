@@ -29,9 +29,21 @@ export type PlanItem = {
     status: 'pending' | 'in_progress' | 'completed';
 };
 
+export type AgentUsage = {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens?: number;
+    thoughtTokens?: number;
+    cacheReadTokens?: number;
+    cacheCreationTokens?: number;
+    contextTokens?: number;
+    contextWindow?: number;
+    costUsd?: number;
+};
+
 export type AgentMessage =
-    | { type: 'text'; text: string; id?: string; live?: boolean; streamSnapshot?: boolean }
-    | { type: 'reasoning'; text: string; id?: string; live?: boolean }
+    | { type: 'text'; text: string; id?: string; live?: boolean; streamSnapshot?: boolean; model?: string; usage?: AgentUsage }
+    | { type: 'reasoning'; text: string; id?: string; live?: boolean; model?: string; usage?: AgentUsage }
     | {
         type: 'tool_call';
         id: string;
@@ -40,20 +52,12 @@ export type AgentMessage =
         status: 'pending' | 'in_progress' | 'completed' | 'failed';
         title?: string;
         kind?: string;
+        model?: string;
+        usage?: AgentUsage;
         progress?: unknown;
     }
     | { type: 'tool_result'; id: string; output: unknown; status: 'completed' | 'failed' }
-    | {
-        type: 'usage';
-        inputTokens: number;
-        outputTokens: number;
-        totalTokens?: number;
-        thoughtTokens?: number;
-        cacheReadTokens?: number;
-        cacheCreationTokens?: number;
-        contextTokens?: number;
-        contextWindow?: number;
-    }
+    | ({ type: 'usage' } & AgentUsage)
     | { type: 'plan'; items: PlanItem[] }
     | { type: 'generated_image'; imageId: string; fileName: string; mimeType: string; source?: InlineMediaSource }
     | { type: 'turn_complete'; stopReason: string }

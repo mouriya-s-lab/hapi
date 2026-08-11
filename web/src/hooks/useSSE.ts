@@ -22,6 +22,7 @@ import type {
 } from '@/types/api'
 import { queryKeys } from '@/lib/query-keys'
 import { clearMessageWindow, getMessageWindowState, ingestIncomingMessages, markMessagesConsumed, removeOptimisticMessage, updateMessageStatus } from '@/lib/message-window-store'
+import { agentSkillMachinesQueryKey } from '@/fork-features/agent-skill-readiness/machineQuery'
 
 type SSESubscription = {
     all?: boolean
@@ -830,6 +831,7 @@ export function useSSE(options: {
             }
 
             if (event.type === 'machine-updated') {
+                void queryClient.invalidateQueries({ queryKey: agentSkillMachinesQueryKey })
                 if (isMachineRecord(event.data)) {
                     upsertMachine(event.data)
                 } else if (event.data === null) {

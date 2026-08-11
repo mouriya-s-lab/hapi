@@ -315,7 +315,17 @@ export function computeLocalCarrierScope(probe: ScopeProbe = defaultScopeProbe):
  */
 async function computeLocalCarrierScopeAsync(probe: ScopeProbe): Promise<string | undefined> {
     if (process.platform === 'linux') return readLinuxBootAndNamespaceScope(probe);
-    if (process.platform === 'darwin') return readDarwinScope(probe);
+    if (process.platform === 'darwin') {
+        // Tests running on darwin CI often pass a Linux-only ScopeProbe
+        // (readBootId/readPidNamespaceId set, darwin fields omitted) to
+        // exercise sweep semantics without spawning macOS subprocesses.
+        // Honor that intent: only route to readDarwinScope when the probe
+        // actually supplies darwin identifiers.
+        if (!probe.readDarwinMachineId && !probe.readDarwinBootSessionId) {
+            return readLinuxBootAndNamespaceScope(probe);
+        }
+        return readDarwinScope(probe);
+    }
     return undefined;
 }
 

@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import { ApiClient } from '@/api/api'
 import type { ApiSessionClient } from '@/api/apiSession'
 import type { AgentState, MachineMetadata, Metadata, Session } from '@/api/types'
+import type { MachineAgentSkills } from '@hapi/protocol/schemas'
 import { notifyRunnerSessionStarted } from '@/runner/controlClient'
 import { readSettings } from '@/persistence'
 import { configuration } from '@/configuration'
@@ -41,7 +42,11 @@ export type SessionBootstrapResult = {
     workingDirectory: string
 }
 
-export function buildMachineMetadata(options?: { workspaceRoots?: string[] }): MachineMetadata {
+export function buildMachineMetadata(options?: {
+    workspaceRoots?: string[]
+    ompAvailable?: boolean
+    agentSkills?: MachineAgentSkills
+}): MachineMetadata {
     return {
         host: process.env.HAPI_HOSTNAME || os.hostname(),
         platform: os.platform(),
@@ -49,7 +54,11 @@ export function buildMachineMetadata(options?: { workspaceRoots?: string[] }): M
         homeDir: os.homedir(),
         happyHomeDir: configuration.happyHomeDir,
         happyLibDir: runtimePath(),
-        workspaceRoots: options?.workspaceRoots
+        workspaceRoots: options?.workspaceRoots,
+        capabilities: options?.ompAvailable === undefined
+            ? undefined
+            : { omp: options.ompAvailable },
+        agentSkills: options?.agentSkills
     }
 }
 
@@ -111,6 +120,8 @@ function pickExistingSessionMetadata(metadata: Metadata | null | undefined): Par
     if (metadata.piResumeAttempt !== undefined) preserved.piResumeAttempt = metadata.piResumeAttempt
     if (metadata.ptyResumeAttempt !== undefined) preserved.ptyResumeAttempt = metadata.ptyResumeAttempt
     if (metadata.preferredPermissionMode !== undefined) preserved.preferredPermissionMode = metadata.preferredPermissionMode
+    if (metadata.ompSession !== undefined) preserved.ompSession = metadata.ompSession
+    if (metadata.ompThinking !== undefined) preserved.ompThinking = metadata.ompThinking
     if (metadata.tools !== undefined) preserved.tools = metadata.tools
     if (metadata.slashCommands !== undefined) preserved.slashCommands = metadata.slashCommands
     if (metadata.worktree !== undefined) preserved.worktree = metadata.worktree
@@ -260,6 +271,7 @@ export async function bootstrapLazySession(options: SessionBootstrapOptions): Pr
         modelReasoningEffort: options.modelReasoningEffort ?? null,
         effort: options.effort ?? null,
         serviceTier: null,
+        resumeWithSessionModel: false,
         permissionMode: undefined,
         collaborationMode: undefined
     }

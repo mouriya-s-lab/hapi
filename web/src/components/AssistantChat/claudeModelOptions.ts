@@ -1,8 +1,20 @@
-import { CLAUDE_MODEL_PRESETS, getClaudeModelLabel } from '@hapi/protocol'
+import { CLAUDE_MODEL_IDS, CLAUDE_MODEL_PRESETS, getClaudeModelLabel } from '@hapi/protocol'
 
 export type ClaudeComposerModelOption = {
     value: string | null
     label: string
+}
+
+const CLAUDE_SELECTABLE_MODELS: readonly string[] = [...CLAUDE_MODEL_PRESETS, ...CLAUDE_MODEL_IDS]
+
+export function isListedClaudeModel(model?: string | null): boolean {
+    const normalizedModel = normalizeClaudeComposerModel(model)
+    return normalizedModel !== null && CLAUDE_SELECTABLE_MODELS.includes(normalizedModel)
+}
+
+export function normalizeCustomClaudeModelId(value: string): string | null {
+    const modelId = value.trim()
+    return modelId || null
 }
 
 function normalizeClaudeComposerModel(model?: string | null): string | null {
@@ -15,22 +27,11 @@ function normalizeClaudeComposerModel(model?: string | null): string | null {
 }
 
 export function getClaudeComposerModelOptions(currentModel?: string | null): ClaudeComposerModelOption[] {
-    const normalizedCurrentModel = normalizeClaudeComposerModel(currentModel)
     const options: ClaudeComposerModelOption[] = [
         { value: null, label: 'Default' }
     ]
 
-    if (
-        normalizedCurrentModel
-        && !CLAUDE_MODEL_PRESETS.includes(normalizedCurrentModel as typeof CLAUDE_MODEL_PRESETS[number])
-    ) {
-        options.push({
-            value: normalizedCurrentModel,
-            label: getClaudeModelLabel(normalizedCurrentModel) ?? normalizedCurrentModel
-        })
-    }
-
-    options.push(...CLAUDE_MODEL_PRESETS.map((model) => ({
+    options.push(...CLAUDE_SELECTABLE_MODELS.map((model) => ({
         value: model,
         label: getClaudeModelLabel(model) ?? model
     })))

@@ -222,6 +222,7 @@ export function useSendMessage(
                 input.localId,
                 input.attachments,
                 input.scheduledAt,
+                undefined,
                 input.deliveryMode,
             )
         },

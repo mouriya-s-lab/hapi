@@ -51,3 +51,15 @@ export const DISPLAY_MEDIA_PROMPT_HAPI_MCP = trimIdent(`
 export const DISPLAY_MEDIA_PROMPT_CURSOR = trimIdent(`
     When you create or find a local audio file or other non-image file that the user should receive, call the tool "display_media" with the absolute filesystem path so HAPI can show a player or download card.
 `);
+
+export const SEND_FILE_PROMPT_CLAUDE = trimIdent(`
+    When you produce a deliverable file the user asked for (a report, document, archive, spreadsheet, etc.), call the tool "mcp__hapi__send_file" with the file path so HAPI can share it in the chat for the user to download.
+`);
+
+export const SEND_FILE_PROMPT_CODEX = trimIdent(`
+    When you produce a deliverable file the user asked for (a report, document, archive, spreadsheet, etc.), call functions.hapi__send_file with the file path so HAPI can share it in the chat for the user to download. If that exact tool name is unavailable, use an equivalent alias such as hapi__send_file, mcp__hapi__send_file, or hapi_send_file.
+`);
+
+export const SEND_FILE_PROMPT_HAPI_MCP = trimIdent(`
+    When you produce a deliverable file the user asked for (a report, document, archive, spreadsheet, etc.), call the tool "hapi_send_file" with the file path so HAPI can share it in the chat for the user to download.
+`);
