@@ -18,6 +18,8 @@ import {
     parseCodexSpawnAgentResult,
     parseCodexWaitAgentResult
 } from '@/components/ToolCard/codexAgents'
+import { resolveToolViewName } from '@/components/ToolCard/toolNameAliases'
+
 
 function parseToolUseError(message: string): { isToolUseError: boolean; errorMessage: string | null } {
     const regex = /<tool_use_error>(.*?)<\/tool_use_error>/s
@@ -121,6 +123,19 @@ export function extractTextFromResult(result: unknown, depth: number = 0): strin
 
     if (!isObject(result)) return null
 
+    // OMP tool results carry the UI-facing body under details.displayContent
+    // (string or { text }). Prefer it over content[] — content is sometimes
+    // only a truncation notice ("Read artifact://… for full output") while
+    // displayContent holds the actual file/command text with newlines.
+    const details = isObject(result.details) ? result.details : null
+    if (details) {
+        const display = details.displayContent
+        if (typeof display === 'string' && display.length > 0) return display
+        if (isObject(display) && typeof display.text === 'string' && display.text.length > 0) {
+            return display.text
+        }
+    }
+
     if (typeof result.content === 'string') return result.content
     if (typeof result.text === 'string') return result.text
     if (typeof result.output === 'string') return result.output
@@ -160,6 +175,23 @@ export function extractTextFromResult(result: unknown, depth: number = 0): strin
     }
 
     return null
+}
+
+/**
+ * OMP `read`/`grep`/… tool_result wraps the UI-facing body under
+ * `details.displayContent`. In addition to `text`, it carries `startLine`
+ * (the true first line number for a partial read) so the CodeBlock gutter
+ * can start at the right number instead of restarting at 1.
+ */
+function extractDisplayContentMeta(result: unknown): { startLine: number | null } {
+    if (!isObject(result)) return { startLine: null }
+    const details = isObject(result.details) ? result.details : null
+    const display = details ? details.displayContent : null
+    if (!isObject(display)) return { startLine: null }
+    const startLine = typeof display.startLine === 'number' && Number.isFinite(display.startLine)
+        ? display.startLine
+        : null
+    return { startLine }
 }
 
 interface CodexBashOutput {
@@ -284,7 +316,13 @@ const codeLanguageByExtension: Record<string, string> = {
 
 function inferCodeLanguageFromPath(path: string | null): string | null {
     if (!path) return null
-    const name = basename(path).toLowerCase()
+    // OMP path convention: `path/to/foo.tsx:1000-1015` or `foo.tsx:100+50`.
+    // `basename` keeps the trailing selector, which then breaks the extension
+    // extractor ("tsx:1000-1015" is not in codeLanguageByExtension). Strip the
+    // selector (and any anchor / query) before doing the extension lookup so
+    // partial reads still get syntax highlighting.
+    const withoutSelectors = basename(path).split(/[:#?]/, 1)[0] ?? ''
+    const name = withoutSelectors.toLowerCase()
     if (name === 'dockerfile') return 'dockerfile'
     if (name === 'makefile') return 'make'
 
@@ -501,7 +539,13 @@ export function parseNumberedFileLines(text: string): { startLine: number; body:
     return startLine === null ? null : { startLine, body: body.join('\n') }
 }
 
-function renderReadTextResult(text: string, path: string | null, surface: ToolViewProps['surface'], parseNumberedLines: boolean) {
+function renderReadTextResult(
+    text: string,
+    path: string | null,
+    surface: ToolViewProps['surface'],
+    parseNumberedLines: boolean,
+    startLineOverride: number | null = null,
+) {
     const imageDataUrl = detectImageDataUrl(text, path)
     if (imageDataUrl) {
         return renderImageResult(imageDataUrl, path)
@@ -512,12 +556,13 @@ function renderReadTextResult(text: string, path: string | null, surface: ToolVi
     const numbered = parseNumberedLines ? parseNumberedFileLines(text) : null
     const body = numbered ? numbered.body : text
     const language = inferCodeLanguage(path, body) ?? 'text'
+    const startLine = numbered?.startLine ?? startLineOverride ?? undefined
     return (
         <CodeBlock
             code={body}
             language={language}
             title="File content"
-            startLineNumber={numbered?.startLine}
+            startLineNumber={startLine}
             {...resultCodeBlockProps(surface, surface === 'inline')}
         />
     )
@@ -787,9 +832,10 @@ const ReadResultView: ToolViewComponent = (props: ToolViewProps) => {
 
     const text = extractTextFromResult(result)
     if (text) {
+        const { startLine } = extractDisplayContentMeta(result)
         return (
             <>
-                {renderReadTextResult(text, displayPath, props.surface, props.block.tool.nativeKind === 'agy-numbered-read')}
+                {renderReadTextResult(text, displayPath, props.surface, props.block.tool.nativeKind === 'agy-numbered-read', startLine)}
                 <RawJsonDevOnly value={result} surface={props.surface} />
             </>
         )
@@ -1206,5 +1252,6 @@ export function getToolResultViewComponent(toolName: string): ToolViewComponent 
     if (toolName.startsWith('mcp__')) {
         return GenericResultView
     }
-    return toolResultViewRegistry[toolName] ?? GenericResultView
+    const resolved = resolveToolViewName(toolName)
+    return toolResultViewRegistry[resolved] ?? GenericResultView
 }

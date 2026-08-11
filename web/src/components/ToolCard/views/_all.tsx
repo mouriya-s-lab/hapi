@@ -18,6 +18,8 @@ import {
     getCodexAgentPrompt,
     summarizeCodexAgentResult
 } from '@/components/ToolCard/codexAgents'
+import { resolveToolViewName } from '@/components/ToolCard/toolNameAliases'
+
 
 export type ToolViewProps = {
     block: ToolCallBlock
@@ -127,9 +129,10 @@ export const toolFullViewRegistry: Record<string, ToolViewComponent> = {
 }
 
 export function getToolViewComponent(toolName: string): ToolViewComponent | null {
-    return toolViewRegistry[toolName] ?? null
+    return toolViewRegistry[resolveToolViewName(toolName)] ?? null
 }
 
 export function getToolFullViewComponent(toolName: string): ToolViewComponent | null {
-    return toolFullViewRegistry[toolName] ?? null
+    return toolFullViewRegistry[resolveToolViewName(toolName)] ?? null
 }
+
