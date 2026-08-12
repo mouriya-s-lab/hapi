@@ -145,7 +145,7 @@ function formatSessionEvent(event: Record<string, unknown>): OmpEventPresentatio
         default:
             return {
                 icon: null,
-                text: eventType ? eventType.replaceAll('_', ' ') : 'OMP session event'
+                text: eventType ? `OMP ${eventType.replaceAll('_', ' ')}` : 'OMP session event'
             }
     }
 }

@@ -173,8 +173,12 @@ export function getEventPresentation(event: AgentEvent): EventPresentation {
     const ompPresentation = getOmpEventPresentation(event)
     if (ompPresentation) return ompPresentation
     if (event.type === 'omp-rpc-warning') {
-        const warning = typeof event.warning === 'string' ? event.warning : 'Unknown OMP RPC event'
-        return { icon: '⚠️', text: warning }
+        const eventType = typeof event.eventType === 'string' ? event.eventType.replaceAll('_', ' ') : null
+        const warning = typeof event.warning === 'string' ? event.warning : null
+        if (warning?.startsWith('Unknown OMP RPC event')) {
+            return { icon: '⚠️', text: eventType ? `OMP event: ${eventType}` : 'OMP event' }
+        }
+        return { icon: '⚠️', text: warning ?? (eventType ? `OMP event: ${eventType}` : 'OMP event') }
     }
     if (event.type === 'omp-retry') {
         const phase = typeof event.phase === 'string' ? event.phase : 'updated'

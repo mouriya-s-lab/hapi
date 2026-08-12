@@ -403,7 +403,8 @@ export const OMP_KNOWN_EVENT_TYPES = [
     'command_output',
     'session_info_update',
     'config_update',
-    'extension_error'
+    'extension_error',
+    'rpc_frame_error'
 ] as const;
 
 export type OmpKnownEventType = typeof OMP_KNOWN_EVENT_TYPES[number];

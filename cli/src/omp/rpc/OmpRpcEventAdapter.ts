@@ -381,10 +381,10 @@ export class OmpRpcEventAdapter {
             this.callbacks.onStructuredEvent({
                 type: 'omp-rpc-warning',
                 eventType: event.type,
-                warning: `Unknown OMP RPC event: ${event.type}`,
+                warning: `OMP event: ${event.type.replaceAll('_', ' ')}`,
                 frame: event.raw
             });
-            this.callbacks.onDiagnostic(`Unknown OMP RPC event: ${event.type}`);
+            this.callbacks.onDiagnostic(`OMP event: ${event.type}`);
             return;
         }
         this.handleKnown(event);
@@ -518,6 +518,9 @@ export class OmpRpcEventAdapter {
                 return;
             case 'extension_error':
                 this.handleExtensionError(event.raw);
+                return;
+            case 'rpc_frame_error':
+                this.handleRpcFrameError(event.raw);
                 return;
             case 'subagent_lifecycle':
                 this.handleSubagentLifecycle(event.raw);
@@ -878,6 +881,18 @@ export class OmpRpcEventAdapter {
         const error = typeof raw.error === 'string' ? raw.error : JSON.stringify(raw.error ?? raw);
         this.callbacks.onStructuredEvent({ type: 'omp-extension-error', message: error, frame: raw });
         this.callbacks.onDiagnostic(`OMP extension error: ${error}`);
+    }
+
+    private handleRpcFrameError(raw: JsonObject): void {
+        const error = typeof raw.error === 'string' ? raw.error : 'RPC frame exceeded the transport limit';
+        const originalType = typeof raw.originalType === 'string' ? raw.originalType : undefined;
+        this.callbacks.onStructuredEvent({
+            type: 'omp-rpc-warning',
+            eventType: originalType ?? 'rpc_frame_error',
+            warning: originalType ? `OMP frame too large: ${originalType.replaceAll('_', ' ')}` : error,
+            frame: raw
+        });
+        this.callbacks.onDiagnostic(`OMP rpc_frame_error: ${error}`);
     }
 
     private handleThinkingLevelChanged(raw: JsonObject): void {

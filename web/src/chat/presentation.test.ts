@@ -185,7 +185,36 @@ describe('getEventPresentation — OMP session events', () => {
         expect(result.text).not.toContain('SECRET_WRAPPER')
         expect(result.text).not.toContain('<irc>')
     })
+
+    it('labels leftover session events without dumping JSON', () => {
+        expect(getEventPresentation({
+            type: 'omp-session-event',
+            eventType: 'todo_auto_clear',
+            frame: { type: 'todo_auto_clear' }
+        })).toEqual({ icon: '☐', text: 'Todos cleared' })
+        expect(getEventPresentation({
+            type: 'omp-session-event',
+            eventType: 'goal_updated',
+            frame: { type: 'goal_updated', goal: { status: 'active', objective: 'Ship the OMP event labels' } }
+        })).toEqual({ icon: null, text: 'Goal active · Ship the OMP event labels' })
+    })
+
+    it('labels future unknown warnings without saying Unknown', () => {
+        expect(getEventPresentation({
+            type: 'omp-rpc-warning',
+            eventType: 'future_event',
+            warning: 'OMP event: future event',
+            frame: { type: 'future_event' }
+        })).toEqual({ icon: '⚠️', text: 'OMP event: future event' })
+        expect(getEventPresentation({
+            type: 'omp-rpc-warning',
+            eventType: 'future_event',
+            warning: 'Unknown OMP RPC event: future_event',
+            frame: { type: 'future_event' }
+        })).toEqual({ icon: '⚠️', text: 'OMP event: future event' })
+    })
 })
+
 
 describe('getEventPresentation — OMP compaction', () => {
     it('shows the compaction strategy and trigger while starting', () => {

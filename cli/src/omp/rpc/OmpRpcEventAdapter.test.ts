@@ -537,9 +537,30 @@ describe('OmpRpcEventAdapter', () => {
         expect(harness.diagnostics).toEqual([]);
         expect(harness.callbacks.onSessionInfoUpdate).toHaveBeenCalledOnce();
     });
-    it('preserves unknown frames and emits controlled structured diagnostics', () => {
+    it('forwards rpc_frame_error as a readable transport warning', () => {
         const harness = createHarness();
-        expect(OMP_KNOWN_EVENT_TYPES).toHaveLength(38);
+        harness.adapter.handle(rpcEvent({
+            type: 'rpc_frame_error',
+            originalType: 'message_end',
+            error: 'RPC frame exceeded the transport limit'
+        }));
+
+        expect(harness.structuredEvents).toEqual([{
+            type: 'omp-rpc-warning',
+            eventType: 'message_end',
+            warning: 'OMP frame too large: message end',
+            frame: {
+                type: 'rpc_frame_error',
+                originalType: 'message_end',
+                error: 'RPC frame exceeded the transport limit'
+            }
+        }]);
+        expect(harness.diagnostics).toEqual(['OMP rpc_frame_error: RPC frame exceeded the transport limit']);
+    });
+
+    it('preserves unknown frames and emits a short label instead of Unknown', () => {
+        const harness = createHarness();
+        expect(OMP_KNOWN_EVENT_TYPES).toHaveLength(39);
         harness.adapter.handle(rpcEvent({
             type: 'future_event',
             nested: { future: true },
@@ -549,13 +570,13 @@ describe('OmpRpcEventAdapter', () => {
         expect(harness.structuredEvents).toEqual([{
             type: 'omp-rpc-warning',
             eventType: 'future_event',
-            warning: 'Unknown OMP RPC event: future_event',
+            warning: 'OMP event: future event',
             frame: {
                 type: 'future_event',
                 nested: { future: true },
                 version: 18
             }
         }]);
-        expect(harness.diagnostics).toEqual(['Unknown OMP RPC event: future_event']);
+        expect(harness.diagnostics).toEqual(['OMP event: future_event']);
     });
 });
