@@ -122,6 +122,71 @@ describe('getEventPresentation — OMP TTSR', () => {
     })
 })
 
+describe('getEventPresentation — OMP session events', () => {
+    it('presents model_changed without the unknown warning', () => {
+        expect(getEventPresentation({
+            type: 'omp-session-event',
+            eventType: 'model_changed',
+            frame: { type: 'model_changed' }
+        })).toEqual({ icon: '🔄', text: 'Model changed' })
+    })
+
+    it('renders historical model_changed warnings as the same short label', () => {
+        expect(getEventPresentation({
+            type: 'omp-rpc-warning',
+            eventType: 'model_changed',
+            warning: 'Unknown OMP RPC event: model_changed',
+            frame: { type: 'model_changed' }
+        })).toEqual({ icon: '🔄', text: 'Model changed' })
+    })
+
+    it('summarizes unfinished todos from a production reminder frame', () => {
+        expect(getEventPresentation({
+            type: 'omp-session-event',
+            eventType: 'todo_reminder',
+            frame: {
+                type: 'todo_reminder',
+                todos: [
+                    { content: '监控全部 items 到 terminal', status: 'in_progress' },
+                    { content: '核对全部 PR 和 issue 终态', status: 'pending' },
+                    { content: '执行完整静态门禁', status: 'pending' },
+                    { content: '执行 TradingView 真实 E2E', status: 'pending' }
+                ],
+                attempt: 1,
+                maxAttempts: 3
+            }
+        })).toEqual({
+            icon: '☐',
+            text: 'Unfinished todos: 监控全部 items 到 terminal, 核对全部 PR 和 issue 终态, 执行完整静态门禁 · +1 more · 1/3'
+        })
+    })
+
+    it('shows IRC sender and preview without the wrapper template', () => {
+        const result = getEventPresentation({
+            type: 'omp-session-event',
+            eventType: 'irc_message',
+            frame: {
+                type: 'irc_message',
+                message: {
+                    customType: 'irc:incoming',
+                    content: '<irc>\nIncoming IRC message from agent `SimplifyTtsrPresentation`:\n\nSECRET_WRAPPER\n</irc>',
+                    details: {
+                        from: 'SimplifyTtsrPresentation',
+                        message: 'Refined only the two target files'
+                    }
+                }
+            }
+        })
+
+        expect(result).toEqual({
+            icon: '💬',
+            text: 'Message from SimplifyTtsrPresentation · Refined only the two target files'
+        })
+        expect(result.text).not.toContain('SECRET_WRAPPER')
+        expect(result.text).not.toContain('<irc>')
+    })
+})
+
 describe('getEventPresentation — OMP compaction', () => {
     it('shows the compaction strategy and trigger while starting', () => {
         expect(getEventPresentation({

@@ -505,6 +505,7 @@ export class OmpRpcEventAdapter {
             case 'todo_auto_clear':
             case 'irc_message':
             case 'goal_updated':
+            case 'model_changed':
                 this.callbacks.onStructuredEvent({
                     type: 'omp-session-event',
                     eventType: event.type,

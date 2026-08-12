@@ -525,9 +525,21 @@ describe('OmpRpcEventAdapter', () => {
         }]);
     });
 
+    it('forwards model_changed as a session event instead of an unknown warning', () => {
+        const harness = createHarness();
+        harness.adapter.handle(rpcEvent({ type: 'model_changed' }));
+
+        expect(harness.structuredEvents).toEqual([{
+            type: 'omp-session-event',
+            eventType: 'model_changed',
+            frame: { type: 'model_changed' }
+        }]);
+        expect(harness.diagnostics).toEqual([]);
+        expect(harness.callbacks.onSessionInfoUpdate).toHaveBeenCalledOnce();
+    });
     it('preserves unknown frames and emits controlled structured diagnostics', () => {
         const harness = createHarness();
-        expect(OMP_KNOWN_EVENT_TYPES).toHaveLength(37);
+        expect(OMP_KNOWN_EVENT_TYPES).toHaveLength(38);
         harness.adapter.handle(rpcEvent({
             type: 'future_event',
             nested: { future: true },

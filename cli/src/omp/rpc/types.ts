@@ -382,6 +382,7 @@ export const OMP_KNOWN_EVENT_TYPES = [
     'auto_retry_end',
     'retry_fallback_applied',
     'retry_fallback_succeeded',
+    'model_changed',
     'ttsr_triggered',
     'todo_reminder',
     'todo_auto_clear',
