@@ -58,6 +58,7 @@ import { getPiThinkingLevelOptions, getHighestThinkingLevel, isThinkingLevelSupp
 import { groupModelsByProvider } from './piModelGroups'
 import { PiModelPanel } from './PiModelPanel'
 import { PiThinkingLevelPanel } from './PiThinkingLevelPanel'
+import { OmpModelRefreshRow } from '@/fork-features/omp-host-integration/OmpModelRefreshRow'
 import type { ApiClient } from '@/api/client'
 import { useVoiceInputPreferences } from '@/hooks/useVoiceInputPreferences'
 import { useDictation } from '@/hooks/useDictation'
@@ -323,6 +324,9 @@ export function HappyComposer(props: {
     onPermissionModeChange?: (mode: PermissionMode) => void
     onModelChange?: (model: { provider: string; modelId: string } | string | null) => void
     onCycleModel?: () => void
+    onRefreshModels?: () => void
+    modelsRefreshing?: boolean
+    modelsError?: string | null
     ccSwitchProviders?: Array<{ id: string; name: string; isCurrent: boolean }>
     currentCcSwitchProviderId?: string | null
     onCcSwitchProviderChange?: (providerId: string) => void
@@ -419,6 +423,9 @@ export function HappyComposer(props: {
         onPermissionModeChange,
         onModelChange,
         onCycleModel,
+        onRefreshModels,
+        modelsRefreshing = false,
+        modelsError = null,
         ccSwitchProviders,
         currentCcSwitchProviderId,
         onCcSwitchProviderChange,
@@ -1514,8 +1521,10 @@ export function HappyComposer(props: {
     const showCopilotAgentModeSettings = Boolean(onCopilotAgentModeChange && copilotAgentModeOptions.length > 0)
     const showPermissionSettings = Boolean(onPermissionModeChange && permissionModeOptions.length > 0)
     const showCcSwitchSettings = Boolean(onCcSwitchProviderChange && ccSwitchProviders?.length)
-    const showModelSettings = Boolean(onModelChange && supportsModelChange(agentFlavor) && (piModels && piModels.length > 0 || modelOptions.length > 0))
-        && !cursorVariantDrillDownActive
+    const showModelSettings = Boolean(
+        onRefreshModels
+        || (onModelChange && supportsModelChange(agentFlavor) && (piModels && piModels.length > 0 || modelOptions.length > 0))
+    ) && !cursorVariantDrillDownActive
     const showCustomModelInput = showModelSettings && agentFlavor === 'claude'
     const showResumeModelSettings = Boolean(agentFlavor === 'claude' && onResumeWithSessionModelChange)
     const showModelEffortSettings = cursorVariantDrillDownActive
@@ -1784,6 +1793,15 @@ export function HappyComposer(props: {
                                 <div className="px-3 pb-1 text-xs font-semibold text-[var(--app-hint)]">
                                     {t('misc.model')}
                                 </div>
+                                {onRefreshModels ? (
+                                    <OmpModelRefreshRow
+                                        refreshing={modelsRefreshing}
+                                        error={modelsError}
+                                        empty={modelOptions.length === 0}
+                                        disabled={controlsDisabled}
+                                        onRefresh={onRefreshModels}
+                                    />
+                                ) : null}
                                 {piModelGroups ? (
                                     piModelGroups.map((group) => (
                                         <div key={group.provider}>
@@ -2181,6 +2199,9 @@ export function HappyComposer(props: {
         handleServiceTierChange,
         clearCursorDrillDown,
         resolveModelVariantsForBase,
+        onRefreshModels,
+        modelsRefreshing,
+        modelsError,
         handleSuggestionSelect,
         overlayPositionClass,
         t
