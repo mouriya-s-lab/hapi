@@ -1,4 +1,5 @@
 import type { MessageStatus } from '@/types/api'
+import { CollapsibleContent } from '@/components/CollapsibleContent'
 import { LazyRainbowText } from '@/components/LazyRainbowText'
 import { SparklesIcon } from '@/components/ToolCard/icons'
 import { cn } from '@/lib/utils'
@@ -81,7 +82,11 @@ export function UserBubbleContent(props: { text: string }) {
                     {directives.map((directive) => <DirectiveChip key={directive} value={directive} />)}
                 </div>
             ) : null}
-            {hasBody ? <LazyRainbowText text={body} preserveSingleLineBreaks /> : null}
+            {hasBody ? (
+                <CollapsibleContent text={body} surfaceVar="--app-chat-user-surface-bg">
+                    <LazyRainbowText text={body} preserveSingleLineBreaks />
+                </CollapsibleContent>
+            ) : null}
         </div>
     )
 }

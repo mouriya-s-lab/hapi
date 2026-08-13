@@ -688,24 +688,19 @@ export class AcpMessageHandler {
     }
 
     private async emitGeneratedImageFromAcpContent(content: Record<string, unknown>): Promise<void> {
-        try {
-            const image = await registerGeneratedImageFromAcpBlock(content);
-            if (!image) {
-                return;
-            }
-            this.onMessage({
-                type: 'generated_image',
-                imageId: image.id,
-                fileName: image.fileName,
-                mimeType: image.mimeType,
-                source: this.buildAcpInlineMediaSource(),
-            });
-        } catch (error) {
-            logger.debug(
-                '[AcpMessageHandler] Failed to register ACP image block:',
-                error instanceof Error ? error.message : String(error)
-            );
+        const result = await registerGeneratedImageFromAcpBlock(content);
+        if (!result.ok) {
+            logger.debug('[AcpMessageHandler] Rejected ACP image block:', result.error.code, result.error.message);
+            return;
         }
+        const image = result.media;
+        this.onMessage({
+            type: 'generated_image',
+            imageId: image.id,
+            fileName: image.fileName,
+            mimeType: image.mimeType,
+            source: this.buildAcpInlineMediaSource(),
+        });
     }
 
     private buildAcpInlineMediaSource(): InlineMediaSource {

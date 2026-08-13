@@ -46,6 +46,8 @@ export type SocketServerDeps = {
     onSessionActivity?: (sessionId: string, updatedAt: number) => void
     onSweepImmediateQueued?: (sessionId: string, now: number) => void
     onMessagesConsumed?: (sessionId: string) => void
+    resolveTerminalNamespace?: (accountId: number, sessionId: string) => string | null
+    resolveCliNamespace?: (token: string) => string | null
 }
 
 export function createSocketServer(deps: SocketServerDeps): {
@@ -115,7 +117,11 @@ export function createSocketServer(deps: SocketServerDeps): {
         const token = typeof auth?.token === 'string' ? auth.token : null
         const parsedToken = token ? parseAccessToken(token) : null
         if (!parsedToken || !constantTimeEquals(parsedToken.baseToken, configuration.cliApiToken)) {
-            return next(new Error('Invalid token'))
+            const gatewayNamespace = token ? deps.resolveCliNamespace?.(token) ?? null : null
+            if (!gatewayNamespace) return next(new Error('Invalid token'))
+            socket.data.namespace = gatewayNamespace
+            next()
+            return
         }
         socket.data.namespace = parsedToken.namespace
         next()
@@ -151,6 +157,7 @@ export function createSocketServer(deps: SocketServerDeps): {
             }
             socket.data.userId = parsed.data.uid
             socket.data.namespace = parsed.data.ns
+            socket.data.gatewayAccountId = typeof verified.payload.gaid === 'number' ? verified.payload.gaid : undefined
             next()
             return
         } catch {
@@ -164,7 +171,11 @@ export function createSocketServer(deps: SocketServerDeps): {
         },
         terminalRegistry,
         maxTerminalsPerSocket,
-        maxTerminalsPerSession
+        maxTerminalsPerSession,
+        resolveNamespaceForSession: (socket, sessionId) => {
+            const accountId = socket.data.gatewayAccountId
+            return typeof accountId === 'number' ? deps.resolveTerminalNamespace?.(accountId, sessionId) ?? null : socket.data.namespace ?? null
+        }
     }))
 
     return { io, engine, rpcRegistry }

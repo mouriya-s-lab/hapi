@@ -39,9 +39,9 @@ describe('SyncEngine reopen/resume PTY session id preservation', () => {
         }
     }
 
-    /** existingSessionId precedes startingMode in rpcGateway.spawnSession. */
+    /** existingSessionId follows claudeLaunch and ccSwitchProviderId in rpcGateway.spawnSession. */
     function readExistingSessionId(args: unknown[]): string | undefined {
-        const value = args[12]
+        const value = args[14]
         return typeof value === 'string' && value.length > 0 ? value : undefined
     }
 

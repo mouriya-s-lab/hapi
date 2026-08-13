@@ -14,7 +14,7 @@ import { isAskUserQuestionToolName } from '@/components/ToolCard/askUserQuestion
 import { isRequestUserInputToolName } from '@/components/ToolCard/requestUserInput'
 import { getToolPresentation } from '@/components/ToolCard/knownTools'
 import { getToolFullViewComponent, getToolViewComponent } from '@/components/ToolCard/views/_all'
-import { getToolResultViewComponent } from '@/components/ToolCard/views/_results'
+import { extractImagesFromResult, getToolResultViewComponent, ToolResultImages } from '@/components/ToolCard/views/_results'
 import { formatTaskChildLabel, TaskStateIcon } from '@/components/ToolCard/helpers'
 import { toolDurationMs } from '@/components/ToolCard/toolDuration'
 import { formatDuration, formatMessageTimestampTitle } from '@/chat/presentation'
@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/use-translation'
 import { TraceSection } from '@/components/ToolCard/trace'
 import { isSubagentToolName } from '@/chat/subagentTool'
+import { useOptionalHappyChatContext } from '@/components/AssistantChat/context'
 
 const ELAPSED_INTERVAL_MS = 1000
 const TERMINAL_RELATED_TOOL_NAMES = new Set(['Bash', 'CodexBash', 'shell_command', 'run_shell_command'])
@@ -368,6 +369,7 @@ type ToolCardProps = {
 export function ToolDetailDialogContent(props: {
     block: ToolCallBlock
     metadata: SessionMetadataSummary | null
+    onClose?: () => void
 }) {
     const { t } = useTranslation()
     const toolName = props.block.tool.name
@@ -380,6 +382,39 @@ export function ToolDetailDialogContent(props: {
     const isQuestionToolWithAnswers = isQuestionTool
         && permission?.answers
         && Object.keys(permission.answers).length > 0
+    const chatCtx = useOptionalHappyChatContext()
+    const isPendingQuestion = isQuestionTool
+        && permission?.status === 'pending'
+        && chatCtx !== null
+
+    if (isPendingQuestion && chatCtx) {
+        const handleDone = () => {
+            chatCtx.onRefresh()
+            props.onClose?.()
+        }
+        return (
+            <div className="mt-3 flex max-h-[75vh] flex-col gap-4 overflow-auto">
+                {isAskUserQuestion ? (
+                    <AskUserQuestionFooter
+                        api={chatCtx.api}
+                        sessionId={chatCtx.sessionId}
+                        tool={props.block.tool}
+                        disabled={chatCtx.disabled}
+                        onDone={handleDone}
+                    />
+                ) : (
+                    <RequestUserInputFooter
+                        api={chatCtx.api}
+                        sessionId={chatCtx.sessionId}
+                        tool={props.block.tool}
+                        disabled={chatCtx.disabled}
+                        onDone={handleDone}
+                    />
+                )}
+            </div>
+        )
+    }
+    const durationMs = toolDurationMs(props.block.tool)
     return (
         <div className="mt-3 flex max-h-[75vh] flex-col gap-4 overflow-auto">
             <ToolTimingDetails block={props.block} />
@@ -446,7 +481,11 @@ function ToolCardInner(props: ToolCardProps) {
         permission.status === 'pending'
         || ((permission.status === 'denied' || permission.status === 'canceled') && Boolean(permission.reason))
     ))
-    const hasBody = showInline || taskSummary !== null || showsPermissionFooter
+    const hasInlineResultImages = useMemo(
+        () => !showInline && extractImagesFromResult(props.block.tool.result).length > 0,
+        [props.block.tool.result, showInline]
+    )
+    const hasBody = showInline || taskSummary !== null || showsPermissionFooter || hasInlineResultImages
     // Header/content padding already supplies 12-16px below timing; add only
     // the remainder needed to match the detail dialog's 16px section gap.
     const inlineBodySpacing = props.block.tool.state === 'pending'
@@ -519,7 +558,7 @@ function ToolCardInner(props: ToolCardProps) {
     )
 
     return (
-        <Card className="overflow-hidden rounded-[20px] bg-[var(--app-tool-card-bg)] shadow-none">
+        <Card className="overflow-clip rounded-[20px] bg-[var(--app-tool-card-bg)] shadow-none">
             <CardHeader className={cn('space-y-0 p-3', subtitle ? 'pb-2' : null)}>
                 <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
                     <DialogTrigger asChild>
@@ -551,7 +590,11 @@ function ToolCardInner(props: ToolCardProps) {
                         <DialogHeader className="text-left">
                             <DialogTitle>{toolTitle}</DialogTitle>
                         </DialogHeader>
-                        <ToolDetailDialogContent block={props.block} metadata={props.metadata} />
+                        <ToolDetailDialogContent
+                            block={props.block}
+                            metadata={props.metadata}
+                            onClose={() => setDetailsOpen(false)}
+                        />
                     </DialogContent>
                 </Dialog>
             </CardHeader>
@@ -561,6 +604,12 @@ function ToolCardInner(props: ToolCardProps) {
                     {taskSummary ? (
                         <div className="mt-2">
                             {taskSummary}
+                        </div>
+                    ) : null}
+
+                    {hasInlineResultImages ? (
+                        <div className="mt-3">
+                            <ToolResultImages result={props.block.tool.result} input={props.block.tool.input} />
                         </div>
                     ) : null}
 

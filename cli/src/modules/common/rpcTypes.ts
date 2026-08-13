@@ -1,5 +1,4 @@
-import type { AgentFlavor } from '@hapi/protocol'
-import type { CopilotAgentMode } from '@hapi/protocol'
+import type { AgentFlavor, ClaudeLaunch, CopilotAgentMode } from '@hapi/protocol'
 
 export interface SpawnSessionOptions {
     machineId?: string
@@ -27,6 +26,8 @@ export interface SpawnSessionOptions {
     startingMode?: 'remote' | 'pty'
     /** Claude: spawn with --fork-session after --resume. */
     forkSession?: boolean
+    claudeLaunch?: ClaudeLaunch
+    ccSwitchProviderId?: string
 }
 
 export type SpawnSessionResult =

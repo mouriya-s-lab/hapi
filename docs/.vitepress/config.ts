@@ -38,7 +38,10 @@ export default defineConfig({
       {
         text: 'Agents',
         items: [
-          { text: 'Agents', link: '/guide/agents' }
+          { text: 'Agents', link: '/guide/agents' },
+          { text: 'Cursor Agent', link: '/guide/cursor' },
+          { text: 'Grok Build', link: '/guide/grok' },
+          { text: 'Oh My Pi', link: '/guide/omp' }
         ]
       },
       {

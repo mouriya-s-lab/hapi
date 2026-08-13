@@ -4,15 +4,18 @@ import type { Session } from '@/types/api'
 import type { ApiClient } from '@/api/client'
 import { isTelegramApp } from '@/hooks/useTelegram'
 import { sessionModelMutationKey, useSessionActions } from '@/hooks/mutations/useSessionActions'
+import { useFlavorCapabilities, getFlavorForkCapability } from '@/hooks/queries/useFlavorCapabilities'
+import { useMachines } from '@/hooks/queries/useMachines'
 import { SessionActionMenu } from '@/components/SessionActionMenu'
 import { SessionExportDialog } from '@/components/SessionExportDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
+import { SessionIdDialog } from '@/components/SessionIdDialog'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { useScratchlistCount } from '@/lib/use-scratchlist-count'
 import { formatReopenError } from '@/lib/reopenError'
 import { formatReasoningLabel, getReasoningEffortForFlavor } from '@/lib/codexStatusLabels'
 import { retargetSharePendingTransfer } from '@/lib/sharePendingState'
-import { getSessionModelLabel } from '@/lib/sessionModelLabel'
+import { formatUsageSnapshotLabel, getSessionModelLabel } from '@/lib/sessionModelLabel'
 import { useTranslation } from '@/lib/use-translation'
 import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 import { isFastServiceTier } from '@/components/AssistantChat/codexFastMode'
@@ -20,7 +23,6 @@ import { getSessionTitle } from '@/lib/sessionTitle'
 import { useToast } from '@/lib/toast-context'
 import { queryKeys } from '@/lib/query-keys'
 import { markCodexSessionsImported } from '@/lib/codexImportedSessions'
-import { useMachines } from '@/hooks/queries/useMachines'
 import { useMachineLabels } from '@/hooks/useMachineLabels'
 import { formatAbsoluteDateTime, formatRelativeTime } from '@/lib/relativeTime'
 import { useSessionHeaderMetadata } from '@/hooks/useSessionHeaderMetadata'
@@ -150,12 +152,13 @@ export function SessionHeader(props: {
     reopenDisabledReason?: string
     reopenHint?: string
     onSessionDeleted?: () => void
-    onSessionReopened?: (newSessionId: string) => void | Promise<void>
+onSessionReopened?: (newSessionId: string) => void | Promise<void>
+    onSessionForked?: (newSessionId: string) => void
 }) {
     const { t, locale } = useTranslation()
     const queryClient = useQueryClient()
     const { addToast } = useToast()
-    const { session, api, onSessionDeleted, onSessionReopened } = props
+    const { session, api, onSessionDeleted, onSessionReopened, onSessionForked } = props
     const title = useMemo(() => getSessionTitle(session), [session])
     const worktreeBranch = session.metadata?.worktree?.branch?.trim() || null
     const { preferences: headerMetadata } = useSessionHeaderMetadata()
@@ -190,6 +193,14 @@ export function SessionHeader(props: {
         () => resolveSessionHeaderMachineLabel(session, machineLabelsById),
         [session, machineLabelsById]
     )
+    const sessionMachineId = session.metadata?.machineId ?? null
+    const machineUsage = machines.find((machine) => machine.id === sessionMachineId)?.metadata?.usage
+    const usageSnapshot = ['openusage', 'cc-switch']
+        .flatMap((providerId) => machineUsage?.snapshots.find((snapshot) => snapshot.providerId === providerId) ?? [])
+        .at(0)
+    const usageLabel = session.metadata?.flavor === 'claude'
+        ? formatUsageSnapshotLabel(usageSnapshot, t('session.item.remaining'))
+        : null
     const lastActiveAt = session.activeAt || session.updatedAt || session.createdAt
     // Relative labels cross minute/hour boundaries without new patches; tick
     // once a minute so "just now" does not freeze forever on inactive sessions.
@@ -216,17 +227,23 @@ export function SessionHeader(props: {
     const menuId = useId()
     const menuAnchorRef = useRef<HTMLButtonElement | null>(null)
     const [renameOpen, setRenameOpen] = useState(false)
+    const [sessionIdOpen, setSessionIdOpen] = useState(false)
     const [exportOpen, setExportOpen] = useState(false)
     const [archiveOpen, setArchiveOpen] = useState(false)
     const [deleteOpen, setDeleteOpen] = useState(false)
     const [isSyncingCodex, setIsSyncingCodex] = useState(false)
     const [isSyncingPi, setIsSyncingPi] = useState(false)
 
-    const { archiveSession, reopenSession, renameSession, setPinMode, deleteSession, isPending } = useSessionActions(
+    const { archiveSession, reopenSession, renameSession, setPinMode, deleteSession, forkSession, isPending } = useSessionActions(
         api,
         session.id,
         session.metadata?.flavor ?? null
     )
+    const { data: capabilities } = useFlavorCapabilities(api)
+    const sessionFlavor = session.metadata?.flavor ?? null
+    const forkSupported =
+        Boolean(sessionFlavor) &&
+        getFlavorForkCapability(capabilities, sessionFlavor).fork !== 'none'
     const [reopenError, setReopenError] = useState<string | null>(null)
 
     const handleSetPinMode = async (mode: 'none' | 'project' | 'global') => {
@@ -241,11 +258,10 @@ export function SessionHeader(props: {
             })
         }
     }
-    // tiann/hapi#893: surface the scratchlist entry count in the
-    // delete-confirm copy so the operator knows what cascades when they
-    // confirm. Read-only hook reuses the cache filled by SessionChat -
-    // no extra network when both components are mounted.
+    // Surface the scratchlist entry count in the delete confirmation so the
+    // operator knows what cascades when the session is removed.
     const scratchlistCount = useScratchlistCount(session.id, api)
+    const [forkError, setForkError] = useState<string | null>(null)
 
     const handleDelete = async () => {
         await deleteSession()
@@ -303,6 +319,18 @@ export function SessionHeader(props: {
             })
         } finally {
             setIsSyncingCodex(false)
+        }
+    }
+
+    const handleFork = async () => {
+        setForkError(null)
+        try {
+            const result = await forkSession()
+            if (result.type === 'success') {
+                onSessionForked?.(result.newSessionId)
+            }
+        } catch (error) {
+            setForkError(error instanceof Error ? error.message : 'Fork failed')
         }
     }
 
@@ -430,7 +458,9 @@ export function SessionHeader(props: {
                                     {ageLabel}
                                 </span>
                             ) : null}
-                            {headerMetadata.model && modelLabel ? (
+                            {headerMetadata.model && usageLabel ? (
+                                <span>{usageLabel}</span>
+                            ) : headerMetadata.model && modelLabel ? (
                                 <span className="inline-flex items-center gap-1.5">
                                     <span>{headerMetadata.showLabels ? `${t(modelLabel.key)}: ` : ''}{modelLabel.value}</span>
                                     {isModelChanging ? <ModelChangingStatus /> : null}
@@ -519,6 +549,7 @@ export function SessionHeader(props: {
                 sessionGlobalPinned={Boolean(session.globalPinned)}
                 onRename={() => setRenameOpen(true)}
                 onSetPinMode={api ? (mode) => void handleSetPinMode(mode) : undefined}
+                onShowSessionId={() => setSessionIdOpen(true)}
                 onExport={() => setExportOpen(true)}
                 onSyncCodex={api && codexSessionId ? handleSyncCodex : undefined}
                 onSyncPi={api && piSessionId && !session.active ? handleSyncPi : undefined}
@@ -527,9 +558,24 @@ export function SessionHeader(props: {
                 reopenDisabledReason={props.reopenDisabledReason}
                 reopenHint={props.reopenHint}
                 onDelete={() => setDeleteOpen(true)}
+                onFork={forkSupported ? handleFork : undefined}
+                forkSupported={forkSupported}
                 anchorPoint={menuAnchorPoint}
                 menuId={menuId}
             />
+
+            {forkError ? (
+                <ConfirmDialog
+                    isOpen={true}
+                    onClose={() => setForkError(null)}
+                    title={t('dialog.fork.errorTitle', { defaultValue: 'Fork failed' })}
+                    description={forkError}
+                    confirmLabel={t('dialog.fork.dismiss', { defaultValue: 'OK' })}
+                    confirmingLabel={t('dialog.fork.dismiss', { defaultValue: 'OK' })}
+                    onConfirm={async () => setForkError(null)}
+                    isPending={false}
+                />
+            ) : null}
 
             {reopenError ? (
                 <ConfirmDialog
@@ -551,6 +597,12 @@ export function SessionHeader(props: {
                 currentName={title}
                 onRename={renameSession}
                 isPending={isPending}
+            />
+
+            <SessionIdDialog
+                isOpen={sessionIdOpen}
+                onClose={() => setSessionIdOpen(false)}
+                session={session}
             />
 
             <SessionExportDialog

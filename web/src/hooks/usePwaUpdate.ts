@@ -5,6 +5,7 @@ export const PWA_UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000
 export const PWA_UPDATE_RELOAD_FALLBACK_MS = 2000
 
 export async function requestPwaUpdateReload(
+    needRefresh: boolean,
     updateSW: ((reloadPage?: boolean) => Promise<void>) | null | undefined,
     options: {
         reloadPage?: () => void
@@ -15,6 +16,11 @@ export async function requestPwaUpdateReload(
     const reloadPage = options.reloadPage ?? (() => window.location.reload())
     const setTimeoutFn = options.setTimeoutFn ?? setTimeout
     const clearTimeoutFn = options.clearTimeoutFn ?? clearTimeout
+
+    if (!needRefresh) {
+        reloadPage()
+        return
+    }
 
     if (!updateSW) {
         reloadPage()
@@ -116,8 +122,8 @@ export function usePwaUpdate() {
     }, [])
 
     const reload = useCallback(() => {
-        void requestPwaUpdateReload(updateSWRef.current)
-    }, [])
+        void requestPwaUpdateReload(needRefresh, updateSWRef.current)
+    }, [needRefresh])
 
     return { needRefresh, reload }
 }

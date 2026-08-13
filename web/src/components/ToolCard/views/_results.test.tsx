@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { ToolCallBlock } from '@/chat/types'
-import { extractCodexBashDisplay, extractTextFromResult, getMutationResultRenderMode, getToolResultViewComponent, parseNumberedFileLines } from '@/components/ToolCard/views/_results'
+import { extractCodexBashDisplay, extractImagesFromResult, extractTextFromResult, getMutationResultRenderMode, getToolResultViewComponent, parseNumberedFileLines, ToolResultImages } from '@/components/ToolCard/views/_results'
 import { I18nProvider } from '@/lib/i18n-context'
 
 vi.mock('@/components/MarkdownRenderer', () => ({
@@ -17,6 +17,18 @@ vi.mock('@/components/CodeBlock', () => ({
             <pre data-language={props.language ?? 'text'} data-start-line={props.startLineNumber ?? 1}>
                 <code>{props.code}</code>
             </pre>
+        </div>
+    )
+}))
+
+vi.mock('@/components/FileContentToggleView', () => ({
+    FileContentToggleView: (props: { content: string; path: string | null; stripReadLineNumbers?: boolean }) => (
+        <div
+            data-testid="file-content-toggle"
+            data-path={props.path ?? ''}
+            data-strip-read-line-numbers={props.stripReadLineNumbers ? 'true' : 'false'}
+        >
+            {props.content}
         </div>
     )
 }))
@@ -63,6 +75,77 @@ describe('extractTextFromResult', () => {
     it('strips tool_use_error tags', () => {
         const result = '<tool_use_error>Permission denied</tool_use_error>'
         expect(extractTextFromResult(result)).toBe('Permission denied')
+    })
+
+    it('prefers OMP details.displayContent.text over a truncation notice in content[]', () => {
+        const body = 'export function ok() {\n    return 1\n}\n'
+        expect(extractTextFromResult({
+            content: [{ type: 'text', text: '\n\n[Showing lines 1-3 of 3 (20.0KB limit). Read artifact://2 for full output]' }],
+            details: {
+                totalLines: 3,
+                displayContent: { text: body, startLine: 1, lineNumbers: [1, 2, 3] }
+            }
+        })).toBe(body)
+    })
+
+    it('accepts OMP details.displayContent as a plain string', () => {
+        expect(extractTextFromResult({
+            content: [{ type: 'text', text: 'short notice' }],
+            details: { displayContent: 'line one\nline two' }
+        })).toBe('line one\nline two')
+    })
+})
+
+describe('extractImagesFromResult', () => {
+    const pngData = `iVBORw0KGgo${'A'.repeat(40)}`
+
+    it('extracts Anthropic base64 and URL image content blocks', () => {
+        expect(extractImagesFromResult([
+            { type: 'image', source: { type: 'base64', data: pngData, media_type: 'image/png' } },
+            { type: 'image', source: { type: 'url', url: 'https://example.com/a.png' } }
+        ])).toEqual([
+            `data:image/png;base64,${pngData}`,
+            'https://example.com/a.png'
+        ])
+    })
+
+    it('extracts Claude Code file images and infers a missing JPEG media type', () => {
+        const jpegData = `/9j/${'A'.repeat(40)}`
+        expect(extractImagesFromResult({
+            result: { type: 'image', file: { base64: jpegData, originalSize: 123 } }
+        })).toEqual([`data:image/jpeg;base64,${jpegData}`])
+    })
+
+    it('extracts image blocks nested under MCP content', () => {
+        expect(extractImagesFromResult({
+            content: [{ type: 'image', source: { type: 'base64', data: pngData, media_type: 'image/png' } }]
+        })).toEqual([`data:image/png;base64,${pngData}`])
+    })
+
+    it('rejects text blocks, malformed image blocks, and unknown base64 payloads', () => {
+        expect(extractImagesFromResult([
+            { type: 'text', text: 'hello' },
+            { type: 'image', source: { type: 'base64', data: 'not-an-image' } },
+            { type: 'image', source: { type: 'url', url: '' } }
+        ])).toEqual([])
+        expect(extractImagesFromResult(null)).toEqual([])
+    })
+})
+
+describe('ToolResultImages', () => {
+    it('renders image results with the Read file name and omits text-only results', () => {
+        const pngData = `iVBORw0KGgo${'A'.repeat(40)}`
+        const image = render(
+            <ToolResultImages
+                result={[{ type: 'image', source: { type: 'base64', data: pngData, media_type: 'image/png' } }]}
+                input={{ file_path: '/workspace/pic.png' }}
+            />
+        )
+        expect(image.container.querySelector('img')).toHaveAttribute('src', `data:image/png;base64,${pngData}`)
+        expect(image.container.querySelector('img')).toHaveAttribute('alt', 'pic.png')
+
+        const text = render(<ToolResultImages result={[{ type: 'text', text: 'hello' }]} input={{}} />)
+        expect(text.container).toBeEmptyDOMElement()
     })
 })
 
@@ -162,6 +245,111 @@ describe('getToolResultViewComponent registry', () => {
         const agentView = getToolResultViewComponent('Agent')
         const genericView = getToolResultViewComponent('SomeUnknownTool')
         expect(agentView).toBe(genericView)
+    })
+
+    it('maps OMP lowercase tool names onto the Claude-style result views', () => {
+        expect(getToolResultViewComponent('read')).toBe(getToolResultViewComponent('Read'))
+        expect(getToolResultViewComponent('bash')).toBe(getToolResultViewComponent('Bash'))
+        expect(getToolResultViewComponent('grep')).toBe(getToolResultViewComponent('Grep'))
+        expect(getToolResultViewComponent('edit')).toBe(getToolResultViewComponent('Edit'))
+        expect(getToolResultViewComponent('write')).toBe(getToolResultViewComponent('Write'))
+        expect(getToolResultViewComponent('todo')).toBe(getToolResultViewComponent('TodoWrite'))
+    })
+
+    it('renders OMP read results as a code block instead of collapsed markdown prose', () => {
+        const ReadView = getToolResultViewComponent('read')
+        const body = [
+            "export async function runHappyMcpStdioBridge(argv: string[]): Promise<void> {",
+            '  try {',
+            "    const sendFileInputSchema: z.ZodTypeAny = z.object({",
+            '    });',
+            '}'
+        ].join('\n')
+        const block: ToolCallBlock = {
+            id: 'tool-read-1',
+            localId: null,
+            createdAt: 0,
+            kind: 'tool-call',
+            children: [],
+            tool: {
+                id: 'tool-read-1',
+                name: 'read',
+                state: 'completed',
+                input: { path: 'cli/src/codex/happyMcpStdioBridge.ts' },
+                result: {
+                    content: [{ type: 'text', text: body }],
+                    details: {
+                        displayContent: { text: body, startLine: 44 },
+                        resolvedPath: '/repo/cli/src/codex/happyMcpStdioBridge.ts'
+                    }
+                },
+                createdAt: 0,
+                startedAt: null,
+                completedAt: 0,
+                execStartedAt: null,
+                execCompletedAt: null,
+                description: null
+            }
+        }
+
+        const { container } = render(
+            <I18nProvider>
+                <ReadView block={block} metadata={null} surface="inline" />
+            </I18nProvider>
+        )
+
+        const code = container.querySelector('pre code')
+        expect(code).not.toBeNull()
+        expect(code?.textContent).toContain('runHappyMcpStdioBridge')
+        expect(code?.textContent).toContain('\n')
+        // Must not collapse into a single whitespace-squashed run.
+        expect(code?.textContent).not.toBe(body.replace(/\s+/g, ' ').trim())
+    })
+
+    it('honours OMP details.displayContent.startLine for the CodeBlock gutter', () => {
+        const ReadView = getToolResultViewComponent('read')
+        const body = [
+            "const { attentionId, scheduleId } = useSessionRowTooltipIds(",
+            "    ...longPressHandlers,",
+            ")"
+        ].join('\n')
+        const block: ToolCallBlock = {
+            id: 'tool-read-startline',
+            localId: null,
+            createdAt: 0,
+            kind: 'tool-call',
+            children: [],
+            tool: {
+                id: 'tool-read-startline',
+                name: 'read',
+                state: 'completed',
+                input: { path: 'web/src/components/SessionList.tsx:997-1000' },
+                result: {
+                    content: [{ type: 'text', text: '\n\n[Showing lines 997-1000]' }],
+                    details: { displayContent: { text: body, startLine: 997 } }
+                },
+                createdAt: 0,
+                startedAt: null,
+                completedAt: 0,
+                execStartedAt: null,
+                execCompletedAt: null,
+                description: null
+            }
+        }
+
+        const { container } = render(
+            <I18nProvider>
+                <ReadView block={block} metadata={null} surface="inline" />
+            </I18nProvider>
+        )
+
+        const pre = container.querySelector('pre[data-start-line]')
+        expect(pre?.getAttribute('data-start-line')).toBe('997')
+        // Language must NOT drift to "json" just because the body begins with a
+        // curly/bracket-heavy fragment — the .tsx extension wins even when the
+        // path carries an OMP `:997-1000` line selector.
+        const code = container.querySelector('pre[data-language]')
+        expect(code?.getAttribute('data-language')).toBe('tsx')
     })
 })
 
@@ -396,7 +584,11 @@ describe('read file result formatting', () => {
         )
     }
 
-    it('renders source file content as a code block', () => {
+    // In the detail dialog every read result is shown through the fork's
+    // FileContentToggleView (markdown-preview + word-wrap toggles), matching the
+    // file-viewer route. These assert the routing + path/content handed over;
+    // the toggle behaviour itself is covered by the component test + e2e spec.
+    it('renders read file content through the toggle view with its path', () => {
         const { container } = renderToolResult('Read', {
             file: {
                 filePath: '/tmp/example.ts',
@@ -404,27 +596,53 @@ describe('read file result formatting', () => {
             }
         })
 
-        expect(container.querySelector('[class*="border-l-"]')).toBeNull()
-        expect(container.querySelector('pre')).not.toBeNull()
-        expect(container).toHaveTextContent('File content')
-        expect(container).toHaveTextContent('const value = 1')
+        const view = container.querySelector('[data-testid="file-content-toggle"]')
+        expect(view).toHaveAttribute('data-path', '/tmp/example.ts')
+        expect(view).toHaveTextContent('const value = 1')
+        // Every dialog-surface Read result must opt into line-number stripping
+        // so the markdown-preview branch doesn't fold Read's "<N>\t" prefix into
+        // the source. The regex is a no-op when content is already clean.
+        expect(view).toHaveAttribute('data-strip-read-line-numbers', 'true')
         expect(screen.getAllByText('Raw JSON').length).toBeGreaterThan(0)
     })
 
-    it('renders plain read output as a line-numbered code block', () => {
+    it('renders plain read output through the toggle view', () => {
         const { container } = renderToolResult('Read', {
             file: {
                 filePath: '/tmp/notes.txt',
                 content: 'plain notes from the workspace'
             }
         })
-        // A file read renders as a code block (monospace + gutter), not a prose
-        // quote — so unknown extensions (.txt/.log/agy step output) show clean lines.
-        const pre = container.querySelector('pre')
-        expect(pre).not.toBeNull()
-        expect(pre).toHaveTextContent('plain notes from the workspace')
-        expect(container.querySelector('.tool-result-quote')).toBeNull()
+
+        const view = container.querySelector('[data-testid="file-content-toggle"]')
+        expect(view).toHaveAttribute('data-path', '/tmp/notes.txt')
+        expect(view).toHaveTextContent('plain notes from the workspace')
         expect(screen.getAllByText('Raw JSON').length).toBeGreaterThan(0)
+    })
+
+    it('renders Read image content blocks instead of the no-output fallback', () => {
+        const base64 = `iVBORw0KGgo${'A'.repeat(120)}`
+        const { container } = renderToolResult(
+            'Read',
+            [{ type: 'image', source: { type: 'base64', data: base64, media_type: 'image/png' } }],
+            { file_path: '/workspace/pic.png' }
+        )
+
+        expect(container.querySelector('img')).toHaveAttribute('src', `data:image/png;base64,${base64}`)
+        expect(container).not.toHaveTextContent('(no output)')
+    })
+
+    it('renders MCP image and text content together in the generic result view', () => {
+        const base64 = `iVBORw0KGgo${'A'.repeat(120)}`
+        const { container } = renderToolResult('mcp__screenshot__capture', {
+            content: [
+                { type: 'image', source: { type: 'base64', data: base64, media_type: 'image/png' } },
+                { type: 'text', text: 'screenshot taken' }
+            ]
+        })
+
+        expect(container.querySelector('img')).toHaveAttribute('src', `data:image/png;base64,${base64}`)
+        expect(container).toHaveTextContent('screenshot taken')
     })
 
     it('offsets the gutter to the true start line for a partial numbered read (not restarting at 1)', () => {
@@ -435,35 +653,29 @@ describe('read file result formatting', () => {
             }
         }, {}, 'dialog', 'agy-numbered-read')
         const pre = container.querySelector('pre')
-        // Gutter is offset to the real first line (50), not restarted at 1.
         expect(pre?.getAttribute('data-start-line')).toBe('50')
-        // The "<n>: " prefixes are stripped from the shown body.
         expect(pre?.textContent).toContain('alpha')
         expect(pre?.textContent).not.toContain('50:')
     })
 
-    it('renders parsed Codex read command output as a code block', () => {
+    it('renders parsed Codex read command output through the toggle view', () => {
         const { container } = renderToolResult(
             'CodexBash',
             'Exit code: 0\nWall time: 0.1s\nOutput:\nhello from file',
             { parsed_cmd: [{ type: 'read', name: 'debug.txt' }] }
         )
-        const pre = container.querySelector('pre')
-        expect(pre).not.toBeNull()
-        expect(pre).toHaveTextContent('hello from file')
+
+        expect(container.querySelector('[data-testid="file-content-toggle"]')).toHaveTextContent('hello from file')
     })
 
-    it('renders parsed Codex read command source output as a code block', () => {
+    it('renders parsed Codex read command source output through the toggle view', () => {
         const { container } = renderToolResult(
             'CodexBash',
             'Exit code: 0\nWall time: 0.1s\nOutput:\nconst value = 1',
             { parsed_cmd: [{ type: 'read', name: 'debug.ts' }] }
         )
 
-        expect(container.querySelector('[class*="border-l-"]')).toBeNull()
-        expect(container.querySelector('pre')).not.toBeNull()
-        expect(container).toHaveTextContent('File content')
-        expect(container).toHaveTextContent('const value = 1')
+        expect(container.querySelector('[data-testid="file-content-toggle"]')).toHaveTextContent('const value = 1')
     })
 
     it('preserves numbered content for a generic Read result', () => {

@@ -54,6 +54,7 @@ function chatContext(overrides: Partial<HappyChatContextValue> = {}): HappyChatC
         sessionId: 'session-1',
         metadata: { path: '/home/ada/coding/hapi', host: 'local' },
         terminalToolDisplayMode: 'compact',
+        showSessionSummaryInChat: false,
         disabled: false,
         onRefresh: () => {},
         hasMoreMessages: false,
@@ -194,11 +195,9 @@ describe('cross-tab sync via storage event', () => {
         // Simulate another tab writing the allowed schemes
         act(() => {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(['obsidian']))
-            window.dispatchEvent(new StorageEvent('storage', {
-                key: STORAGE_KEY,
-                newValue: JSON.stringify(['obsidian']),
-                storageArea: localStorage,
-            }))
+            const event = new Event('storage') as StorageEvent
+            Object.defineProperty(event, 'key', { value: STORAGE_KEY })
+            window.dispatchEvent(event)
         })
 
         // After storage event the hook re-reads; re-render the component

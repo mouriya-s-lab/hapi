@@ -15,6 +15,8 @@ import {
     getCodexAgentType,
     summarizeCodexAgentResult
 } from '@/components/ToolCard/codexAgents'
+import { resolveToolViewName } from '@/components/ToolCard/toolNameAliases'
+
 
 const DEFAULT_ICON_CLASS = 'h-3.5 w-3.5'
 // Tool presentation registry for `hapi/web` (aligned with `hapi-app`).
@@ -664,7 +666,7 @@ export function getToolPresentation(
         }
     }
 
-    const known = knownTools[opts.toolName]
+    const known = knownTools[resolveToolViewName(opts.toolName)]
     if (known) {
         const minimal = typeof known.minimal === 'function' ? known.minimal(opts) : (known.minimal ?? false)
         return {

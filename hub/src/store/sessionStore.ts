@@ -16,6 +16,7 @@ import {
     setSessionPinned,
     setSessionPinMode,
     type SessionPinMode,
+    setSessionResumeWithSessionModel,
     setSessionTeamState,
     setSessionTodos,
     replaceSessionTodos,
@@ -110,6 +111,15 @@ export class SessionStore {
 
     setSessionPinMode(id: string, mode: SessionPinMode, namespace: string): boolean {
         return setSessionPinMode(this.db, id, mode, namespace)
+    }
+
+    setSessionResumeWithSessionModel(
+        id: string,
+        resumeWithSessionModel: boolean,
+        namespace: string,
+        options?: { touchUpdatedAt?: boolean }
+    ): boolean {
+        return setSessionResumeWithSessionModel(this.db, id, resumeWithSessionModel, namespace, options)
     }
 
     touchSessionUpdatedAt(id: string, updatedAt: number, namespace: string): boolean {

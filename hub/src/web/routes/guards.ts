@@ -42,7 +42,10 @@ export function requireSessionFromParam(
     options?: { paramName?: string; requireActive?: boolean }
 ): { sessionId: string; session: Session } | Response {
     const paramName = options?.paramName ?? 'id'
-    const sessionId = c.req.param(paramName) ?? ''
+    const sessionId = c.req.param(paramName)
+    if (!sessionId) {
+        return c.json({ error: 'Session not found' }, 404)
+    }
     const result = requireSession(c, engine, sessionId, { requireActive: options?.requireActive })
     if (result instanceof Response) {
         return result

@@ -6,7 +6,7 @@
       "es2022"
     ],
     "jsx": "react",
-    "rootDir": "src",
+    "rootDir": "..",
     "experimentalDecorators": true,
     "outDir": "dist",
     "noEmit": true,
@@ -26,6 +26,7 @@
   "include": [
     "src/**/*.ts",
     "src/**/*.tsx",
-    "src/**/*.d.ts"
+    "src/**/*.d.ts",
+    "../fork-features/**/*.ts"
   ]
 }

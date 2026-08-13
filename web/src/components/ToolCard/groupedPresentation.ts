@@ -1,6 +1,8 @@
 import type { ToolGroupBlock } from '@/chat/toolGroups'
 import type { ToolCallBlock } from '@/chat/types'
 import { isCodexExplorationTool } from '@/chat/codexCommandPresentation'
+import { resolveToolViewName } from '@/components/ToolCard/toolNameAliases'
+
 import { getInputStringAny } from '@/lib/toolInputUtils'
 
 type Translator = (key: string, params?: Record<string, string | number>) => string
@@ -99,7 +101,7 @@ function getIntentLabel(intent: GroupedSummaryIntent, t: Translator): string {
 }
 
 export function inferGroupedSummaryIntent(tool: ToolCallBlock): GroupedSummaryIntent {
-    const toolName = tool.tool.name
+    const toolName = resolveToolViewName(tool.tool.name)
     const command = getCommandText(tool.tool.input)
 
     if (toolName === 'Read' || toolName === 'LS' || toolName === 'NotebookRead') {

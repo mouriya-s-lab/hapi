@@ -12,8 +12,12 @@ vi.mock('@/lib/app-context', () => ({
     useAppContext: () => ({ api: { renameMachine: renameMachineMock } }),
 }))
 
-vi.mock('@/hooks/queries/useMachines', () => ({
-    useMachines: () => ({ machines: machinesMock(), isLoading: false, error: null, refetch: vi.fn() }),
+vi.mock('@/components/MachineAgentSkills', () => ({
+    MachineAgentSkillsRow: () => null,
+}))
+
+vi.mock('@/fork-features/agent-skill-readiness/machineQuery', () => ({
+    useAgentSkillMachines: () => ({ machines: machinesMock(), isLoading: false, error: null }),
 }))
 
 function makeMachine(overrides?: Partial<Machine>): Machine {

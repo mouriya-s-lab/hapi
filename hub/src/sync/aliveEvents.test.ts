@@ -95,6 +95,72 @@ describe('alive incremental events', () => {
         expect(update.data).toEqual(expect.objectContaining({ id: machine.id, active: true }))
     })
 
+    it('clears a stale OMP capability when an older runner omits it on registration', () => {
+        const store = new Store(':memory:')
+        const cache = new MachineCache(store, createPublisher([]))
+
+        cache.getOrCreateMachine(
+            'machine-capability-restart',
+            {
+                host: 'localhost',
+                platform: 'linux',
+                happyCliVersion: '0.23.4',
+                ompAvailable: true
+            },
+            { status: 'running' },
+            'default'
+        )
+
+        const restarted = cache.getOrCreateMachine(
+            'machine-capability-restart',
+            {
+                host: 'localhost',
+                platform: 'linux',
+                happyCliVersion: '0.23.3'
+            },
+            { status: 'running' },
+            'default'
+        )
+
+        expect(restarted.metadata?.ompAvailable).toBe(false)
+        expect(store.machines.getMachine(restarted.id)?.metadata).toEqual(expect.objectContaining({
+            ompAvailable: false
+        }))
+    })
+
+    it('preserves runner OMP capability when a session registers the same machine', () => {
+        const store = new Store(':memory:')
+        const cache = new MachineCache(store, createPublisher([]))
+
+        cache.getOrCreateMachine(
+            'machine-session-registration',
+            {
+                host: 'localhost',
+                platform: 'linux',
+                happyCliVersion: '0.25.1',
+                ompAvailable: true
+            },
+            { status: 'running' },
+            'default'
+        )
+
+        const registeredBySession = cache.getOrCreateMachine(
+            'machine-session-registration',
+            {
+                host: 'localhost',
+                platform: 'linux',
+                happyCliVersion: '0.25.1'
+            },
+            null,
+            'default'
+        )
+
+        expect(registeredBySession.metadata?.ompAvailable).toBe(true)
+        expect(store.machines.getMachine(registeredBySession.id)?.metadata).toEqual(expect.objectContaining({
+            ompAvailable: true
+        }))
+    })
+
     it('stores health from machine alive and rebroadcasts when it changes', () => {
         const store = new Store(':memory:')
         const events: SyncEvent[] = []
