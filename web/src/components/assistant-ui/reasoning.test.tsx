@@ -56,6 +56,10 @@ describe('ReasoningGroup', () => {
         })
         vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
     })
+    it('is collapsed by default', () => {
+        const { container } = renderGroup()
+        expect(isCollapsed(container)).toBe(true)
+    })
 
     it('keeps the collapse button sticky while expanded', () => {
         const { container } = renderGroup()

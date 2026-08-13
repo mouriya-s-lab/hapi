@@ -510,31 +510,50 @@ export type UsageMetric = z.infer<typeof UsageMetricSchema>
 export type UsageSnapshot = z.infer<typeof UsageSnapshotSchema>
 export type MachineUsageState = z.infer<typeof MachineUsageStateSchema>
 
-export const MachineMetadataSchema = z.object({
-    host: z.string(),
-    platform: z.string(),
-    happyCliVersion: z.string(),
-    displayName: z.string().optional(),
-    homeDir: z.string().optional(),
-    happyHomeDir: z.string().optional(),
-    happyLibDir: z.string().optional(),
-    workspaceRoots: z.array(z.string()).optional(),
-    /** Machine-scoped RPC capability ids this runner registers (see runnerCapabilities). */
-    capabilities: z.array(z.string()).optional(),
-    /** Fork: OMP availability advertised by the runner's host. */
-    ompAvailable: z.boolean().optional(),
-    /** CLI binary/package mtime when this runner process started. */
-    startedCliMtimeMs: z.number().optional(),
-    /** Current on-disk CLI binary/package mtime (may differ after upgrade). */
-    installedCliMtimeMs: z.number().optional(),
-    /**
-     * Runner is under systemd/pm2 (HAPI_RUNNER_SUPERVISED=1). Banner Restart
-     * may stop-runner; unsupervised detached runners must not use that path.
-     */
-    supervisedRestart: z.boolean().optional(),
-    usage: MachineUsageStateSchema.optional(),
-    agentSkills: MachineAgentSkillsSchema.optional()
-})
+const LegacyMachineMetadataSchema = z.object({
+    capabilities: z.object({ omp: z.boolean().optional() }),
+    ompAvailable: z.boolean().optional()
+}).passthrough()
+
+export const MachineMetadataSchema = z.preprocess(
+    (value) => {
+        const legacy = LegacyMachineMetadataSchema.safeParse(value)
+        if (!legacy.success || legacy.data.capabilities.omp === undefined) {
+            return value
+        }
+
+        const { capabilities: _capabilities, ...rest } = legacy.data
+        return {
+            ...rest,
+            ompAvailable: legacy.data.ompAvailable ?? legacy.data.capabilities.omp
+        }
+    },
+    z.object({
+        host: z.string(),
+        platform: z.string(),
+        happyCliVersion: z.string(),
+        displayName: z.string().optional(),
+        homeDir: z.string().optional(),
+        happyHomeDir: z.string().optional(),
+        happyLibDir: z.string().optional(),
+        workspaceRoots: z.array(z.string()).optional(),
+        /** Machine-scoped RPC capability ids this runner registers (see runnerCapabilities). */
+        capabilities: z.array(z.string()).optional(),
+        /** Fork: OMP availability advertised by the runner's host. */
+        ompAvailable: z.boolean().optional(),
+        /** CLI binary/package mtime when this runner process started. */
+        startedCliMtimeMs: z.number().optional(),
+        /** Current on-disk CLI binary/package mtime (may differ after upgrade). */
+        installedCliMtimeMs: z.number().optional(),
+        /**
+         * Runner is under systemd/pm2 (HAPI_RUNNER_SUPERVISED=1). Banner Restart
+         * may stop-runner; unsupervised detached runners must not use that path.
+         */
+        supervisedRestart: z.boolean().optional(),
+        usage: MachineUsageStateSchema.optional(),
+        agentSkills: MachineAgentSkillsSchema.optional()
+    })
+)
 
 export type MachineMetadata = z.infer<typeof MachineMetadataSchema>
 

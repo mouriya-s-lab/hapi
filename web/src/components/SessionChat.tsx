@@ -1829,6 +1829,7 @@ function SessionChatInner(props: SessionChatProps) {
                     />
                     </div>
 
+                    <div className={outlineOpen ? 'max-sm:hidden' : undefined}>
                     {codexCollaborationModeSupported && codexModelsState.error ? (
                         <div className="px-3 pb-2">
                             <div className="mx-auto w-full max-w-content rounded-md bg-[var(--app-subtle-bg)] p-3 text-sm text-red-600">
@@ -2105,6 +2106,7 @@ function SessionChatInner(props: SessionChatProps) {
                         onSuppressSendErrorRestore={props.onSuppressSendErrorRestore}
                         pendingSendIntentRef={pendingSendIntentRef}
                         />
+                    </div>
                     </div>
                 </DragDropZone>
             </AssistantRuntimeProvider>
