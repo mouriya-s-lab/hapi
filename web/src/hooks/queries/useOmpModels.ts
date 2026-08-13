@@ -11,6 +11,7 @@ export function useOmpModels(args: {
     availableModels: OmpModelSummary[]
     currentModel: { provider: string; modelId: string } | null
     isLoading: boolean
+    isFetching: boolean
     error: string | null
     refetch: () => Promise<void>
 } {
@@ -31,6 +32,7 @@ export function useOmpModels(args: {
         availableModels: query.data?.availableModels ?? [],
         currentModel: query.data?.currentModel ?? null,
         isLoading: query.isLoading,
+        isFetching: query.isFetching,
         error: query.data?.success === false
             ? query.data.error ?? 'Failed to load OMP models'
             : query.error instanceof Error ? query.error.message : null,

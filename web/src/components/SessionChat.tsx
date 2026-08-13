@@ -1526,6 +1526,17 @@ function SessionChatInner(props: SessionChatProps) {
         }
     }, [props.api, props.session.id, props.onRefresh, haptic, ompModelsState, ompThinkingState])
 
+    const handleOmpModelsRefresh = useCallback(async () => {
+        try {
+            await Promise.all([
+                ompModelsState.refetch(),
+                ompThinkingState.refetch()
+            ])
+        } catch (error) {
+            console.error('Failed to refresh OMP models:', error)
+        }
+    }, [ompModelsState, ompThinkingState])
+
     const handleResumeWithSessionModelChange = useCallback(async (enabled: boolean) => {
         try {
             await setResumeWithSessionModel(enabled)
@@ -2112,7 +2123,7 @@ function SessionChatInner(props: SessionChatProps) {
                                                 ? handleModelChange
                                                 : undefined)
                                         : agentFlavor === 'omp'
-                                            ? (props.session.active && !controlledByUser && !ompModelsState.error
+                                            ? (props.session.active && !controlledByUser
                                                 ? handleModelChange
                                                 : undefined)
                                             : agentFlavor === 'copilot'
@@ -2124,6 +2135,11 @@ function SessionChatInner(props: SessionChatProps) {
                         onCycleModel={agentFlavor === 'omp' && props.session.active && !controlledByUser
                             ? handleOmpModelCycle
                             : undefined}
+                        onRefreshModels={agentFlavor === 'omp' && props.session.active && !controlledByUser
+                            ? handleOmpModelsRefresh
+                            : undefined}
+                        modelsRefreshing={agentFlavor === 'omp' ? ompModelsState.isFetching : undefined}
+                        modelsError={agentFlavor === 'omp' ? ompModelsState.error : undefined}
                         onResumeWithSessionModelChange={agentFlavor === 'claude' ? handleResumeWithSessionModelChange : undefined}
                         onModelEffortChange={
                             agentFlavor === 'cursor'

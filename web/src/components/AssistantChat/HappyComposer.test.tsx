@@ -216,4 +216,39 @@ describe('HappyComposer resume model setting', () => {
         fireEvent.click(screen.getByRole('button', { name: 'high' }))
         expect(onEffortChange).toHaveBeenCalledWith('high')
     })
+
+    it('keeps the OMP model section and refresh row when the catalog is empty', () => {
+        const onRefreshModels = vi.fn()
+        renderInProviders(
+            <HappyComposer
+                agentFlavor="omp"
+                active
+                availableModelOptions={[]}
+                onRefreshModels={onRefreshModels}
+            />
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+        expect(screen.getByText('Model')).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }))
+        expect(onRefreshModels).toHaveBeenCalledOnce()
+        expect(screen.getByTestId('omp-refresh-models-empty')).toHaveTextContent('No OMP models discovered')
+    })
+
+    it('keeps the OMP model section when the last catalog fetch failed', () => {
+        renderInProviders(
+            <HappyComposer
+                agentFlavor="omp"
+                active
+                availableModelOptions={[]}
+                modelsError="OMP models unavailable"
+                onRefreshModels={vi.fn()}
+            />
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+        expect(screen.getByRole('button', { name: 'Refresh models' })).toBeInTheDocument()
+        expect(screen.getByTestId('omp-refresh-models-error')).toHaveTextContent('OMP models unavailable')
+        expect(screen.queryByTestId('omp-refresh-models-empty')).not.toBeInTheDocument()
+    })
 })
