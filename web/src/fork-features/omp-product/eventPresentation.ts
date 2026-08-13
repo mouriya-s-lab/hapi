@@ -41,10 +41,7 @@ function formatEventText(label: string, details: Array<string | null | undefined
     return [label, ...details].filter((detail): detail is string => Boolean(detail)).join(' · ')
 }
 
-function formatTtsrTriggeredEvent(event: Record<string, unknown>): OmpEventPresentation | null {
-    if (event.eventType !== 'ttsr_triggered') return null
-
-    const frame = asRecord(event.frame)
+function formatTtsrTriggeredEvent(frame: Record<string, unknown> | null): OmpEventPresentation {
     const rules = Array.isArray(frame?.rules) ? frame.rules : []
     const ruleNames: string[] = []
     for (const rule of rules) {
@@ -67,6 +64,89 @@ function formatTtsrTriggeredEvent(event: Record<string, unknown>): OmpEventPrese
             `Injecting ${ruleNames.length} rules: ${visibleRuleNames.join(', ')}`,
             [hiddenRuleCount > 0 ? `+${hiddenRuleCount} more` : null]
         )
+    }
+}
+
+function formatIrcMessageEvent(frame: Record<string, unknown> | null): OmpEventPresentation {
+    const message = asRecord(frame?.message)
+    const details = asRecord(message?.details)
+    const from = asString(details?.from)
+    const preview = asString(details?.message)
+        ?? asString(typeof message?.content === 'string' ? message.content : null)
+    return {
+        icon: '💬',
+        text: formatEventText(
+            from ? `Message from ${from}` : 'Agent message',
+            [preview ? truncate(preview) : null]
+        )
+    }
+}
+
+function formatTodoReminderEvent(frame: Record<string, unknown> | null): OmpEventPresentation {
+    const todos = Array.isArray(frame?.todos) ? frame.todos : []
+    const open: string[] = []
+    for (const todo of todos) {
+        const record = asRecord(todo)
+        const status = asString(record?.status)
+        const content = asString(record?.content)
+        if (!content) continue
+        if (status === 'completed' || status === 'abandoned') continue
+        if (!open.includes(content)) open.push(content)
+    }
+    const attempt = asNonnegativeNumber(frame?.attempt)
+    const maxAttempts = asNonnegativeNumber(frame?.maxAttempts)
+    const attemptText = attempt !== null && maxAttempts !== null
+        ? `${attempt}/${maxAttempts}`
+        : null
+    if (open.length === 0) {
+        return { icon: '☐', text: formatEventText('Unfinished todos', [attemptText]) }
+    }
+    const visible = open.slice(0, 3)
+    const hidden = open.length - visible.length
+    return {
+        icon: '☐',
+        text: formatEventText(
+            `Unfinished todos: ${visible.join(', ')}`,
+            [hidden > 0 ? `+${hidden} more` : null, attemptText]
+        )
+    }
+}
+
+function formatGoalUpdatedEvent(frame: Record<string, unknown> | null): OmpEventPresentation {
+    const goal = asRecord(frame?.goal)
+    if (!goal) return { icon: null, text: 'Goal cleared' }
+    const status = asString(goal.status)
+    const objective = asString(goal.objective)
+    return {
+        icon: null,
+        text: formatEventText(
+            status ? `Goal ${status}` : 'Goal updated',
+            [objective ? truncate(objective) : null]
+        )
+    }
+}
+
+function formatSessionEvent(event: Record<string, unknown>): OmpEventPresentation {
+    const eventType = asString(event.eventType) ?? asString(asRecord(event.frame)?.type)
+    const frame = asRecord(event.frame)
+    switch (eventType) {
+        case 'ttsr_triggered':
+            return formatTtsrTriggeredEvent(frame)
+        case 'irc_message':
+            return formatIrcMessageEvent(frame)
+        case 'todo_reminder':
+            return formatTodoReminderEvent(frame)
+        case 'todo_auto_clear':
+            return { icon: '☐', text: 'Todos cleared' }
+        case 'goal_updated':
+            return formatGoalUpdatedEvent(frame)
+        case 'model_changed':
+            return { icon: '🔄', text: 'Model changed' }
+        default:
+            return {
+                icon: null,
+                text: eventType ? `OMP ${eventType.replaceAll('_', ' ')}` : 'OMP session event'
+            }
     }
 }
 
@@ -98,7 +178,14 @@ function readArchive(result: Record<string, unknown> | null): ArchiveSummary | n
 
 export function getOmpEventPresentation(event: AgentEvent): OmpEventPresentation | null {
     const record = event as Record<string, unknown>
-    if (event.type === 'omp-session-event') return formatTtsrTriggeredEvent(record)
+    if (event.type === 'omp-session-event') return formatSessionEvent(record)
+    if (event.type === 'omp-rpc-warning' && record.eventType === 'model_changed') {
+        return { icon: '🔄', text: 'Model changed' }
+    }
+    if (event.type === 'omp-command-output') {
+        const text = asString(record.text)
+        return { icon: null, text: text ? truncate(text) : 'OMP command output' }
+    }
     if (event.type !== 'omp-compaction') return null
 
     const frame = asRecord(record.frame)

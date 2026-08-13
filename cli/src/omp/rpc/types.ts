@@ -382,6 +382,7 @@ export const OMP_KNOWN_EVENT_TYPES = [
     'auto_retry_end',
     'retry_fallback_applied',
     'retry_fallback_succeeded',
+    'model_changed',
     'ttsr_triggered',
     'todo_reminder',
     'todo_auto_clear',
@@ -402,7 +403,8 @@ export const OMP_KNOWN_EVENT_TYPES = [
     'command_output',
     'session_info_update',
     'config_update',
-    'extension_error'
+    'extension_error',
+    'rpc_frame_error'
 ] as const;
 
 export type OmpKnownEventType = typeof OMP_KNOWN_EVENT_TYPES[number];
