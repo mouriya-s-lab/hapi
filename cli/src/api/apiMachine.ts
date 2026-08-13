@@ -27,6 +27,7 @@ import type { RunnerState, Machine, MachineMetadata } from './types'
 import type { MachineAgentSkills } from '@hapi/protocol/schemas'
 import { registerAgentSkillProbeHandler } from '../../../fork-features/agent-skill-deploy/deploy'
 import { RunnerStateSchema, MachineMetadataSchema } from './types'
+import { getInstalledCliMtimeMs } from '@/runner/controlClient'
 import { backoff } from '@/utils/time'
 import { getInvokedCwd } from '@/utils/invokedCwd'
 import { RpcHandlerManager } from './rpc/RpcHandlerManager'
@@ -663,17 +664,14 @@ export class ApiMachineClient {
                 console.log(`[HAPI] Workspace roots already up to date on hub: ${formatWorkspaceRoots(desiredWorkspaceRoots)}`)
             }
 
-            const hubOmpAvailable = this.machine.metadata?.capabilities?.omp === true
+            const hubOmpAvailable = this.machine.metadata?.ompAvailable === true
             if (hubOmpAvailable !== this.ompAvailable) {
                 this.updateMachineMetadata((current) => {
                     const base = current ?? this.machine.metadata
                     if (!base) throw new Error('Machine metadata unavailable for capability sync')
                     return {
                         ...base,
-                        capabilities: {
-                            ...base.capabilities,
-                            omp: this.ompAvailable
-                        }
+                        ompAvailable: this.ompAvailable
                     }
                 }).catch((error) => {
                     logger.debug('[API MACHINE] Failed to sync runner capabilities', error)
@@ -771,6 +769,19 @@ export class ApiMachineClient {
                 time: Date.now(),
                 health: collectMachineHealth()
             })
+            const installedCliMtimeMs = getInstalledCliMtimeMs()
+            if (
+                typeof installedCliMtimeMs === 'number'
+                && this.machine.metadata
+                && this.machine.metadata.installedCliMtimeMs !== installedCliMtimeMs
+            ) {
+                void this.updateMachineMetadata((current) => ({
+                    ...(current ?? this.machine.metadata!),
+                    installedCliMtimeMs,
+                })).catch((error) => {
+                    logger.debug('[API MACHINE] Failed to refresh installedCliMtimeMs', error)
+                })
+            }
         }
         // Prime CPU sampling so the first heartbeat already includes CPU %.
         collectMachineHealth()

@@ -809,7 +809,7 @@ describe('NewSession launch preferences', () => {
             id: 'with-omp',
             metadata: {
                 host: 'OMP runner',
-                capabilities: { omp: true }
+                ompAvailable: true
             }
         } as Machine
 

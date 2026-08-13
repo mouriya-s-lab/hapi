@@ -62,6 +62,7 @@ function renderDialogContent(block: ToolCallBlock, onClose = vi.fn()) {
                 sessionId: 'session-1',
                 metadata: { path: 'repo', host: 'local' },
                 terminalToolDisplayMode: 'detailed',
+                showSessionSummaryInChat: false,
                 disabled: false,
                 onRefresh: vi.fn(),
                 hasMoreMessages: false,

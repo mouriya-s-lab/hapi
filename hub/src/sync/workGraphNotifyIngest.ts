@@ -6,9 +6,10 @@ import {
     extractNotifySummary,
     unwrapRoleWrappedRecordEnvelope,
     type NotifySummary,
+    type WorkGraphEvent,
     type WorkGraphEventCreate
 } from '@hapi/protocol'
-import type { Store } from '../store'
+import type { Store, StoredMessage } from '../store'
 import { WorkGraphValidationError } from '../store'
 import type { InsertWorkGraphEventResult } from '../store/workGraph'
 
@@ -135,6 +136,225 @@ function isAgentMessageContent(content: unknown): boolean {
     return false
 }
 
+export type WorkAdCause = {
+    causeMessageId: string
+    causeText: string | null
+    causeKind: string | null
+    causeSeq: number | null
+    causeCursorMessageId: string | null
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : null
+}
+
+function isInboundUserMessage(content: unknown): boolean {
+    return asRecord(content)?.role === 'user'
+}
+
+function isCauseCandidate(message: StoredMessage, now: number = Date.now()): boolean {
+    if (!isInboundUserMessage(message.content)) return false
+    const meta = asRecord(asRecord(message.content)?.meta)
+    // Claude jsonl echoes the remote prompt as a second role=user row (sentFrom cli).
+    if (meta?.isTranscriptEcho === true) return false
+    // Queued (localId, not yet acked) and unmatured scheduled rows are not this turn.
+    if (message.invokedAt === null) return false
+    if (message.scheduledAt != null && message.scheduledAt > now) return false
+    return true
+}
+
+function extractInboundSentFrom(content: unknown): string | null {
+    const meta = asRecord(asRecord(content)?.meta)
+    return typeof meta?.sentFrom === 'string' && meta.sentFrom.trim().length > 0
+        ? meta.sentFrom.trim()
+        : null
+}
+
+function extractInboundCauseText(content: unknown): string | null {
+    const record = asRecord(content)
+    if (!record) return null
+    const inner = record.content
+    if (typeof inner === 'string') {
+        const text = inner.trim()
+        return text.length > 0 ? text : null
+    }
+    if (Array.isArray(inner)) {
+        const parts = inner.flatMap((block) => {
+            const item = asRecord(block)
+            return item?.type === 'text' && typeof item.text === 'string' ? [item.text] : []
+        })
+        const text = parts.join(' ').trim()
+        return text.length > 0 ? text : null
+    }
+    const nested = asRecord(inner)
+    if (nested?.type === 'text' && typeof nested.text === 'string') {
+        const text = nested.text.trim()
+        return text.length > 0 ? text : null
+    }
+    return null
+}
+
+function readCauseSeq(payload: unknown): number | null {
+    const record = asRecord(payload)
+    return typeof record?.causeSeq === 'number' && Number.isInteger(record.causeSeq)
+        ? record.causeSeq
+        : null
+}
+
+function readCauseCursorMessageId(payload: unknown): string | null {
+    const record = asRecord(payload)
+    return typeof record?.causeCursorMessageId === 'string' && record.causeCursorMessageId.length > 0
+        ? record.causeCursorMessageId
+        : null
+}
+
+function readCauseFromPayload(payload: unknown): WorkAdCause | null {
+    const record = asRecord(payload)
+    if (typeof record?.causeMessageId !== 'string' || record.causeMessageId.length === 0) {
+        return null
+    }
+    return {
+        causeMessageId: record.causeMessageId,
+        causeText: typeof record.causeText === 'string' ? record.causeText : null,
+        causeKind: typeof record.causeKind === 'string' ? record.causeKind : null,
+        causeSeq: readCauseSeq(payload),
+        causeCursorMessageId: readCauseCursorMessageId(payload)
+    }
+}
+
+function loadMessagesForCause(
+    store: Store,
+    sessionId: string,
+    previousWorkAds: WorkGraphEvent[]
+): StoredMessage[] {
+    const previous = previousWorkAds.at(-1) ?? null
+    const cursorId = readCauseCursorMessageId(previous?.payloadJson)
+    if (cursorId) {
+        const cursorSeq = store.messages.getSeqById(sessionId, cursorId)
+        if (cursorSeq != null) {
+            return store.messages.getMessagesAfterSeq(sessionId, cursorSeq)
+        }
+        return store.messages.getAllMessages(sessionId)
+    }
+    const afterSeq = readCauseSeq(previous?.payloadJson)
+    // First event / legacy rows without causeSeq still need the full session.
+    // Later notifies only need rows after the previous cause (not every
+    // compressed agent/tool blob since session start).
+    if (afterSeq == null) {
+        return store.messages.getAllMessages(sessionId)
+    }
+    return store.messages.getMessagesAfterSeq(sessionId, afterSeq)
+}
+
+function listPreviousWorkAds(
+    store: Store,
+    namespace: string,
+    sessionId: string
+): WorkGraphEvent[] {
+    // Only hub notify elevation. Client POST /work-graph/events can mint
+    // work_ad rows; those must not steal related_event_id, follows, or sticky cause.
+    return store.workGraph
+        .listWorkAdsByRelatedSession(namespace, sessionId)
+        .filter((event) => (
+            event.provenance === 'AGENT_NOTIFY_SUMMARY'
+            && event.sourceRef === sessionId
+        ))
+}
+
+function consumedInboundIds(
+    messages: StoredMessage[],
+    previousWorkAds: WorkGraphEvent[]
+): Set<string> {
+    const consumed = new Set<string>()
+    const byId = new Map(messages.map((message) => [message.id, message]))
+    for (const event of previousWorkAds) {
+        const stamped = readCauseFromPayload(event.payloadJson)
+        if (stamped) {
+            consumed.add(stamped.causeMessageId)
+            continue
+        }
+        // Legacy notify rows have no causeMessageId. Treat inbounds at/before
+        // that notify as consumed so the next turn does not re-attribute them.
+        const payload = asRecord(event.payloadJson)
+        const assistantId = typeof payload?.messageId === 'string' ? payload.messageId : null
+        const assistant = assistantId ? byId.get(assistantId) : undefined
+        if (!assistant) continue
+        for (const message of messages) {
+            if (message.seq <= assistant.seq && isCauseCandidate(message)) {
+                consumed.add(message.id)
+            }
+        }
+    }
+    return consumed
+}
+
+/**
+ * Sequential rule: first unconsumed invoked inbound is the cause identity.
+ * causeSeq advances past other invoked inbounds before this assistant (one
+ * Claude batch can join several same-mode prompts). Uninvoked leftovers wait.
+ * No new invoked inbound → sticky copy of the previous event's cause.
+ */
+function batchCauseCursor(
+    messages: StoredMessage[],
+    inbound: StoredMessage,
+    assistantSeq: number | null
+): { causeSeq: number; causeCursorMessageId: string } {
+    let maxSeq = inbound.seq
+    let cursorId = inbound.id
+    for (const message of messages) {
+        if (assistantSeq != null && message.seq >= assistantSeq) continue
+        if (!isCauseCandidate(message)) continue
+        if (message.seq > maxSeq) {
+            maxSeq = message.seq
+            cursorId = message.id
+        }
+    }
+    return { causeSeq: maxSeq, causeCursorMessageId: cursorId }
+}
+
+export function resolveWorkAdCause(params: {
+    messages: StoredMessage[]
+    previousWorkAds: WorkGraphEvent[]
+    assistantSeq?: number | null
+}): { cause: WorkAdCause | null; previousEventId: string | null } {
+    const previous = params.previousWorkAds.at(-1) ?? null
+    const consumed = consumedInboundIds(params.messages, params.previousWorkAds)
+    const inbound = params.messages
+        .filter((message) => (
+            isCauseCandidate(message)
+            && !consumed.has(message.id)
+            && (params.assistantSeq == null || message.seq < params.assistantSeq)
+        ))
+        .sort((left, right) => {
+            const invokedDelta = (right.invokedAt ?? 0) - (left.invokedAt ?? 0)
+            if (invokedDelta !== 0) return invokedDelta
+            return left.seq - right.seq
+        })[0]
+    if (inbound) {
+        const text = extractInboundCauseText(inbound.content)
+        const cursor = batchCauseCursor(params.messages, inbound, params.assistantSeq ?? null)
+        return {
+            cause: {
+                causeMessageId: inbound.id,
+                causeText: text === null ? null : clampJsonUtf8(text, WORK_GRAPH_MAX_SUMMARY),
+                causeKind: extractInboundSentFrom(inbound.content),
+                causeSeq: cursor.causeSeq,
+                causeCursorMessageId: cursor.causeCursorMessageId
+            },
+            previousEventId: previous?.id ?? null
+        }
+    }
+    if (previous) {
+        const sticky = readCauseFromPayload(previous.payloadJson)
+        if (sticky) {
+            return { cause: sticky, previousEventId: previous.id }
+        }
+    }
+    return { cause: null, previousEventId: previous?.id ?? null }
+}
+
 function buildTags(notify: NotifySummary, flavor: string | null | undefined): string[] {
     // Project stays in tags + payload for now. Indexed `project` column /
     // project-scoped list query is deferred to #1374 / P4 (cold review M4).
@@ -159,6 +379,8 @@ export function buildWorkAdFromNotify(params: {
     ts: number
     flavor?: string | null
     expiresAt?: number
+    cause?: WorkAdCause | null
+    relatedEventId?: string | null
 }): WorkGraphEventCreate {
     const status = mapNotifyStatusToWorkAdStatus(params.notify.status)
     // Footer fields are untrusted. Clamp to ledger schema bounds so elevation
@@ -167,6 +389,16 @@ export function buildWorkAdFromNotify(params: {
     const action = clampJsonUtf8Opt(params.notify.action, WORK_GRAPH_MAX_STRING) ?? null
     const project = clampJsonUtf8Opt(params.notify.project, WORK_GRAPH_MAX_STRING) ?? null
     const agent = clampJsonUtf8Opt(params.notify.agent, WORK_GRAPH_MAX_STRING) ?? null
+    const cause = params.cause
+    const causeMessageId = cause
+        ? clampJsonUtf8(cause.causeMessageId, 256)
+        : null
+    const causeText = cause?.causeText == null
+        ? null
+        : clampJsonUtf8(cause.causeText, WORK_GRAPH_MAX_SUMMARY)
+    const causeKind = cause?.causeKind == null
+        ? null
+        : clampJsonUtf8(cause.causeKind, WORK_GRAPH_MAX_TAG)
     // Audit principal is always session-bound. notify.agent is untrusted
     // self-label text and stays advisory in payload/tags only.
     // Do not nest a full notify_summary copy — duplicating clamped strings
@@ -181,10 +413,22 @@ export function buildWorkAdFromNotify(params: {
             action,
             project,
             agent,
-            messageId: params.messageId
+            messageId: params.messageId,
+            ...(cause && causeMessageId
+                ? {
+                    causeMessageId,
+                    causeText,
+                    causeKind,
+                    causeSeq: cause.causeSeq,
+                    ...(cause.causeCursorMessageId
+                        ? { causeCursorMessageId: clampJsonUtf8(cause.causeCursorMessageId, 256) }
+                        : {})
+                }
+                : {})
         },
         tags: buildTags(params.notify, params.flavor),
         related_session_id: params.sessionId,
+        related_event_id: params.relatedEventId || undefined,
         provenance: 'AGENT_NOTIFY_SUMMARY',
         idempotency_key: `session:${params.sessionId}:message:${params.messageId}:notify`,
         expires_at: params.expiresAt ?? (params.ts + WORK_AD_DEFAULT_TTL_MS),
@@ -220,17 +464,41 @@ export function ingestNotifySummaryFromMessage(input: NotifyIngestInput): Notify
         return null
     }
 
+    // Cause is hub-derived from session messages SQL (no REST 200 cap).
+    const previousWorkAds = listPreviousWorkAds(input.store, input.namespace, input.sessionId)
+    const messages = loadMessagesForCause(input.store, input.sessionId, previousWorkAds)
+    const assistantSeq = messages.find((message) => message.id === input.messageId)?.seq ?? null
+    const { cause, previousEventId } = resolveWorkAdCause({
+        messages,
+        previousWorkAds,
+        assistantSeq
+    })
+
     const create = buildWorkAdFromNotify({
         sessionId: input.sessionId,
         messageId: input.messageId,
         notify,
         ownerUserId: input.ownerUserId,
         flavor: input.flavor,
-        ts: input.ts
+        ts: input.ts,
+        cause,
+        relatedEventId: previousEventId
     })
 
     try {
-        return input.store.workGraph.insertEvent(input.namespace, create, { ts: input.ts })
+        const result = input.store.workGraph.insertEvent(input.namespace, create, { ts: input.ts })
+        if (result.inserted && previousEventId) {
+            try {
+                input.store.workGraph.insertLink(input.namespace, {
+                    from_event_id: result.event.id,
+                    to_event_id: previousEventId,
+                    relation_type: 'follows'
+                })
+            } catch {
+                // Best-effort edge; related_event_id is already on the row.
+            }
+        }
+        return result
     } catch (error) {
         // Best-effort capture: never break message ingest on ledger bounds.
         if (error instanceof WorkGraphValidationError) {

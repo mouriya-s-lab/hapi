@@ -320,6 +320,18 @@ export function getMessagesAfterSeq(
     return rows.map(toStoredMessage)
 }
 
+/** Current seq for a message that still lives on this session (merge-stable id). */
+export function getMessageSeqById(
+    db: Database,
+    sessionId: string,
+    messageId: string
+): number | null {
+    const row = db.prepare(
+        'SELECT seq FROM messages WHERE id = ? AND session_id = ?'
+    ).get(messageId, sessionId) as { seq: number } | undefined
+    return row ? row.seq : null
+}
+
 export function getFirstMessages(
     db: Database,
     sessionId: string,

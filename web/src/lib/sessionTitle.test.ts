@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getSessionTitle } from './sessionTitle'
+import { getSessionTitle, hasSessionTitleSignal } from './sessionTitle'
 
 describe('getSessionTitle', () => {
     it('prefers metadata.name over summary.text (sidebar / share picker parity)', () => {
@@ -34,5 +34,23 @@ describe('getSessionTitle', () => {
 
     it('falls back to a short id when metadata is empty', () => {
         expect(getSessionTitle({ id: 'abcdef0123456789' })).toBe('abcdef01')
+    })
+})
+
+describe('hasSessionTitleSignal', () => {
+    it('is true for name or summary text and false for path-only', () => {
+        expect(hasSessionTitleSignal({
+            id: 'x',
+            metadata: { name: 'Named', path: '/tmp/foo' },
+        })).toBe(true)
+        expect(hasSessionTitleSignal({
+            id: 'x',
+            metadata: { summary: { text: 'Summary only' }, path: '/tmp/foo' },
+        })).toBe(true)
+        expect(hasSessionTitleSignal({
+            id: 'x',
+            metadata: { path: '/tmp/foo' },
+        })).toBe(false)
+        expect(hasSessionTitleSignal({ id: 'x' })).toBe(false)
     })
 })

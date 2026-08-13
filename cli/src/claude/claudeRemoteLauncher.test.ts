@@ -102,7 +102,10 @@ function createClientStub() {
         updateMetadata: (mutator: (metadata: any) => any) => { mutator({}) },
         emitMessagesConsumed: () => {},
         sendClaudeSessionMessage: () => {},
-        sendSessionEvent: () => {}
+        sendSessionEvent: () => {},
+        notePendingHubPromptEcho: () => {},
+        discardPendingHubPromptEcho: () => {},
+        discardPendingHubPromptEchoText: () => {}
     }
 }
 

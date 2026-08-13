@@ -41,6 +41,10 @@ export function createWorkGraphRoutes(store: Store): Hono<WebAppEnv> {
             }, 403)
         }
 
+        if (parsed.data.provenance === 'AGENT_NOTIFY_SUMMARY') {
+            return c.json({ error: 'Reserved provenance' }, 400)
+        }
+
         try {
             const result = store.workGraph.insertEvent(namespace, parsed.data)
             return c.json({

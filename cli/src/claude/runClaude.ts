@@ -489,9 +489,13 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
         const deferredIndex = deferredMessages.findIndex(([, id]) => id === localId);
         if (deferredIndex >= 0) {
             deferredMessages.splice(deferredIndex, 1);
+            session.discardPendingHubPromptEcho(localId);
             return true;
         }
         const removed = messageQueue.cancelByLocalId(localId);
+        if (removed) {
+            session.discardPendingHubPromptEcho(localId);
+        }
         logger.debug(`[claude] cancelByLocalId(${localId}): ${removed ? 'removed' : 'not found (best-effort)'}`);
         return removed;
     });

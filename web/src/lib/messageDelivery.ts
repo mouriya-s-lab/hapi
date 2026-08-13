@@ -43,10 +43,13 @@ export function getRestoredComposerSendIntent(
 /**
  * Resolve the web composer intent into the durable message delivery mode.
  *
- * Fresh steering is deliberately narrow: it only applies to an immediate
- * ordinary composer submission while the Pi *main session* reports that it
- * is thinking. Scheduled messages, scratchlist additions, and retries never
- * steer because none can prove the original turn identity.
+ * Every composer submission queues by default — for every flavor. The Pi
+ * automatic steer (deliveryMode 'steer' while the main session is thinking)
+ * was removed in favor of the explicit per-queued-message Steer action
+ * (issue #1466), matching Codex/Claude behavior: a mid-turn message waits,
+ * and the operator presses Steer to deliver it into the running turn.
+ * Scheduled messages, scratchlist additions, and retries always queued
+ * already.
  */
 export function resolveMessageDeliveryMode(input: {
     agentFlavor: string | null | undefined
@@ -55,9 +58,6 @@ export function resolveMessageDeliveryMode(input: {
     scheduledAt?: number | null
     routesToScratchlist?: boolean
 }): MessageDeliveryMode {
-    if (input.scheduledAt != null) return 'queue'
-    if (input.routesToScratchlist === true) return 'queue'
-    if (input.intent === 'queue') return 'queue'
-    if (input.agentFlavor !== 'pi') return 'queue'
-    return input.isSessionThinking ? 'steer' : 'queue'
+    void input
+    return 'queue'
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type PropsWithChildren } from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ApiClient } from '@/api/client'
 import { HappyThread } from '@/components/AssistantChat/HappyThread'
 import { I18nProvider } from '@/lib/i18n-context'
@@ -49,6 +50,10 @@ afterAll(() => {
 })
 
 const api = new ApiClient('test-token')
+vi.spyOn(api, 'getHubSettings').mockResolvedValue({
+    sessionSummaryContract: false,
+    sessionSummaryInChat: false
+})
 const session: Session = {
     id: 'pagination-session',
     namespace: 'default',
@@ -72,6 +77,7 @@ const session: Session = {
 
 
 function PaginationHarness(props: { onRequest: () => void }) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const [committedPageCount, setCommittedPageCount] = useState(0)
     const [isLoadingMore, setIsLoadingMore] = useState(false)
     const pendingResolveRef = useRef<((outcome: OlderLoadOutcome) => void) | null>(null)
@@ -109,33 +115,35 @@ function PaginationHarness(props: { onRequest: () => void }) {
     }, [committedPageCount, isLoadingMore])
 
     return (
-        <I18nProvider>
-            <output data-testid="page">{committedPageCount}</output>
-            <HappyThread
-                api={api}
-                session={session}
-                sessionId="pagination-session"
-                metadata={null}
-                disabled={false}
-                onRefresh={() => undefined}
-                messagesWarning={null}
-                hasMoreMessages={committedPageCount < 3}
-                isLoadingMoreMessages={isLoadingMore}
-                onLoadMore={onLoadMore}
-                onCancelLoadMore={() => undefined}
-                onViewModeChange={() => undefined}
-                isSyncingTail={false}
-                unseenCount={0}
-                rawMessagesCount={1}
-                normalizedMessagesCount={1}
-                messagesVersion={committedPageCount}
-                historyVersion={committedPageCount}
-                forceScrollToken={0}
-                outlineOpen={false}
-                outlineItems={[]}
-                onOutlineOpenChange={() => undefined}
-            />
-        </I18nProvider>
+        <QueryClientProvider client={queryClient}>
+            <I18nProvider>
+                <output data-testid="page">{committedPageCount}</output>
+                <HappyThread
+                    api={api}
+                    session={session}
+                    sessionId="pagination-session"
+                    metadata={null}
+                    disabled={false}
+                    onRefresh={() => undefined}
+                    messagesWarning={null}
+                    hasMoreMessages={committedPageCount < 3}
+                    isLoadingMoreMessages={isLoadingMore}
+                    onLoadMore={onLoadMore}
+                    onCancelLoadMore={() => undefined}
+                    onViewModeChange={() => undefined}
+                    isSyncingTail={false}
+                    unseenCount={0}
+                    rawMessagesCount={1}
+                    normalizedMessagesCount={1}
+                    messagesVersion={committedPageCount}
+                    historyVersion={committedPageCount}
+                    forceScrollToken={0}
+                    outlineOpen={false}
+                    outlineItems={[]}
+                    onOutlineOpenChange={() => undefined}
+                />
+            </I18nProvider>
+        </QueryClientProvider>
     )
 }
 

@@ -1,4 +1,5 @@
 import type { Machine } from '@/types/api'
+import { isMachineCapabilitySkewed } from '@hapi/protocol/runnerCapabilities'
 import { useTranslation } from '@/lib/use-translation'
 import { SelectControl } from '@/components/ui/select-control'
 
@@ -6,6 +7,18 @@ function getMachineTitle(machine: Machine): string {
     if (machine.metadata?.displayName) return machine.metadata.displayName
     if (machine.metadata?.host) return machine.metadata.host
     return machine.id.slice(0, 8)
+}
+
+function getMachineOptionLabel(machine: Machine, updateRequiredLabel: string): string {
+    const title = getMachineTitle(machine)
+    const platform = machine.metadata?.platform ? ` (${machine.metadata.platform})` : ''
+    const version = machine.metadata?.happyCliVersion
+        ? ` · CLI ${machine.metadata.happyCliVersion}`
+        : ''
+    const skew = machine.active && isMachineCapabilitySkewed(machine.metadata?.capabilities)
+        ? ` · ${updateRequiredLabel}`
+        : ''
+    return `${title}${platform}${version}${skew}`
 }
 
 export function MachineSelector(props: {
@@ -36,8 +49,7 @@ export function MachineSelector(props: {
                 )}
                 {props.machines.map((m) => (
                     <option key={m.id} value={m.id}>
-                        {getMachineTitle(m)}
-                        {m.metadata?.platform ? ` (${m.metadata.platform})` : ''}
+                        {getMachineOptionLabel(m, t('runner.skew.updateRequired'))}
                     </option>
                 ))}
             </SelectControl>

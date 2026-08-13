@@ -35,6 +35,10 @@ import { validateScratchlistAttachmentsForWrite, scratchlistSessionBytesBeforeFo
 import { requireSessionFromParam, requireSyncEngine } from './guards'
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+const ForkFeatureRequestBodySchema = z.object({
+    contract: z.literal('fork-feature').optional(),
+    forkPoint: z.unknown().optional()
+}).passthrough()
 
 function commandsFromMetadataSlashCommands(names: readonly string[] | undefined): SlashCommand[] {
     if (!names?.length) {
@@ -375,15 +379,10 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         return c.json({ ok: true })
     })
 
-    app.post('/sessions/:id/fork', async (c) => {
+    app.post('/sessions/:id/fork', async (c, next) => {
         const engine = requireSyncEngine(c, getSyncEngine)
         if (engine instanceof Response) {
             return engine
-        }
-
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
-        if (sessionResult instanceof Response) {
-            return sessionResult
         }
 
         const rawBody = await c.req.text()
@@ -395,6 +394,19 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
                 return c.json({ error: 'Invalid JSON body' }, 400)
             }
         }
+        const forkFeatureBody = ForkFeatureRequestBodySchema.safeParse(body)
+        if (forkFeatureBody.success && (
+            forkFeatureBody.data.contract === 'fork-feature'
+            || 'forkPoint' in forkFeatureBody.data
+        )) {
+            return next()
+        }
+
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) {
+            return sessionResult
+        }
+
         const parsed = ForkConversationRequestSchema.safeParse(body)
         if (!parsed.success) {
             return c.json({ error: 'Invalid body' }, 400)

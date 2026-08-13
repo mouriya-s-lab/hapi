@@ -98,6 +98,7 @@ describe('voice transcription routes', () => {
         delete process.env.TRANSCRIPTION_BASE_URL
         delete process.env.TRANSCRIPTION_MODEL
         process.env.OPENAI_API_KEY = 'server-only-key'
+        process.env.GROQ_API_KEY = 'groq-server-key'
         process.env.TRANSCRIPTION_BASE_URL = 'http://localhost:8000/v1'
         process.env.TRANSCRIPTION_MODEL = 'local-whisper'
 
@@ -105,6 +106,7 @@ describe('voice transcription routes', () => {
         expect(res.status).toBe(200)
         expect(await res.json()).toEqual({ providers: [
             { id: 'openai', label: 'OpenAI', modes: ['standard', 'realtime'] },
+            { id: 'groq', label: 'Groq', modes: ['standard'] },
             { id: 'openai-compatible', label: 'OpenAI-compatible / local', modes: ['standard'] }
         ] })
 
@@ -199,6 +201,41 @@ describe('voice transcription routes', () => {
             if (value === undefined) delete process.env[key]
             else process.env[key] = value
         }
+    })
+
+    test('proxies a bounded recording to Groq with whisper-large-v3', async () => {
+        const app = createApp()
+        const headers = await authHeaders()
+        const previousKey = process.env.GROQ_API_KEY
+        process.env.GROQ_API_KEY = 'groq-server-key'
+        const originalFetch = global.fetch
+        let upstreamUrl = ''
+        let upstreamInit: RequestInit | undefined
+        // @ts-expect-error test override
+        global.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+            upstreamUrl = String(input)
+            upstreamInit = init
+            return new Response(JSON.stringify({ text: 'groq transcription', language: 'zh' }), { status: 200 })
+        }) as typeof fetch
+
+        const form = new FormData()
+        form.set('provider', 'groq')
+        form.set('mode', 'standard')
+        form.set('language', 'zh-CN')
+        form.set('file', new File(['audio bytes'], 'speech.webm', { type: 'audio/webm' }))
+        const res = await app.request('/api/voice/transcription', { method: 'POST', headers, body: form })
+
+        expect(res.status).toBe(200)
+        expect(await res.json()).toEqual({ text: 'groq transcription', language: 'zh' })
+        expect(upstreamUrl).toBe('https://api.groq.com/openai/v1/audio/transcriptions')
+        expect(new Headers(upstreamInit?.headers).get('authorization')).toBe('Bearer groq-server-key')
+        expect(upstreamInit?.body).toBeInstanceOf(FormData)
+        expect((upstreamInit?.body as FormData).get('model')).toBe('whisper-large-v3')
+        expect((upstreamInit?.body as FormData).get('language')).toBe('zh')
+
+        global.fetch = originalFetch
+        if (previousKey === undefined) delete process.env.GROQ_API_KEY
+        else process.env.GROQ_API_KEY = previousKey
     })
 
     test('rejects unsupported files before calling a provider', async () => {

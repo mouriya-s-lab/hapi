@@ -1,10 +1,19 @@
 /**
- * Gate for harness/ACP resume → hub thinking (#1470).
+ * Gate for harness/ACP resume → hub thinking (#1470 / #1502 / #1503).
  *
  * Returns:
- * - `true` — real agent activity / foreground running (bump thinking)
+ * - `true` — foreground ACP state (`running` / `requires_action`)
  * - `false` — ACP v2 `state_update: idle` (clear thinking)
- * - `null` — noise / unknown (do not touch thinking)
+ * - `null` — noise / background updates (do not touch)
+ *
+ * ACP allows `tool_call*` / message chunks while the agent reports `idle`
+ * (background activity). Mapping those onto hub thinking races idle clears and
+ * flickers the session-list spinner (#1502 residual on long-lived Cursor ACP).
+ * Foreground work is `state_update` only; permission bumps go through
+ * `setAgentActivityListener(true)` directly.
+ *
+ * `running` chatter is debounced in `AcpSdkBackend.notifyAgentActivity` so
+ * rapid running↔idle edges do not flip the spinner.
  */
 export type SessionUpdateThinkingHint = boolean | null
 
@@ -15,29 +24,17 @@ export function thinkingHintFromSessionUpdate(
         return null
     }
 
-    switch (update.sessionUpdate) {
-        case 'agent_message_chunk':
-        case 'agent_message':
-        case 'agent_thought_chunk':
-        case 'agent_thought':
-        case 'tool_call':
-        case 'tool_call_update':
-        case 'tool_call_content_chunk':
-        case 'plan':
-        case 'user_message':
-        case 'user_message_chunk':
-            return true
-        case 'state_update':
-            if (update.state === 'running' || update.state === 'requires_action') {
-                return true
-            }
-            if (update.state === 'idle') {
-                return false
-            }
-            return null
-        default:
-            return null
+    if (update.sessionUpdate !== 'state_update') {
+        return null
     }
+
+    if (update.state === 'idle') {
+        return false
+    }
+    if (update.state === 'running' || update.state === 'requires_action') {
+        return true
+    }
+    return null
 }
 
 /** @deprecated Prefer thinkingHintFromSessionUpdate; kept for call-site clarity in tests. */

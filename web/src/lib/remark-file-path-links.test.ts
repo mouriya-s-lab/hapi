@@ -48,14 +48,17 @@ describe('remarkFilePathLinks', () => {
         expect(links.map(linkedPath)).toEqual(['screenshot.png', 'README.md'])
     })
 
-    it('links Windows absolute paths so the session host can validate and read them', () => {
+    it('autolinks Windows absolute paths as hapi-file-candidate (backslash-safe through hast)', () => {
         const nodes = transform('Open C:\\Users\\dev\\project\\handoff.md and D:/work/app/src/main.ts:12')
         const links = nodes.filter((node) => node.type === 'link')
 
-        expect(links.map(linkedPath)).toEqual([
-            'C:\\Users\\dev\\project\\handoff.md',
-            'D:/work/app/src/main.ts'
+        expect(links.map((n) => n.url)).toEqual([
+            'hapi-file-candidate:' + encodeURIComponent('C:\\Users\\dev\\project\\handoff.md'),
+            'hapi-file-candidate:' + encodeURIComponent('D:/work/app/src/main.ts'),
         ])
+        for (const link of links) {
+            expect(decodeFilePathHref(link.url as string)).toBeNull()
+        }
     })
 
     it('does not link other absolute or parent paths', () => {
@@ -119,11 +122,12 @@ describe('remarkFilePathLinks — inlineCode', () => {
     it.each([
         'C:\\Users\\dev\\project\\handoff.md',
         'D:/work/app/src/main.ts:12'
-    ])('links Windows absolute inlineCode path %s', (value) => {
+    ])('autolinks Windows absolute inlineCode path %s as hapi-file-candidate', (value) => {
         const nodes = transformNodes([{ type: 'inlineCode', value }])
         const link = nodes.find((node) => node.type === 'link')!
-
-        expect(linkedPath(link)).toBe(value.replace(/:\d+(?::\d+)?$/, ''))
+        const expected = value.replace(/:\d+(?::\d+)?$/, '')
+        expect(link.url).toBe('hapi-file-candidate:' + encodeURIComponent(expected))
+        expect(decodeFilePathHref(link.url as string)).toBeNull()
         expect(link.children?.[0]?.type).toBe('inlineCode')
         expect(link.children?.[0]?.value).toBe(value)
     })
@@ -175,14 +179,29 @@ describe('remarkFilePathLinks — explicit markdown links', () => {
         expect(linkedPath(nodes.find((n) => n.type === 'link')!)).toBe('./diagram.mmd')
     })
 
+    it('rewrites a relative link with a #fragment, stripping it from the target', () => {
+        const nodes = transformNodes([linkNode('docs/foo.md#section')])
+        expect(linkedPath(nodes.find((n) => n.type === 'link')!)).toBe('docs/foo.md')
+    })
+
+    it('does not rewrite POSIX absolute file links (containment needs session cwd in <A>)', () => {
+        const nodes = transformNodes([linkNode('/home/ada/coding/hapi/docs/a.md')])
+        const link = nodes.find((n) => n.type === 'link')!
+        expect(decodeFilePathHref(link.url as string)).toBeNull()
+        expect(link.url).toBe('/home/ada/coding/hapi/docs/a.md')
+    })
+
     it.each([
         'C:\\Users\\dev\\project\\handoff.md',
-        'D:/work/app/src/main.ts:12'
-    ])('rewrites a Windows absolute file link %s', (url) => {
+        'D:/work/app/src/main.ts:12',
+        'D:/outside/secret.ts#L1',
+    ])('rewrites Windows absolute file link %s to hapi-file-candidate (not premature hapi-file)', (url) => {
         const nodes = transformNodes([linkNode(url)])
         const link = nodes.find((node) => node.type === 'link')!
-
-        expect(linkedPath(link)).toBe(url.replace(/:\d+(?::\d+)?$/, ''))
+        const withoutMeta = url.replace(/#.*$/, '').replace(/\?.*$/, '')
+        const expectedPath = withoutMeta.replace(/:\d+(?::\d+)?$/, '')
+        expect(decodeFilePathHref(link.url as string)).toBeNull()
+        expect(link.url).toBe('hapi-file-candidate:' + encodeURIComponent(expectedPath))
     })
 
     it.each([
@@ -190,6 +209,7 @@ describe('remarkFilePathLinks — explicit markdown links', () => {
         'mailto:dev@example.com',
         'obsidian://open?file=a.md',
         '/abs/path.md',
+        '/etc/passwd.sh',
         '~/home.md',
         '../escape.md',
         'foo:bar.md',

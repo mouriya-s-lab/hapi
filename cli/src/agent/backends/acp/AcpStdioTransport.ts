@@ -2,7 +2,13 @@ import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptions } from 'n
 import { logger } from '@/ui/logger';
 import { killProcessByChildProcess } from '@/utils/process';
 import { GEMINI_MODEL_PRESETS } from '@hapi/protocol';
-import { registerActiveAcpTransport, unregisterActiveAcpTransport } from './agentCliGuard';
+import {
+    describeAgentAcpGuardState,
+    getAgentAcpLockDir,
+    recordActiveAcpChildPid,
+    registerActiveAcpTransport,
+    unregisterActiveAcpTransport
+} from './agentCliGuard';
 import { matchesAcpHttp2Cancel, matchesAcpRetryBackoff } from './acpStderrErrors';
 
 interface JsonRpcRequest {
@@ -73,6 +79,8 @@ export class AcpStdioTransport {
     /** True after process 'exit'; blocks new writes until 'close' drains stderr. */
     private exited = false;
     private exitError: Error | null = null;
+    /** ACP child PID when known (for lock attribution / exit logs). */
+    private childPid: number | null = null;
 
     /** Rolling join window for stderr before close-time classification. */
     private static readonly RECENT_STDERR_WINDOW = 8_000;
@@ -85,6 +93,12 @@ export class AcpStdioTransport {
         env?: Record<string, string>;
     }) {
         this.shouldGuardAgentCli = options.command === 'agent';
+        // Register before spawn so runner/list-models cannot observe an unlocked
+        // window between process creation and lock write (#1472).
+        if (this.shouldGuardAgentCli) {
+            registerActiveAcpTransport();
+        }
+
         this.process = spawn(
             options.command,
             options.args ?? [],
@@ -92,7 +106,12 @@ export class AcpStdioTransport {
         ) as ChildProcessWithoutNullStreams;
 
         if (this.shouldGuardAgentCli) {
-            registerActiveAcpTransport();
+            const childPid = typeof this.process.pid === 'number' ? this.process.pid : null;
+            this.childPid = childPid;
+            if (childPid !== null) {
+                recordActiveAcpChildPid(childPid);
+            }
+            logger.debug('[ACP] agent CLI guard armed', describeAgentAcpGuardState(childPid));
         }
 
         this.process.stdout.setEncoding('utf8');
@@ -128,12 +147,24 @@ export class AcpStdioTransport {
 
         // Block new stdin writes as soon as the process exits, but defer markClosed
         // until 'close' so final stderr chunks can still enrich the failure.
+        // Do NOT release the agent CLI guard here — exit→close is exactly when
+        // list-models can race another `agent` and SIGTERM remaining ACP children.
         this.process.on('exit', (code, signal) => {
-            this.releaseAgentCliGuard();
             this.exited = true;
-            this.exitError = new Error(
-                `ACP process exited (code=${code ?? 'null'}, signal=${signal ?? 'null'})`
-            );
+            const attribution = this.formatExitAttribution(code, signal);
+            const guardState = describeAgentAcpGuardState(this.childPid);
+            logger.debug(`[ACP] process exit ${attribution}`, guardState);
+            if (guardState.childAlive === true) {
+                // Node reported exit, but the recorded ACP PID is still alive —
+                // likely a Cursor-internal worker/stdio quirk. Do not claim a
+                // definitive process death in the error string operators grep.
+                this.exitError = new Error(
+                    `ACP transport reported exit (${attribution}) but OS PID ${this.childPid} is still alive ` +
+                    `(lock=${getAgentAcpLockDir()}); treating as transport disruption, not confirmed child death`
+                );
+            } else {
+                this.exitError = new Error(`ACP process exited (${attribution})`);
+            }
         });
 
         // Use 'close' (not only 'exit') so final stderr chunks are drained before we
@@ -141,12 +172,17 @@ export class AcpStdioTransport {
         this.process.on('close', (code, signal) => {
             this.releaseAgentCliGuard();
             this.flushStderrParseBuffer();
+            const attribution = this.formatExitAttribution(code, signal);
+            const guardState = describeAgentAcpGuardState(this.childPid);
             const stderr = this.stderrForCloseError();
-            let message = `ACP process exited (code=${code ?? 'null'}, signal=${signal ?? 'null'})`;
+            let message = guardState.childAlive === true
+                ? `ACP transport closed (${attribution}) but OS PID ${this.childPid} is still alive ` +
+                  `(lock=${getAgentAcpLockDir()})`
+                : `ACP process exited (${attribution})`;
             if (stderr) {
                 message = `${message}. stderr: ${stderr}`;
             }
-            logger.debug(message);
+            logger.debug(message, guardState);
             const error = new Error(message);
             if (stderr) {
                 (error as Error & { stderr?: string }).stderr = stderr;
@@ -249,12 +285,23 @@ export class AcpStdioTransport {
         this.markClosed(new Error('ACP transport closed'));
     }
 
+    private formatExitAttribution(code: number | null, signal: NodeJS.Signals | null): string {
+        const base = `code=${code ?? 'null'}, signal=${signal ?? 'null'}`;
+        if (!this.shouldGuardAgentCli) {
+            return base;
+        }
+        const child = this.childPid ?? this.process.pid ?? 'unknown';
+        return `${base}, childPid=${child}, lock=${getAgentAcpLockDir()}`;
+    }
+
     private releaseAgentCliGuard(): void {
         if (!this.shouldGuardAgentCli || this.guardReleased) {
             return;
         }
         this.guardReleased = true;
-        unregisterActiveAcpTransport();
+        unregisterActiveAcpTransport(
+            this.childPid !== null ? { childPid: this.childPid } : undefined
+        );
     }
 
     private handleStdout(chunk: string): void {

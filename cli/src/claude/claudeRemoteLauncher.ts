@@ -368,6 +368,7 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
                     items: Array<{ message: string; localId?: string }>;
                     mode: EnhancedMode;
                     isolate: boolean;
+                    deliveredText: string;
                 };
                 // The `as InFlightMessage | null` (rather than plain `= null`)
                 // is required, not decorative: the only assignments of a
@@ -421,9 +422,14 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
                                 // mid-session model switch), so a construction-time snapshot
                                 // would go stale. See SDKToLogConverter.updateSelectedModel.
                                 sdkToLogConverter.updateSelectedModel(p.mode.model ?? null);
-                                inFlightMessage = { items: p.items, mode: p.mode, isolate: p.isolate };
                                 deliveredMessageThisAttempt = true;
-                                return { ...p, message: session.expandSkillReference(p.message) };
+                                const deliveredText = session.expandSkillReference(p.message)
+                                inFlightMessage = { items: p.items, mode: p.mode, isolate: p.isolate, deliveredText };
+                                session.client.notePendingHubPromptEcho(
+                                    deliveredText,
+                                    p.items.flatMap((item) => item.localId ? [item.localId] : [])
+                                )
+                                return { ...p, message: deliveredText };
                             }
 
                             let msg = await session.queue.waitForMessagesAndGetAsString(controller.signal);
@@ -451,10 +457,15 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
                                 mode = msg.mode;
                                 permissionHandler.handleModeChange(mode.permissionMode);
                                 sdkToLogConverter.updateSelectedModel(mode.model ?? null);
-                                inFlightMessage = { items: msg.items, mode: msg.mode, isolate: msg.isolate };
                                 deliveredMessageThisAttempt = true;
+                                const deliveredText = session.expandSkillReference(msg.message)
+                                inFlightMessage = { items: msg.items, mode: msg.mode, isolate: msg.isolate, deliveredText };
+                                session.client.notePendingHubPromptEcho(
+                                    deliveredText,
+                                    msg.items.flatMap((item) => item.localId ? [item.localId] : [])
+                                )
                                 return {
-                                    message: session.expandSkillReference(msg.message),
+                                    message: deliveredText,
                                     mode: msg.mode
                                 };
                             }
@@ -592,6 +603,14 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
                             // Reset the streak and keep the loop (and this OS
                             // process) alive so an unrelated later message
                             // gets its own fresh budget.
+                            for (const item of inFlightMessage?.items ?? []) {
+                                if (item.localId) {
+                                    session.client.discardPendingHubPromptEcho(item.localId)
+                                }
+                            }
+                            if (inFlightMessage?.deliveredText) {
+                                session.client.discardPendingHubPromptEchoText(inFlightMessage.deliveredText)
+                            }
                             inFlightMessage = null;
                             session.client.sendSessionEvent({
                                 type: 'message',

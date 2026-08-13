@@ -38,29 +38,26 @@ describe('resolveMessageDeliveryMode', () => {
         intent: 'default' as const,
     }
 
-    it('steers an immediate fresh Pi send while the main session is thinking', () => {
-        expect(resolveMessageDeliveryMode(base)).toBe('steer')
-    })
-
-    it('keeps an explicit queue gesture queued even while Pi is thinking', () => {
-        expect(resolveMessageDeliveryMode({ ...base, intent: 'queue' })).toBe('queue')
-    })
-
-    it('queues a failed steer retry even when a later Pi generation is active', () => {
-        const ref = { current: getRestoredComposerSendIntent('steer') }
-        const retryIntent = consumeComposerSendIntent(ref)
-
-        expect(resolveMessageDeliveryMode({ ...base, intent: retryIntent })).toBe('queue')
-        expect(ref.current).toBe('default')
-        expect(resolveMessageDeliveryMode({ ...base, intent: consumeComposerSendIntent(ref) })).toBe('steer')
-    })
-
+    // Every composer submission queues — mid-turn delivery happens only via
+    // the explicit per-queued-message Steer action (issue #1466). The old Pi
+    // automatic steer while thinking was removed.
     it.each([
+        { name: 'thinking Pi (previously auto-steered)', input: base },
+        { name: 'thinking Pi with explicit queue intent', input: { ...base, intent: 'queue' as const } },
         { name: 'idle Pi', input: { ...base, isSessionThinking: false } },
         { name: 'non-Pi flavor', input: { ...base, agentFlavor: 'codex' } },
         { name: 'scheduled message', input: { ...base, scheduledAt: Date.now() + 60_000 } },
         { name: 'scratchlist route', input: { ...base, routesToScratchlist: true } },
     ])('queues $name', ({ input }) => {
         expect(resolveMessageDeliveryMode(input)).toBe('queue')
+    })
+
+    it('keeps the retry-restore contract: a failed steer retry restores as queue', () => {
+        const ref = { current: getRestoredComposerSendIntent('steer') }
+        const retryIntent = consumeComposerSendIntent(ref)
+
+        expect(retryIntent).toBe('queue')
+        expect(ref.current).toBe('default')
+        expect(resolveMessageDeliveryMode({ ...base, intent: retryIntent })).toBe('queue')
     })
 })

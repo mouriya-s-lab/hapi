@@ -3,18 +3,11 @@ import { ApiError, type ApiClient, type TranscriptionCredentialStatus, type Tran
 import { useTranslation } from '@/lib/use-translation'
 import { SelectControl } from '@/components/ui/select-control'
 import { Button } from '@/components/ui/button'
+import { DICTATION_PROVIDER_PRESETS, dictationOnboardProviders, hasOpenAICompatibleCredentials, type DictationProviderPreset } from './transcriptionProviders'
 
-type DictationProvider = 'openai' | 'elevenlabs' | 'deepgram' | 'groq' | 'openai-compatible'
+type DictationProvider = DictationProviderPreset | 'deepgram' | 'openai-compatible'
 type AssistantProvider = 'elevenlabs' | 'gemini-live' | 'qwen-realtime'
 type CloudProvider = DictationProvider | AssistantProvider
-
-const DICTATION_PROVIDERS: DictationProvider[] = [
-    'openai',
-    'elevenlabs',
-    'deepgram',
-    'groq',
-    'openai-compatible',
-]
 
 const ASSISTANT_PROVIDERS: AssistantProvider[] = [
     'elevenlabs',
@@ -28,10 +21,10 @@ function providerLabel(provider: CloudProvider, t: (key: string) => string): str
             return 'OpenAI'
         case 'elevenlabs':
             return 'ElevenLabs'
-        case 'deepgram':
-            return 'Deepgram'
         case 'groq':
             return 'Groq'
+        case 'deepgram':
+            return 'Deepgram'
         case 'openai-compatible':
             return t('settings.voice.credentials.openaiCompatible')
         case 'gemini-live':
@@ -81,9 +74,8 @@ export function TranscriptionProviderOnboard(props: {
     onConfigured: () => void
 }) {
     const { t } = useTranslation()
-    const providers: CloudProvider[] = props.mode === 'assistant' ? ASSISTANT_PROVIDERS : DICTATION_PROVIDERS
     const [status, setStatus] = useState<TranscriptionCredentialStatus | null>(null)
-    const [provider, setProvider] = useState<CloudProvider>(providers[0]!)
+    const [provider, setProvider] = useState<CloudProvider>(props.mode === 'assistant' ? ASSISTANT_PROVIDERS[0]! : DICTATION_PROVIDER_PRESETS[0]!)
     const [apiKey, setApiKey] = useState('')
     const [baseUrl, setBaseUrl] = useState('')
     const [model, setModel] = useState('')
@@ -91,12 +83,27 @@ export function TranscriptionProviderOnboard(props: {
     const [error, setError] = useState<string | null>(null)
     const [message, setMessage] = useState<string | null>(null)
 
+    const providers: CloudProvider[] = props.mode === 'assistant'
+        ? ASSISTANT_PROVIDERS
+        : dictationOnboardProviders(
+            status?.deepgram.configured ?? false,
+            hasOpenAICompatibleCredentials(status)
+        )
+
     useEffect(() => {
-        setProvider(providers[0]!)
+        setProvider(props.mode === 'assistant' ? ASSISTANT_PROVIDERS[0]! : DICTATION_PROVIDER_PRESETS[0]!)
         setApiKey('')
         setError(null)
         setMessage(null)
     }, [props.mode])
+
+    // If the selected provider left the list (e.g. its credentials were cleared),
+    // fall back to the mode-appropriate first option.
+    useEffect(() => {
+        if (!providers.some((option) => option === provider)) {
+            setProvider(props.mode === 'assistant' ? ASSISTANT_PROVIDERS[0]! : DICTATION_PROVIDER_PRESETS[0]!)
+        }
+    }, [providers, provider, props.mode])
 
     const reload = useCallback(async () => {
         try {

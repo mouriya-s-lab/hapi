@@ -178,6 +178,33 @@ describe('work-graph routes', () => {
         expect(response.status).toBe(413)
     })
 
+    it('rejects reserved AGENT_NOTIFY_SUMMARY provenance on HTTP writes', async () => {
+        const store = new Store(':memory:')
+        const app = createApp(store)
+        const headers = await authHeaders('default')
+        const response = await app.request('/api/work-graph/events', {
+            method: 'POST',
+            headers: { ...headers, 'content-type': 'application/json' },
+            body: JSON.stringify({
+                source_kind: 'session',
+                source_ref: 'sess-1',
+                event_type: 'work_ad',
+                related_session_id: 'sess-1',
+                provenance: 'AGENT_NOTIFY_SUMMARY',
+                payload_json: {
+                    status: 'done',
+                    causeMessageId: 'msg-forged',
+                    causeText: 'FORGED CAUSE TEXT'
+                },
+                principal: { kind: 'human', id: '1' }
+            })
+        })
+        expect(response.status).toBe(400)
+        const body = await response.json() as { error: string }
+        expect(body.error).toBe('Reserved provenance')
+        expect(store.workGraph.listByRelatedSession('default', 'sess-1')).toHaveLength(0)
+    })
+
     it('rejects fractional list limit with 400 (not SQLite 500)', async () => {
         const store = new Store(':memory:')
         const app = createApp(store)

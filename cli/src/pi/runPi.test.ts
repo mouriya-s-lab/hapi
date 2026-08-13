@@ -1038,3 +1038,215 @@ describe('Pi prompt preparation', () => {
         }
     });
 });
+
+describe('Pi steer-queued-message RPC', () => {
+    beforeEach(() => {
+        harness.sent.length = 0;
+        harness.throwOnGetCommands = false;
+        harness.onError = null;
+        harness.onEvent = null;
+        harness.rpcHandlers.clear();
+        harness.session.rpcHandlerManager.registerHandler.mockReset();
+        harness.session.rpcHandlerManager.registerHandler.mockImplementation(
+            (method: string, handler: (payload: unknown) => Promise<unknown>) => {
+                harness.rpcHandlers.set(method, handler);
+            }
+        );
+        harness.session.onUserMessage.mockReset();
+        harness.session.emitMessagesConsumed.mockReset();
+        harness.session.sendSessionEvent.mockReset();
+        harness.session.updateMetadata.mockReset();
+        harness.killCount = 0;
+        harness.cleanupCount = 0;
+        vi.useFakeTimers();
+    });
+
+    // Startup helper used by the flow tests. Mirrors the existing "establishes
+    // the history baseline" test: the 30s ready fallback establishes the
+    // baseline first, then get_state reports the streaming state and the native
+    // preparation probe completes. Advancing timers explicitly (instead of
+    // letting vi.waitFor auto-advance) keeps the fallback from re-firing mid-test.
+    async function startReadySession(streaming: boolean): Promise<{ running: Promise<void> }> {
+        const running = runPi({ workingDirectory: '/work' });
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(31_000);
+        await completeHistoryBaseline();
+        harness.onEvent!({
+            type: 'response', command: 'get_state', success: true,
+            data: { sessionId: 'pi-session', sessionFile: '/tmp/pi-session.jsonl', ...(streaming ? { isStreaming: true } : {}) },
+        });
+        await completeHistoryProbe();
+        await vi.advanceTimersByTimeAsync(0);
+        return { running };
+    }
+
+    it('registers the steer-queued-message RPC handler', async () => {
+        const { running } = await startReadySession(false);
+
+        expect(harness.rpcHandlers.has(RPC_METHODS.SteerQueuedMessage)).toBe(true);
+
+        harness.onError?.(new Error('stop test transport'));
+        await running;
+    });
+
+    it('requires a localId', async () => {
+        const { running } = await startReadySession(false);
+
+        const handler = harness.rpcHandlers.get(RPC_METHODS.SteerQueuedMessage)!;
+        const result = await handler({});
+
+        expect(result).toEqual({ steered: false, error: 'localId is required' });
+
+        harness.onError?.(new Error('stop test transport'));
+        await running;
+    });
+
+    it('promotes a queued message into the active turn while Pi is streaming', async () => {
+        const { running } = await startReadySession(true);
+
+        // Pi reports a streaming turn: the prompt pump stays blocked, so the
+        // message waits in the queue instead of being sent as a prompt.
+        const onUserMessage = harness.session.onUserMessage.mock.calls.at(-1)![0] as (
+            message: { role: 'user'; content: { type: 'text'; text: string } },
+            localId: string
+        ) => void;
+        onUserMessage({ role: 'user', content: { type: 'text', text: 'steer me' } }, 'steer-local');
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(harness.sent).not.toContainEqual(expect.objectContaining({ type: 'prompt', message: 'steer me' }));
+
+        const handler = harness.rpcHandlers.get(RPC_METHODS.SteerQueuedMessage)!;
+        const result = await handler({ localId: 'steer-local' });
+
+        expect(result).toEqual({ steered: true });
+
+        // The native steer reaches Pi stdin and is acked once Pi confirms it.
+        await vi.advanceTimersByTimeAsync(0);
+        const steer = harness.sent.find((item) => (item as { type?: string }).type === 'steer') as
+            { id: string; message: string } | undefined;
+        expect(steer?.message).toBe('steer me');
+        harness.onEvent!({ type: 'response', id: steer!.id, command: 'steer', success: true });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(harness.session.emitMessagesConsumed).toHaveBeenCalledWith(['steer-local'], undefined);
+
+        harness.onError?.(new Error('stop test transport'));
+        await running;
+    });
+
+    it('rejects a steer when the message is not queued (already dispatched)', async () => {
+        const { running } = await startReadySession(false);
+
+        // Idle Pi: the pump dispatches the message as a normal prompt right away.
+        const onUserMessage = harness.session.onUserMessage.mock.calls.at(-1)![0] as (
+            message: { role: 'user'; content: { type: 'text'; text: string } },
+            localId: string
+        ) => void;
+        onUserMessage({ role: 'user', content: { type: 'text', text: 'prompt me' } }, 'prompt-local');
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(harness.sent).toContainEqual(expect.objectContaining({ type: 'prompt', message: 'prompt me' }));
+
+        const handler = harness.rpcHandlers.get(RPC_METHODS.SteerQueuedMessage)!;
+        const result = await handler({ localId: 'prompt-local' });
+
+        expect(result).toEqual({ steered: false, error: 'Message not found or already dispatched' });
+        expect(harness.sent.filter((item) => (item as { type?: string }).type === 'steer')).toHaveLength(0);
+
+        harness.onError?.(new Error('stop test transport'));
+        await running;
+    });
+
+    it('defers a steer requested while the message is still preparing, then steers after preparation', async () => {
+        const { running } = await startReadySession(true);
+
+        const onUserMessage = harness.session.onUserMessage.mock.calls.at(-1)![0] as (
+            message: { role: 'user'; content: { type: 'text'; text: string } },
+            localId: string
+        ) => void;
+        const handler = harness.rpcHandlers.get(RPC_METHODS.SteerQueuedMessage)!;
+
+        // The handler registers the localId in preparingLocalIds synchronously;
+        // call the steer RPC before the preparation microtask completes so the
+        // message is still "preparing".
+        onUserMessage({ role: 'user', content: { type: 'text', text: 'attach me' } }, 'attach-local');
+        const result = await handler({ localId: 'attach-local' });
+
+        expect(result).toEqual({ steered: true });
+        expect(harness.sent.filter((item) => (item as { type?: string }).type === 'steer')).toHaveLength(0);
+
+        // Preparation completes and the pending steer is promoted into the turn.
+        await vi.advanceTimersByTimeAsync(0);
+        const steer = harness.sent.find((item) => (item as { type?: string }).type === 'steer') as
+            { id: string; message: string } | undefined;
+        expect(steer?.message).toBe('attach me');
+        harness.onEvent!({ type: 'response', id: steer!.id, command: 'steer', success: true });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(harness.session.emitMessagesConsumed).toHaveBeenCalledWith(['attach-local'], undefined);
+
+        harness.onError?.(new Error('stop test transport'));
+        await running;
+    });
+
+    it('steers into the generation captured at request time, not one that started mid-preparation', async () => {
+        const { running } = await startReadySession(true);
+
+        const onUserMessage = harness.session.onUserMessage.mock.calls.at(-1)![0] as (
+            message: { role: 'user'; content: { type: 'text'; text: string } },
+            localId: string
+        ) => void;
+        const handler = harness.rpcHandlers.get(RPC_METHODS.SteerQueuedMessage)!;
+
+        // Request the steer while the message is still preparing (generation G1).
+        onUserMessage({ role: 'user', content: { type: 'text', text: 'rollover me' } }, 'rollover-local');
+        const result = await handler({ localId: 'rollover-local' });
+        expect(result).toEqual({ steered: true });
+        expect(harness.sent.filter((item) => (item as { type?: string }).type === 'steer')).toHaveLength(0);
+
+        // G1 ends and G2 starts while the message is still preparing.
+        const state = { sessionId: 'pi-session', sessionFile: '/tmp/pi-session.jsonl' };
+        harness.onEvent!({ type: 'response', command: 'get_state', success: true, data: { ...state, isStreaming: false } });
+        harness.onEvent!({ type: 'response', command: 'get_state', success: true, data: { ...state, isStreaming: true } });
+
+        // Preparation completes; the dispatcher sees generation G2 != captured
+        // G1 and degrades the message to the prompt FIFO instead of steering it.
+        await vi.advanceTimersByTimeAsync(0);
+        expect(harness.sent.filter((item) => (item as { type?: string }).type === 'steer')).toHaveLength(0);
+        expect(harness.session.emitMessagesConsumed).not.toHaveBeenCalledWith(['rollover-local'], undefined);
+
+        // Once G2 settles, the FIFO delivers the message as a normal prompt.
+        harness.onEvent!({ type: 'response', command: 'get_state', success: true, data: { ...state, isStreaming: false } });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(harness.sent).toContainEqual(expect.objectContaining({ type: 'prompt', message: 'rollover me' }));
+
+        harness.onError?.(new Error('stop test transport'));
+        await running;
+    });
+
+    it('drops a deferred steer when the message is cancelled while preparing', async () => {
+        const { running } = await startReadySession(true);
+
+        const onUserMessage = harness.session.onUserMessage.mock.calls.at(-1)![0] as (
+            message: { role: 'user'; content: { type: 'text'; text: string } },
+            localId: string
+        ) => void;
+        const handler = harness.rpcHandlers.get(RPC_METHODS.SteerQueuedMessage)!;
+
+        onUserMessage({ role: 'user', content: { type: 'text', text: 'cancel me' } }, 'cancel-local');
+        const result = await handler({ localId: 'cancel-local' });
+        expect(result).toEqual({ steered: true });
+
+        // Cancellation wins over the deferred steer (checked first in the chain).
+        const onCancelQueuedMessage = harness.session.onCancelQueuedMessage.mock.calls.at(-1)![0] as (localId: string) => boolean;
+        expect(onCancelQueuedMessage('cancel-local')).toBe(true);
+
+        // Preparation completes: the message is dropped — never steered, never
+        // sent as a prompt, never consumed (the hub deletes the row instead).
+        await vi.advanceTimersByTimeAsync(0);
+        expect(harness.sent.filter((item) => (item as { type?: string }).type === 'steer')).toHaveLength(0);
+        expect(harness.sent.filter((item) => (item as { type?: string }).type === 'prompt')).toHaveLength(0);
+        expect(harness.session.emitMessagesConsumed).not.toHaveBeenCalled();
+
+        harness.onError?.(new Error('stop test transport'));
+        await running;
+    });
+});

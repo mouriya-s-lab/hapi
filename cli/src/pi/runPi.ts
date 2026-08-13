@@ -355,6 +355,16 @@ export async function runPi(opts: {
     const promptQueue = new PiPromptQueue();
     const preparingLocalIds = new Set<string>();
     const cancelledWhilePreparing = new Set<string>();
+    // LocalIds whose owner pressed Steer while image preparation was still in
+    // flight, mapped to the streaming generation observed at request time.
+    // Checked after preparation completes, before normal FIFO routing, so an
+    // explicit steer request is never lost to the queue (and cancel still wins
+    // over it because cancellation is checked earlier in the chain). The
+    // captured generation matters: if the original turn ends and a new one
+    // starts while the message is preparing, the dispatcher's mismatch check
+    // degrades the message to the prompt FIFO instead of steering into a turn
+    // the operator never targeted.
+    const steerPendingWhilePreparing = new Map<string, number>();
     let preparationChain = Promise.resolve();
     let promptCommandInFlight = false;
     let abortInFlight = false;
@@ -553,6 +563,47 @@ export async function runPi(opts: {
             throw error;
         }
     });
+    // --- Steer-queued-message RPC ---
+    // Delivers one queued message into the active Pi turn (native steer). The
+    // web shows a per-message Steer button only while Pi is thinking; the hub
+    // gates flavor/remote/scheduled before reaching this handler. Messages
+    // still being prepared are marked for steering and promoted right after
+    // preparation completes, so the request is never lost to the FIFO.
+    apiSession.rpcHandlerManager.registerHandler(RPC_METHODS.SteerQueuedMessage, async (payload: unknown) => {
+        const localId = payload && typeof payload === 'object'
+            && typeof (payload as { localId?: unknown }).localId === 'string'
+            ? (payload as { localId: string }).localId
+            : undefined;
+        if (!localId) {
+            return { steered: false, error: 'localId is required' };
+        }
+        if (preparingLocalIds.has(localId)) {
+            const generation = piSession.currentStreamingGeneration;
+            if (!piSession.isReady || generation === null) {
+                return { steered: false, error: 'Session is not streaming' };
+            }
+            steerPendingWhilePreparing.set(localId, generation);
+            return { steered: true };
+        }
+        if (!steerDispatcher) {
+            return { steered: false, error: 'Steering is not ready' };
+        }
+        const entry = promptQueue.removeByLocalId(localId);
+        if (!entry) {
+            return { steered: false, error: 'Message not found or already dispatched' };
+        }
+        // Only steer into a live Pi generation. Otherwise restore the entry to
+        // its FIFO position (enqueue re-orders by outboundSequence) and let the
+        // normal pump deliver it when the agent settles.
+        const currentGeneration = piSession.currentStreamingGeneration;
+        if (!piSession.isReady || currentGeneration === null) {
+            promptQueue.enqueue(entry);
+            return { steered: false, error: 'Session is not streaming' };
+        }
+        steerDispatcher.enqueue({ ...entry, targetStreamingGeneration: currentGeneration });
+        return { steered: true };
+    });
+
     apiSession.rpcHandlerManager.registerHandler(RPC_METHODS.RewindConversation, async (payload: unknown) => {
         if (!payload || typeof payload !== 'object' || typeof (payload as { messageLocalId?: unknown }).messageLocalId !== 'string') {
             throw new Error('messageLocalId is required');
@@ -788,6 +839,13 @@ export async function runPi(opts: {
             };
             if (deliveryMode === 'steer') {
                 steerDispatcher?.enqueue({ ...entry, targetStreamingGeneration });
+            } else if (localId && steerPendingWhilePreparing.has(localId)) {
+                // The user pressed Steer while this message was still preparing.
+                // Promote it into the turn observed at request time; if that
+                // turn already ended, the dispatcher degrades it to the FIFO.
+                const targetGeneration = steerPendingWhilePreparing.get(localId)!;
+                steerPendingWhilePreparing.delete(localId);
+                steerDispatcher?.enqueue({ ...entry, targetStreamingGeneration: targetGeneration });
             } else {
                 promptQueue.enqueue(entry);
                 pumpPromptQueue();
@@ -800,6 +858,13 @@ export async function runPi(opts: {
             if (localId && !wasCancelled) {
                 piSession.emitMessagesConsumed([localId], { clearQueuedThinkingGrace: true });
             }
+        }).finally(() => {
+            // Deferred-steer bookkeeping must not outlive the message it refers
+            // to: the promotion path already deletes it, and every early exit
+            // (cancellation before/after preparation, empty prepared message,
+            // preparation failure) lands here. A stale entry could misroute a
+            // later reuse of the same localId.
+            if (localId) steerPendingWhilePreparing.delete(localId);
         });
     });
 

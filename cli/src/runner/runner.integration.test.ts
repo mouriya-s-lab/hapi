@@ -3,16 +3,21 @@
  * 
  * Tests the full flow of runner startup, session tracking, and shutdown
  * 
- * IMPORTANT: These tests MUST be run with the integration test environment:
- * yarn test:integration-test-env
+ * IMPORTANT: These tests spawn real detached runner/session process trees
+ * and MUST be run through the dedicated serial integration project:
  * 
- * DO NOT run with regular 'npm test' or 'yarn test' - it will use the wrong environment
- * and the runner will not work properly!
+ *   bun run test:integration            (runner lifecycle coverage)
+ *   bun run test:integration:stress     (+ the 20-session stress test)
  * 
- * The integration test environment uses .env.integration-test which sets:
- * - HAPI_HOME=~/.hapi-dev-test (DIFFERENT from dev's ~/.hapi-dev!)
- * - HAPI_API_URL=http://localhost:3006 (local hapi-hub)
- * - CLI_API_TOKEN=... (must match the hub)
+ * They are EXCLUDED from the default parallel unit-test suite
+ * (`bun run test` / `vitest run`) — see vitest.config.ts and
+ * vitest.integration.config.ts. Every process the suite spawns is registered
+ * with testProcessRegistry immediately after spawn, so even a failing or
+ * interrupted test still reaps its children (two-stage: logical stop first,
+ * then bounded process-tree termination). The final audit lives in
+ * globalSetup teardown and fails the run if any test-owned process survives.
+ * 
+ * The 20-session stress test is opt-in via HAPI_RUN_STRESS_TESTS=true.
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
@@ -33,6 +38,9 @@ import { Metadata } from '@/api/types';
 import { spawnHappyCLI } from '@/utils/spawnHappyCLI';
 import { getLatestRunnerLog } from '@/ui/logger';
 import { isProcessAlive, isWindows, killProcess, killProcessByChildProcess } from '@/utils/process';
+import { buildTestChildEnv, testOwnedMarker } from '@/test/integrationEnv';
+import { trackChildProcess, trackRunnerPid, trackSession, cleanupAllRegisteredProcesses } from '@/test/processRegistry';
+import { findTestOwnedProcesses, reapTestOwnedProcesses } from '@/test/auditTestProcesses';
 
 // Utility to wait for condition
 async function waitFor(
@@ -101,20 +109,38 @@ describe.skipIf(!await isServerHealthy())('Runner Integration Tests', { timeout:
 
   let runnerPid: number;
 
+  /** Spawn a runner session and register it in the test-owned registry immediately. */
+  async function spawnTrackedSession(directory: string, sessionId?: string): Promise<any> {
+    const response = await spawnRunnerSession(directory, sessionId);
+    if (response?.sessionId) {
+      trackSession(response.sessionId, `runner-session:${response.sessionId}`);
+    }
+    return response;
+  }
+
   beforeEach(async () => {
     // First ensure no runner is running by checking PID in metadata file
     await stopRunner()
     
     // Start fresh runner for this test
     // This will return and start a background process - we don't need to wait for it
-    void spawnHappyCLI(['runner', 'start'], {
-      stdio: 'ignore'
+    const runnerLauncher = spawnHappyCLI(['runner', 'start'], {
+      stdio: 'ignore',
+      // Test-scoped env: neutralizes any outer HAPI/pi session identity and
+      // stamps every child with the run's unique test marker.
+      env: buildTestChildEnv()
     });
+    // Register immediately after spawn so cleanup runs even if this test fails
+    // before reaching its happy-path teardown.
+    trackChildProcess(runnerLauncher, 'runner-launcher');
     
     // Wait for runner to write its state file (it needs to auth, setup, and start server)
+    // Also require the PID to actually be alive: a SIGKILLed runner (or a
+    // crashed one) can leave a stale runner.state.json behind, and reading it
+    // as "started" would make every control call in the test body fail.
     await waitFor(async () => {
       const state = await readRunnerState();
-      return state !== null;
+      return state !== null && isProcessAlive(state.pid);
     }, 10_000, 250); // Wait up to 10 seconds, checking every 250ms
     
     const runnerState = await readRunnerState();
@@ -122,14 +148,46 @@ describe.skipIf(!await isServerHealthy())('Runner Integration Tests', { timeout:
       throw new Error('Runner failed to start within timeout');
     }
     runnerPid = runnerState.pid;
+    trackRunnerPid(runnerPid, 'runner');
     await waitFor(async () => existsSync(runnerSkillPath), 5_000, 50);
 
     console.log(`[TEST] Runner started for test: PID=${runnerPid}`);
     console.log(`[TEST] Runner log file: ${runnerState?.runnerLogPath}`);
   });
 
+  /** Bounded wrapper around the graceful runner stop. */
+  async function stopRunnerBounded(): Promise<void> {
+    // stopRunner()'s HTTP stop can burn the worker-wide 60s timeout
+    // (HAPI_RUNNER_HTTP_TIMEOUT) on a hung-but-live runner, which would
+    // exhaust the hook budget before the marker sweep runs. Bound it: if the
+    // runner does not stop in time, the sweep below force-reaps it (it
+    // carries the run marker) and the next beforeEach's alive-PID guard
+    // ignores any stale state file.
+    await Promise.race([stopRunner(), new Promise((resolve) => setTimeout(resolve, 10_000))])
+  }
+
   afterEach(async () => {
-    await stopRunner()
+    // Two-stage cleanup must run BEFORE stopRunner() so the runner is still
+    // alive to logically stop tracked sessions and report their PIDs.
+    await cleanupAllRegisteredProcesses()
+    // Graceful stop (the runner removes its own state file), bounded so a
+    // hung runner cannot starve the sweep below.
+    await stopRunnerBounded()
+    // Marker sweep: sessions/agents can reparent to PID 1 before the registry
+    // tree-kill runs, so reap anything still carrying the run's test marker
+    // (same audit globalSetup teardown performs at the end of the run). This
+    // runs unconditionally and its survivors are verified, never ignored.
+    const leftovers = await reapTestOwnedProcesses(testOwnedMarker())
+    expect(
+      leftovers,
+      'test-owned processes survived the marker sweep'
+    ).toEqual([]);
+  });
+
+  afterAll(async () => {
+    await cleanupAllRegisteredProcesses()
+    await stopRunnerBounded()
+    await reapTestOwnedProcesses(testOwnedMarker())
   });
 
   it('should list sessions (initially empty)', async () => {
@@ -164,7 +222,7 @@ describe.skipIf(!await isServerHealthy())('Runner Integration Tests', { timeout:
   });
 
   it('should spawn & stop a session via HTTP (not testing RPC route, but similar enough)', async () => {
-    const response = await spawnRunnerSession('/tmp', 'spawned-test-456');
+    const response = await spawnTrackedSession('/tmp', 'spawned-test-456');
 
     expect(response).toHaveProperty('success', true);
     expect(response).toHaveProperty('sessionId');
@@ -185,28 +243,32 @@ describe.skipIf(!await isServerHealthy())('Runner Integration Tests', { timeout:
     expect(await stopRunnerSession('unknown-session-id')).toBe('still_alive');
   });
 
-  it('stress test: spawn / stop', { timeout: 60_000 }, async () => {
-    const promises = [];
-    const sessionCount = 20;
-    for (let i = 0; i < sessionCount; i++) {
-      promises.push(spawnRunnerSession('/tmp'));
+  it.skipIf(process.env.HAPI_RUN_STRESS_TESTS !== 'true')(
+    'stress test: spawn / stop (opt-in via HAPI_RUN_STRESS_TESTS=true)',
+    { timeout: 60_000 },
+    async () => {
+      const promises = [];
+      const sessionCount = 20;
+      for (let i = 0; i < sessionCount; i++) {
+        promises.push(spawnTrackedSession('/tmp'));
+      }
+
+      // Wait for all sessions to be spawned
+      const results = await Promise.all(promises);
+      const sessionIds = results.map(r => r.sessionId);
+
+      const sessions = await listRunnerSessions();
+      expect(sessions).toHaveLength(sessionCount);
+
+      // Stop all sessions
+      const stopResults = await Promise.all(sessionIds.map(sessionId => stopRunnerSession(sessionId)));
+      expect(stopResults.every(r => r === 'stopped' || r === 'already_gone'), 'Not all sessions reported stopped').toBe(true);
+
+      // Verify all sessions are stopped
+      const emptySessions = await listRunnerSessions();
+      expect(emptySessions).toHaveLength(0);
     }
-
-    // Wait for all sessions to be spawned
-    const results = await Promise.all(promises);
-    const sessionIds = results.map(r => r.sessionId);
-
-    const sessions = await listRunnerSessions();
-    expect(sessions).toHaveLength(sessionCount);
-
-    // Stop all sessions
-    const stopResults = await Promise.all(sessionIds.map(sessionId => stopRunnerSession(sessionId)));
-    expect(stopResults.every(r => r === 'stopped' || r === 'already_gone'), 'Not all sessions reported stopped').toBe(true);
-
-    // Verify all sessions are stopped
-    const emptySessions = await listRunnerSessions();
-    expect(emptySessions).toHaveLength(0);
-  });
+  );
 
   it('should handle runner stop request gracefully', async () => {    
     await stopRunnerHttp();
@@ -223,8 +285,11 @@ describe.skipIf(!await isServerHealthy())('Runner Integration Tests', { timeout:
     ], {
       cwd: '/tmp',
       detached: true,
-      stdio: 'ignore'
+      stdio: 'ignore',
+      env: buildTestChildEnv()
     });
+    // Register immediately after spawn so cleanup runs even on failure.
+    trackChildProcess(terminalHappyProcess, 'terminal-session');
     if (!terminalHappyProcess || !terminalHappyProcess.pid) {
       throw new Error('Failed to spawn terminal hapi process');
     }
@@ -232,7 +297,7 @@ describe.skipIf(!await isServerHealthy())('Runner Integration Tests', { timeout:
     await new Promise(resolve => setTimeout(resolve, 5_000));
 
     // Spawn a runner session
-    const spawnResponse = await spawnRunnerSession('/tmp', 'runner-session-bbb');
+    const spawnResponse = await spawnTrackedSession('/tmp', 'runner-session-bbb');
 
     // List all sessions
     const sessions = await listRunnerSessions();
@@ -266,7 +331,7 @@ describe.skipIf(!await isServerHealthy())('Runner Integration Tests', { timeout:
 
   it('should update session metadata when webhook is called', async () => {
     // Spawn a session
-    const spawnResponse = await spawnRunnerSession('/tmp');
+    const spawnResponse = await spawnTrackedSession('/tmp');
 
     // Verify webhook was processed (session ID updated)
     const sessions = await listRunnerSessions();
@@ -282,9 +347,11 @@ describe.skipIf(!await isServerHealthy())('Runner Integration Tests', { timeout:
     // Try to start another runner
     const secondChild = spawn('bun', ['src/index.ts', 'runner', 'start-sync'], {
       cwd: process.cwd(),
-      env: process.env,
+      env: buildTestChildEnv(),
       stdio: ['ignore', 'pipe', 'pipe']
     });
+    // Register immediately so the registry can reap it if the test fails.
+    trackChildProcess(secondChild, 'second-runner');
 
     let output = '';
     secondChild.stdout?.on('data', (data) => {
@@ -308,7 +375,7 @@ describe.skipIf(!await isServerHealthy())('Runner Integration Tests', { timeout:
     const promises = [];
     for (let i = 0; i < 3; i++) {
       promises.push(
-        spawnRunnerSession('/tmp')
+        spawnTrackedSession('/tmp')
       );
     }
 
@@ -482,6 +549,72 @@ describe.skipIf(!await isServerHealthy())('Runner Integration Tests', { timeout:
 
       // No rebuild needed with bun (TypeScript is run directly).
     }
+  });
+
+  /**
+   * Regression coverage for issue #1515: a test that never reaches its own
+   * happy-path cleanup must not leak the detached children it registered at
+   * spawn time. The child is tracked immediately after spawn; the test body
+   * then runs ONLY the spawn-time registered cleanup and asserts the child is
+   * gone.
+   *
+   * A deliberately-failing (`it.fails`) variant would be weaker here: Vitest
+   * applies the expected-failure inversion after afterEach, so a broken
+   * registry assertion inside the hook would be masked as "expected". A
+   * normal test asserts directly.
+   */
+  it('regression: registered detached child is reaped even when the test body never reaches its own cleanup', async () => {
+    const child = spawnHappyCLI([
+      '--hapi-starting-mode', 'remote',
+      '--started-by', 'terminal'
+    ], {
+      cwd: '/tmp',
+      detached: true,
+      stdio: 'ignore',
+      env: buildTestChildEnv()
+    });
+    // Register immediately after spawn — cleanup must run even though this
+    // test deliberately performs no per-test teardown of its own.
+    trackChildProcess(child, 'regression-terminal');
+    if (!child.pid) {
+      throw new Error('Failed to spawn regression terminal hapi process');
+    }
+
+    // Give the detached child time to fully start (including its agent
+    // probes), so a leak would be real and observable. Require the fixture to
+    // actually be alive: if it exited on its own, the registry exit listener
+    // would remove it and the dead assertion below would pass vacuously.
+    await new Promise(resolve => setTimeout(resolve, 2_000));
+    expect(
+      isProcessAlive(child.pid),
+      'regression fixture exited before cleanup — test is vacuous'
+    ).toBe(true);
+
+    // Simulate the failure path: only the spawn-time registered cleanup runs.
+    await cleanupAllRegisteredProcesses()
+    expect(
+      isProcessAlive(child.pid),
+      'registered detached child survived registry cleanup'
+    ).toBe(false);
+  });
+
+  it('regression: final audit finds zero test-owned processes after the reaping regression test', async () => {
+    // The runner from this test's beforeEach legitimately spawns model-catalog
+    // probe children (agent --list-models / agent acp) at startup; stopping
+    // it orphans them with the run marker. Reap first to clear that noise,
+    // then INSPECT: anything still marked at this point is a genuine survivor
+    // the reaper could not remove within its bounded window and must fail the
+    // suite (same audit globalSetup teardown performs at the end of the run).
+    // Killable leaks from the reaping regression test are already gone here:
+    // its direct child is asserted dead in the test body, and its afterEach
+    // sweep re-kills for its full bounded window.
+    await stopRunnerBounded()
+    await reapTestOwnedProcesses(testOwnedMarker())
+    const leftovers = findTestOwnedProcesses(testOwnedMarker());
+    expect(
+      leftovers,
+      'test-owned processes survived the bounded reaper — cleanup guarantee broken'
+    ).toEqual([]);
   });
 
   // TODO: Add a test to see if a corrupted file will work

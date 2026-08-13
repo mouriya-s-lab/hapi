@@ -17,12 +17,12 @@ describe('thinkingHintFromSessionUpdate', () => {
         'user_message',
         'user_message_chunk',
         'tool_call_content_chunk',
-    ] as const)('returns true for activity type %s', (sessionUpdate) => {
-        expect(thinkingHintFromSessionUpdate({ sessionUpdate })).toBe(true)
-        expect(shouldBumpThinkingFromSessionUpdate({ sessionUpdate })).toBe(true)
+    ] as const)('ignores background/content type %s (not foreground state)', (sessionUpdate) => {
+        expect(thinkingHintFromSessionUpdate({ sessionUpdate })).toBeNull()
+        expect(shouldBumpThinkingFromSessionUpdate({ sessionUpdate })).toBe(false)
     })
 
-    it('returns true for ACP v2 state_update running / requires_action', () => {
+    it('returns true for state_update running/requires_action (debounced in backend)', () => {
         expect(thinkingHintFromSessionUpdate({
             sessionUpdate: 'state_update',
             state: 'running',
@@ -31,9 +31,13 @@ describe('thinkingHintFromSessionUpdate', () => {
             sessionUpdate: 'state_update',
             state: 'requires_action',
         })).toBe(true)
+        expect(shouldBumpThinkingFromSessionUpdate({
+            sessionUpdate: 'state_update',
+            state: 'running',
+        })).toBe(true)
     })
 
-    it('returns false for ACP v2 state_update idle', () => {
+    it('returns false for state_update idle so mid-idle wakes can clear', () => {
         expect(thinkingHintFromSessionUpdate({
             sessionUpdate: 'state_update',
             state: 'idle',

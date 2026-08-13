@@ -36,6 +36,19 @@ export class PiPromptQueue {
         return true;
     }
 
+    /**
+     * Remove and return a queued entry by localId — used to promote a message
+     * into the active turn (explicit steer). Returns undefined when the entry
+     * is absent (already dispatched, cancelled, or still preparing).
+     */
+    removeByLocalId(localId: string): PiPreparedPrompt | undefined {
+        if (!localId) return undefined;
+        const index = this.entries.findIndex((entry) => entry.localId === localId);
+        if (index === -1) return undefined;
+        const [entry] = this.entries.splice(index, 1);
+        return entry;
+    }
+
     get size(): number {
         return this.entries.length;
     }

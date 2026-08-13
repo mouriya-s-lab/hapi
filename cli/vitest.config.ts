@@ -6,6 +6,14 @@ export default defineConfig({
         globals: false,
         environment: 'node',
         include: ['src/**/*.test.ts'],
+        exclude: [
+            // Runner integration tests spawn real detached runner/session
+            // process trees and must run serially through the dedicated
+            // integration project (`bun run test:integration`, see
+            // vitest.integration.config.ts), not inside the parallel
+            // unit-test suite.
+            '**/runner.integration.test.ts',
+        ],
         globalSetup: './src/test/globalSetup.ts',
         setupFiles: './src/test/setup.ts',
         coverage: {

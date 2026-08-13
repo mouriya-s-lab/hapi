@@ -107,12 +107,7 @@ describe('UnifiedButton — routesToScratchlist visual state', () => {
     })
 })
 
-describe('UnifiedButton — touch queue gesture', () => {
-    afterEach(() => {
-        cleanup()
-        vi.useRealTimers()
-    })
-
+describe('UnifiedButton — default send intent', () => {
     function renderSendButton(overrides: Partial<ComponentProps<typeof UnifiedButton>> = {}) {
         const onSend = vi.fn()
         renderInProviders(
@@ -123,7 +118,6 @@ describe('UnifiedButton — touch queue gesture', () => {
                 controlsDisabled={false}
                 onSend={onSend}
                 onVoiceToggle={() => {}}
-                allowQueueGesture
                 {...overrides}
             />,
         )
@@ -146,40 +140,6 @@ describe('UnifiedButton — touch queue gesture', () => {
         expect(onSend).toHaveBeenCalledWith('default')
     })
 
-    it('uses queue only for a mobile touch long-press and suppresses its native click', () => {
-        vi.useFakeTimers()
-        const { onSend, button } = renderSendButton()
-
-        fireEvent.touchStart(button, { touches: [{ clientX: 10, clientY: 10 }] })
-        act(() => vi.advanceTimersByTime(500))
-        fireEvent.touchEnd(button, { changedTouches: [{ clientX: 10, clientY: 10 }] })
-        fireEvent.click(button, { detail: 1 })
-
-        expect(onSend).toHaveBeenCalledOnce()
-        expect(onSend).toHaveBeenCalledWith('queue')
-
-        fireEvent.click(button, { detail: 1 })
-        expect(onSend).toHaveBeenCalledTimes(2)
-        expect(onSend).toHaveBeenLastCalledWith('default')
-    })
-
-    it('keeps keyboard and assistive send activation after a long touch has no compatibility click', () => {
-        vi.useFakeTimers()
-        const { onSend, button } = renderSendButton()
-
-        fireEvent.touchStart(button, { touches: [{ clientX: 10, clientY: 10 }] })
-        act(() => vi.advanceTimersByTime(500))
-        fireEvent.touchEnd(button, { changedTouches: [{ clientX: 10, clientY: 10 }] })
-
-        // The browser does not emit its touch compatibility click. A detail-0
-        // click is the native keyboard/assistive activation path.
-        fireEvent.click(button, { detail: 0 })
-
-        expect(onSend).toHaveBeenCalledTimes(2)
-        expect(onSend).toHaveBeenNthCalledWith(1, 'queue')
-        expect(onSend).toHaveBeenNthCalledWith(2, 'default')
-    })
-
     it('keeps touch tap, desktop mouse hold, and desktop right-click on normal behavior', () => {
         vi.useFakeTimers()
         const { onSend, button } = renderSendButton()
@@ -198,22 +158,6 @@ describe('UnifiedButton — touch queue gesture', () => {
         expect(onSend).toHaveBeenNthCalledWith(1, 'default')
         expect(onSend).toHaveBeenNthCalledWith(2, 'default')
         expect(contextMenuWasNotPrevented).toBe(true)
-    })
-
-    it.each([
-        ['voice is active', { voiceStatus: 'connected' as const }],
-        ['scratchlist route is active', { routesToScratchlist: true }],
-        ['queue gesture is disabled', { allowQueueGesture: false }],
-    ])('does not queue on long-press when %s', (_name, overrides) => {
-        vi.useFakeTimers()
-        const { onSend, button } = renderSendButton(overrides)
-
-        fireEvent.touchStart(button, { touches: [{ clientX: 10, clientY: 10 }] })
-        act(() => vi.advanceTimersByTime(500))
-        fireEvent.touchEnd(button, { changedTouches: [{ clientX: 10, clientY: 10 }] })
-        fireEvent.click(button)
-
-        expect(onSend).not.toHaveBeenCalledWith('queue')
     })
 })
 

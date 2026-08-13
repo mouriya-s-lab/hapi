@@ -186,6 +186,19 @@ export function SessionRowSummary(props: {
                             title={attentionLabel ?? undefined}
                             aria-label={attentionLabel ?? undefined}
                         />
+                    ) : showDetailedStatus && attention?.kind === 'background' && nestedTooltips && attentionId ? (
+                        <SessionAttentionIndicator
+                            attention={attention}
+                            summary={s}
+                            label={attentionLabel ?? ''}
+                            tooltipId={attentionId}
+                        />
+                    ) : showDetailedStatus && attention?.kind === 'background' ? (
+                        <span
+                            className={`inline-flex h-2 w-2 shrink-0 rounded-full ${ATTENTION_DOT_CLASS.background}`}
+                            title={attentionLabel ?? undefined}
+                            aria-label={attentionLabel ?? undefined}
+                        />
                     ) : s.active && (s.backgroundTaskCount ?? 0) > 0 ? (
                         <span
                             className="inline-flex shrink-0 items-center gap-1 text-[var(--app-badge-success-text)]"

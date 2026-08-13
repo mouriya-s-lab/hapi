@@ -83,8 +83,10 @@ export class AcpSdkBackend implements AgentBackend {
     private promptUsageCallback: ((msg: AgentMessage) => void) | null = null;
     private usageUpdateListener: ((msg: AgentMessage) => void) | null = null;
     private sessionInfoUpdateListener: ((update: AcpSessionInfoUpdate) => void) | null = null;
-    /** Fired on real agent activity so launchers can bump hub thinking (#1470). */
+    /** Fired on foreground ACP state / permission so launchers can bump hub thinking (#1470). */
     private agentActivityListener: ((thinking: boolean) => void) | null = null;
+    /** Debounce timer for state_update running → thinking (#1502 chatter). */
+    private runningThinkingTimer: ReturnType<typeof setTimeout> | null = null;
     private lastForwardedUsageUpdate: AcpUsageUpdate | null = null;
     private sessionUpdateQueue: Promise<void> = Promise.resolve();
 
@@ -99,6 +101,8 @@ export class AcpSdkBackend implements AgentBackend {
     private static readonly PRE_PROMPT_UPDATE_QUIET_PERIOD_MS = 200;
     private static readonly PRE_PROMPT_UPDATE_DRAIN_TIMEOUT_MS = 1200;
     private static readonly SESSION_TITLE_REFRESH_DELAYS_MS = [1000, 3000];
+    /** Cursor chatters running↔idle ~1–2s; require sustained running before bump. */
+    private static readonly RUNNING_THINKING_DEBOUNCE_MS = 750;
     // After the initial post-prompt drain, slow-tailing models (DeepSeek,
     // GPT-5.5, etc.) can keep sending agentMessageChunk notifications. We poll
     // drainBuffers() on a short interval so the UI keeps streaming smoothly,
@@ -444,10 +448,10 @@ export class AcpSdkBackend implements AgentBackend {
     }
 
     /**
-     * Called when ACP reports thinking transitions for harness wake (#1470).
-     * `true` = activity / running / permission; `false` = state_update idle.
-     * Usage/title noise does not fire. Launchers should ignore no-ops when
-     * session.thinking already matches.
+     * Called when ACP reports foreground state / permission for harness wake (#1470 / #1502).
+     * `true` = sustained `running` (debounced), `requires_action`, or permission.
+     * `false` = `state_update` idle (skipped while a HAPI prompt turn is still draining).
+     * Launchers should ignore no-ops when session.thinking already matches.
      */
     setAgentActivityListener(listener: ((thinking: boolean) => void) | null): void {
         this.agentActivityListener = listener;
@@ -755,6 +759,7 @@ export class AcpSdkBackend implements AgentBackend {
             clearTimeout(timer);
         }
         this.sessionInfoRefreshTimers.clear();
+        this.clearRunningThinkingTimer();
         await this.sessionUpdateQueue;
         this.messageHandler?.drainBuffers();
         this.messageHandler = null;
@@ -813,7 +818,39 @@ export class AcpSdkBackend implements AgentBackend {
         if (hint === null) {
             return;
         }
-        this.agentActivityListener(hint);
+
+        if (hint === false) {
+            this.clearRunningThinkingTimer();
+            // Launcher owns thinking for the duration of prompt(); idle chatter
+            // mid-drain must not clear the spinner before finally runs.
+            if (this.isProcessingMessage) {
+                return;
+            }
+            this.agentActivityListener(false);
+            return;
+        }
+
+        // Sustained running only — Cursor flaps running↔idle while queue-idle (#1502).
+        if (update.sessionUpdate === 'state_update' && update.state === 'running') {
+            if (this.runningThinkingTimer) {
+                return;
+            }
+            this.runningThinkingTimer = setTimeout(() => {
+                this.runningThinkingTimer = null;
+                this.agentActivityListener?.(true);
+            }, AcpSdkBackend.RUNNING_THINKING_DEBOUNCE_MS);
+            return;
+        }
+
+        this.clearRunningThinkingTimer();
+        this.agentActivityListener(true);
+    }
+
+    private clearRunningThinkingTimer(): void {
+        if (this.runningThinkingTimer) {
+            clearTimeout(this.runningThinkingTimer);
+            this.runningThinkingTimer = null;
+        }
     }
 
     private forwardSessionInfoUpdate(sessionId: string | null, update: unknown): void {

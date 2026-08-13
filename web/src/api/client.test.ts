@@ -151,6 +151,22 @@ describe('ApiClient error mapping', () => {
         })
     })
 
+    it('posts a steer for a queued message', async () => {
+        fetchMock.mockResolvedValueOnce(
+            new Response(JSON.stringify({ status: 'steered', localId: 'local-1' }), { status: 200 })
+        )
+
+        const api = new ApiClient('test-token')
+        await expect(api.steerMessage('session /?#', 'msg-1')).resolves.toEqual({
+            status: 'steered',
+            localId: 'local-1',
+        })
+
+        const [url, init] = fetchMock.mock.calls[0] ?? []
+        expect(url).toBe('/api/sessions/session%20%2F%3F%23/messages/msg-1/steer')
+        expect(init).toMatchObject({ method: 'POST' })
+    })
+
     it('requests usage buckets in the viewer IANA time zone', async () => {
         fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
 

@@ -63,9 +63,20 @@ describe('MachineMetadataSchema runner capabilities', () => {
             host: 'runner',
             platform: 'darwin',
             happyCliVersion: '1.0.0',
-            capabilities: { omp: true }
+            ompAvailable: true
         });
 
-        expect(parsed.capabilities).toEqual({ omp: true });
+        expect(parsed.ompAvailable).toBe(true);
     });
+    it('migrates the previous OMP capability object to ompAvailable', () => {
+        const parsed = MachineMetadataSchema.parse({
+            host: 'runner',
+            platform: 'darwin',
+            happyCliVersion: '1.0.0',
+            capabilities: { omp: false }
+        })
+
+        expect(parsed.ompAvailable).toBe(false)
+        expect(parsed.capabilities).toBeUndefined()
+    })
 });

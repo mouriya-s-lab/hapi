@@ -178,17 +178,19 @@ describe('PiSteerDispatcher', () => {
         expect(h.history.registerUserEntry).not.toHaveBeenCalled();
     });
 
-    it('removes failed native steers from history and clears only their queued thinking grace', async () => {
+    it('preserves a deterministically rejected steer by degrading it to the prompt FIFO', async () => {
         const h = createHarness();
         h.dispatcher.enqueue({ localId: 'failed-steer', message: 'will fail', images: [], outboundSequence: 1, targetStreamingGeneration: h.session.currentStreamingGeneration });
         await vi.waitFor(() => expect(steerCommands(h.transport)).toHaveLength(1));
 
         resolveSteer(h.session, steerCommands(h.transport)[0]!, false, 'steer rejected');
         await vi.waitFor(() => expect(h.history.rejectPendingEntry).toHaveBeenCalledWith('failed-steer'));
-        expect(h.client.emitMessagesConsumed).toHaveBeenCalledWith(
-            ['failed-steer'],
-            { clearQueuedThinkingGrace: true },
-        );
+        // Pi never accepted the steer: the message must survive by falling back
+        // to the ordinary prompt FIFO instead of being consumed (issue #1466).
+        expect(h.enqueuePrompt).toHaveBeenCalledWith({
+            localId: 'failed-steer', message: 'will fail', images: [], outboundSequence: 1,
+        });
+        expect(h.client.emitMessagesConsumed).not.toHaveBeenCalled();
         expect(h.client.sendSessionEvent).toHaveBeenCalledWith({
             type: 'message', message: 'Pi steer failed: steer rejected',
         });

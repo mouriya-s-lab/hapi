@@ -26,11 +26,11 @@ const mocks = vi.hoisted(() => ({
     machines: [{
         id: 'machine-1',
         active: true,
-        metadata: { host: 'runner', capabilities: { omp: true } }
+        metadata: { host: 'runner', ompAvailable: true }
     }] as Array<{
         id: string
         active: boolean
-        metadata: { host: string; capabilities?: { omp?: boolean } }
+        metadata: { host: string; ompAvailable?: boolean }
     }>,
     queryEnabled: false
 }))
@@ -67,7 +67,7 @@ beforeEach(() => {
     mocks.machines = [{
         id: 'machine-1',
         active: true,
-        metadata: { host: 'runner', capabilities: { omp: true } }
+        metadata: { host: 'runner', ompAvailable: true }
     }]
     mocks.queryEnabled = false
 })
@@ -102,7 +102,7 @@ describe('OmpProviderSettingsRow', () => {
             {
                 id: 'with-omp',
                 active: true,
-                metadata: { host: 'OMP runner', capabilities: { omp: true } }
+                metadata: { host: 'OMP runner', ompAvailable: true }
             }
         ]
 

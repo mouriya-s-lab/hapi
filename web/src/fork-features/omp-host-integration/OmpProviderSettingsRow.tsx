@@ -25,7 +25,7 @@ export function OmpProviderSettingsRow() {
     const { machines } = useMachines(api, true);
     const { t } = useTranslation();
     const ompMachines = useMemo(
-        () => machines.filter((machine) => machine.metadata?.capabilities?.omp === true),
+        () => machines.filter((machine) => machine.metadata?.ompAvailable === true),
         [machines]
     );
     const queryClient = useQueryClient();

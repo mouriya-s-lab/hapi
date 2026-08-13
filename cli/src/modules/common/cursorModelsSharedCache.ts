@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { tmpdir } from 'node:os';
 import type { CursorModelsResponse } from '@hapi/protocol/apiTypes';
+import { resolveHapiHomeDir } from '@/configuration';
 
 function getHapiHomeDir(): string {
-    return process.env.HAPI_HOME?.trim() || join(tmpdir(), 'hapi');
+    return resolveHapiHomeDir();
 }
 
 function getSharedCachePath(): string {

@@ -135,6 +135,26 @@ export class PiSteerDispatcher {
 
             const detail = error instanceof Error ? error.message : String(error);
             this.options.conversationHistory.rejectPendingEntry(active.entry.localId);
+
+            // A deterministic native rejection means Pi never accepted the
+            // steer. Preserve the message by degrading it to the ordinary
+            // prompt FIFO (it is delivered when the agent settles) instead of
+            // consuming the hub row — a promoted queued message must not be
+            // lost just because the steer was rejected.
+            if (!(error instanceof PiRpcTimeoutError)) {
+                this.options.enqueuePrompt({
+                    message: active.entry.message,
+                    images: active.entry.images,
+                    outboundSequence: active.entry.outboundSequence,
+                    ...(active.entry.localId ? { localId: active.entry.localId } : {}),
+                });
+                this.options.session.sendSessionEvent({ type: 'message', message: `Pi steer failed: ${detail}` });
+                return;
+            }
+
+            // Indeterminate timeout: Pi may or may not have accepted the
+            // steer. Keep the fail-closed handling (consume + escalate) rather
+            // than risking a duplicate delivery via the prompt FIFO.
             if (active.entry.localId) {
                 this.options.session.emitMessagesConsumed(
                     [active.entry.localId],
@@ -142,7 +162,7 @@ export class PiSteerDispatcher {
                 );
             }
             this.options.session.sendSessionEvent({ type: 'message', message: `Pi steer failed: ${detail}` });
-            if (error instanceof PiRpcTimeoutError) this.options.onIndeterminateTimeout(error);
+            this.options.onIndeterminateTimeout(error);
         }
     }
 }

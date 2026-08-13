@@ -210,7 +210,13 @@ export const ReasoningGroup: FC<PropsWithChildren> = ({ children }) => {
                     onPointerDown={claimNestedPointerScroll}
                     onWheel={claimNestedWheelScroll}
                     onKeyDown={claimNestedKeyboardScroll}
-                    className="aui-reasoning-scroll max-h-[60vh] overflow-y-auto overscroll-y-contain border-t border-[var(--app-divider)] px-3.5 py-3"
+                    // No overscroll containment: native scroll chaining must pass
+                    // to the outer chat viewport once the panel reaches its
+                    // bottom (see #1264). The follow-tail coordination above
+                    // (onNestedScrollFollowChange) already pauses the outer
+                    // auto-follow while the user scrolls inside this panel, so
+                    // contain is not needed to stop the two from fighting.
+                    className="aui-reasoning-scroll max-h-[60vh] overflow-y-auto border-t border-[var(--app-divider)] px-3.5 py-3"
                 >
                     {children}
                 </div>

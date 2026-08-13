@@ -48,7 +48,7 @@ You need API credentials for at least one assistant backend:
 - **Gemini Live** - a Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey)
 - **Qwen Realtime** - a DashScope API key from [Alibaba Cloud Model Studio](https://www.alibabacloud.com/help/en/model-studio/get-api-key)
 
-Dictation needs at least one configured transcription provider from the list above, or an OpenAI-compatible local server.
+Dictation needs at least one configured transcription provider from the list above, or an OpenAI-compatible local server. In **Settings → Voice → Dictation**, the credential presets are **ElevenLabs**, **OpenAI**, and **Groq**; already-configured Deepgram / OpenAI-compatible credentials stay manageable there too. Saving a key updates the provider list without restarting the hub.
 
 ## Setup
 

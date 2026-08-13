@@ -35,8 +35,8 @@ const {
     setVoice: vi.fn(),
 }))
 
-const getHubSettings = vi.fn().mockResolvedValue({ sessionSummaryContract: false })
-const updateHubSettings = vi.fn().mockResolvedValue({ sessionSummaryContract: true })
+const getHubSettings = vi.fn().mockResolvedValue({ sessionSummaryContract: false, sessionSummaryInChat: false })
+const updateHubSettings = vi.fn().mockResolvedValue({ sessionSummaryContract: true, sessionSummaryInChat: false })
 
 vi.mock('@/hooks/useColorTheme', () => ({
     useColorTheme: () => ({ colorTheme: 'default', setColorTheme }),
@@ -235,8 +235,8 @@ describe('responsive settings pages', () => {
     beforeEach(() => {
         vi.clearAllMocks()
         localStorage.clear()
-        getHubSettings.mockResolvedValue({ sessionSummaryContract: false })
-        updateHubSettings.mockResolvedValue({ sessionSummaryContract: true })
+        getHubSettings.mockResolvedValue({ sessionSummaryContract: false, sessionSummaryInChat: false })
+        updateHubSettings.mockResolvedValue({ sessionSummaryContract: true, sessionSummaryInChat: false })
         context.token = `x.${btoa(JSON.stringify({ ns: 'default' }))}.x`
     })
 
@@ -265,6 +265,7 @@ describe('responsive settings pages', () => {
         expect(screen.getByText('Companion')).toBeInTheDocument()
         expect(screen.getByText('Companion pairing')).toBeInTheDocument()
         expect(await screen.findByRole('checkbox', { name: 'Ask agents to emit session status summary' })).toBeInTheDocument()
+        expect(screen.getByRole('checkbox', { name: 'Show session status summary in chat' })).toBeInTheDocument()
         fireEvent.click(screen.getByRole('radio', { name: '简体中文' }))
         expect(localStorage.getItem('hapi-lang')).toBe('zh-CN')
     })

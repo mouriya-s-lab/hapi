@@ -23,6 +23,7 @@ function context(getGeneratedImageBlob: (sessionId: string, imageId: string) => 
         sessionId: 'session-1',
         metadata: null,
         terminalToolDisplayMode: 'detailed',
+        showSessionSummaryInChat: false,
         disabled: false,
         onRefresh: () => undefined,
         hasMoreMessages: false,

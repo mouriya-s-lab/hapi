@@ -568,12 +568,14 @@ describe('HappyComposer send intent gestures', () => {
         runtime.sentIntents = []
     })
 
-    it('uses queue for Alt/Option+Enter only while the Pi main thread is running', () => {
+    it('ignores Alt/Option+Enter (the old explicit-queue gesture) entirely', () => {
         renderComposer('follow-up', null, true)
 
         fireEvent.keyDown(input(), { key: 'Enter', altKey: true })
 
-        expect(runtime.sentIntents).toEqual(['queue'])
+        // Every send now queues by default (issue #1466); the Alt+Enter
+        // gesture was removed with the Pi automatic steer.
+        expect(runtime.sentIntents).toEqual([])
         expect(runtime.pendingSendIntentRef?.current).toBe('default')
     })
 
@@ -596,7 +598,7 @@ describe('HappyComposer send intent gestures', () => {
         expect(runtime.pendingSendIntentRef?.current).toBe('default')
     })
 
-    it('does not turn Alt/Option+Enter into queue when Pi is idle or a schedule is active', () => {
+    it('keeps Alt/Option+Enter inert when Pi is idle or a schedule is active', () => {
         const idle = renderComposer('idle', null, false)
         fireEvent.keyDown(input(), { key: 'Enter', altKey: true })
         expect(runtime.sentIntents).toEqual([])

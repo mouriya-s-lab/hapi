@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'bun:test'
 import { WORK_GRAPH_MAX_STRING, WORK_GRAPH_MAX_SUMMARY } from '@hapi/protocol'
+import type { SyncEvent } from '@hapi/protocol/types'
 import { Store } from '../store'
+import type { EventPublisher } from './eventPublisher'
+import { SessionCache } from './sessionCache'
 import {
     WORK_AD_DEFAULT_TTL_MS,
     buildWorkAdFromNotify,
@@ -21,6 +24,51 @@ function assistantOutput(text: string) {
             }
         }
     }
+}
+
+function userInbound(text: string, sentFrom: string = 'webapp', extraMeta: Record<string, unknown> = {}) {
+    return {
+        role: 'user' as const,
+        content: { type: 'text' as const, text },
+        meta: { sentFrom, ...extraMeta }
+    }
+}
+
+function agentToolRow() {
+    return {
+        role: 'agent' as const,
+        content: {
+            type: 'output',
+            data: { type: 'tool_use', name: 'Read', id: 'tool-1' }
+        }
+    }
+}
+
+function notifyFooter(summary: string): string {
+    return `Prose.\n\nAGENT_NOTIFY_SUMMARY ${JSON.stringify({
+        version: 1,
+        status: 'done',
+        summary
+    })}`
+}
+
+function ingestNotify(
+    store: Store,
+    sessionId: string,
+    namespace: string,
+    content: unknown,
+    messageId: string,
+    ts: number = Date.now()
+) {
+    return ingestNotifySummaryFromMessage({
+        store,
+        namespace,
+        sessionId,
+        messageId,
+        content,
+        ts,
+        ownerUserId: 1
+    })
 }
 
 describe('mapNotifyStatusToWorkAdStatus', () => {
@@ -370,5 +418,543 @@ describe('ingestNotifySummaryFromMessage', () => {
         const escaped = JSON.stringify(action).slice(1, -1)
         expect(new TextEncoder().encode(escaped).byteLength).toBeLessThanOrEqual(WORK_GRAPH_MAX_STRING)
         expect(store.workGraph.listByRelatedSession('default', session.id)).toHaveLength(1)
+    })
+})
+
+describe('ingestNotifySummaryFromMessage cause stamping', () => {
+    it('happy path: first unconsumed inbound is the cause; previous work_ad is related', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('sess-cause-happy', {}, null, 'default')
+
+        const firstUser = store.messages.addMessage(session.id, userInbound('do the first thing'))
+        const firstAssistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Turn one')))
+        const first = ingestNotify(store, session.id, 'default', firstAssistant.content, firstAssistant.id)
+
+        expect(first?.inserted).toBe(true)
+        expect(first?.event.relatedEventId).toBeNull()
+        expect(first?.event.payloadJson).toMatchObject({
+            messageId: firstAssistant.id,
+            causeMessageId: firstUser.id,
+            causeText: 'do the first thing',
+            causeKind: 'webapp',
+            causeSeq: firstUser.seq,
+            causeCursorMessageId: firstUser.id
+        })
+
+        const secondUser = store.messages.addMessage(session.id, userInbound('do the second thing', 'cli'))
+        const secondAssistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Turn two')))
+        const second = ingestNotify(store, session.id, 'default', secondAssistant.content, secondAssistant.id)
+
+        expect(second?.inserted).toBe(true)
+        expect(second?.event.relatedEventId).toBe(first!.event.id)
+        expect(second?.event.payloadJson).toMatchObject({
+            messageId: secondAssistant.id,
+            causeMessageId: secondUser.id,
+            causeText: 'do the second thing',
+            causeKind: 'cli'
+        })
+
+        const links = store.workGraph.listLinksForEvent('default', second!.event.id)
+        expect(links).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                fromEventId: second!.event.id,
+                toEventId: first!.event.id,
+                relationType: 'follows'
+            })
+        ]))
+    })
+
+    it('queued inbound: cause is the unconsumed inbound, not the nearest user before the assistant', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('sess-cause-queued', {}, null, 'default')
+
+        const causing = store.messages.addMessage(session.id, userInbound('start the long turn'))
+        store.messages.addMessage(session.id, agentToolRow())
+        const queued = store.messages.addMessage(
+            session.id,
+            userInbound('queued while in flight'),
+            'queued-while-in-flight'
+        )
+        const assistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Finished long turn')))
+
+        const first = ingestNotify(store, session.id, 'default', assistant.content, assistant.id)
+        expect(first?.event.payloadJson).toMatchObject({
+            causeMessageId: causing.id,
+            causeText: 'start the long turn'
+        })
+        expect((first?.event.payloadJson as { causeMessageId?: string })?.causeMessageId)
+            .not.toBe(queued.id)
+
+        store.messages.markMessagesInvoked(session.id, ['queued-while-in-flight'], Date.now())
+        const secondAssistant = store.messages.addMessage(
+            session.id,
+            assistantOutput(notifyFooter('Queued turn'))
+        )
+        const second = ingestNotify(store, session.id, 'default', secondAssistant.content, secondAssistant.id)
+        expect(second?.event.payloadJson).toMatchObject({
+            causeMessageId: queued.id,
+            causeText: 'queued while in flight'
+        })
+        expect(second?.event.relatedEventId).toBe(first!.event.id)
+    })
+
+    it('sticky cause: two summaries with no new inbound reuse the previous cause', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('sess-cause-sticky', {}, null, 'default')
+
+        const user = store.messages.addMessage(session.id, userInbound('keep going'))
+        const firstAssistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('First summary')))
+        const first = ingestNotify(store, session.id, 'default', firstAssistant.content, firstAssistant.id)
+
+        const secondAssistant = store.messages.addMessage(
+            session.id,
+            assistantOutput(notifyFooter('Second summary same turn'))
+        )
+        const second = ingestNotify(store, session.id, 'default', secondAssistant.content, secondAssistant.id)
+
+        expect(second?.event.payloadJson).toMatchObject({
+            messageId: secondAssistant.id,
+            causeMessageId: user.id,
+            causeText: 'keep going',
+            causeKind: 'webapp'
+        })
+        expect(second?.event.relatedEventId).toBe(first!.event.id)
+        expect(second?.event.summary).toBe('Second summary same turn')
+        expect(first?.event.summary).toBe('First summary')
+    })
+
+    it('peer inbound meta.sentFrom counts as cause', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('sess-cause-peer', {}, null, 'default')
+
+        const peer = store.messages.addMessage(
+            session.id,
+            userInbound('please take this handoff', 'peer')
+        )
+        const assistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Ack peer')))
+        const result = ingestNotify(store, session.id, 'default', assistant.content, assistant.id)
+
+        expect(result?.event.payloadJson).toMatchObject({
+            messageId: assistant.id,
+            causeMessageId: peer.id,
+            causeText: 'please take this handoff',
+            causeKind: 'peer'
+        })
+    })
+
+    it('skips agent-role tool/prose rows when choosing cause', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('sess-cause-skip-agent', {}, null, 'default')
+
+        const user = store.messages.addMessage(session.id, userInbound('the real prompt'))
+        store.messages.addMessage(session.id, agentToolRow())
+        store.messages.addMessage(session.id, assistantOutput('intermediate prose, no footer'))
+        const assistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Done')))
+
+        const result = ingestNotify(store, session.id, 'default', assistant.content, assistant.id)
+        expect(result?.event.payloadJson).toMatchObject({
+            causeMessageId: user.id,
+            causeText: 'the real prompt'
+        })
+    })
+
+    it('clamps oversized inbound causeText so elevation still inserts', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('sess-cause-bound', {}, null, 'default')
+        const fat = 'q'.repeat(WORK_GRAPH_MAX_SUMMARY + 400)
+        store.messages.addMessage(session.id, userInbound(fat))
+        const assistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('ok')))
+        const result = ingestNotify(store, session.id, 'default', assistant.content, assistant.id)
+
+        expect(result?.inserted).toBe(true)
+        const causeText = (result?.event.payloadJson as { causeText?: string })?.causeText ?? ''
+        expect(causeText.length).toBeLessThanOrEqual(WORK_GRAPH_MAX_SUMMARY)
+        expect(causeText.startsWith('qq')).toBe(true)
+    })
+
+    it('1:1 consume: extra uninvoked queued inbounds wait for later work_ads', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('sess-cause-burst', {}, null, 'default')
+        const one = store.messages.addMessage(session.id, userInbound('one: read the file'))
+        const two = store.messages.addMessage(session.id, userInbound('two: also fix the typo'), 'burst-two')
+        const three = store.messages.addMessage(session.id, userInbound('three: and push'), 'burst-three')
+        const firstAssistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Drained queue')))
+        const first = ingestNotify(store, session.id, 'default', firstAssistant.content, firstAssistant.id)
+        expect(first?.event.payloadJson).toMatchObject({ causeMessageId: one.id })
+
+        const secondAssistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Still first turn')))
+        const second = ingestNotify(store, session.id, 'default', secondAssistant.content, secondAssistant.id)
+        expect(second?.event.payloadJson).toMatchObject({ causeMessageId: one.id })
+
+        store.messages.markMessagesInvoked(session.id, ['burst-two'], Date.now())
+        const thirdAssistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Next leftover')))
+        const third = ingestNotify(store, session.id, 'default', thirdAssistant.content, thirdAssistant.id)
+        expect(third?.event.payloadJson).toMatchObject({ causeMessageId: two.id })
+        expect((third?.event.payloadJson as { causeMessageId?: string })?.causeMessageId)
+            .not.toBe(three.id)
+    })
+
+    it('advances causeSeq past every invoked inbound in the same Claude batch', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('sess-cause-batch', {}, null, 'default')
+        const one = store.messages.addMessage(session.id, userInbound('one'), 'batch-1')
+        const two = store.messages.addMessage(session.id, userInbound('two'), 'batch-2')
+        const three = store.messages.addMessage(session.id, userInbound('three'), 'batch-3')
+        store.messages.markMessagesInvoked(session.id, ['batch-1', 'batch-2', 'batch-3'], 1_700_000_111_000)
+        const assistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Batched')))
+        const first = ingestNotify(store, session.id, 'default', assistant.content, assistant.id)
+        expect(first?.event.payloadJson).toMatchObject({
+            causeMessageId: one.id,
+            causeSeq: three.seq,
+            causeCursorMessageId: three.id
+        })
+
+        const next = store.messages.addMessage(session.id, userInbound('next turn'))
+        const secondAssistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Next')))
+        const second = ingestNotify(store, session.id, 'default', secondAssistant.content, secondAssistant.id)
+        expect(second?.event.payloadJson).toMatchObject({
+            causeMessageId: next.id,
+            causeText: 'next turn'
+        })
+        expect((second?.event.payloadJson as { causeMessageId?: string })?.causeMessageId)
+            .not.toBe(two.id)
+    })
+
+    it('does not treat an uninvoked queued inbound as a cause', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('sess-cause-uninvoked', {}, null, 'default')
+        const causing = store.messages.addMessage(session.id, userInbound('current turn'))
+        const queued = store.messages.addMessage(
+            session.id,
+            userInbound('queued not yet started'),
+            'queued-local'
+        )
+        expect(queued.invokedAt).toBeNull()
+        const firstAssistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('First')))
+        const first = ingestNotify(store, session.id, 'default', firstAssistant.content, firstAssistant.id)
+        expect(first?.event.payloadJson).toMatchObject({
+            causeMessageId: causing.id,
+            causeText: 'current turn'
+        })
+
+        const secondAssistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Still first turn')))
+        const second = ingestNotify(store, session.id, 'default', secondAssistant.content, secondAssistant.id)
+        expect(second?.event.payloadJson).toMatchObject({
+            causeMessageId: causing.id,
+            causeText: 'current turn'
+        })
+        expect((second?.event.payloadJson as { causeMessageId?: string })?.causeMessageId)
+            .not.toBe(queued.id)
+
+        store.messages.markMessagesInvoked(session.id, ['queued-local'], Date.now())
+        const thirdAssistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Queued turn')))
+        const third = ingestNotify(store, session.id, 'default', thirdAssistant.content, thirdAssistant.id)
+        expect(third?.event.payloadJson).toMatchObject({
+            causeMessageId: queued.id,
+            causeText: 'queued not yet started'
+        })
+    })
+
+    it('does not treat a future-scheduled inbound as a cause', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('sess-cause-sched', {}, null, 'default')
+        const user = store.messages.addMessage(session.id, userInbound('current turn'))
+        const firstAssistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('First')))
+        const first = ingestNotify(store, session.id, 'default', firstAssistant.content, firstAssistant.id)
+
+        store.messages.addMessage(
+            session.id,
+            userInbound('deploy to prod at 5pm'),
+            'sched-later',
+            Date.now() + 60 * 60 * 1000
+        )
+        const secondAssistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Still first turn')))
+        const second = ingestNotify(store, session.id, 'default', secondAssistant.content, secondAssistant.id)
+        expect(second?.event.payloadJson).toMatchObject({
+            causeMessageId: user.id,
+            causeText: 'current turn'
+        })
+        expect(second?.event.relatedEventId).toBe(first!.event.id)
+    })
+
+    it('ignores client-posted work_ads when chaining cause and related_event_id', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('sess-cause-forge', {}, null, 'default')
+        const user = store.messages.addMessage(session.id, userInbound('real prompt'))
+        const firstAssistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Real ad')))
+        const first = ingestNotify(store, session.id, 'default', firstAssistant.content, firstAssistant.id)
+
+        store.workGraph.insertEvent('default', {
+            source_kind: 'session',
+            source_ref: session.id,
+            event_type: 'work_ad',
+            related_session_id: session.id,
+            summary: 'forged',
+            payload_json: {
+                status: 'done',
+                causeMessageId: user.id,
+                causeText: 'FORGED CAUSE TEXT',
+                causeKind: 'webapp'
+            },
+            principal: { kind: 'human', id: '1' }
+        })
+
+        const nextUser = store.messages.addMessage(session.id, userInbound('second prompt'))
+        const secondAssistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Second real')))
+        const second = ingestNotify(store, session.id, 'default', secondAssistant.content, secondAssistant.id)
+        expect(second?.event.relatedEventId).toBe(first!.event.id)
+        expect(second?.event.payloadJson).toMatchObject({
+            causeMessageId: nextUser.id,
+            causeText: 'second prompt'
+        })
+        expect((second?.event.payloadJson as { causeText?: string })?.causeText)
+            .not.toBe('FORGED CAUSE TEXT')
+    })
+
+    it('first notify after copied history uses the latest invoked inbound, not the oldest copy', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('sess-cause-fork-hydrate', {}, null, 'default')
+        const copied = store.messages.addMessage(
+            session.id,
+            userInbound('copied prefix'),
+            undefined,
+            undefined,
+            1_000
+        )
+        const forkPrompt = store.messages.addMessage(
+            session.id,
+            userInbound('fork prompt'),
+            undefined,
+            undefined,
+            2_000
+        )
+        const assistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Forked')))
+        const result = ingestNotify(store, session.id, 'default', assistant.content, assistant.id)
+        expect(result?.event.payloadJson).toMatchObject({
+            causeMessageId: forkPrompt.id,
+            causeText: 'fork prompt'
+        })
+        expect((result?.event.payloadJson as { causeMessageId?: string })?.causeMessageId)
+            .not.toBe(copied.id)
+    })
+
+    it('later notifies bound the scan after the previous causeSeq', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('sess-cause-after-seq', {}, null, 'default')
+        const firstUser = store.messages.addMessage(session.id, userInbound('first'))
+        const firstAssistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('First')))
+        const first = ingestNotify(store, session.id, 'default', firstAssistant.content, firstAssistant.id)
+        expect(first?.event.payloadJson).toMatchObject({ causeSeq: firstUser.seq })
+
+        const nextUser = store.messages.addMessage(session.id, userInbound('second'))
+        const secondAssistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Second')))
+        const second = ingestNotify(store, session.id, 'default', secondAssistant.content, secondAssistant.id)
+        expect(second?.event.payloadJson).toMatchObject({
+            causeMessageId: nextUser.id,
+            causeText: 'second',
+            causeSeq: nextUser.seq
+        })
+    })
+
+    it('legacy notify without causeSeq still consumes inbounds at or before that assistant', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('sess-cause-legacy-seq', {}, null, 'default')
+        const oldUser = store.messages.addMessage(session.id, userInbound('old prompt'))
+        const oldAssistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Legacy')))
+        store.workGraph.insertEvent('default', {
+            source_kind: 'session',
+            source_ref: session.id,
+            event_type: 'work_ad',
+            related_session_id: session.id,
+            summary: 'legacy',
+            provenance: 'AGENT_NOTIFY_SUMMARY',
+            payload_json: {
+                status: 'done',
+                messageId: oldAssistant.id
+            },
+            principal: { kind: 'agent', id: `session:${session.id}`, on_behalf_of: '1' }
+        })
+
+        const nextUser = store.messages.addMessage(session.id, userInbound('new prompt'))
+        const nextAssistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Next')))
+        const result = ingestNotify(store, session.id, 'default', nextAssistant.content, nextAssistant.id)
+        expect(result?.event.payloadJson).toMatchObject({
+            causeMessageId: nextUser.id,
+            causeText: 'new prompt'
+        })
+        expect((result?.event.payloadJson as { causeMessageId?: string })?.causeMessageId)
+            .not.toBe(oldUser.id)
+    })
+
+    it('treats an unmarked local CLI prompt as a cause', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('sess-cause-local-cli', {}, null, 'default')
+        const local = store.messages.addMessage(session.id, userInbound('typed in the TTY', 'cli'))
+        const assistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Local turn')))
+        const result = ingestNotify(store, session.id, 'default', assistant.content, assistant.id)
+        expect(result?.event.payloadJson).toMatchObject({
+            causeMessageId: local.id,
+            causeText: 'typed in the TTY',
+            causeKind: 'cli'
+        })
+    })
+
+    it('skips Claude transcript echoes so the next turn is not attributed to the previous prompt copy', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('sess-cause-echo', {}, null, 'default')
+
+        const web1 = store.messages.addMessage(session.id, userInbound('turn one'))
+        store.messages.addMessage(
+            session.id,
+            userInbound('turn one', 'cli', { isTranscriptEcho: true })
+        )
+        const firstAssistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('One')))
+        const first = ingestNotify(store, session.id, 'default', firstAssistant.content, firstAssistant.id)
+        expect(first?.event.payloadJson).toMatchObject({ causeMessageId: web1.id })
+
+        const web2 = store.messages.addMessage(session.id, userInbound('turn two'))
+        store.messages.addMessage(
+            session.id,
+            userInbound('turn two', 'cli', { isTranscriptEcho: true })
+        )
+        const secondAssistant = store.messages.addMessage(session.id, assistantOutput(notifyFooter('Two')))
+        const second = ingestNotify(store, session.id, 'default', secondAssistant.content, secondAssistant.id)
+        expect(second?.event.payloadJson).toMatchObject({
+            causeMessageId: web2.id,
+            causeText: 'turn two'
+        })
+    })
+
+    it('still inserts when max-clamped footer fields share the payload with cause', () => {
+        const store = new Store(':memory:')
+        const session = store.sessions.getOrCreateSession('sess-cause-budget', {}, null, 'default')
+        store.messages.addMessage(session.id, userInbound('prompt'))
+        const fat = 'a'.repeat(6_000)
+        const assistant = store.messages.addMessage(session.id, assistantOutput(
+            `AGENT_NOTIFY_SUMMARY ${JSON.stringify({
+                status: 'done',
+                summary: 'ok',
+                action: fat,
+                project: fat,
+                agent: fat
+            })}`
+        ))
+        const result = ingestNotify(store, session.id, 'default', assistant.content, assistant.id)
+        expect(result?.inserted).toBe(true)
+        expect(result?.event.payloadJson).toMatchObject({
+            causeText: 'prompt',
+            action: fat
+        })
+    })
+
+    it('preserves notify history across mergeSessions into the surviving id', async () => {
+        const store = new Store(':memory:')
+        const cache = new SessionCache(store, {
+            emit: (_event: SyncEvent) => {}
+        } as EventPublisher)
+        const oldSession = cache.getOrCreateSession(
+            'sess-cause-merge-old',
+            { path: '/tmp/project', host: 'localhost' },
+            null,
+            'default'
+        )
+        const newSession = cache.getOrCreateSession(
+            'sess-cause-merge-new',
+            { path: '/tmp/project', host: 'localhost' },
+            null,
+            'default'
+        )
+
+        store.messages.addMessage(oldSession.id, userInbound('from the old session'))
+        const firstAssistant = store.messages.addMessage(oldSession.id, assistantOutput(notifyFooter('Old turn')))
+        const first = ingestNotify(store, oldSession.id, 'default', firstAssistant.content, firstAssistant.id)
+        expect(first?.inserted).toBe(true)
+
+        await cache.mergeSessions(oldSession.id, newSession.id, 'default')
+
+        const nextUser = store.messages.addMessage(newSession.id, userInbound('after merge'))
+        const nextAssistant = store.messages.addMessage(newSession.id, assistantOutput(notifyFooter('New turn')))
+        const second = ingestNotify(store, newSession.id, 'default', nextAssistant.content, nextAssistant.id)
+
+        expect(second?.event.relatedEventId).toBe(first!.event.id)
+        expect(second?.event.payloadJson).toMatchObject({
+            causeMessageId: nextUser.id,
+            causeText: 'after merge'
+        })
+        const onSurvivor = store.workGraph.listWorkAdsByRelatedSession('default', newSession.id)
+            .map((event) => event.id)
+        expect(onSurvivor).toContain(first!.event.id)
+        expect(onSurvivor).toContain(second!.event.id)
+    })
+
+    it('keeps notify history on the live source after mergeSessionHistory', async () => {
+        const store = new Store(':memory:')
+        const cache = new SessionCache(store, {
+            emit: (_event: SyncEvent) => {}
+        } as EventPublisher)
+        const source = cache.getOrCreateSession(
+            'sess-cause-hist-src',
+            { path: '/tmp/project', host: 'localhost' },
+            null,
+            'default'
+        )
+        const target = cache.getOrCreateSession(
+            'sess-cause-hist-tgt',
+            { path: '/tmp/project', host: 'localhost' },
+            null,
+            'default'
+        )
+
+        const firstUser = store.messages.addMessage(source.id, userInbound('live source prompt'))
+        const firstAssistant = store.messages.addMessage(source.id, assistantOutput(notifyFooter('Before history merge')))
+        const first = ingestNotify(store, source.id, 'default', firstAssistant.content, firstAssistant.id)
+        expect(first?.inserted).toBe(true)
+
+        await cache.mergeSessionHistory(source.id, target.id, 'default', { mergeAgentState: false })
+
+        const nextUser = store.messages.addMessage(source.id, userInbound('still on the live source'))
+        const nextAssistant = store.messages.addMessage(source.id, assistantOutput(notifyFooter('After history merge')))
+        const second = ingestNotify(store, source.id, 'default', nextAssistant.content, nextAssistant.id)
+
+        expect(second?.event.relatedEventId).toBe(first!.event.id)
+        expect(second?.event.payloadJson).toMatchObject({
+            causeMessageId: nextUser.id,
+            causeText: 'still on the live source'
+        })
+        expect((second?.event.payloadJson as { causeMessageId?: string })?.causeMessageId)
+            .not.toBe(firstUser.id)
+        const onSource = store.workGraph.listWorkAdsByRelatedSession('default', source.id)
+            .map((event) => event.id)
+        expect(onSource).toContain(first!.event.id)
+        expect(onSource).toContain(second!.event.id)
+    })
+
+    it('does not re-attribute a prior batch after surviving-session seq-shift', () => {
+        const store = new Store(':memory:')
+        const surviving = store.sessions.getOrCreateSession('sess-cause-shift-live', {}, null, 'default')
+        const incoming = store.sessions.getOrCreateSession('sess-cause-shift-in', {}, null, 'default')
+
+        const one = store.messages.addMessage(surviving.id, userInbound('one'), 'shift-1')
+        const two = store.messages.addMessage(surviving.id, userInbound('two'), 'shift-2')
+        store.messages.addMessage(surviving.id, userInbound('three'), 'shift-3')
+        store.messages.markMessagesInvoked(surviving.id, ['shift-1', 'shift-2', 'shift-3'], 1_700_000_222_000)
+        const assistant = store.messages.addMessage(surviving.id, assistantOutput(notifyFooter('Batched')))
+        const first = ingestNotify(store, surviving.id, 'default', assistant.content, assistant.id)
+        expect(first?.event.payloadJson).toMatchObject({ causeMessageId: one.id })
+
+        store.messages.addMessage(incoming.id, userInbound('history from the other id'))
+        store.messages.mergeSessionMessages(incoming.id, surviving.id)
+
+        const secondAssistant = store.messages.addMessage(
+            surviving.id,
+            assistantOutput(notifyFooter('Sticky after merge'))
+        )
+        const second = ingestNotify(store, surviving.id, 'default', secondAssistant.content, secondAssistant.id)
+        expect(second?.event.payloadJson).toMatchObject({
+            causeMessageId: one.id,
+            causeText: 'one'
+        })
+        expect((second?.event.payloadJson as { causeMessageId?: string })?.causeMessageId)
+            .not.toBe(two.id)
     })
 })

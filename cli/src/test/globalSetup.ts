@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url'
 import net from 'node:net'
 import { spawn, execSync } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
+import { reapTestOwnedProcesses } from './auditTestProcesses'
+import { TEST_OWNED_MARKER_KEY } from './integrationEnv'
 
 // Workers can't inherit process.env from globalSetup, so we write config to a file
 // and let setupFile.ts read it in each worker.
@@ -110,7 +112,34 @@ async function stopHubProcess(): Promise<void> {
 export async function teardown() {
     await stopHubProcess()
     try { rmSync(TEST_CONFIG_FILE) } catch {}
+
+    // Final audit: test children carry `HAPI_TEST_MARKER=<tmpHome>` in their
+    // environment (see integrationEnv.ts). Anything still alive after the
+    // suites ran is a test-owned leak — reap it, then fail the run with
+    // PID/command diagnostics if something could not be reaped. The temp home
+    // is always removed so a leak cannot also accumulate DB rows on disk.
+    let auditError: Error | null = null
+    if (tmpHome && process.platform !== 'win32') {
+        try {
+            const leftovers = await reapTestOwnedProcesses(`${TEST_OWNED_MARKER_KEY}=${tmpHome}`)
+            if (leftovers.length > 0) {
+                const detail = leftovers
+                    .map((p) => `  pid=${p.pid} ppid=${p.ppid} rss=${p.rssKb}KB ${p.command}`)
+                    .join('\n')
+                auditError = new Error(
+                    `[globalSetup] ${leftovers.length} test-owned process(es) survived teardown:\n${detail}`
+                )
+            }
+        } catch (error) {
+            // A failed process-table scan must fail the run, never pass as a
+            // "clean" audit.
+            auditError = error instanceof Error ? error : new Error(String(error))
+        }
+    }
     if (tmpHome) {
         rmSync(tmpHome, { recursive: true, force: true })
+    }
+    if (auditError) {
+        throw auditError
     }
 }

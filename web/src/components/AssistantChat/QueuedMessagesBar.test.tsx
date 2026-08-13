@@ -1,5 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ApiClient } from '@/api/client'
 import type { DecryptedMessage } from '@/types/api'
 import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import {
@@ -22,6 +24,9 @@ const mocks = vi.hoisted(() => ({
     mutateAsync: vi.fn(),
     resolveCancel: null as ((result: DeferredCancelResult) => void) | null,
     rejectCancel: null as ((reason?: unknown) => void) | null,
+    steerMessage: vi.fn(),
+    resolveSteer: null as ((result: unknown) => void) | null,
+    markMessagesConsumed: vi.fn(),
     saveDraft: vi.fn(),
     messageWindowState: { messages: [] as unknown[] },
 }))
@@ -41,6 +46,7 @@ vi.mock('@assistant-ui/react', () => ({
 vi.mock('@/lib/message-window-store', () => ({
     getMessageWindowState: () => mocks.messageWindowState,
     subscribeMessageWindow: () => () => {},
+    markMessagesConsumed: mocks.markMessagesConsumed,
 }))
 
 vi.mock('@/hooks/mutations/useCancelQueuedMessage', () => ({
@@ -83,18 +89,28 @@ function renderQueuedMessage(
     scheduledAt: number | null = null,
     pendingSchedule: PendingSchedule | null = null,
     pendingScheduleRevision = 0,
+    canSteer = false,
+    api: ApiClient | null = null,
 ) {
     const onEdit = vi.fn()
     let currentPendingScheduleRevision = pendingScheduleRevision
     mocks.messageWindowState = { messages: [makeQueuedMessage(scheduledAt)] }
+    // The real useSteerQueuedMessage hook runs inside the bar, so every render
+    // needs a QueryClient (its mutations use the tanstack defaults).
+    const queryClient = new QueryClient({
+        defaultOptions: { mutations: { retry: false } },
+    })
     const view = render(
-        <QueuedMessagesBar
-            sessionId="session-1"
-            api={null}
-            pendingSchedule={pendingSchedule}
-            pendingScheduleRevision={currentPendingScheduleRevision}
-            onEdit={onEdit}
-        />
+        <QueryClientProvider client={queryClient}>
+            <QueuedMessagesBar
+                sessionId="session-1"
+                api={api}
+                pendingSchedule={pendingSchedule}
+                pendingScheduleRevision={currentPendingScheduleRevision}
+                onEdit={onEdit}
+                canSteer={canSteer}
+            />
+        </QueryClientProvider>
     )
     return {
         onEdit,
@@ -102,13 +118,16 @@ function renderQueuedMessage(
         rerender: (nextPendingSchedule: PendingSchedule | null, nextPendingScheduleRevision = currentPendingScheduleRevision) => {
             currentPendingScheduleRevision = nextPendingScheduleRevision
             view.rerender(
-                <QueuedMessagesBar
-                    sessionId="session-1"
-                    api={null}
-                    pendingSchedule={nextPendingSchedule}
-                    pendingScheduleRevision={currentPendingScheduleRevision}
-                    onEdit={onEdit}
-                />
+                <QueryClientProvider client={queryClient}>
+                    <QueuedMessagesBar
+                        sessionId="session-1"
+                        api={api}
+                        pendingSchedule={nextPendingSchedule}
+                        pendingScheduleRevision={currentPendingScheduleRevision}
+                        onEdit={onEdit}
+                        canSteer={canSteer}
+                    />
+                </QueryClientProvider>
             )
         },
     }
@@ -121,6 +140,9 @@ beforeEach(() => {
     mocks.mutateAsync.mockReset()
     mocks.resolveCancel = null
     mocks.rejectCancel = null
+    mocks.steerMessage.mockReset()
+    mocks.resolveSteer = null
+    mocks.markMessagesConsumed.mockReset()
     mocks.saveDraft.mockReset()
     mocks.messageWindowState = { messages: [] }
     clearQueuedEditRecovery('session-1')
@@ -169,6 +191,19 @@ function installManualAnimationFrames() {
 
 afterEach(() => {
     vi.unstubAllGlobals()
+})
+
+describe('QueuedMessagesBar layout', () => {
+    it('keeps the queue footer flush with the composer area', () => {
+        renderQueuedMessage()
+
+        const bar = screen.getByRole('status')
+        const content = bar.firstElementChild
+
+        expect(bar).not.toHaveClass('mb-1')
+        expect(content).toHaveClass('pt-2', 'pb-0')
+        expect(content).not.toHaveClass('py-2')
+    })
 })
 
 describe('QueuedMessagesBar edit restore', () => {
@@ -267,14 +302,19 @@ describe('QueuedMessagesBar edit restore', () => {
         const second = makeQueuedMessage(scheduledAt, 'server-message-b')
         mocks.messageWindowState = { messages: [first, second] }
         const onEdit = vi.fn()
+        const queryClient = new QueryClient({
+            defaultOptions: { mutations: { retry: false } },
+        })
         render(
-            <QueuedMessagesBar
-                sessionId="session-1"
-                api={null}
-                pendingSchedule={null}
-                pendingScheduleRevision={0}
-                onEdit={onEdit}
-            />
+            <QueryClientProvider client={queryClient}>
+                <QueuedMessagesBar
+                    sessionId="session-1"
+                    api={null}
+                    pendingSchedule={null}
+                    pendingScheduleRevision={0}
+                    onEdit={onEdit}
+                />
+            </QueryClientProvider>
         )
 
         const editButtons = screen.getAllByRole('button', { name: 'Edit queued message' })
@@ -681,5 +721,99 @@ describe('formatScheduledTime', () => {
         const crossYearDate = new Date(nextYear, 0, 15, 10, 30) // Jan 15 next year
         const result = formatScheduledTime(crossYearDate.getTime())
         expect(result).toContain(String(nextYear))
+    })
+})
+
+describe('QueuedMessagesBar steer action', () => {
+    // The real useSteerQueuedMessage hook runs here (only the cancel hook is
+    // module-mocked); pass a fake api whose steerMessage resolves on demand.
+    function renderSteerable(canSteer = true) {
+        mocks.steerMessage.mockImplementation(() => new Promise((resolve) => {
+            mocks.resolveSteer = resolve
+        }))
+        const api = { steerMessage: mocks.steerMessage } as unknown as ApiClient
+        const view = renderQueuedMessage(null, null, 0, canSteer, api)
+        return { unmount: view.unmount }
+    }
+
+    it('shows the Steer button only when canSteer is set and the row is immediate', () => {
+        const immediate = renderSteerable(true)
+        expect(screen.getByRole('button', { name: 'Steer queued message' })).toBeTruthy()
+        immediate.unmount()
+
+        renderSteerable(false)
+        expect(screen.queryByRole('button', { name: 'Steer queued message' })).toBeNull()
+    })
+
+    it('hides the Steer button on future-scheduled rows', () => {
+        const api = { steerMessage: mocks.steerMessage } as unknown as ApiClient
+        renderQueuedMessage(Date.now() + 60_000, null, 0, true, api)
+        expect(screen.queryByRole('button', { name: 'Steer queued message' })).toBeNull()
+    })
+
+    it('calls the steer api with the session and message id', async () => {
+        renderSteerable(true)
+
+        fireEvent.click(screen.getByRole('button', { name: 'Steer queued message' }))
+
+        await waitFor(() => expect(mocks.steerMessage).toHaveBeenCalledWith('session-1', 'server-message-id'))
+        // Settle the pending mutation so the queued-operation token releases;
+        // otherwise the next test would see the session as busy.
+        await act(async () => {
+            mocks.resolveSteer?.({ status: 'steered', localId: 'local-server-message-id' })
+            await Promise.resolve()
+        })
+    })
+
+    it('toasts when the steer fails and leaves the row queued', async () => {
+        renderSteerable(true)
+
+        fireEvent.click(screen.getByRole('button', { name: 'Steer queued message' }))
+        await waitFor(() => expect(mocks.steerMessage).toHaveBeenCalled())
+        await act(async () => {
+            mocks.resolveSteer?.({ status: 'failed', error: 'Session is not streaming', localId: 'local-server-message-id' })
+            await Promise.resolve()
+        })
+
+        expect(mocks.addToast).toHaveBeenCalledWith({
+            title: 'queuedMessages.steerFailed',
+            body: 'Session is not streaming',
+            sessionId: 'session-1',
+            url: window.location.href,
+        })
+    })
+
+    it('does not toast on a successful steer (the consumed event clears the row)', async () => {
+        renderSteerable(true)
+
+        fireEvent.click(screen.getByRole('button', { name: 'Steer queued message' }))
+        await waitFor(() => expect(mocks.steerMessage).toHaveBeenCalled())
+        await act(async () => {
+            mocks.resolveSteer?.({ status: 'steered', localId: 'local-server-message-id' })
+            await Promise.resolve()
+        })
+
+        expect(mocks.addToast).not.toHaveBeenCalled()
+    })
+
+    it('reconciles a stale queued row when the steer returns invoked (missed consumption SSE)', async () => {
+        renderSteerable(true)
+
+        fireEvent.click(screen.getByRole('button', { name: 'Steer queued message' }))
+        await waitFor(() => expect(mocks.steerMessage).toHaveBeenCalled())
+        await act(async () => {
+            mocks.resolveSteer?.({
+                status: 'invoked',
+                message: { localId: 'local-server-message-id', invokedAt: 5_000 },
+            })
+            await Promise.resolve()
+        })
+
+        expect(mocks.markMessagesConsumed).toHaveBeenCalledWith(
+            'session-1',
+            ['local-server-message-id'],
+            5_000,
+        )
+        expect(mocks.addToast).not.toHaveBeenCalled()
     })
 })

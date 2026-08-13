@@ -25,19 +25,16 @@ function reconcileOmpCapabilityOnRegistration(
         return null
     }
 
-    const registeredOmp = registration.data.capabilities?.omp === true
+    const registeredOmp = registration.data.ompAvailable === true
     const stored = MachineMetadataSchema.safeParse(rawStoredMetadata)
-    if (stored.success && (stored.data.capabilities?.omp === true) === registeredOmp) {
+    if (stored.success && (stored.data.ompAvailable === true) === registeredOmp) {
         return null
     }
 
     const metadata = stored.success ? stored.data : registration.data
     return {
         ...metadata,
-        capabilities: {
-            ...metadata.capabilities,
-            omp: registeredOmp
-        }
+        ompAvailable: registeredOmp
     }
 }
 

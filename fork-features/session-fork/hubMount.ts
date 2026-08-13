@@ -13,10 +13,11 @@ export interface ForkToastSender {
 type StatusCode = 200 | 400 | 404 | 409 | 500 | 502 | 503
 
 const ForkRequestBodySchema = z.object({
+    contract: z.literal('fork-feature').optional(),
     forkPoint: z.object({
         messageId: z.string().min(1)
     }).optional()
-})
+}).strict()
 
 /**
  * Mount fork-related HTTP routes onto an existing Hono app. `getDeps` receives

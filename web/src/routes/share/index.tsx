@@ -1,12 +1,26 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useAppContext } from '@/lib/app-context'
 import { useSessions } from '@/hooks/queries/useSessions'
+import { useMachines } from '@/hooks/queries/useMachines'
+import { useMachineLabels } from '@/hooks/useMachineLabels'
 import { useTranslation } from '@/lib/use-translation'
 import { LoadingState } from '@/components/LoadingState'
+import { SessionListSearch, getSessionTimeRange, prepareSidebarSessions } from '@/components/SessionList'
 import {
+    countHiddenActiveSharePickerSessions,
+    filterSharePickerSessions,
+} from '@/lib/sharePickerSessions'
+import { useSessionPreviewLimit } from '@/hooks/useSessionPreviewLimit'
+import {
+    buildSharePayloadFromDeepLink,
     deleteShareTransfer,
     getShareTransfer,
+    hasShareDeepLinkContent,
+    parseShareHash,
+    putShareTransfer,
+    scrubShareHashFromLocation,
+    type ShareSearch,
     type ShareTransferPayload,
 } from '@/lib/shareTransfer'
 import { setSharePendingTransfer } from '@/lib/sharePendingState'
@@ -103,13 +117,41 @@ export default function SharePage() {
     const navigate = useNavigate()
     const [load, setLoad] = useState<LoadState>({ state: 'loading' })
     const { sessions, isLoading: sessionsLoading } = useSessions(api)
+    const { machines } = useMachines(api, true)
+    const machineLabelsById = useMachineLabels(machines)
+    const { sessionPreviewLimit } = useSessionPreviewLimit()
+    const [searchQuery, setSearchQuery] = useState('')
+    const [searchExpanded, setSearchExpanded] = useState(true)
+    const [customStart, setCustomStart] = useState('')
+    const [customEnd, setCustomEnd] = useState('')
+    const timeRange = useMemo(
+        () => getSessionTimeRange(customStart, customEnd),
+        [customStart, customEnd],
+    )
+
+    const resolveMachineLabel = useCallback((machineId: string | null): string => {
+        if (machineId && machineLabelsById[machineId]) {
+            return machineLabelsById[machineId]
+        }
+        if (machineId) {
+            return machineId.slice(0, 8)
+        }
+        return t('machine.unknown')
+    }, [machineLabelsById, t])
 
     // Pulled via the typed validateSearch in router.tsx; reading
     // `window.location.search` directly would diverge from the rest of the
-    // codebase and miss future schema tightening.
-    const search = useSearch({ from: '/share' }) as { id?: string; error?: string }
+    // codebase and miss future schema tightening. Deep-link *content* is
+    // intentionally read from the hash (not query) so it never hits hub logs.
+    // Capture the fragment once in state so StrictMode's effect remount does
+    // not lose it after the first pass scrubs the address bar.
+    const search = useSearch({ from: '/share' }) as ShareSearch
     const transferId = search.id ?? null
     const ingestError = search.error === 'ingest'
+    const [deepLink] = useState(() =>
+        parseShareHash(typeof window === 'undefined' ? '' : window.location.hash)
+    )
+    const ingestPromiseRef = useRef<Promise<string> | null>(null)
 
     useEffect(() => {
         let cancelled = false
@@ -117,49 +159,90 @@ export default function SharePage() {
             setLoad({ state: 'missing', reason: 'ingest-error' })
             return
         }
-        if (!transferId) {
-            setLoad({ state: 'missing', reason: 'no-id' })
-            return
-        }
-        getShareTransfer(transferId).then((payload) => {
-            if (cancelled) return
-            if (!payload) {
+        if (transferId) {
+            // id path wins; drop any leftover fragment so content is not left
+            // beside the transfer id in the address bar.
+            scrubShareHashFromLocation()
+            getShareTransfer(transferId).then((payload) => {
+                if (cancelled) return
+                if (!payload) {
+                    setLoad({ state: 'missing', reason: 'not-found' })
+                    return
+                }
+                setLoad({ state: 'ready', payload })
+            }).catch(() => {
+                if (cancelled) return
                 setLoad({ state: 'missing', reason: 'not-found' })
-                return
-            }
-            setLoad({ state: 'ready', payload })
-        }).catch(() => {
-            if (cancelled) return
-            setLoad({ state: 'missing', reason: 'not-found' })
-        })
+            })
+            return () => { cancelled = true }
+        }
+        // Native / deep-link ingest via URL fragment (not query): synthesize
+        // the same IDB transfer the SW would create from POST, scrub the
+        // fragment, then replace to ?id= for picker / create-new.
+        scrubShareHashFromLocation()
+        if (hasShareDeepLinkContent(deepLink)) {
+            ingestPromiseRef.current ??= buildSharePayloadFromDeepLink(deepLink)
+                .then((payload) => putShareTransfer(payload))
+            void ingestPromiseRef.current.then(
+                (id) => {
+                    if (cancelled) return
+                    navigate({ to: '/share', search: { id }, replace: true })
+                },
+                () => {
+                    if (cancelled) return
+                    setLoad({ state: 'missing', reason: 'ingest-error' })
+                },
+            )
+            return () => { cancelled = true }
+        }
+        setLoad({ state: 'missing', reason: 'no-id' })
         return () => { cancelled = true }
-    }, [transferId, ingestError])
+    }, [transferId, ingestError, navigate, deepLink])
 
-    // Snapshot the active session list once when sessions finish loading so
-    // the picker doesn't re-shuffle under the operator's finger as SSE
-    // updates roll in (activeAt heartbeats nudge the order every few
-    // seconds; even updatedAt-keyed sorts visually flicker on every
-    // metadata patch). The picker is a one-shot interaction — closing the
-    // share sheet and re-sharing produces a fresh snapshot. Sorted by
-    // updatedAt desc to match SessionList's canonical "most recent
-    // interaction first" order.
-    const [pickerSessions, setPickerSessions] = useState<SessionSummary[] | null>(null)
+    // Snapshot the session list once when sessions finish loading so the
+    // picker doesn't re-shuffle under the operator's finger as SSE updates
+    // roll in. The picker is a one-shot interaction — closing the share
+    // sheet and re-sharing produces a fresh snapshot.
+    const [sessionsSnapshot, setSessionsSnapshot] = useState<SessionSummary[] | null>(null)
     useEffect(() => {
-        if (pickerSessions !== null) return
+        if (sessionsSnapshot !== null) return
         if (sessionsLoading) return
-        setPickerSessions(
-            [...sessions]
-                .filter((s) => s.active)
-                .sort((a, b) => b.updatedAt - a.updatedAt)
+        setSessionsSnapshot(prepareSidebarSessions(sessions))
+    }, [sessionsSnapshot, sessions, sessionsLoading])
+
+    const isSearching = searchQuery.trim().length > 0 || timeRange !== null
+    const sessionActivityDates = useMemo(() => {
+        if (!sessionsSnapshot) return new Set<string>()
+        return new Set(sessionsSnapshot.map((session) => {
+            const date = new Date(session.updatedAt)
+            const year = date.getFullYear()
+            const month = String(date.getMonth() + 1).padStart(2, '0')
+            const day = String(date.getDate()).padStart(2, '0')
+            return `${year}-${month}-${day}`
+        }))
+    }, [sessionsSnapshot])
+    const pickerSessions = useMemo(() => {
+        if (!sessionsSnapshot) return null
+        return filterSharePickerSessions(
+            sessionsSnapshot,
+            searchQuery,
+            resolveMachineLabel,
+            timeRange,
+            sessionPreviewLimit,
         )
-    }, [pickerSessions, sessions, sessionsLoading])
+    }, [sessionsSnapshot, searchQuery, resolveMachineLabel, timeRange, sessionPreviewLimit])
+
+    const hiddenActiveCount = useMemo(() => {
+        if (!sessionsSnapshot || isSearching) return 0
+        return countHiddenActiveSharePickerSessions(sessionsSnapshot, sessionPreviewLimit)
+    }, [sessionsSnapshot, isSearching, sessionPreviewLimit])
 
     const handlePickSession = useCallback((sessionId: string) => {
         if (!transferId) return
         // Don't await deleteShareTransfer here — SessionChat consumes the
         // payload then deletes the IDB row (it owns the lifecycle once we
         // hand off). If we delete here, SessionChat won't find it.
-        setSharePendingTransfer(transferId)
+        setSharePendingTransfer(transferId, sessionId)
         navigate({ to: '/sessions/$sessionId', params: { sessionId } })
     }, [navigate, transferId])
 
@@ -239,37 +322,57 @@ export default function SharePage() {
 
                     <div>
                         <div className="px-1 pb-1 text-xs font-semibold uppercase tracking-wide text-[var(--app-hint)]">
-                            {t('share.recentSessions')}
+                            {isSearching ? t('share.searchResults') : t('share.recentSessions')}
                         </div>
+                        <SessionListSearch
+                            value={searchQuery}
+                            onChange={setSearchQuery}
+                            customStart={customStart}
+                            customEnd={customEnd}
+                            sessionActivityDates={sessionActivityDates}
+                            onDateRangeChange={(start, end) => {
+                                setCustomStart(start)
+                                setCustomEnd(end)
+                            }}
+                            expanded={searchExpanded}
+                            onExpandedChange={setSearchExpanded}
+                        />
                         {pickerSessions === null ? (
                             <LoadingState label={t('share.loading')} className="text-sm py-4" />
                         ) : pickerSessions.length === 0 ? (
                             <div className="rounded-md bg-[var(--app-secondary-bg)] p-3 text-xs text-[var(--app-hint)]">
-                                {t('share.noActiveSessions')}
+                                {isSearching ? t('share.noSearchResults') : t('share.noActiveSessions')}
                             </div>
                         ) : (
-                            <ul className="overflow-hidden rounded-md bg-[var(--app-secondary-bg)]">
-                                {pickerSessions.map((session) => (
-                                    <li key={session.id}>
-                                        <button
-                                            type="button"
-                                            onClick={() => handlePickSession(session.id)}
-                                            className="flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[var(--app-subtle-bg)]"
-                                        >
-                                            <div className="min-w-0 flex-1">
-                                                <div className="truncate text-sm font-medium text-[var(--app-fg)]">
-                                                    {getSessionTitle(session)}
-                                                </div>
-                                                {session.metadata?.path ? (
-                                                    <div className="truncate text-xs text-[var(--app-hint)]">
-                                                        {session.metadata.path}
+                            <>
+                                <ul className="overflow-hidden rounded-md bg-[var(--app-secondary-bg)]">
+                                    {pickerSessions.map((session) => (
+                                        <li key={session.id}>
+                                            <button
+                                                type="button"
+                                                onClick={() => handlePickSession(session.id)}
+                                                className="flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[var(--app-subtle-bg)]"
+                                            >
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="truncate text-sm font-medium text-[var(--app-fg)]">
+                                                        {getSessionTitle(session)}
                                                     </div>
-                                                ) : null}
-                                            </div>
-                                        </button>
-                                    </li>
-                                ))}
-                            </ul>
+                                                    {session.metadata?.path ? (
+                                                        <div className="truncate text-xs text-[var(--app-hint)]">
+                                                            {session.metadata.path}
+                                                        </div>
+                                                    ) : null}
+                                                </div>
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                                {hiddenActiveCount > 0 ? (
+                                    <div className="mt-2 px-1 text-xs text-[var(--app-hint)]">
+                                        {t('share.searchForMore', { n: hiddenActiveCount })}
+                                    </div>
+                                ) : null}
+                            </>
                         )}
                     </div>
 

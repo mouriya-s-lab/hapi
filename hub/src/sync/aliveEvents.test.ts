@@ -105,7 +105,7 @@ describe('alive incremental events', () => {
                 host: 'localhost',
                 platform: 'linux',
                 happyCliVersion: '0.23.4',
-                capabilities: { omp: true }
+                ompAvailable: true
             },
             { status: 'running' },
             'default'
@@ -122,9 +122,9 @@ describe('alive incremental events', () => {
             'default'
         )
 
-        expect(restarted.metadata?.capabilities?.omp).toBe(false)
+        expect(restarted.metadata?.ompAvailable).toBe(false)
         expect(store.machines.getMachine(restarted.id)?.metadata).toEqual(expect.objectContaining({
-            capabilities: { omp: false }
+            ompAvailable: false
         }))
     })
 
@@ -138,7 +138,7 @@ describe('alive incremental events', () => {
                 host: 'localhost',
                 platform: 'linux',
                 happyCliVersion: '0.25.1',
-                capabilities: { omp: true }
+                ompAvailable: true
             },
             { status: 'running' },
             'default'
@@ -155,9 +155,9 @@ describe('alive incremental events', () => {
             'default'
         )
 
-        expect(registeredBySession.metadata?.capabilities?.omp).toBe(true)
+        expect(registeredBySession.metadata?.ompAvailable).toBe(true)
         expect(store.machines.getMachine(registeredBySession.id)?.metadata).toEqual(expect.objectContaining({
-            capabilities: { omp: true }
+            ompAvailable: true
         }))
     })
 

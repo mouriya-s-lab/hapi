@@ -1115,6 +1115,11 @@ export class SessionCache {
         }
 
         const movedMessages = this.store.messages.mergeSessionMessages(oldSessionId, newSessionId)
+        // mergeSessions deletes the source. mergeSessionHistory keeps it alive
+        // with the original socket, so its notify chain must stay on that id.
+        if (options.deleteOldSession) {
+            this.store.workGraph.reassignNotifySession(namespace, oldSessionId, newSessionId)
+        }
         if (movedMessages.moved > 0) {
             this.store.usage.transferSession(oldSessionId, newSessionId)
             if (!options.deleteOldSession) {

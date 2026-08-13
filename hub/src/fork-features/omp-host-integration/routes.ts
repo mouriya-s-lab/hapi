@@ -8,7 +8,7 @@ import { requireMachine } from '../../web/routes/guards';
 const OMP_UNAVAILABLE_ERROR = 'OMP is not available on this runner';
 
 function hasOmpCapability(machine: Machine): boolean {
-    return machine.metadata?.capabilities?.omp === true;
+    return machine.metadata?.ompAvailable === true;
 }
 
 function rpcFailure(error: unknown, fallback: string): {

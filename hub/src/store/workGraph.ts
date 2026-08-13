@@ -279,6 +279,20 @@ export function listWorkGraphEventsByRelatedSession(
     return rows.map(toEvent)
 }
 
+/** Full-session work_ad history for notify-ingest cause resolution (no HTTP list cap). */
+export function listWorkGraphWorkAdsByRelatedSession(
+    db: Database,
+    namespace: string,
+    relatedSessionId: string
+): WorkGraphEvent[] {
+    const rows = db.prepare(`
+        SELECT * FROM events
+        WHERE namespace = ? AND related_session_id = ? AND event_type = 'work_ad'
+        ORDER BY rowid ASC
+    `).all(namespace, relatedSessionId) as EventRow[]
+    return rows.map(toEvent)
+}
+
 export function insertWorkGraphEventLink(
     db: Database,
     namespace: string,
@@ -321,6 +335,84 @@ export function insertWorkGraphEventLink(
     const row = db.prepare('SELECT * FROM event_links WHERE id = ? AND namespace = ?')
         .get(id, namespace) as LinkRow
     return toLink(row)
+}
+
+/**
+ * Move hub-elevated notify work_ads onto the surviving session id.
+ * HTTP-posted rows keep their original session keys.
+ */
+export function reassignWorkGraphNotifySession(
+    db: Database,
+    namespace: string,
+    oldSessionId: string,
+    newSessionId: string
+): number {
+    if (oldSessionId === newSessionId) return 0
+    const rows = db.prepare(`
+        SELECT id, related_session_id, source_ref, idempotency_key, principal_json
+        FROM events
+        WHERE namespace = ?
+          AND provenance = 'AGENT_NOTIFY_SUMMARY'
+          AND (related_session_id = ? OR source_ref = ?)
+    `).all(namespace, oldSessionId, oldSessionId) as Array<{
+        id: string
+        related_session_id: string | null
+        source_ref: string
+        idempotency_key: string | null
+        principal_json: string
+    }>
+    if (rows.length === 0) return 0
+
+    const update = db.prepare(`
+        UPDATE events
+        SET related_session_id = ?,
+            source_ref = ?,
+            idempotency_key = ?,
+            principal_json = ?
+        WHERE id = ? AND namespace = ?
+    `)
+    const oldPrefix = `session:${oldSessionId}:`
+    const newPrefix = `session:${newSessionId}:`
+    const oldPrincipal = `session:${oldSessionId}`
+    const newPrincipal = `session:${newSessionId}`
+
+    return db.transaction(() => {
+        let changed = 0
+        for (const row of rows) {
+            const relatedSessionId = row.related_session_id === oldSessionId
+                ? newSessionId
+                : row.related_session_id
+            const sourceRef = row.source_ref === oldSessionId ? newSessionId : row.source_ref
+            let idempotencyKey = row.idempotency_key
+            if (idempotencyKey?.startsWith(oldPrefix)) {
+                idempotencyKey = newPrefix + idempotencyKey.slice(oldPrefix.length)
+            }
+            const principalJson = row.principal_json.includes(oldPrincipal)
+                ? row.principal_json.split(oldPrincipal).join(newPrincipal)
+                : row.principal_json
+            try {
+                update.run(
+                    relatedSessionId,
+                    sourceRef,
+                    idempotencyKey,
+                    principalJson,
+                    row.id,
+                    namespace
+                )
+            } catch {
+                update.run(
+                    relatedSessionId,
+                    sourceRef,
+                    row.idempotency_key,
+                    principalJson,
+                    row.id,
+                    namespace
+                )
+            }
+            changed += 1
+        }
+        return changed
+    })()
 }
 
 export function listWorkGraphEventLinksForEvent(

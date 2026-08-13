@@ -1244,12 +1244,6 @@ export function HappyComposer(props: {
         void handleSend(intent)
     }, [handleSend])
 
-    const canQueueSend = agentFlavor === 'pi'
-        && thinking
-        && threadIsRunning
-        && pendingSchedule == null
-        && !props.scratchlistMode
-
     const handleKeyDown = useCallback((e: ReactKeyboardEvent<HTMLTextAreaElement | HTMLDivElement>) => {
         const key = e.key
 
@@ -1271,22 +1265,6 @@ export function HappyComposer(props: {
             e.preventDefault()
             const indexToSelect = selectedIndex >= 0 ? selectedIndex : 0
             handleSuggestionSelect(indexToSelect)
-            return
-        }
-
-        // Alt/Option+Enter is an explicit Pi follow-up request. It is
-        // orthogonal to the normal Enter preference but never overrides IME,
-        // Shift+Enter, autocomplete, scheduling, or scratchlist routing.
-        if (
-            key === 'Enter'
-            && e.altKey
-            && !e.ctrlKey
-            && !e.metaKey
-            && canQueueSend
-        ) {
-            e.preventDefault()
-            flushAndSend('queue')
-            setShowContinueHint(false)
             return
         }
 
@@ -1378,7 +1356,6 @@ export function HappyComposer(props: {
         richComposerFueStatus,
         dismissRichComposerFue,
         flushAndSend,
-        canQueueSend,
         isExpanded,
         handleExpandedToggle,
     ])
@@ -2538,7 +2515,6 @@ export function HappyComposer(props: {
                             onVoiceToggle={effectiveVoiceToggle ?? (() => {})}
                             onVoiceMicToggle={dictationActive ? undefined : onVoiceMicToggle}
                             onSend={handleSend}
-                            allowQueueGesture={canQueueSend}
                             pendingSchedule={pendingSchedule}
                             onSchedule={handleUserSchedule}
                             onClearSchedule={onUserClearSchedule}

@@ -57,6 +57,7 @@ import {
 import type { MessageDeliveryMode } from '@hapi/protocol'
 import type { OlderLoadOutcome } from '@/lib/message-window-store'
 import { createAttachmentAdapter } from '@/lib/attachmentAdapter'
+import { ShareSeedConsumer } from '@/components/ShareSeedConsumer'
 import {
     createScratchlistAttachmentAdapter,
     type ScratchlistAttachmentAdapter,
@@ -72,9 +73,6 @@ import {
 } from '@/lib/scratchlistAttachmentFlow'
 import type { ScratchlistEntry } from '@/lib/scratchlist'
 import { isHubScratchlistAttachmentPath } from '@hapi/protocol'
-import { consumeSharePendingTransfer } from '@/lib/sharePendingState'
-import { deleteShareTransfer, getShareTransfer } from '@/lib/shareTransfer'
-import { getDraft } from '@/lib/composer-drafts'
 import {
     type AttachmentDraftInput,
 } from '@/lib/composer-attachment-drafts'
@@ -259,97 +257,6 @@ function isUninvokedScheduledMessage(message: DecryptedMessage): boolean {
 }
 
 /**
- * Consumes a pending Web Share Target transfer once the assistant runtime
- * is mounted and the session is active enough to accept attachments.
- *
- * Lifecycle:
- *  - A mount effect reads the transfer id out of sessionStorage *once*
- *    via consumeSharePendingTransfer() (not during render — StrictMode
- *    would consume on the discarded pass). The id is stashed in a ref.
- *  - The actual seed (composer.setText + composer.addAttachment per file)
- *    runs once `props.sessionActive` is true. Inactive sessions disable
- *    the attachmentAdapter, so writing attachments while inactive would
- *    no-op and leak Blobs in IDB. The seed waits in a re-renderable
- *    effect for the active flip.
- *  - `consumedRef` gates the effect to a single seed per component
- *    instance — refs survive a StrictMode mount/cleanup/remount pair, so
- *    the second invoke early-returns and the first invoke's async chain
- *    completes naturally (we deliberately don't cancel on cleanup; the
- *    upload is idempotent and the only side effects on the composer are
- *    no-ops once the runtime is unmounted).
- *  - The IDB row is deleted after the seed completes so a back-button
- *    refresh of /sessions/:id doesn't re-attach the same payload.
- */
-function ShareSeedConsumer(props: { sessionId: string; sessionActive: boolean }) {
-    const assistantApi = useAui()
-    const composerText = useAuiState((s) => s.composer.text)
-    const composerTextRef = useRef(composerText)
-    const initRef = useRef(false)
-    const transferIdRef = useRef<string | null>(null)
-    const consumedRef = useRef(false)
-    const [transferReady, setTransferReady] = useState(false)
-
-    useEffect(() => {
-        composerTextRef.current = composerText
-    }, [composerText])
-
-    // Consume in an effect, not during render — React.StrictMode double-
-    // invokes render functions in dev; a render-time consume deletes the
-    // sessionStorage key on the discarded pass and the committed render
-    // then sees no transfer.
-    useEffect(() => {
-        if (initRef.current) return
-        initRef.current = true
-        transferIdRef.current = consumeSharePendingTransfer()
-        setTransferReady(true)
-    }, [])
-
-    useEffect(() => {
-        if (!transferReady) return
-        if (consumedRef.current) return
-        const transferId = transferIdRef.current
-        if (!transferId) return
-        if (!props.sessionActive) return
-        consumedRef.current = true
-
-        void (async () => {
-            try {
-                const payload = await getShareTransfer(transferId)
-                if (!payload) return
-                const seedText = [payload.title, payload.text, payload.url]
-                    .filter((part) => typeof part === 'string' && part.length > 0)
-                    .join('\n')
-                    .trim()
-                if (seedText.length > 0) {
-                    const existingText = composerTextRef.current.trim().length > 0
-                        ? composerTextRef.current
-                        : getDraft(props.sessionId)
-                    const nextText = [existingText.trim(), seedText]
-                        .filter((part) => part.length > 0)
-                        .join('\n\n')
-                    if (nextText.length > 0) {
-                        assistantApi.composer().setText(nextText)
-                    }
-                }
-                for (const file of payload.files) {
-                    const reconstructed = new File([file.blob], file.name, { type: file.type })
-                    try {
-                        await assistantApi.composer().addAttachment(reconstructed)
-                    } catch (err) {
-                        console.error('share-seed addAttachment failed', err)
-                    }
-                }
-                await deleteShareTransfer(transferId).catch(() => {})
-            } catch (err) {
-                console.error('share-seed pull failed', err)
-            }
-        })()
-    }, [transferReady, props.sessionActive, props.sessionId, assistantApi])
-
-    return null
-}
-
-/**
  * Watches for incoming `abort-restore` events (emitted by the PTY launcher
  * when the user aborts a running turn) and surfaces the aborted prompt text —
  * carried on the event itself — via the existing sendError path
@@ -518,6 +425,7 @@ type SessionChatProps = {
     session: Session
     cursorChatOnDisk?: boolean
     reopenDisabledReason?: string
+    reopenHint?: string
     messages: DecryptedMessage[]
     messagesWarning: string | null
     hasMoreMessages: boolean
@@ -1837,6 +1745,7 @@ function SessionChatInner(props: SessionChatProps) {
                 api={props.api}
                 canReopen={inactiveCanResume}
                 reopenDisabledReason={props.reopenDisabledReason}
+                reopenHint={props.reopenHint}
                 onSessionDeleted={props.onBack}
                 onSessionReopened={async (newSessionId) => {
                     await transferComposerDraftThenNavigate(
@@ -1920,6 +1829,7 @@ function SessionChatInner(props: SessionChatProps) {
                     />
                     </div>
 
+                    <div className={outlineOpen ? 'max-sm:hidden' : undefined}>
                     {codexCollaborationModeSupported && codexModelsState.error ? (
                         <div className="px-3 pb-2">
                             <div className="mx-auto w-full max-w-content rounded-md bg-[var(--app-subtle-bg)] p-3 text-sm text-red-600">
@@ -1967,6 +1877,7 @@ function SessionChatInner(props: SessionChatProps) {
                                 // Restore the schedule so the clock button re-activates
                                 updatePendingSchedule(restored)
                             }}
+                            canSteer={agentFlavor === 'pi' && props.session.thinking && !controlledByUser}
                         />
                     </div>
 
@@ -2195,6 +2106,7 @@ function SessionChatInner(props: SessionChatProps) {
                         onSuppressSendErrorRestore={props.onSuppressSendErrorRestore}
                         pendingSendIntentRef={pendingSendIntentRef}
                         />
+                    </div>
                     </div>
                 </DragDropZone>
             </AssistantRuntimeProvider>

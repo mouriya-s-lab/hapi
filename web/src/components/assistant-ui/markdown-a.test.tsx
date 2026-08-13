@@ -13,7 +13,18 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, cleanup, act, waitFor } from '@testing-library/react'
 import React from 'react'
 import { defaultComponents, classifyScheme, denyOnlyTransform, UriConfirmProvider } from '@/components/assistant-ui/markdown-text'
+import { HappyChatProvider, type HappyChatContextValue } from '@/components/AssistantChat/context'
 import { I18nProvider } from '@/lib/i18n-context'
+import type { ApiClient } from '@/api/client'
+
+const navigate = vi.fn()
+vi.mock('@tanstack/react-router', async () => {
+    const actual = await vi.importActual<typeof import('@tanstack/react-router')>('@tanstack/react-router')
+    return {
+        ...actual,
+        useNavigate: () => navigate,
+    }
+})
 
 // defaultComponents.a is the memoized A component.
 const AnchorComponent = (defaultComponents as Record<string, unknown>).a as React.ComponentType<
@@ -24,14 +35,34 @@ const AnchorComponent = (defaultComponents as Record<string, unknown>).a as Reac
 // Previously <A> had a localHook fallback for bare renders, but that fallback
 // added a storage listener per link (N links → N+1 listeners). The fallback is
 // removed; tests must provide the context instead.
-function renderA(props: React.ComponentPropsWithoutRef<'a'>) {
-    return render(
+function renderA(props: React.ComponentPropsWithoutRef<'a'>, chat?: HappyChatContextValue) {
+    const tree = (
         <I18nProvider>
             <UriConfirmProvider>
                 <AnchorComponent {...props} />
             </UriConfirmProvider>
         </I18nProvider>
     )
+    return render(
+        chat ? <HappyChatProvider value={chat}>{tree}</HappyChatProvider> : tree
+    )
+}
+
+function chatContext(overrides: Partial<HappyChatContextValue> = {}): HappyChatContextValue {
+    return {
+        api: {} as ApiClient,
+        sessionId: 'session-1',
+        metadata: { path: '/home/ada/coding/hapi', host: 'local' },
+        terminalToolDisplayMode: 'compact',
+        showSessionSummaryInChat: false,
+        disabled: false,
+        onRefresh: () => {},
+        hasMoreMessages: false,
+        isSyncingTail: false,
+        isLoadingMoreMessages: false,
+        loadOlderMessagesPreservingScroll: async () => 'loaded',
+        ...overrides,
+    }
 }
 
 const STORAGE_KEY = 'hapi-allowed-schemes'
@@ -214,20 +245,17 @@ describe('markdown <A> component — click handler', () => {
     })
 })
 
-// ── relative / no-scheme hrefs — regression guard ────────────────────────────
+// ── relative / no-scheme hrefs — fail-closed (#1452) ─────────────────────────
 //
-// Finding 2: denyOnlyTransform passes relative hrefs through unchanged (no colon
-// → not a scheme URL), but the <A> onClick handler called classifyScheme(href)
-// which returned 'deny' for inputs with no valid scheme → preventDefault was
-// called → relative/internal links were silently blocked.
+// Finding 2 (historical): denyOnlyTransform passes relative hrefs through, but
+// classifyScheme returned 'deny' for no-scheme inputs → preventDefault blocked
+// internal links. Fixed by treating scheme-less as 'iana' when SPA-safe.
 //
-// Fix: <A> must detect hrefs that have no scheme and treat them as 'iana' so the
-// browser/router can navigate normally.
+// #1452: scheme-less path-like hrefs that are NOT real app routes must not
+// remain clickable SPA dead-ends. They become inert <span>s (or FilePathAnchor
+// when they resolve to a workspace file).
 
-describe('markdown <A> component — relative / no-scheme hrefs navigate normally', () => {
-    // Each of these hrefs has no URL scheme. Clicks must NOT be prevented.
-    // We verify by checking that preventDefault is NOT called on the click event.
-
+describe('markdown <A> component — SPA-safe no-scheme hrefs still navigate', () => {
     function clickAndCheckNotPrevented(href: string) {
         renderA({ href, children: 'link' })
         const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true })
@@ -241,10 +269,6 @@ describe('markdown <A> component — relative / no-scheme hrefs navigate normall
         clickAndCheckNotPrevented('/settings')
     })
 
-    it('./foo → click not prevented (relative-path link)', () => {
-        clickAndCheckNotPrevented('./foo')
-    })
-
     it('#section → click not prevented (hash fragment link)', () => {
         clickAndCheckNotPrevented('#section')
     })
@@ -253,19 +277,146 @@ describe('markdown <A> component — relative / no-scheme hrefs navigate normall
         clickAndCheckNotPrevented('?q=1')
     })
 
-    it('/path:colon → click not prevented (path with colon, no scheme)', () => {
-        // "/" appears before ":" so this is a path, not a scheme.
-        clickAndCheckNotPrevented('/path:colon')
-    })
-
     it('//example.com → click not prevented (protocol-relative URL, no colon)', () => {
-        // Protocol-relative URLs have no colon; browsers navigate them as the
-        // current origin's protocol, same as any other relative href.
         clickAndCheckNotPrevented('//example.com/path')
     })
 
     it('https://example.com → click not prevented (regression: IANA still passes through)', () => {
         clickAndCheckNotPrevented('https://example.com')
+    })
+})
+
+describe('markdown <A> component — fail-closed path-like hrefs (#1452)', () => {
+    it('renders ./foo as inert text (not a navigable <a>)', () => {
+        renderA({ href: './foo', children: 'dead' })
+        expect(document.querySelector('a')).toBeNull()
+        const inert = document.querySelector('.aui-md-a-inert')
+        expect(inert).not.toBeNull()
+        expect(inert!.getAttribute('title')).toBe('./foo')
+        expect(inert!.textContent).toBe('dead')
+    })
+
+    it('renders /home/... absolute file href as inert without chat context', () => {
+        renderA({ href: '/home/ada/proj/docs/a.md', children: 'abs' })
+        expect(document.querySelector('a')).toBeNull()
+        expect(document.querySelector('.aui-md-a-inert')?.textContent).toBe('abs')
+    })
+
+    it('renders ~/... as inert without workspace metadata', () => {
+        renderA({ href: '~/proj/docs/a.md', children: 'tilde' })
+        expect(document.querySelector('a')).toBeNull()
+        expect(document.querySelector('.aui-md-a-inert')?.textContent).toBe('tilde')
+    })
+
+    it('renders /path:colon as inert (path-like, not an app route)', () => {
+        renderA({ href: '/path:colon', children: 'weird' })
+        expect(document.querySelector('a')).toBeNull()
+        expect(document.querySelector('.aui-md-a-inert')).not.toBeNull()
+    })
+
+    it('routes in-workspace absolute file href to FilePathAnchor when chat is present', () => {
+        renderA(
+            { href: '/home/ada/coding/hapi/docs/a.md', children: 'abs' },
+            chatContext()
+        )
+        const link = document.querySelector('a')
+        expect(link).not.toBeNull()
+        expect(link!.getAttribute('href')).toContain('/sessions/session-1/file?')
+        expect(document.querySelector('.aui-md-a-inert')).toBeNull()
+    })
+
+    it('keeps outside-workspace absolute file href inert even with chat present', () => {
+        renderA(
+            { href: '/etc/passwd.sh', children: 'etc' },
+            chatContext()
+        )
+        expect(document.querySelector('a')).toBeNull()
+        expect(document.querySelector('.aui-md-a-inert')?.textContent).toBe('etc')
+    })
+
+    it('keeps outside-workspace Windows absolute href inert despite drive colon looking like a scheme', () => {
+        renderA(
+            { href: 'D:/outside/secret.ts#L1', children: 'win' },
+            chatContext()
+        )
+        expect(document.querySelector('a')).toBeNull()
+        expect(document.querySelector('.aui-md-a-inert')?.textContent).toBe('win')
+    })
+
+    it('routes hapi-file-candidate Windows href through containment to FilePathAnchor', () => {
+        const path = 'C:\\Users\\ada\\coding\\hapi\\docs\\a.md'
+        renderA(
+            {
+                href: 'hapi-file-candidate:' + encodeURIComponent(path),
+                children: 'win',
+            },
+            chatContext({
+                metadata: { path: 'C:\\Users\\ada\\coding\\hapi', host: 'local' },
+            })
+        )
+        const link = document.querySelector('a')
+        expect(link).not.toBeNull()
+        expect(link!.getAttribute('href')).toContain('/sessions/session-1/file?')
+    })
+
+    it('renders non-Windows hapi-file-candidate payloads as inert (no SPA navigate bypass)', () => {
+        renderA(
+            {
+                href: 'hapi-file-candidate:' + encodeURIComponent('/settings'),
+                children: 'spoof',
+            },
+            chatContext()
+        )
+        expect(document.querySelector('a')).toBeNull()
+        expect(document.querySelector('.aui-md-a-inert')?.textContent).toBe('spoof')
+    })
+
+    it('renders empty hapi-file-candidate payload as inert (no custom-scheme confirm)', () => {
+        renderA({ href: 'hapi-file-candidate:', children: 'empty' }, chatContext())
+        expect(document.querySelector('a')).toBeNull()
+        expect(document.querySelector('.aui-md-a-inert')?.textContent).toBe('empty')
+    })
+
+    it('renders uppercase hapi-file-candidate scheme as inert when payload is empty', () => {
+        renderA({ href: 'HAPI-FILE-CANDIDATE:', children: 'upper' }, chatContext())
+        expect(document.querySelector('a')).toBeNull()
+        expect(document.querySelector('.aui-md-a-inert')?.textContent).toBe('upper')
+    })
+
+    it('renders percent-encoded hapi-file-candidate scheme as inert when payload is empty', () => {
+        renderA({ href: 'hapi%2Dfile%2Dcandidate:', children: 'enc' }, chatContext())
+        expect(document.querySelector('a')).toBeNull()
+        expect(document.querySelector('.aui-md-a-inert')?.textContent).toBe('enc')
+    })
+
+    it('treats percent-encoded backslash Windows href as inert when outside workspace', () => {
+        renderA(
+            { href: 'D:%5Coutside%5Csecret.ts', children: 'win' },
+            chatContext()
+        )
+        expect(document.querySelector('a')).toBeNull()
+        expect(document.querySelector('.aui-md-a-inert')?.textContent).toBe('win')
+    })
+
+    it('expands ~/ and routes to FilePathAnchor when workspace metadata is present', () => {
+        renderA(
+            { href: '~/coding/hapi/docs/a.md', children: 'tilde' },
+            chatContext()
+        )
+        const link = document.querySelector('a')
+        expect(link).not.toBeNull()
+        expect(link!.getAttribute('href')).toContain('/sessions/session-1/file?')
+    })
+
+    it('keeps allowlisted relative file href as FilePathAnchor with chat', () => {
+        renderA({ href: 'docs/foo.md', children: 'rel' }, chatContext())
+        expect(document.querySelector('a')!.getAttribute('href')).toContain('/sessions/session-1/file?')
+    })
+
+    it('still renders /settings as a real navigable link with chat present', () => {
+        renderA({ href: '/settings', children: 'settings' }, chatContext())
+        expect(document.querySelector('a')!.getAttribute('href')).toBe('/settings')
+        expect(document.querySelector('.aui-md-a-inert')).toBeNull()
     })
 })
 

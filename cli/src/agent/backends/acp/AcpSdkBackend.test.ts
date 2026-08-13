@@ -1413,7 +1413,8 @@ describe('AcpSdkBackend', () => {
         ]);
     });
 
-    it('notifies agent-activity listener for harness-wake activity, not usage noise (#1470)', () => {
+    it('notifies agent-activity listener for sustained running + idle, not content/usage noise (#1470/#1502)', () => {
+        vi.useFakeTimers();
         const backend = new AcpSdkBackend({ command: 'agent' });
         const activity: boolean[] = [];
         backend.setAgentActivityListener((thinking) => {
@@ -1433,6 +1434,14 @@ describe('AcpSdkBackend', () => {
         });
         backendInternal.handleSessionUpdate({
             sessionId: 'session-1',
+            update: {
+                sessionUpdate: ACP_SESSION_UPDATE_TYPES.toolCallUpdate,
+                toolCallId: 'tc-bg',
+                status: 'in_progress'
+            }
+        });
+        backendInternal.handleSessionUpdate({
+            sessionId: 'session-1',
             update: { sessionUpdate: 'usage_update', used: 1_000, size: 200_000 }
         });
         backendInternal.handleSessionUpdate({
@@ -1442,16 +1451,55 @@ describe('AcpSdkBackend', () => {
                 title: 'noise'
             }
         });
+        // Chatter: running then idle before debounce → no true bump (idle may clear)
         backendInternal.handleSessionUpdate({
             sessionId: 'session-1',
             update: { sessionUpdate: 'state_update', state: 'running' }
         });
+        vi.advanceTimersByTime(200);
         backendInternal.handleSessionUpdate({
             sessionId: 'session-1',
             update: { sessionUpdate: 'state_update', state: 'idle' }
         });
+        expect(activity.filter((v) => v === true)).toEqual([]);
 
-        expect(activity).toEqual([true, true, false]);
+        // Sustained running commits after debounce
+        backendInternal.handleSessionUpdate({
+            sessionId: 'session-1',
+            update: { sessionUpdate: 'state_update', state: 'running' }
+        });
+        vi.advanceTimersByTime(750);
+        expect(activity.filter((v) => v === true)).toEqual([true]);
+        backendInternal.handleSessionUpdate({
+            sessionId: 'session-1',
+            update: { sessionUpdate: 'state_update', state: 'idle' }
+        });
+        expect(activity.at(-1)).toBe(false);
+        vi.useRealTimers();
+    });
+
+    it('ignores idle clears while a HAPI prompt turn is still draining', () => {
+        const backend = new AcpSdkBackend({ command: 'agent' });
+        const activity: boolean[] = [];
+        backend.setAgentActivityListener((thinking) => {
+            activity.push(thinking);
+        });
+        const backendInternal = backend as unknown as {
+            handleSessionUpdate: (params: unknown) => void;
+            isProcessingMessage: boolean;
+        };
+        backendInternal.isProcessingMessage = true;
+        backendInternal.handleSessionUpdate({
+            sessionId: 'session-1',
+            update: { sessionUpdate: 'state_update', state: 'idle' }
+        });
+        expect(activity).toEqual([]);
+        backendInternal.isProcessingMessage = false;
+        backendInternal.handleSessionUpdate({
+            sessionId: 'session-1',
+            update: { sessionUpdate: 'state_update', state: 'idle' }
+        });
+        expect(activity).toEqual([false]);
     });
 
     it('notifies agent-activity listener when a permission request arrives (#1470)', async () => {

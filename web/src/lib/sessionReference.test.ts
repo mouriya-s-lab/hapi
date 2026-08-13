@@ -197,6 +197,132 @@ describe('matchSessionsForMention', () => {
         ])
         expect(hits.map((s) => s.id)).not.toContain('ccc-old')
     })
+
+    // #1506 — mention pool is stricter than sidebar visibility.
+    it('excludes sidebar-hidden empty stubs from typed queries', () => {
+        const stub = makeSession({
+            id: 'stub-hidden',
+            updatedAt: 999,
+            metadata: {
+                path: '/home/me/coding/hapi/worktrees/session-attached-jobs',
+                lifecycleState: 'archived',
+            },
+        })
+        const live = makeSession({
+            id: 'live-named',
+            active: true,
+            updatedAt: 100,
+            metadata: {
+                path: '/home/me/coding/hapi/worktrees/session-attached-jobs',
+                name: 'Peer: session-attached jobs',
+                lifecycleState: 'running',
+            },
+        })
+        const hits = matchSessionsForMention([stub, live], 'session-attached')
+        expect(hits.map((s) => s.id)).toEqual(['live-named'])
+        expect(getSessionTitle(stub)).toBe('session-attached-jobs')
+    })
+
+    it('excludes path-only title husks even when sidebar would show them', () => {
+        // agentSessionId keeps the row in the sidebar (#836), but path fallback is not a title.
+        const husk = makeSession({
+            id: 'husk-with-agent',
+            updatedAt: 999,
+            metadata: {
+                path: '/home/me/coding/hapi/worktrees/session-attached-jobs',
+                agentSessionId: 'agent-thread-1',
+                lifecycleState: 'archived',
+            },
+        })
+        const live = makeSession({
+            id: 'live-named',
+            active: true,
+            updatedAt: 100,
+            metadata: {
+                path: '/home/me/coding/hapi/worktrees/session-attached-jobs',
+                name: 'Peer: session-attached jobs',
+                lifecycleState: 'running',
+            },
+        })
+        const hits = matchSessionsForMention([husk, live], 'session-attached')
+        expect(hits.map((s) => s.id)).toEqual(['live-named'])
+        expect(hits.map((s) => s.id)).not.toContain('husk-with-agent')
+    })
+
+    it('keeps summary-only titled sessions and still matches their id prefix', () => {
+        const summaryOnly = makeSession({
+            id: 'summary-only-uuid',
+            updatedAt: 80,
+            metadata: {
+                path: '/work/summary-only',
+                summary: { text: 'Fix mention husks' },
+                lifecycleState: 'archived',
+            },
+        })
+        const husk = makeSession({
+            id: 'husk-path-only',
+            updatedAt: 90,
+            metadata: {
+                path: '/work/mention-husks',
+                agentSessionId: 'agent-2',
+            },
+        })
+        expect(matchSessionsForMention([summaryOnly, husk], 'mention husks').map((s) => s.id)).toEqual([
+            'summary-only-uuid',
+        ])
+        expect(matchSessionsForMention([summaryOnly, husk], 'summary-o').map((s) => s.id)).toEqual([
+            'summary-only-uuid',
+        ])
+        expect(matchSessionsForMention([husk], 'husk-pat').map((s) => s.id)).toEqual([])
+    })
+
+    it('empty query also omits path-only husks from the shortlist', () => {
+        const husk = makeSession({
+            id: 'active-path-husk',
+            active: true,
+            updatedAt: 500,
+            metadata: {
+                path: '/work/session-attached-jobs',
+                agentSessionId: 'agent-3',
+            },
+        })
+        const named = makeSession({
+            id: 'named-active',
+            active: true,
+            updatedAt: 100,
+            metadata: { path: '/work/a', name: 'Real peer' },
+        })
+        expect(matchSessionsForMention([husk, named], '').map((s) => s.id)).toEqual(['named-active'])
+    })
+
+    it('excludes titled duplicates that sidebar dedup hides, even when their title matches better', () => {
+        const live = makeSession({
+            id: 'live-visible',
+            active: true,
+            updatedAt: 100,
+            metadata: {
+                path: '/work/session-attached-jobs',
+                name: 'Peer: session-attached jobs',
+                flavor: 'cursor',
+                agentSessionId: 'shared-acp-thread',
+                lifecycleState: 'running',
+            },
+        })
+        const hidden = makeSession({
+            id: 'stale-hidden',
+            updatedAt: 999,
+            metadata: {
+                path: '/work/session-attached-jobs',
+                name: 'session-attached-jobs',
+                flavor: 'cursor',
+                agentSessionId: 'shared-acp-thread',
+                lifecycleState: 'archived',
+            },
+        })
+        const hits = matchSessionsForMention([hidden, live], 'session-attached-jobs')
+        expect(hits.map((s) => s.id)).toEqual(['live-visible'])
+        expect(hits.map((s) => s.id)).not.toContain('stale-hidden')
+    })
 })
 
 describe('parseSessionPathHref', () => {

@@ -259,7 +259,7 @@ export function NewSession(props: {
 
     const selectableMachines = useMemo(
         () => agent === 'omp'
-            ? props.machines.filter((machine) => machine.metadata?.capabilities?.omp === true)
+            ? props.machines.filter((machine) => machine.metadata?.ompAvailable === true)
             : props.machines,
         [agent, props.machines]
     )

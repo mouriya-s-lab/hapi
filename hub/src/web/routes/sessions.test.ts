@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import type { Session, SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import { createSessionsRoutes } from './sessions'
+import { mountForkRoutes, type ForkSyncEngineLike } from '../../../../fork-features/session-fork/hubMount'
 
 function createSession(overrides?: Partial<Session>): Session {
     const baseMetadata = {
@@ -1628,6 +1629,44 @@ describe('sessions routes', () => {
         expect(response.status).toBe(200)
         expect(await response.json()).toEqual({ sessionId: 'forked-child' })
         expect(calls).toEqual([{ sessionId: 'session-1', namespace: 'default', messageLocalId: undefined }])
+    })
+    it('passes fork-feature requests through the legacy fork route', async () => {
+        let legacyForkCalls = 0
+        const session = createSession({ active: false })
+        const { app } = createApp(session, {
+            forkConversation: async () => {
+                legacyForkCalls += 1
+                return { type: 'success', sessionId: 'legacy-child' }
+            }
+        })
+        const forkDeps: ForkSyncEngineLike = {
+            getSession: () => ({
+                id: session.id,
+                machineId: 'machine-1',
+                metadata: { flavor: 'codex' },
+                cwd: '/tmp/project',
+                model: 'gpt-5.4',
+                permissionMode: 'default',
+                collaborationMode: 'default'
+            }),
+            forkProvider: async () => ({ providerSessionId: 'native-child', metadataPatch: {} }),
+            spawnSession: async () => ({ type: 'success', sessionId: 'fork-feature-child' }),
+            listMessages: () => [],
+            copyMessages: () => ({ copied: 0 }),
+            resolveProviderMessageId: () => undefined,
+            updateMetadata: () => {}
+        }
+        mountForkRoutes(app, () => forkDeps)
+
+        const response = await app.request('/api/sessions/session-1/fork', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ contract: 'fork-feature' })
+        })
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ type: 'success', newSessionId: 'fork-feature-child' })
+        expect(legacyForkCalls).toBe(0)
     })
 
     it('rewinds via POST /sessions/:id/rewind', async () => {

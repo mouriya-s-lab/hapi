@@ -155,6 +155,61 @@ describe('WorkGraphStore', () => {
         expect(store.workGraph.listLinksForEvent('default', handoff.event.id)).toHaveLength(1)
     })
 
+    it('lists work_ads for a session in chronological order without the HTTP cap', () => {
+        const store = new Store(':memory:')
+        const first = store.workGraph.insertEvent('default', {
+            source_kind: 'session',
+            source_ref: 'sess-a',
+            event_type: 'work_ad',
+            related_session_id: 'sess-a',
+            summary: 'first',
+            principal: humanPrincipal
+        }, { ts: 1000 })
+        store.workGraph.insertEvent('default', {
+            source_kind: 'session',
+            source_ref: 'sess-a',
+            event_type: 'handoff',
+            related_session_id: 'sess-a',
+            summary: 'not an ad',
+            principal: humanPrincipal
+        }, { ts: 1500 })
+        const second = store.workGraph.insertEvent('default', {
+            source_kind: 'session',
+            source_ref: 'sess-a',
+            event_type: 'work_ad',
+            related_session_id: 'sess-a',
+            summary: 'second',
+            principal: humanPrincipal
+        }, { ts: 2000 })
+
+        const ads = store.workGraph.listWorkAdsByRelatedSession('default', 'sess-a')
+        expect(ads.map((event) => event.id)).toEqual([first.event.id, second.event.id])
+        expect(store.workGraph.listWorkAdsByRelatedSession('beta', 'sess-a')).toEqual([])
+    })
+
+    it('lists work_ads in insert order even when a later row has an older ts', () => {
+        const store = new Store(':memory:')
+        const first = store.workGraph.insertEvent('default', {
+            source_kind: 'session',
+            source_ref: 'sess-a',
+            event_type: 'work_ad',
+            related_session_id: 'sess-a',
+            summary: 'inserted first',
+            principal: humanPrincipal
+        }, { ts: 5000 })
+        const second = store.workGraph.insertEvent('default', {
+            source_kind: 'session',
+            source_ref: 'sess-a',
+            event_type: 'work_ad',
+            related_session_id: 'sess-a',
+            summary: 'inserted second, older ts',
+            principal: humanPrincipal
+        }, { ts: 1000 })
+
+        const ads = store.workGraph.listWorkAdsByRelatedSession('default', 'sess-a')
+        expect(ads.map((event) => event.id)).toEqual([first.event.id, second.event.id])
+    })
+
     it('accepts agent principal with on_behalf_of human owner', () => {
         const store = new Store(':memory:')
         const result = store.workGraph.insertEvent('default', {
@@ -169,5 +224,43 @@ describe('WorkGraphStore', () => {
             id: 'worker-1',
             on_behalf_of: '1'
         })
+    })
+
+    it('reassigns only AGENT_NOTIFY_SUMMARY rows onto the surviving session', () => {
+        const store = new Store(':memory:')
+        const notify = store.workGraph.insertEvent('default', {
+            source_kind: 'session',
+            source_ref: 'sess-old',
+            event_type: 'work_ad',
+            related_session_id: 'sess-old',
+            summary: 'notify',
+            provenance: 'AGENT_NOTIFY_SUMMARY',
+            idempotency_key: 'session:sess-old:message:msg-1:notify',
+            principal: { kind: 'agent', id: 'session:sess-old', on_behalf_of: '1' }
+        })
+        const posted = store.workGraph.insertEvent('default', {
+            source_kind: 'session',
+            source_ref: 'sess-old',
+            event_type: 'work_ad',
+            related_session_id: 'sess-old',
+            summary: 'http posted',
+            principal: humanPrincipal
+        })
+
+        expect(store.workGraph.reassignNotifySession('default', 'sess-old', 'sess-new')).toBe(1)
+
+        const moved = store.workGraph.getEvent(notify.event.id, 'default')
+        expect(moved?.relatedSessionId).toBe('sess-new')
+        expect(moved?.sourceRef).toBe('sess-new')
+        expect(moved?.idempotencyKey).toBe('session:sess-new:message:msg-1:notify')
+        expect(moved?.principal).toEqual({
+            kind: 'agent',
+            id: 'session:sess-new',
+            on_behalf_of: '1'
+        })
+
+        const untouched = store.workGraph.getEvent(posted.event.id, 'default')
+        expect(untouched?.relatedSessionId).toBe('sess-old')
+        expect(untouched?.sourceRef).toBe('sess-old')
     })
 })

@@ -1143,9 +1143,11 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
       () => api.getOrCreateMachine({
         machineId,
         metadata: buildMachineMetadata({
-          workspaceRoots,
-          ompAvailable: ompAvailability.available,
-          agentSkills
+            workspaceRoots,
+            startedCliMtimeMs: startedWithCliMtimeMs,
+            asRunner: true,
+            ompAvailable: ompAvailability.available,
+            agentSkills
         }),
         runnerState: initialRunnerState
       }),

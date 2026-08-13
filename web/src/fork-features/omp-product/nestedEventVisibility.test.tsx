@@ -53,6 +53,7 @@ function context(flavor: string): HappyChatContextValue {
         sessionId: 'session-1',
         metadata: { path: 'repo', host: 'local', flavor },
         terminalToolDisplayMode: 'detailed',
+        showSessionSummaryInChat: false,
         disabled: false,
         onRefresh: () => undefined,
         hasMoreMessages: false,

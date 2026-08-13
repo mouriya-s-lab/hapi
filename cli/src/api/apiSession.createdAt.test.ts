@@ -75,6 +75,33 @@ describe('sendClaudeSessionMessage createdAt propagation', () => {
         return { client, fakeSocket }
     }
 
+    function fireIncomingUserMessage(
+        fakeSocket: { on: ReturnType<typeof vi.fn> },
+        message: { seq: number; text: string; sentFrom: 'webapp' | 'telegram-bot' }
+    ): void {
+        const handler = fakeSocket.on.mock.calls.find((call) => call[0] === 'update')?.[1] as
+            | ((data: unknown) => void)
+            | undefined
+        if (typeof handler !== 'function') {
+            throw new Error('ApiSessionClient did not register an update handler')
+        }
+        handler({
+            body: {
+                t: 'new-message',
+                message: {
+                    id: `hub-${message.seq}`,
+                    seq: message.seq,
+                    localId: null,
+                    content: {
+                        role: 'user',
+                        content: { type: 'text', text: message.text },
+                        meta: { sentFrom: message.sentFrom }
+                    }
+                }
+            }
+        })
+    }
+
     beforeEach(() => {
         configuration._setApiUrl('https://hapi.example.com')
         ioMock.mockReset()
@@ -97,7 +124,7 @@ describe('sendClaudeSessionMessage createdAt propagation', () => {
         }))
     })
 
-    it('external user message (echoed prompt): does not add createdAt — path is unchanged', () => {
+    it('local Claude prompt: does not add createdAt and does not stamp isTranscriptEcho', () => {
         const { client, fakeSocket } = makeClient()
         const body = {
             type: 'user',
@@ -114,6 +141,217 @@ describe('sendClaudeSessionMessage createdAt propagation', () => {
         const [, payload] = fakeSocket.emit.mock.calls[0] as [string, Record<string, unknown>]
         expect(payload.sid).toBe('session-1')
         expect(payload).not.toHaveProperty('createdAt')
+        expect(payload.message).toMatchObject({
+            role: 'user',
+            meta: { sentFrom: 'cli' }
+        })
+        expect((payload.message as { meta?: { isTranscriptEcho?: boolean } }).meta?.isTranscriptEcho)
+            .not.toBe(true)
+    })
+
+    it('remote hub prompt: matching Claude transcript row stamps isTranscriptEcho', () => {
+        const { client, fakeSocket } = makeClient()
+        client.notePendingHubPromptEcho('hello from web', 'local-1')
+
+        client.sendClaudeSessionMessage({
+            type: 'user',
+            uuid: 'user-echo-1',
+            userType: 'external',
+            isSidechain: false,
+            timestamp: '2024-03-10T00:00:00.000Z',
+            message: { role: 'user', content: 'hello from web' }
+        } as unknown as RawJSONLines)
+
+        const [, payload] = fakeSocket.emit.mock.calls[0] as [string, Record<string, unknown>]
+        expect(payload.message).toMatchObject({
+            role: 'user',
+            meta: { sentFrom: 'cli', isTranscriptEcho: true }
+        })
+    })
+
+    it('batched same-mode prompts match the joined Claude transcript row', () => {
+        const { client, fakeSocket } = makeClient()
+        client.notePendingHubPromptEcho('one\ntwo')
+
+        client.sendClaudeSessionMessage({
+            type: 'user',
+            uuid: 'user-batch-1',
+            userType: 'external',
+            isSidechain: false,
+            timestamp: '2024-03-10T00:00:00.000Z',
+            message: { role: 'user', content: 'one\ntwo' }
+        } as unknown as RawJSONLines)
+
+        const [, payload] = fakeSocket.emit.mock.calls[0] as [string, Record<string, unknown>]
+        expect(payload.message).toMatchObject({
+            role: 'user',
+            meta: { sentFrom: 'cli', isTranscriptEcho: true }
+        })
+    })
+
+    it('formatted Claude prompt (attachments/plan) matches the queue-boundary text, not raw hub text', () => {
+        const { client, fakeSocket } = makeClient()
+        fireIncomingUserMessage(fakeSocket, { seq: 1, text: 'hello from web', sentFrom: 'webapp' })
+        client.notePendingHubPromptEcho('/path/to/file.ts\nhello from web', 'local-1')
+
+        client.sendClaudeSessionMessage({
+            type: 'user',
+            uuid: 'user-echo-fmt',
+            userType: 'external',
+            isSidechain: false,
+            timestamp: '2024-03-10T00:00:00.000Z',
+            message: { role: 'user', content: '/path/to/file.ts\nhello from web' }
+        } as unknown as RawJSONLines)
+
+        const [, payload] = fakeSocket.emit.mock.calls[0] as [string, Record<string, unknown>]
+        expect(payload.message).toMatchObject({
+            role: 'user',
+            meta: { sentFrom: 'cli', isTranscriptEcho: true }
+        })
+    })
+
+    it('raw hub delivery alone does not stamp isTranscriptEcho', () => {
+        const { client, fakeSocket } = makeClient()
+        fireIncomingUserMessage(fakeSocket, { seq: 1, text: 'hello from web', sentFrom: 'webapp' })
+
+        client.sendClaudeSessionMessage({
+            type: 'user',
+            uuid: 'user-raw-1',
+            userType: 'external',
+            isSidechain: false,
+            timestamp: '2024-03-10T00:00:00.000Z',
+            message: { role: 'user', content: 'hello from web' }
+        } as unknown as RawJSONLines)
+
+        const [, payload] = fakeSocket.emit.mock.calls[0] as [string, Record<string, unknown>]
+        expect((payload.message as { meta?: { isTranscriptEcho?: boolean } }).meta?.isTranscriptEcho)
+            .not.toBe(true)
+    })
+
+    it('cancelled queued prompt does not misclassify a later matching local prompt', () => {
+        const { client, fakeSocket } = makeClient()
+        client.notePendingHubPromptEcho('hello from web', ['local-1', 'local-2'])
+        client.discardPendingHubPromptEcho('local-2')
+
+        client.sendClaudeSessionMessage({
+            type: 'user',
+            uuid: 'user-local-cancel',
+            userType: 'external',
+            isSidechain: false,
+            timestamp: '2024-03-10T00:00:00.000Z',
+            message: { role: 'user', content: 'hello from web' }
+        } as unknown as RawJSONLines)
+
+        const [, payload] = fakeSocket.emit.mock.calls[0] as [string, Record<string, unknown>]
+        expect((payload.message as { meta?: { isTranscriptEcho?: boolean } }).meta?.isTranscriptEcho)
+            .not.toBe(true)
+    })
+
+    it('rebatched restored prompt replaces the original echo marker', () => {
+        const { client, fakeSocket } = makeClient()
+        client.notePendingHubPromptEcho('hello from web', 'local-1')
+        client.notePendingHubPromptEcho('hello from web\nqueued while retrying', ['local-1', 'local-2'])
+
+        client.sendClaudeSessionMessage({
+            type: 'user',
+            uuid: 'user-rebatch-combined',
+            userType: 'external',
+            isSidechain: false,
+            timestamp: '2024-03-10T00:00:00.000Z',
+            message: { role: 'user', content: 'hello from web\nqueued while retrying' }
+        } as unknown as RawJSONLines)
+
+        const [, combined] = fakeSocket.emit.mock.calls[0] as [string, Record<string, unknown>]
+        expect(combined.message).toMatchObject({
+            role: 'user',
+            meta: { sentFrom: 'cli', isTranscriptEcho: true }
+        })
+
+        fakeSocket.emit.mockClear()
+        client.sendClaudeSessionMessage({
+            type: 'user',
+            uuid: 'user-local-after-rebatch',
+            userType: 'external',
+            isSidechain: false,
+            timestamp: '2024-03-10T00:00:01.000Z',
+            message: { role: 'user', content: 'hello from web' }
+        } as unknown as RawJSONLines)
+
+        const [, local] = fakeSocket.emit.mock.calls[0] as [string, Record<string, unknown>]
+        expect((local.message as { meta?: { isTranscriptEcho?: boolean } }).meta?.isTranscriptEcho)
+            .not.toBe(true)
+    })
+
+    it('id-less rebatch replaces the previous id-less echo marker', () => {
+        const { client, fakeSocket } = makeClient()
+        client.notePendingHubPromptEcho('hello from web')
+        client.notePendingHubPromptEcho('hello from web\nqueued while retrying')
+
+        client.sendClaudeSessionMessage({
+            type: 'user',
+            uuid: 'user-idless-combined',
+            userType: 'external',
+            isSidechain: false,
+            timestamp: '2024-03-10T00:00:00.000Z',
+            message: { role: 'user', content: 'hello from web\nqueued while retrying' }
+        } as unknown as RawJSONLines)
+
+        const [, combined] = fakeSocket.emit.mock.calls[0] as [string, Record<string, unknown>]
+        expect(combined.message).toMatchObject({
+            role: 'user',
+            meta: { sentFrom: 'cli', isTranscriptEcho: true }
+        })
+
+        fakeSocket.emit.mockClear()
+        client.sendClaudeSessionMessage({
+            type: 'user',
+            uuid: 'user-local-after-idless',
+            userType: 'external',
+            isSidechain: false,
+            timestamp: '2024-03-10T00:00:01.000Z',
+            message: { role: 'user', content: 'hello from web' }
+        } as unknown as RawJSONLines)
+
+        const [, local] = fakeSocket.emit.mock.calls[0] as [string, Record<string, unknown>]
+        expect((local.message as { meta?: { isTranscriptEcho?: boolean } }).meta?.isTranscriptEcho)
+            .not.toBe(true)
+    })
+
+    it('id-less dropped marker does not misclassify a later matching local prompt', () => {
+        const { client, fakeSocket } = makeClient()
+        client.notePendingHubPromptEcho('hello from web')
+        client.discardPendingHubPromptEchoText('hello from web')
+
+        client.sendClaudeSessionMessage({
+            type: 'user',
+            uuid: 'user-local-after-idless-drop',
+            userType: 'external',
+            isSidechain: false,
+            timestamp: '2024-03-10T00:00:00.000Z',
+            message: { role: 'user', content: 'hello from web' }
+        } as unknown as RawJSONLines)
+
+        const [, payload] = fakeSocket.emit.mock.calls[0] as [string, Record<string, unknown>]
+        expect((payload.message as { meta?: { isTranscriptEcho?: boolean } }).meta?.isTranscriptEcho)
+            .not.toBe(true)
+    })
+
+    it('unmatched local Claude prompt stays unmarked when a different hub prompt is pending', () => {
+        const { client, fakeSocket } = makeClient()
+        client.notePendingHubPromptEcho('hello from web', 'local-1')
+
+        client.sendClaudeSessionMessage({
+            type: 'user',
+            uuid: 'user-local-1',
+            userType: 'external',
+            isSidechain: false,
+            timestamp: '2024-03-10T00:00:00.000Z',
+            message: { role: 'user', content: 'typed in the TTY' }
+        } as unknown as RawJSONLines)
+
+        const [, payload] = fakeSocket.emit.mock.calls[0] as [string, Record<string, unknown>]
+        expect((payload.message as { meta?: { isTranscriptEcho?: boolean } }).meta?.isTranscriptEcho)
+            .not.toBe(true)
     })
 
     it('agent message without a parseable timestamp: omits createdAt (hub falls back to Date.now())', () => {

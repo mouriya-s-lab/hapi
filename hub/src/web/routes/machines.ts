@@ -353,6 +353,28 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
     })
 
+    app.post('/machines/:id/restart-runner', async (c) => {
+        const engine = getSyncEngine()
+        if (!engine) {
+            return c.json({ error: 'Not connected' }, 503)
+        }
+
+        const machineId = c.req.param('id')
+        const machine = requireMachine(c, engine, machineId)
+        if (machine instanceof Response) {
+            return machine
+        }
+
+        const result = await engine.restartMachineRunner(machineId, c.get('namespace'))
+        if (result.type === 'error') {
+            const status = result.code === 'machine_not_found' ? 404
+                : result.code === 'machine_offline' ? 503
+                    : 502
+            return c.json({ error: result.message, code: result.code }, status)
+        }
+        return c.json({ message: result.message })
+    })
+
     app.get('/machines/:id/cc-switch/providers', async (c) => {
         const engine = getSyncEngine()
         if (!engine) return c.json({ success: false, error: 'Not connected' }, 503)
@@ -367,6 +389,5 @@ export function createMachinesRoutes(getSyncEngine: () => SyncEngine | null): Ho
     })
 
     registerOmpMachineRoutes(app, getSyncEngine)
-
     return app
 }
