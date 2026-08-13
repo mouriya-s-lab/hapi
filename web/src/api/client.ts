@@ -661,7 +661,7 @@ export class ApiClient {
         sessionId: string,
         opts?: { forkPoint?: { messageId: string } }
     ): Promise<ForkRouteResult> {
-        const body: Record<string, unknown> = {}
+        const body: { contract: 'fork-feature'; forkPoint?: { messageId: string } } = { contract: 'fork-feature' }
         if (opts?.forkPoint) body.forkPoint = opts.forkPoint
         return await this.request<ForkRouteResult>(
             `/api/sessions/${encodeURIComponent(sessionId)}/fork`,
