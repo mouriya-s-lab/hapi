@@ -1,3 +1,7 @@
+---
+alwaysApply: true
+---
+
 # hapi fork 的发布→部署编排：合并后先问 CD，再打 tag→等产物→开 IaC 任务
 
 本仓库是 `tiann/hapi` 的 rebase-style fork（origin=`mouriya-s-lab/hapi`，upstream=`tiann/hapi`）。homelab 上的 hapi 部署跑的是**钉死版本的预编译 fork 二进制**，不是 main HEAD。所以**代码合并进 main ≠ 已上线**——中间隔着「发 Release → 改 compose pin → IaC apply」三道关。

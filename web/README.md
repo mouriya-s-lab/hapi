@@ -15,7 +15,7 @@ React Mini App / PWA for monitoring and controlling hapi sessions.
 ## Runtime behavior
 
 - When opened inside Telegram, auth uses Telegram WebApp init data.
-- When opened in a normal browser, you can log in with `CLI_API_TOKEN:<namespace>` (or `CLI_API_TOKEN` for the default namespace).
+- When opened in a normal browser, log in with a per-account API token (`hapi_mu_*`) or the bare `CLI_API_TOKEN` (admin seed token). There is no `:<namespace>` suffix syntax — namespace is a stored attribute of each token.
 - The login screen includes a top-right hub picker; if unset, the app uses the same origin it was loaded from.
 - Live updates come from the hub via SSE.
 
@@ -104,7 +104,7 @@ Modular session creation:
 See `src/hooks/useAuth.ts` and `src/hooks/useAuthSource.ts`.
 
 - Telegram Mini App: Uses initData from WebApp SDK.
-- Browser: Uses CLI_API_TOKEN from login prompt.
+- Browser: Uses a per-account API token (`hapi_mu_*`) or the bare `CLI_API_TOKEN` (admin seed token) from the login prompt.
 - JWT tokens with auto-refresh.
 
 ## Data fetching

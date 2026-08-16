@@ -157,8 +157,8 @@ The hub listens on `http://localhost:3006` by default.
 On first run, HAPI:
 
 1. Creates `~/.hapi/`
-2. Generates a secure access token
-3. Prints the token and saves it to `~/.hapi/settings.json`
+2. Generates a secure access token (the admin seed token, also used by CLI)
+3. Prints the token and saves it to `~/.hapi/settings.json` as `cliApiToken`
 
 <details>
 <summary>Config files</summary>
@@ -177,7 +177,7 @@ On first run, HAPI:
 
 | Variable | Default | settings.json | Description |
 |----------|---------|---------------|-------------|
-| `CLI_API_TOKEN` | Auto-generated | `cliApiToken` | Shared secret for authentication |
+| `CLI_API_TOKEN` | Auto-generated | `cliApiToken` | Seed token for admin login and CLI connections. On first hub start, imported into the multi-user gateway as the admin account's seed token. Per-account `hapi_mu_*` tokens are created separately via the web UI or `POST /api/tokens`. |
 | `HAPI_API_URL` | `http://localhost:3006` | `apiUrl` | Hub URL for CLI connections |
 | `HAPI_EXTRA_HEADERS_JSON` | - | `extraHeaders` | JSON object of extra outbound headers for CLI → hub HTTP/WebSocket requests |
 | `HAPI_LISTEN_HOST` | `127.0.0.1` | `listenHost` | Hub HTTP bind address |
