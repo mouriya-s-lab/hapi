@@ -1352,6 +1352,27 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
     })
 
+    app.post('/sessions/:id/omp-models/refresh', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) return sessionResult
+        if (sessionResult.session.metadata?.flavor !== 'omp') {
+            return c.json({ success: false, error: 'OMP models are only available for OMP sessions' }, 400)
+        }
+        if (sessionResult.session.agentState?.controlledByUser === true) {
+            return c.json({ success: false, error: 'OMP models are only available for remote sessions' }, 409)
+        }
+        try {
+            return c.json(await engine.refreshOmpModelsForSession(sessionResult.sessionId))
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to refresh OMP models'
+            }, 500)
+        }
+    })
+
     app.get('/sessions/:id/omp-thinking-options', async (c) => {
         const engine = requireSyncEngine(c, getSyncEngine)
         if (engine instanceof Response) return engine

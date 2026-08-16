@@ -919,6 +919,13 @@ export class ApiClient {
         )
     }
 
+    async refreshSessionOmpModels(sessionId: string): Promise<OmpModelsResponse> {
+        return await this.request<OmpModelsResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/omp-models/refresh`,
+            { method: 'POST' }
+        )
+    }
+
     async getSessionOmpThinkingOptions(sessionId: string): Promise<OmpThinkingOptionsResponse> {
         return await this.request<OmpThinkingOptionsResponse>(
             `/api/sessions/${encodeURIComponent(sessionId)}/omp-thinking-options`
