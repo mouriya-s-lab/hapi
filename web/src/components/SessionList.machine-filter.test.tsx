@@ -8,6 +8,9 @@ import { ToastProvider } from '@/lib/toast-context'
 import { DISABLED_SESSION_LIST_SCROLL_STABILITY } from '@/fork-features/session-list-scroll/sessionListScroll'
 import { SessionList } from './SessionList'
 
+const SEARCH_LABEL = 'Search sessions (title, path, Agent, machine name, ID, and more)'
+const SEARCH_PLACEHOLDER = 'Search title/path/Agent/machine/ID…'
+
 afterEach(() => cleanup())
 
 function makeSession(overrides: Partial<SessionSummary> & { id: string }): SessionSummary {
@@ -147,8 +150,8 @@ describe('SessionList machine filter', () => {
             })
         ])
 
-        fireEvent.click(screen.getByRole('button', { name: 'Search sessions' }))
-        fireEvent.change(screen.getByPlaceholderText('Search sessions'), { target: { value: 'alpha' } })
+        fireEvent.click(screen.getByRole('button', { name: SEARCH_LABEL }))
+        fireEvent.change(screen.getByPlaceholderText(SEARCH_PLACEHOLDER), { target: { value: 'alpha' } })
         fireEvent.click(screen.getByRole('button', { name: /Teemo \(1\)/ }))
 
         expect(screen.getByText('No sessions match your filters.')).toBeTruthy()

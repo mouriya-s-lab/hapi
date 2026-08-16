@@ -746,7 +746,7 @@ export function SessionListSearch(props: {
                         'relative shrink-0 transition-colors hover:bg-[var(--app-subtle-bg)]',
                         variant === 'standalone'
                             ? 'rounded-full p-1.5 hover:text-[var(--app-fg)]'
-                            : 'flex items-center rounded-r-lg rounded-l-md px-2',
+                            : 'flex items-center rounded-r-lg rounded-l-md px-1',
                         hasDateRange ? 'text-[var(--app-link)]' : 'text-[var(--app-hint)]'
                     )}
                     title={hasDateRange ? `${props.customStart} – ${props.customEnd}` : t('sessions.timeFilter.label')}
@@ -797,10 +797,11 @@ export function SessionListSearch(props: {
         )
     }
 
+    const searchLabel = t('sessions.search.open')
+
     if (!props.expanded) {
         const hasTextQuery = props.value.length > 0
-        const openLabel = t('sessions.search.open')
-        const collapsedLabel = hasTextQuery ? `${openLabel}: ${props.value}` : openLabel
+        const collapsedLabel = hasTextQuery ? `${searchLabel}: ${props.value}` : searchLabel
         return (
             <div className="relative flex items-center gap-1">
                 <button
@@ -845,7 +846,12 @@ export function SessionListSearch(props: {
                 value={props.value}
                 onChange={(event) => props.onChange(event.target.value)}
                 placeholder={t('sessions.search.placeholder')}
-                className="w-full appearance-none rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] py-1.5 pl-8 pr-16 text-sm text-[var(--app-fg)] outline-none transition-colors placeholder:text-[var(--app-hint)] focus:border-[var(--app-link)] [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
+                aria-label={searchLabel}
+                title={searchLabel}
+                className={cn(
+                    'w-full appearance-none rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] py-1.5 pl-8 text-sm text-[var(--app-fg)] outline-none transition-colors placeholder:text-[var(--app-hint)] [text-overflow:ellipsis] focus:border-[var(--app-link)] [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden',
+                    props.value ? 'pr-16' : 'pr-7'
+                )}
             />
             {props.value ? (
                 <button
