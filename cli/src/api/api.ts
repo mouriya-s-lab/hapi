@@ -2,6 +2,7 @@ import axios from 'axios'
 import type { AgentState, ClearOpencodeSessionCallbackRequest, ClearOpencodeSessionResponse, CreateMachineResponse, CreateSessionResponse, RunnerState, Machine, MachineMetadata, Metadata, Session } from '@/api/types'
 import { applyHubSessionSummaryContract } from '@/modules/common/sessionSummaryInstruction'
 import type { LocalResumeTarget, ResumableSession } from '@hapi/protocol'
+import type { MachineAgentSkills } from '@hapi/protocol/schemas'
 import {
     AgentStateSchema,
     ClearOpencodeSessionResponseSchema,
@@ -122,6 +123,7 @@ export class ApiClient {
             modelReasoningEffort: raw.modelReasoningEffort,
             effort: raw.effort,
             serviceTier: raw.serviceTier,
+            resumeWithSessionModel: raw.resumeWithSessionModel,
             permissionMode: raw.permissionMode,
             collaborationMode: raw.collaborationMode
         }
@@ -176,6 +178,7 @@ export class ApiClient {
             modelReasoningEffort: raw.modelReasoningEffort,
             effort: raw.effort,
             serviceTier: raw.serviceTier,
+            resumeWithSessionModel: raw.resumeWithSessionModel,
             permissionMode: raw.permissionMode,
             collaborationMode: raw.collaborationMode
         }
@@ -334,7 +337,16 @@ export class ApiClient {
         return new ApiSessionClient(this.token, session, options)
     }
 
-    machineSyncClient(machine: Machine, options?: { workspaceRoots?: string[] }): ApiMachineClient {
-        return new ApiMachineClient(this.token, machine, options?.workspaceRoots)
+    machineSyncClient(
+        machine: Machine,
+        options?: { workspaceRoots?: string[]; ompAvailable?: boolean; agentSkills?: MachineAgentSkills }
+    ): ApiMachineClient {
+        return new ApiMachineClient(
+            this.token,
+            machine,
+            options?.workspaceRoots,
+            options?.ompAvailable ?? false,
+            options?.agentSkills
+        )
     }
 }

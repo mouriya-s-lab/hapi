@@ -3,6 +3,8 @@ import {
     AGY_MODEL_PRESETS,
     CLAUDE_EFFORT_LABELS,
     CLAUDE_EFFORT_LEVELS,
+    CLAUDE_MODEL_ID_LABELS,
+    CLAUDE_MODEL_IDS,
     CLAUDE_MODEL_LABELS,
     CLAUDE_MODEL_PRESETS,
     GEMINI_MODEL_LABELS,
@@ -34,6 +36,7 @@ export const MODEL_OPTIONS: Record<AgentType, { value: string; label: string }[]
     claude: [
         { value: 'auto', label: 'Default' },
         ...modelPresetOptions(CLAUDE_MODEL_PRESETS, CLAUDE_MODEL_LABELS),
+        ...modelPresetOptions(CLAUDE_MODEL_IDS, CLAUDE_MODEL_ID_LABELS),
     ],
     codex: [
         { value: 'auto', label: 'Default' },
@@ -52,6 +55,9 @@ export const MODEL_OPTIONS: Record<AgentType, { value: string; label: string }[]
     opencode: [],
     grok: [],
     pi: [],
+    omp: [
+        { value: 'auto', label: 'Default' },
+    ],
 }
 
 export const CODEX_REASONING_EFFORT_OPTIONS: { value: CodexReasoningEffort; label: string }[] = [

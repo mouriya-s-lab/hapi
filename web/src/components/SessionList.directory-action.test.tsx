@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import type { SessionSummary } from '@/types/api'
 import { I18nProvider } from '@/lib/i18n-context'
 import { ToastProvider } from '@/lib/toast-context'
+import { DISABLED_SESSION_LIST_SCROLL_STABILITY } from '@/fork-features/session-list-scroll/sessionListScroll'
 import { SessionList } from './SessionList'
 
 const SEARCH_LABEL = 'Search sessions (title, path, Agent, machine name, ID, and more)'
@@ -74,6 +75,7 @@ describe('SessionList directory action', () => {
 
         renderWithProviders(
             <SessionList
+                scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                 sessions={[session]}
                 selectedSessionId={null}
                 onSelect={vi.fn()}
@@ -108,6 +110,7 @@ describe('SessionList directory action', () => {
 
         renderWithProviders(
             <SessionList
+                scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                 sessions={[session]}
                 selectedSessionId={null}
                 onSelect={vi.fn()}
@@ -137,6 +140,7 @@ describe('SessionList directory action', () => {
     it('hides the directory action for sessions without path metadata', () => {
         renderWithProviders(
             <SessionList
+                scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                 sessions={[makeSession({ id: 'session-without-path' })]}
                 selectedSessionId={null}
                 onSelect={vi.fn()}
@@ -177,6 +181,7 @@ describe('SessionList time filter', () => {
 
         renderWithProviders(
             <SessionList
+                scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                 sessions={[recent, old]}
                 selectedSessionId={null}
                 onSelect={vi.fn()}
@@ -224,6 +229,7 @@ describe('SessionList time filter', () => {
 
         renderWithProviders(
             <SessionList
+                scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                 sessions={[old]}
                 selectedSessionId={null}
                 onSelect={vi.fn()}
@@ -254,6 +260,7 @@ describe('SessionList time filter', () => {
 
         renderWithProviders(
             <SessionList
+                scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                 sessions={[session]}
                 selectedSessionId={null}
                 onSelect={vi.fn()}
@@ -288,6 +295,7 @@ describe('SessionList time filter', () => {
 
         renderWithProviders(
             <SessionList
+                scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                 sessions={[session]}
                 selectedSessionId={null}
                 onSelect={vi.fn()}
@@ -334,6 +342,7 @@ describe('SessionList action menu parity', () => {
 
         renderWithProviders(
             <SessionList
+                scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                 sessions={[session]}
                 selectedSessionId={null}
                 onSelect={vi.fn()}
@@ -365,6 +374,7 @@ describe('SessionList collapse behavior', () => {
                 <ToastProvider>
                     <I18nProvider>
                         <SessionList
+                            scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                             sessions={sessions}
                             selectedSessionId={selectedSessionId}
                             onSelect={vi.fn()}
@@ -744,7 +754,6 @@ describe('SessionList collapse behavior', () => {
             expect(firstPanel?.getAttribute('data-open')).toBe('true')
         })
     })
-
     it('keeps the configured session preview fold while searching', () => {
         localStorage.setItem('hapi-session-preview-limit', '2')
         const sessions = Array.from({ length: 4 }, (_, index) => makeSession({
@@ -892,6 +901,7 @@ describe('SessionList search toggle', () => {
 
         renderWithProviders(
             <SessionList
+                scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                 sessions={sessions}
                 selectedSessionId={null}
                 onSelect={vi.fn()}
@@ -966,6 +976,7 @@ describe('SessionList search toggle', () => {
     it('stays expanded with focus on the input after clearing the query', () => {
         renderWithProviders(
             <SessionList
+                scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                 sessions={[makeSession({
                     id: 'session-1',
                     updatedAt: 100,
@@ -1005,6 +1016,7 @@ describe('SessionList search toggle', () => {
                 <ToastProvider>
                     <I18nProvider>
                         <SessionList
+                            scrollStability={DISABLED_SESSION_LIST_SCROLL_STABILITY}
                             sessions={sessions}
                             selectedSessionId={null}
                             onSelect={vi.fn()}

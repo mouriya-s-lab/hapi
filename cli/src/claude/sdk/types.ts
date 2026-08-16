@@ -200,6 +200,8 @@ export interface QueryOptions {
      * existing Claude session id.
      */
     forkSession?: boolean
+    resumeSessionAt?: string
+    sessionId?: string
     model?: string
     effort?: string
     fallbackModel?: string

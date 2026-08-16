@@ -36,6 +36,15 @@ vi.mock('@/cursor/cursorChatStoreStatus', () => ({
 import { ApiMachineClient, normalizeWindowsDriveRoot } from './apiMachine'
 import type { Machine } from './types'
 
+async function callListGrokModels(client: ApiMachineClient, machineId: string, cwd: string): Promise<unknown> {
+    const manager = (client as unknown as { rpcHandlerManager: { handleRequest: (req: { method: string; params: string }) => Promise<string> } }).rpcHandlerManager
+    const raw = await manager.handleRequest({
+        method: `${machineId}:listGrokModelsForCwd`,
+        params: JSON.stringify({ cwd })
+    })
+    return JSON.parse(raw) as unknown
+}
+
 function makeMachine(id: string): Machine {
     return {
         id,
@@ -75,15 +84,47 @@ async function callListOpencodeModels(client: ApiMachineClient, machineId: strin
     return JSON.parse(raw) as unknown
 }
 
-async function callListGrokModels(client: ApiMachineClient, machineId: string, cwd: string): Promise<unknown> {
+async function callCreateDirectory(client: ApiMachineClient, machineId: string, parentPath: string, name: string): Promise<unknown> {
     const manager = (client as unknown as { rpcHandlerManager: { handleRequest: (req: { method: string; params: string }) => Promise<string> } }).rpcHandlerManager
     const raw = await manager.handleRequest({
-        method: `${machineId}:listGrokModelsForCwd`,
-        params: JSON.stringify({ cwd })
+        method: `${machineId}:create-directory`,
+        params: JSON.stringify({ parentPath, name })
     })
     return JSON.parse(raw) as unknown
 }
 
+describe('ApiMachineClient create-directory handler', () => {
+    it('creates one directory inside a workspace root', async () => {
+        const workspaceRoot = mkdtempSync(join(tmpdir(), 'hapi-create-dir-'))
+        const machine = makeMachine('machine-create')
+        const client = new ApiMachineClient('cli-token', machine, [workspaceRoot])
+
+        try {
+            const result = await callCreateDirectory(client, machine.id, workspaceRoot, 'new-project')
+            expect(result).toEqual({ success: true, path: join(realpathSync(workspaceRoot), 'new-project') })
+            expect(realpathSync(join(workspaceRoot, 'new-project'))).toBe(join(realpathSync(workspaceRoot), 'new-project'))
+        } finally {
+            client.shutdown()
+            rmSync(workspaceRoot, { recursive: true, force: true })
+        }
+    })
+
+    it('rejects path separators in the directory name', async () => {
+        const workspaceRoot = mkdtempSync(join(tmpdir(), 'hapi-create-dir-'))
+        const machine = makeMachine('machine-create-invalid')
+        const client = new ApiMachineClient('cli-token', machine, [workspaceRoot])
+
+        try {
+            expect(await callCreateDirectory(client, machine.id, workspaceRoot, '../escape')).toEqual({
+                success: false,
+                error: 'Directory name must be a single path segment'
+            })
+        } finally {
+            client.shutdown()
+            rmSync(workspaceRoot, { recursive: true, force: true })
+        }
+    })
+})
 async function callListCopilotModels(client: ApiMachineClient, machineId: string, cwd: string): Promise<unknown> {
     const manager = (client as unknown as { rpcHandlerManager: { handleRequest: (req: { method: string; params: string }) => Promise<string> } }).rpcHandlerManager
     const raw = await manager.handleRequest({
@@ -219,7 +260,6 @@ describe('ApiMachineClient listOpencodeModelsForCwd handler', () => {
     beforeEach(() => {
         ioMock.mockReset()
         listOpencodeModelsForCwdMock.mockReset()
-        listGrokModelsForCwdMock.mockReset()
         workspaceRoot = mkdtempSync(join(tmpdir(), 'hapi-machine-ws-'))
     })
 
@@ -601,12 +641,41 @@ describe('ApiMachineClient SpawnHappySession handler', () => {
 
             expect(result).toEqual({ type: 'success', sessionId: 'session-1' })
             expect(spawnSession).toHaveBeenCalledWith(expect.objectContaining({
-                directory: workspaceRoot,
+                directory: realpathSync.native(workspaceRoot),
                 agent: 'codex',
                 serviceTier: 'fast',
                 collaborationMode: 'plan'
             }))
         } finally {
+            client.shutdown()
+        }
+    })
+
+    it('rejects directories outside workspace roots before spawning', async () => {
+        const machine = makeMachine('machine-spawn-2')
+        const client = new ApiMachineClient('cli-token', machine, [workspaceRoot])
+        const spawnSession = vi.fn(async () => ({ type: 'success' as const, sessionId: 'session-2' }))
+        const outsideRoot = mkdtempSync(join(tmpdir(), 'hapi-machine-spawn-outside-'))
+
+        client.setRPCHandlers({
+            spawnSession,
+            stopSession: vi.fn(async () => 'stopped' as const),
+            requestShutdown: vi.fn()
+        })
+
+        try {
+            const result = await callSpawnHappySession(client, machine.id, {
+                directory: outsideRoot,
+                agent: 'codex'
+            })
+
+            expect(result).toEqual({
+                type: 'error',
+                errorMessage: 'Directory is outside this machine\'s workspace roots'
+            })
+            expect(spawnSession).not.toHaveBeenCalled()
+        } finally {
+            rmSync(outsideRoot, { recursive: true, force: true })
             client.shutdown()
         }
     })

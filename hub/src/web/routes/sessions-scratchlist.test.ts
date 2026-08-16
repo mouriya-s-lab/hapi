@@ -54,7 +54,8 @@ function createSession(overrides?: Partial<Session>): Session {
         effort: null,
         serviceTier: null,
         permissionMode: 'default',
-        collaborationMode: 'default'
+        collaborationMode: 'default',
+        resumeWithSessionModel: false
     }
     return { ...base, ...overrides }
 }

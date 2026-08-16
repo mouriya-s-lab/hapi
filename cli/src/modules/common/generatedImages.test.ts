@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { clearGeneratedImages, decodeGeneratedImageBase64, detectAudioMimeType, detectDisplayMediaMimeType, detectImageMimeType, detectVideoMimeType, getGeneratedImage, MAX_GENERATED_IMAGE_BASE64_CHARS, MAX_GENERATED_IMAGE_BYTES, readBoundedRegularFile, registerGeneratedImage, registerGeneratedImageFromAcpBlock, registerGeneratedImageFromPath, safeAcpFileName } from './generatedImages'
+import { clearGeneratedImages, decodeGeneratedImageBase64, detectAudioMimeType, detectDisplayMediaMimeType, detectImageMimeType, detectVideoMimeType, getGeneratedImage, MAX_GENERATED_IMAGE_BASE64_CHARS, MAX_GENERATED_IMAGE_BYTES, readBoundedRegularFile, registerGeneratedImage, registerGeneratedImageFromAcpBlock, registerGeneratedImageFromPath, registerGeneratedMediaFromPath, safeAcpFileName, unregisterGeneratedImage } from './generatedImages'
 
 describe('generatedImages', () => {
     it('detects supported image MIME types from file bytes', () => {
@@ -157,27 +157,46 @@ describe('generatedImages', () => {
         clearGeneratedImages()
     })
 
+    it('unregisters one media snapshot and releases its registry entry', () => {
+        registerGeneratedImage({
+            id: 'discarded-image',
+            path: '/tmp/discarded.png',
+            mimeType: 'image/png',
+            bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        })
+
+        unregisterGeneratedImage('discarded-image')
+
+        expect(getGeneratedImage('discarded-image')).toBeNull()
+        clearGeneratedImages()
+    })
+
     it('registers images from ACP base64 image blocks after MIME sniffing', async () => {
         const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x00])
-        const image = await registerGeneratedImageFromAcpBlock({
+        const result = await registerGeneratedImageFromAcpBlock({
             type: 'image',
             mimeType: 'image/png',
             data: pngHeader.toString('base64')
         })
 
-        expect(image?.mimeType).toBe('image/png')
-        expect(getGeneratedImage(image!.id)?.content.subarray(0, 8)).toEqual(pngHeader.subarray(0, 8))
+        expect(result.ok).toBe(true)
+        if (!result.ok) throw new Error(result.error.message)
+        expect(result.media.mimeType).toBe('image/png')
+        expect(getGeneratedImage(result.media.id)?.content.subarray(0, 8)).toEqual(pngHeader.subarray(0, 8))
         clearGeneratedImages()
     })
 
     it('rejects oversized base64 before allocating a decoded buffer', async () => {
         const oversized = 'A'.repeat(MAX_GENERATED_IMAGE_BASE64_CHARS + 1)
         expect(decodeGeneratedImageBase64(oversized)).toBeNull()
-        await expect(registerGeneratedImageFromAcpBlock({
+        const result = await registerGeneratedImageFromAcpBlock({
             type: 'image',
             mimeType: 'image/png',
             data: oversized,
-        })).resolves.toBeNull()
+        })
+        expect(result.ok).toBe(false)
+        if (result.ok) throw new Error('expected rejection')
+        expect(result.error.code).toBe('too_large')
     })
 
     it('ignores URI-only ACP image blocks that would read local disk without a permission prompt', async () => {
@@ -186,18 +205,24 @@ describe('generatedImages', () => {
         const path = join(dir, 'secret.png')
         writeFileSync(path, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]))
 
-        await expect(registerGeneratedImageFromAcpBlock({
+        const fileUri = await registerGeneratedImageFromAcpBlock({
             type: 'image',
             uri: `file://${path}`
-        })).resolves.toBeNull()
+        })
+        expect(fileUri.ok).toBe(false)
+        if (fileUri.ok) throw new Error('expected rejection')
+        expect(fileUri.error.code).toBe('missing_content')
 
-        await expect(registerGeneratedImageFromAcpBlock({
+        const barePath = await registerGeneratedImageFromAcpBlock({
             type: 'image',
             url: path
-        })).resolves.toBeNull()
+        })
+        expect(barePath.ok).toBe(false)
+        if (barePath.ok) throw new Error('expected rejection')
+        expect(barePath.error.code).toBe('missing_content')
     })
 
-    it('registers images from local file paths in ACP uri blocks', async () => {
+    it('registers images from local file paths after MIME sniffing', async () => {
         const dir = join(tmpdir(), `hapi-acp-image-${Date.now()}`)
         mkdirSync(dir, { recursive: true })
         const path = join(dir, 'inline.png')
@@ -206,6 +231,9 @@ describe('generatedImages', () => {
 
         const image = await registerGeneratedImageFromPath({ path })
         expect(image?.mimeType).toBe('image/png')
+
+        const result = await registerGeneratedMediaFromPath({ path, kind: 'image' })
+        expect(result.ok && result.media.mimeType).toBe('image/png')
         clearGeneratedImages()
     })
 
@@ -218,7 +246,42 @@ describe('generatedImages', () => {
 
         const video = await registerGeneratedImageFromPath({ path })
         expect(video?.mimeType).toBe('video/mp4')
+
+        const result = await registerGeneratedMediaFromPath({ path, kind: 'video' })
+        expect(result.ok && result.media.mimeType).toBe('video/mp4')
         clearGeneratedImages()
+    })
+
+    it('does not let image-only paths register video content', async () => {
+        const dir = join(tmpdir(), `hapi-inline-kind-${Date.now()}`)
+        mkdirSync(dir, { recursive: true })
+        const path = join(dir, 'inline.mp4')
+        writeFileSync(path, Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d]))
+
+        const result = await registerGeneratedMediaFromPath({ path, kind: 'image' })
+        expect(result).toEqual({
+            ok: false,
+            error: { code: 'unsupported_content', message: 'Unsupported image content' }
+        })
+    })
+
+    it('rejects ACP MIME mismatches and remote URI reads explicitly', async () => {
+        const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        const mismatch = await registerGeneratedImageFromAcpBlock({
+            type: 'image',
+            mimeType: 'image/jpeg',
+            data: pngHeader.toString('base64')
+        })
+        const remote = await registerGeneratedImageFromAcpBlock({
+            type: 'image',
+            uri: 'https://example.com/private.png'
+        })
+
+        expect(mismatch.ok ? null : mismatch.error.code).toBe('mime_mismatch')
+        expect(remote).toEqual({
+            ok: false,
+            error: { code: 'remote_uri', message: 'Remote ACP image URIs are not supported' }
+        })
     })
 
     it('readBoundedRegularFile rejects oversize files without allocating the full path size', async () => {
@@ -237,14 +300,16 @@ describe('generatedImages', () => {
         expect(safeAcpFileName('file:///tmp/photos/icon.png')).toBe('icon.png')
 
         const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x00])
-        const image = await registerGeneratedImageFromAcpBlock({
+        const result = await registerGeneratedImageFromAcpBlock({
             type: 'image',
             mimeType: 'image/png',
             data: pngHeader.toString('base64'),
             uri: 'data:image/png;base64,' + pngHeader.toString('base64'),
         })
-        expect(image?.fileName).toMatch(/^generated-/)
-        expect(image?.fileName.startsWith('data:')).toBe(false)
+        expect(result.ok).toBe(true)
+        if (!result.ok) throw new Error(result.error.message)
+        expect(result.media.fileName).toMatch(/^generated-/)
+        expect(result.media.fileName.startsWith('data:')).toBe(false)
         clearGeneratedImages()
     })
 })

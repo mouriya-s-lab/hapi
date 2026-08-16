@@ -5,10 +5,11 @@ import type { ApiClient } from '@/api/client'
 import type { Machine } from '@/types/api'
 import { useAppContext } from '@/lib/app-context'
 import { useTranslation } from '@/lib/use-translation'
-import { useMachines } from '@/hooks/queries/useMachines'
 import { getMachineTitle } from '@/hooks/useMachineLabels'
 import { queryKeys } from '@/lib/query-keys'
 import { SettingsPageContent, SettingsSection } from '@/components/settings/SettingsPrimitives'
+import { MachineAgentSkillsRow } from '@/components/MachineAgentSkills'
+import { useAgentSkillMachines } from '@/fork-features/agent-skill-readiness/machineQuery'
 
 function MachineRow(props: { api: ApiClient | null; machine: Machine }) {
     const { t } = useTranslation()
@@ -103,6 +104,7 @@ function MachineRow(props: { api: ApiClient | null; machine: Machine }) {
                     {subtitle ? (
                         <div className="mt-0.5 truncate text-xs leading-snug text-[var(--app-hint)]">{subtitle}</div>
                     ) : null}
+                    <MachineAgentSkillsRow api={props.api} machine={props.machine} />
                 </div>
             </div>
             {error ? <div role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</div> : null}
@@ -113,7 +115,7 @@ function MachineRow(props: { api: ApiClient | null; machine: Machine }) {
 export default function SettingsMachinesPage() {
     const { t } = useTranslation()
     const { api } = useAppContext()
-    const { machines } = useMachines(api, true)
+    const { machines } = useAgentSkillMachines(api)
 
     return (
         <SettingsPageContent description={t('settings.machines.description')}>

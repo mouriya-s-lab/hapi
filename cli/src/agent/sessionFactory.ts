@@ -6,6 +6,7 @@ import { ApiClient } from '@/api/api'
 import type { ApiSessionClient } from '@/api/apiSession'
 import type { AgentState, MachineMetadata, Metadata, Session } from '@/api/types'
 import { getInstalledCliMtimeMs, notifyRunnerSessionStarted } from '@/runner/controlClient'
+import type { MachineAgentSkills } from '@hapi/protocol/schemas'
 import { readSettings } from '@/persistence'
 import { configuration } from '@/configuration'
 import { logger } from '@/ui/logger'
@@ -52,6 +53,8 @@ export function buildMachineMetadata(options?: {
      * (#1108 bot Major).
      */
     asRunner?: boolean
+    ompAvailable?: boolean
+    agentSkills?: MachineAgentSkills
 }): MachineMetadata {
     const installedCliMtimeMs = getInstalledCliMtimeMs()
     const startedCliMtimeMs = options?.startedCliMtimeMs ?? installedCliMtimeMs
@@ -63,6 +66,8 @@ export function buildMachineMetadata(options?: {
         happyHomeDir: configuration.happyHomeDir,
         happyLibDir: runtimePath(),
         workspaceRoots: options?.workspaceRoots,
+        ompAvailable: options?.ompAvailable,
+        agentSkills: options?.agentSkills
     }
     if (!options?.asRunner) {
         return base
@@ -135,6 +140,8 @@ function pickExistingSessionMetadata(metadata: Metadata | null | undefined): Par
     if (metadata.piResumeAttempt !== undefined) preserved.piResumeAttempt = metadata.piResumeAttempt
     if (metadata.ptyResumeAttempt !== undefined) preserved.ptyResumeAttempt = metadata.ptyResumeAttempt
     if (metadata.preferredPermissionMode !== undefined) preserved.preferredPermissionMode = metadata.preferredPermissionMode
+    if (metadata.ompSession !== undefined) preserved.ompSession = metadata.ompSession
+    if (metadata.ompThinking !== undefined) preserved.ompThinking = metadata.ompThinking
     if (metadata.tools !== undefined) preserved.tools = metadata.tools
     if (metadata.slashCommands !== undefined) preserved.slashCommands = metadata.slashCommands
     if (metadata.worktree !== undefined) preserved.worktree = metadata.worktree
@@ -284,6 +291,7 @@ export async function bootstrapLazySession(options: SessionBootstrapOptions): Pr
         modelReasoningEffort: options.modelReasoningEffort ?? null,
         effort: options.effort ?? null,
         serviceTier: null,
+        resumeWithSessionModel: false,
         permissionMode: undefined,
         collaborationMode: undefined
     }

@@ -123,7 +123,9 @@ export class Session extends AgentSessionBase<EnhancedMode> {
 
     /**
      * Consume one-time Claude flags from claudeArgs after Claude spawn.
-     * Handles: --resume (with or without session ID) and --fork-session.
+     * Handles: --resume (with or without session ID), --fork-session, and
+     * provider launch flags (--resume-session-at, --session-id) that must
+     * only affect the first process.
      * `--fork-session` must be one-shot; keeping it across relaunches would
      * branch again off the already-forked native id.
      */
@@ -151,6 +153,11 @@ export class Session extends AgentSessionBase<EnhancedMode> {
                 }
             } else if (this.claudeArgs[i] === '--fork-session') {
                 logger.debug('[Session] Consumed --fork-session flag');
+            } else if (this.claudeArgs[i] === '--resume-session-at' || this.claudeArgs[i] === '--session-id') {
+                const flag = this.claudeArgs[i];
+                const value = this.claudeArgs[++i];
+                if (!value || value.startsWith('-')) throw new Error(`Missing ${flag} value`);
+                logger.debug(`[Session] Consumed ${flag}: ${value}`);
             } else {
                 filteredArgs.push(this.claudeArgs[i]);
             }

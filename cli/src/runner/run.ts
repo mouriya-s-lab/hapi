@@ -15,6 +15,7 @@ import { spawnHappyCLI } from '@/utils/spawnHappyCLI';
 import { writeRunnerState, RunnerLocallyPersistedState, readRunnerState, acquireRunnerLock, releaseRunnerLock } from '@/persistence';
 import { getCliArgs } from '@/utils/cliArgs';
 import { getProcessStartMarker, isProcessAlive, isWindows, killProcess, killProcessByChildProcess, killProcessTreeByPid } from '@/utils/process';
+import { getCcSwitchProviderLaunchEnv } from '@/modules/common/ccSwitch';
 import { PERMISSION_MODES } from '@hapi/protocol/modes';
 import { RUNNER_CAPABILITIES } from '@hapi/protocol';
 import { withRetry } from '@/utils/time';
@@ -29,6 +30,8 @@ import { buildMachineMetadata } from '@/agent/sessionFactory';
 import { resolveWorkspaceRoots } from '@/utils/workspaceRoot';
 import { hashRunnerCliApiToken, hashRunnerExtraHeaders } from './runnerIdentity';
 import { scheduleCursorModelsPrewarm } from '@/modules/common/cursorModelsPrewarm';
+import { detectOmpMachineAvailability } from '../../../fork-features/omp-host-integration/machine';
+import { runAgentSkillDeployment } from '../../../fork-features/agent-skill-deploy/deploy';
 import { isLinkedGitWorktree } from '@/utils/isLinkedGitWorktree';
 
 /**
@@ -662,13 +665,17 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
           logger.debug('[RUNNER RUN] Child stderr tail', trimmed);
         };
 
+        const providerEnv = agent === 'claude' && options.ccSwitchProviderId
+          ? getCcSwitchProviderLaunchEnv(options.ccSwitchProviderId)
+          : {};
         happyProcess = spawnHappyCLI(args, {
           cwd: spawnDirectory,
           detached: true,  // Sessions stay alive when runner stops
           stdio: ['ignore', 'pipe', 'pipe'],  // Capture stdout/stderr for debugging
           env: {
             ...process.env,
-            ...extraEnv
+            ...extraEnv,
+            ...providerEnv
           }
         });
 
@@ -1117,6 +1124,20 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
     const workspaceRoots = resolveWorkspaceRoots(options.workspaceRoots);
     logger.debug(`[RUNNER RUN] Workspace roots: ${workspaceRoots?.join(', ') ?? '(not set)'}`);
 
+    const ompAvailability = await detectOmpMachineAvailability();
+    if (ompAvailability.available) {
+      logger.debug(`[RUNNER RUN] OMP ${ompAvailability.version.raw} available`);
+    } else {
+      logger.debug(`[RUNNER RUN] OMP unavailable: ${ompAvailability.error}`);
+    }
+
+    // Fork feature (#271): deploy the canonical hapi-agent skill before the
+    // machine registers and becomes eligible for session spawns.
+    const agentSkills = runAgentSkillDeployment();
+    for (const [flavor, result] of Object.entries(agentSkills.harnesses)) {
+      logger.debug(`[RUNNER RUN] hapi-agent skill for ${flavor}: ${result.status}`);
+    }
+
     // Get or create machine (with retry for transient connection errors)
     const machine = await withRetry(
       () => api.getOrCreateMachine({
@@ -1125,6 +1146,8 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
             workspaceRoots,
             startedCliMtimeMs: startedWithCliMtimeMs,
             asRunner: true,
+            ompAvailable: ompAvailability.available,
+            agentSkills
         }),
         runnerState: initialRunnerState
       }),
@@ -1142,7 +1165,11 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
     logger.debug(`[RUNNER RUN] Machine registered: ${machine.id}`);
 
     // Create realtime machine session
-    const apiMachine = api.machineSyncClient(machine, { workspaceRoots });
+    const apiMachine = api.machineSyncClient(machine, {
+      workspaceRoots,
+      ompAvailable: ompAvailability.available,
+      agentSkills
+    });
 
     // Set RPC handlers
     apiMachine.setRPCHandlers({
@@ -1485,9 +1512,18 @@ export function buildCliArgs(
               ? 'pi'
               : agent === 'agy'
                 ? 'agy'
+                : agent === 'omp'
+                  ? 'omp'
                 : 'claude';
   const args = [agentCommand];
-  if (options.resumeSessionId) {
+  if (agent === 'claude' && options.claudeLaunch) {
+    if (!options.resumeSessionId) throw new Error('Claude fork launch requires resumeSessionId')
+    if (options.claudeLaunch.type === 'resume-at') {
+      args.push('--resume', options.claudeLaunch.sourceSessionId)
+      args.push('--fork-session', '--resume-session-at', options.claudeLaunch.providerMessageId)
+    }
+    args.push('--session-id', options.resumeSessionId)
+  } else if (options.resumeSessionId) {
     if (agent === 'codex') {
       args.push('resume', options.resumeSessionId);
     } else if (agent === 'cursor') {
@@ -1529,7 +1565,7 @@ export function buildCliArgs(
   if (options.model) {
     args.push('--model', options.model);
   }
-  if (options.effort && (agent === 'claude' || agent === 'grok' || agent === 'pi')) {
+  if (options.effort && (agent === 'claude' || agent === 'grok' || agent === 'pi' || agent === 'omp')) {
     args.push('--effort', options.effort);
   }
   if (options.modelReasoningEffort && (agent === 'codex' || agent === 'opencode')) {
