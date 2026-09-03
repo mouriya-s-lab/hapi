@@ -150,6 +150,21 @@ describe('OmpRpcEventAdapter', () => {
         });
     });
 
+    it('stamps the canonical assistant with commit time, not the omp turn-start timestamp', () => {
+        // Regression: omp's message timestamp is the turn/model-request start.
+        // Forwarding it made the hub sort the first assistant message of a turn
+        // ABOVE the user's prompt whenever the runner clock lagged the hub clock.
+        const harness = createHarness();
+        const turnStart = Date.now() - 10_000;
+        const message = { ...assistantMessage('final', 'provider-response-1'), timestamp: turnStart };
+        harness.adapter.handle(rpcEvent({ type: 'message_start', message }));
+        harness.adapter.handle(rpcEvent({ type: 'message_end', message }));
+
+        const committed = harness.canonicalMessages[0];
+        if (committed.type !== 'assistant') throw new Error(`Expected assistant, received ${committed.type}`);
+        expect(Date.parse(committed.timestamp ?? '')).toBeGreaterThanOrEqual(turnStart + 9_000);
+    });
+
     it('keeps one tool card identity through start/update/end and commits only the message_end result', () => {
         const harness = createHarness();
         harness.adapter.handle(rpcEvent({
