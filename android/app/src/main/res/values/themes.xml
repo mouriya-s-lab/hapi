@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Framework theme only carries the pre-Compose window; real theming is
+         Material3 in ui/theme/Theme.kt. -->
+    <style name="Theme.HapiCompanion" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

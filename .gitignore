@@ -50,3 +50,12 @@ e2e-output/
 .xyz-harness
 .agents/
 .pi/
+
+# Android (android/)
+android/**/build/
+android/.gradle/
+android/.kotlin/
+android/local.properties
+android/captures/
+*.keystore
+*.jks
