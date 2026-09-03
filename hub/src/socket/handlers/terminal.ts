@@ -28,12 +28,13 @@ export type TerminalHandlersDeps = {
     terminalRegistry: TerminalRegistry
     maxTerminalsPerSocket: number
     maxTerminalsPerSession: number
+    resolveNamespaceForSession?: (socket: SocketWithData, sessionId: string) => string | null
 }
 
 export function registerTerminalHandlers(socket: SocketWithData, deps: TerminalHandlersDeps): void {
     const { io, getSession, terminalRegistry, maxTerminalsPerSocket, maxTerminalsPerSession } = deps
     const cliNamespace = io.of('/cli')
-    const namespace = typeof socket.data.namespace === 'string' ? socket.data.namespace : null
+    const currentNamespace = () => typeof socket.data.namespace === 'string' ? socket.data.namespace : null
 
     const emitTerminalError = (terminalId: string, message: string) => {
         socket.emit('terminal:error', { terminalId, message })
@@ -49,7 +50,7 @@ export function registerTerminalHandlers(socket: SocketWithData, deps: TerminalH
 
     const resolveCliSocket = (entry: TerminalRegistryEntry, reportError: boolean): SocketWithData | null => {
         const cliSocket = cliNamespace.sockets.get(entry.cliSocketId)
-        if (!cliSocket || cliSocket.data.namespace !== namespace) {
+        if (!cliSocket || cliSocket.data.namespace !== currentNamespace()) {
             terminalRegistry.remove(entry.terminalId)
             if (reportError) {
                 emitTerminalError(entry.terminalId, 'CLI disconnected.')
@@ -61,7 +62,7 @@ export function registerTerminalHandlers(socket: SocketWithData, deps: TerminalH
 
     const emitCloseToCli = (entry: TerminalRegistryEntry): void => {
         const cliSocket = cliNamespace.sockets.get(entry.cliSocketId)
-        if (!cliSocket || cliSocket.data.namespace !== namespace) {
+        if (!cliSocket || cliSocket.data.namespace !== currentNamespace()) {
             return
         }
         cliSocket.emit('terminal:close', {
@@ -77,7 +78,7 @@ export function registerTerminalHandlers(socket: SocketWithData, deps: TerminalH
         }
         for (const socketId of room) {
             const cliSocket = cliNamespace.sockets.get(socketId)
-            if (cliSocket && cliSocket.data.namespace === namespace) {
+            if (cliSocket && cliSocket.data.namespace === currentNamespace()) {
                 return cliSocket.id
             }
         }
@@ -91,6 +92,8 @@ export function registerTerminalHandlers(socket: SocketWithData, deps: TerminalH
         }
 
         const { sessionId, terminalId, cols, rows } = parsed.data
+        const namespace = deps.resolveNamespaceForSession?.(socket, sessionId) ?? currentNamespace()
+        if (namespace) socket.data.namespace = namespace
         const session = getSession(sessionId)
         if (!namespace || !session || session.namespace !== namespace || !session.active) {
             emitTerminalError(terminalId, 'Session is inactive or unavailable.')
@@ -221,7 +224,7 @@ export function registerTerminalHandlers(socket: SocketWithData, deps: TerminalH
         const cliSocketId = pickCliSocketId(sessionId)
         if (!cliSocketId) return false
         const cliSocket = cliNamespace.sockets.get(cliSocketId)
-        if (!cliSocket || cliSocket.data.namespace !== namespace) return false
+        if (!cliSocket || cliSocket.data.namespace !== currentNamespace()) return false
         cliSocket.emit(event, payload as never)
         return true
     }
@@ -244,6 +247,7 @@ export function registerTerminalHandlers(socket: SocketWithData, deps: TerminalH
     // rejection path (a session that just went inactive) unmounts the terminal
     // view anyway via canViewAgentTerminal, so there is no live viewer to inform.
     const isAuthorizedSession = (sessionId: string): boolean => {
+        const namespace = currentNamespace()
         const session = getSession(sessionId)
         return Boolean(namespace && session && session.namespace === namespace && session.active)
     }

@@ -63,9 +63,17 @@ export function App() {
 function AppInner() {
     const { t } = useTranslation()
     const { serverUrl, baseUrl, setServerUrl, clearServerUrl } = useServerUrl()
-    const { authSource, isLoading: isAuthSourceLoading, setAccessToken } = useAuthSource(baseUrl)
-    const { token, api, isLoading: isAuthLoading, error: authError, needsBinding, bind } = useAuth(authSource, baseUrl)
+    const { authSource, isLoading: isAuthSourceLoading, setAccessToken, setPasswordToken, persistPasswordToken, clearStoredPasswordToken } = useAuthSource(baseUrl)
+    const { token, user, api, isLoading: isAuthLoading, error: authError, needsBinding, bind } = useAuth(authSource, baseUrl)
     const [titleSuggestionAvailable, setTitleSuggestionAvailable] = useState(false)
+
+    useEffect(() => {
+        if (authSource?.type === 'password' && token && token !== authSource.token) persistPasswordToken(token)
+    }, [authSource, persistPasswordToken, token])
+
+    useEffect(() => {
+        if (authError && authSource?.type === 'password') clearStoredPasswordToken()
+    }, [authError, authSource, clearStoredPasswordToken])
     const goBack = useAppGoBack()
     const pathname = useLocation({ select: (location) => location.pathname })
     const matchRoute = useMatchRoute()
@@ -419,6 +427,7 @@ function AppInner() {
         return withPwaBanner(
             <LoginPrompt
                 onLogin={setAccessToken}
+                onPasswordLogin={setPasswordToken}
                 baseUrl={baseUrl}
                 serverUrl={serverUrl}
                 setServerUrl={setServerUrl}
@@ -455,10 +464,11 @@ function AppInner() {
     // Auth error
     if (authError || !token || !api) {
         // If using access token and auth failed, show login again
-        if (authSource.type === 'accessToken') {
+        if (authSource.type === 'accessToken' || authSource.type === 'password') {
             return withPwaBanner(
                 <LoginPrompt
                     onLogin={setAccessToken}
+                    onPasswordLogin={setPasswordToken}
                     baseUrl={baseUrl}
                     serverUrl={serverUrl}
                     setServerUrl={setServerUrl}
@@ -484,7 +494,7 @@ function AppInner() {
     }
 
     return (
-        <AppContextProvider value={{ api, token, baseUrl, titleSuggestionAvailable }}>
+        <AppContextProvider value={{ api, token, baseUrl, user: (user ?? { id: 0 }) as { id: number; username?: string; role?: 'admin' | 'user'; defaultNamespace?: string }, titleSuggestionAvailable }}>
             <VoiceProvider>
                 <PwaUpdateBannerWithStatusOffset
                     isSyncing={isSyncing}

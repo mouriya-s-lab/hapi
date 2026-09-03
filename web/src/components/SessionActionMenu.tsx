@@ -21,9 +21,10 @@ type SessionActionMenuProps = {
     sessionTitle: string
     sessionActive: boolean
     onRename: () => void
-    sessionPinned?: boolean
+sessionPinned?: boolean
     sessionGlobalPinned?: boolean
     onSetPinMode?: (mode: 'none' | 'project' | 'global') => void
+    onShowSessionId?: () => void
     onExport?: () => void
     onSyncCodex?: () => void
     onSyncPi?: () => void
@@ -33,6 +34,14 @@ type SessionActionMenuProps = {
     /** Soft-fail tip when reopen is allowed but chat-store probe could not verify. */
     reopenHint?: string
     onDelete: () => void
+    /**
+     * Optional fork action. fork-features/session-fork — when both onFork is
+     * provided AND forkSupported is true (flavor reports fork capability),
+     * the menu shows a "Fork session" item. The consumer wires forkSession
+     * mutation + capability lookup; see SessionList / SessionHeader.
+     */
+    onFork?: () => void
+    forkSupported?: boolean
     anchorPoint: { x: number; y: number }
     menuId?: string
 }
@@ -65,6 +74,28 @@ function PinIcon(props: { className?: string; filled?: boolean }) {
             <path d="M12 17v5" />
             <path d="M5 17h14" />
             <path d="M7 4V2h10v2l-2 5v4l2 2H7l2-2V9Z" />
+        </svg>
+    )
+}
+
+function IdIcon(props: { className?: string }) {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={props.className}
+        >
+            <rect width="18" height="14" x="3" y="5" rx="2" />
+            <path d="M7 15h0M2 9.5h20" />
+            <path d="M12 15h5" />
+            <path d="M7 11h2" />
         </svg>
     )
 }
@@ -131,7 +162,7 @@ function ReopenIcon(props: { className?: string }) {
     )
 }
 
-function SyncIcon(props: { className?: string }) {
+function ForkIcon(props: { className?: string }) {
     return (
         <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -145,10 +176,22 @@ function SyncIcon(props: { className?: string }) {
             strokeLinejoin="round"
             className={props.className}
         >
-            <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-            <path d="M21 3v5h-5" />
-            <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-            <path d="M3 21v-5h5" />
+            <circle cx="6" cy="3" r="2" />
+            <circle cx="6" cy="21" r="2" />
+            <circle cx="18" cy="6" r="2" />
+            <path d="M6 5v14" />
+            <path d="M18 8v2a4 4 0 0 1-4 4H6" />
+        </svg>
+    )
+}
+
+function SyncIcon(props: { className?: string }) {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}>
+            <path d="M3 12a9 9 0 0 1 15.5-6.2" />
+            <path d="M18 3v6h-6" />
+            <path d="M21 12a9 9 0 0 1-15.5 6.2" />
+            <path d="M6 21v-6h6" />
         </svg>
     )
 }
@@ -192,9 +235,10 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         sessionTitle,
         sessionActive,
         onRename,
-        sessionPinned = false,
+sessionPinned = false,
         sessionGlobalPinned = false,
         onSetPinMode,
+        onShowSessionId,
         onExport,
         onSyncCodex,
         onSyncPi,
@@ -203,6 +247,8 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         reopenDisabledReason,
         reopenHint,
         onDelete,
+        onFork,
+        forkSupported,
         anchorPoint,
         menuId
     } = props
@@ -232,6 +278,11 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
         onSetPinMode?.(mode)
     }
 
+    const handleShowSessionId = () => {
+        onClose()
+        onShowSessionId?.()
+    }
+
     const handleArchive = () => {
         onClose()
         onArchive()
@@ -250,6 +301,11 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
     const handleSyncCodex = () => {
         onClose()
         onSyncCodex?.()
+    }
+
+    const handleFork = () => {
+        onClose()
+        onFork?.()
     }
 
     const handleSyncPi = () => {
@@ -414,6 +470,19 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                     </>
                 ) : null}
 
+                {onShowSessionId ? (
+                    <button
+                        type="button"
+                        role="menuitem"
+                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                        onClick={handleShowSessionId}
+                        data-testid="session-action-session-id"
+                    >
+                        <IdIcon className="text-[var(--app-hint)]" />
+                        {t('session.action.sessionId')}
+                    </button>
+                ) : null}
+
                 {onExport ? (
                     <button
                         type="button"
@@ -427,14 +496,21 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
                 ) : null}
 
                 {onSyncCodex ? (
+                    <button type="button" role="menuitem" className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`} onClick={handleSyncCodex}>
+                        <SyncIcon className="text-[var(--app-hint)]" />
+                        {t('session.action.syncCodex')}
+                    </button>
+                ) : null}
+
+                {onFork && forkSupported ? (
                     <button
                         type="button"
                         role="menuitem"
                         className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
-                        onClick={handleSyncCodex}
+                        onClick={handleFork}
                     >
-                        <SyncIcon className="text-[var(--app-hint)]" />
-                        {t('session.action.syncCodex')}
+                        <ForkIcon className="text-[var(--app-hint)]" />
+                        {t('session.action.fork', { defaultValue: 'Fork session' })}
                     </button>
                 ) : null}
 

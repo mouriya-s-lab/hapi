@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { I18nProvider } from '@/lib/i18n-context'
 import { CodeBlock } from '@/components/CodeBlock'
 
@@ -14,7 +14,7 @@ describe('CodeBlock', () => {
         window.localStorage.clear()
     })
 
-    it('renders a header label and truncation badge for long content', () => {
+    it('renders a header label and collapse control for long content', () => {
         const longCode = Array.from({ length: 40 }, (_, index) => `line ${index + 1}`).join('\n')
         render(
             <I18nProvider>
@@ -30,7 +30,7 @@ describe('CodeBlock', () => {
 
         expect(screen.getByText('TypeScript')).toBeInTheDocument()
         expect(screen.getByTitle('Copy')).toBeInTheDocument()
-        expect(screen.getByText(/Preview truncated/)).toBeInTheDocument()
+        expect(screen.getByText('Show all (40 lines)')).toBeInTheDocument()
     })
 
     it('renders one line-number cell per source line, aligned with the code', () => {
@@ -165,5 +165,26 @@ describe('CodeBlock', () => {
         // The toggle is the only button carrying aria-pressed.
         expect(screen.queryByRole('button', { pressed: false })).toBeNull()
         expect(screen.queryByRole('button', { pressed: true })).toBeNull()
+    })
+
+    it('expands and collapses long content in place', () => {
+        const longCode = Array.from({ length: 40 }, (_, index) => `line ${index + 1}`).join('\n')
+        const { container } = render(
+            <I18nProvider>
+                <CodeBlock
+                    code={longCode}
+                    language="typescript"
+                    title="TypeScript"
+                    collapseLongContent
+                    collapseLineThreshold={5}
+                />
+            </I18nProvider>
+        )
+        const scope = within(container)
+
+        fireEvent.click(scope.getByText('Show all (40 lines)'))
+        expect(scope.getByTitle('Collapse')).toBeInTheDocument()
+        fireEvent.click(scope.getByTitle('Collapse'))
+        expect(scope.getByText('Show all (40 lines)')).toBeInTheDocument()
     })
 })

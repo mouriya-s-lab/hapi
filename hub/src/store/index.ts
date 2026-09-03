@@ -331,12 +331,15 @@ export class Store {
 
         const stepMigrations = buildStepMigrations(false)
         if (currentVersion < SCHEMA_VERSION && stepMigrations[currentVersion]) {
-            for (let v = currentVersion; v < SCHEMA_VERSION; v++) {
-                const step = stepMigrations[v]
-                if (!step) throw this.buildSchemaMismatchError(currentVersion)
-                step()
-            }
-            this.setUserVersion(SCHEMA_VERSION)
+            this.db.transaction(() => {
+                for (let v = currentVersion; v < SCHEMA_VERSION; v++) {
+                    const step = stepMigrations[v]
+                    if (!step) throw this.buildSchemaMismatchError(currentVersion)
+                    step()
+                }
+                this.assertRequiredTablesPresent()
+                this.setUserVersion(SCHEMA_VERSION)
+            })()
             return
         }
 
@@ -364,6 +367,7 @@ export class Store {
                 model_reasoning_effort TEXT,
                 effort TEXT,
                 service_tier TEXT,
+                resume_with_session_model INTEGER NOT NULL DEFAULT 0,
                 todos TEXT,
                 todos_updated_at INTEGER,
                 team_state TEXT,
@@ -757,6 +761,8 @@ export class Store {
      * Rollback: `DROP TABLE session_scratchlist; PRAGMA user_version = 11;`
      */
     private migrateFromV11ToV12(): void {
+        // Reconcile databases stamped as v11 without the idempotent v10 table migration.
+        this.migrateFromV10ToV11()
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS session_scratchlist (
                 session_id TEXT NOT NULL,
@@ -792,29 +798,27 @@ export class Store {
     }
 
     /**
-     * tiann/hapi#921 (scratchlist v2.2): attachment metadata JSON column.
-     * Bytes live on hub filesystem under HAPI_HOME/scratchlist-attachments/.
-     * Upstream ladder: V11→V12 = session_scratchlist (#896); V12–V14 =
-     * message_epochs reconciliation; this step is V14→V15 for attachments.
-     *
-     * Rollback: `ALTER TABLE session_scratchlist DROP COLUMN attachments` is
-     * unsupported on older SQLite; rebuild DB or leave column unused.
+     * Reconcile the two schema-v15 branches: upstream scratchlist attachments
+     * and the fork's resume-with-session-model preference.
      */
     private migrateFromV14ToV15(): void {
-        const columns = this.db.prepare('PRAGMA table_info(session_scratchlist)').all() as Array<{ name: string }>
-        if (!columns.some((col) => col.name === 'attachments')) {
-            this.db.exec(`ALTER TABLE session_scratchlist ADD COLUMN attachments TEXT DEFAULT NULL`)
+        const scratchlistColumns = this.db.prepare('PRAGMA table_info(session_scratchlist)').all() as Array<{ name: string }>
+        if (!scratchlistColumns.some((column) => column.name === 'attachments')) {
+            this.db.exec('ALTER TABLE session_scratchlist ADD COLUMN attachments TEXT DEFAULT NULL')
+        }
+
+        const sessionColumns = this.getSessionColumnNames()
+        if (sessionColumns.size > 0 && !sessionColumns.has('resume_with_session_model')) {
+            this.db.exec('ALTER TABLE sessions ADD COLUMN resume_with_session_model INTEGER NOT NULL DEFAULT 0')
         }
     }
 
-    /**
-     * V16 has no DDL change: messages.content may now hold zstd-compressed
-     * BLOBs alongside legacy plaintext JSON TEXT (see contentCodec.ts). The
-     * version bump exists so an older hub build refuses to open the DB with a
-     * schema-mismatch error instead of silently rendering every compressed
-     * message as null.
-     */
-    private migrateFromV15ToV16(): void {}
+    private migrateFromV15ToV16(): void {
+        // Both the upstream and fork branches shipped schema v15 with one of
+        // these columns. Re-run the idempotent reconciliation for either shape.
+        this.migrateFromV14ToV15()
+    }
+
 
     private migrateFromV16ToV17(): void {
         this.db.exec(`

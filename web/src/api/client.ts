@@ -13,6 +13,7 @@ import type {
     FileSearchResponse,
     MachinesResponse,
     MessagesResponse,
+    OmpInputMode,
     PermissionMode,
     PiImportSessionsResponse,
     PiLocalSessionsResponse,
@@ -36,12 +37,15 @@ import type {
     CursorMigrateToAcpRequest,
     CursorChatStoreStatus,
     CursorModelsResponse,
+    CycleOmpModelResponse,
     DeleteUploadResponse,
     FileReadResponse,
+    FileWriteResponse,
     GitCommandResponse,
     GrokModelsResponse,
     CopilotModelsResponse,
     GrokReasoningEffortResponse,
+    ListCcSwitchProvidersResponse,
     ListDirectoryResponse,
     MachineListDirectoryResponse,
     MachinePathsExistsResponse,
@@ -49,6 +53,12 @@ import type {
     OpencodeReasoningEffortResponse,
     PiModelsResponse,
     QueuedStateResponse,
+    OmpModelsResponse,
+    OmpThinkingOptionsResponse,
+    OmpLoginProvidersResponse,
+    StartOmpLoginResponse,
+    RespondOmpLoginInputResponse,
+    GetOmpExtensionUiResponse,
     ReopenSessionResponse,
     SqliteStorageUsageResponse,
     HubSettingsResponse,
@@ -57,8 +67,9 @@ import type {
     UploadFileResponse
 } from '@hapi/protocol/apiTypes'
 import type { AgentFlavor, MessageDeliveryMode } from '@hapi/protocol'
-import type { CancelMessageResponse, SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
+import type { CancelMessageResponse, ProbeAgentSkillsResponse, SteerQueuedMessageResponse } from '@hapi/protocol/schemas'
 import type { TranscriptionMode, TranscriptionProvider, TranscriptionProviderInfo } from '@hapi/protocol/voice'
+import type { ForkRouteResult } from '../../../fork-features/session-fork/rpcPayloads'
 
 export type ProviderCredentialSource = 'env' | 'settings' | 'none'
 
@@ -212,7 +223,7 @@ export class ApiClient {
         return await res.json() as T
     }
 
-    async authenticate(auth: { initData: string } | { accessToken: string }): Promise<AuthResponse> {
+    async authenticate(auth: { initData: string } | { accessToken: string } | { username: string; password: string }): Promise<AuthResponse> {
         const res = await fetch(this.buildUrl('/api/auth'), {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
@@ -227,6 +238,10 @@ export class ApiClient {
         }
 
         return await res.json() as AuthResponse
+    }
+
+    async refreshAuth(): Promise<AuthResponse> {
+        return await this.request<AuthResponse>('/api/auth/refresh', { method: 'POST' })
     }
 
     async bind(auth: { initData: string; accessToken: string }): Promise<AuthResponse> {
@@ -458,10 +473,42 @@ export class ApiClient {
         return await res.blob()
     }
 
+    async getGeneratedFileBlob(sessionId: string, fileId: string, attempt: number = 0, overrideToken?: string | null): Promise<Blob> {
+        const headers = new Headers()
+        const liveToken = this.getToken ? this.getToken() : null
+        const authToken = overrideToken !== undefined
+            ? (overrideToken ?? (liveToken ?? this.token))
+            : (liveToken ?? this.token)
+        if (authToken) {
+            headers.set('authorization', `Bearer ${authToken}`)
+        }
+        const res = await fetch(this.buildUrl(`/api/sessions/${encodeURIComponent(sessionId)}/generated-files/${encodeURIComponent(fileId)}`), {
+            headers
+        })
+        if (res.status === 401 && attempt === 0 && this.onUnauthorized) {
+            const refreshed = await this.onUnauthorized()
+            if (refreshed) {
+                this.token = refreshed
+                return await this.getGeneratedFileBlob(sessionId, fileId, attempt + 1, refreshed)
+            }
+        }
+        if (!res.ok) {
+            throw new ApiError(`HTTP ${res.status}`, res.status, undefined, await res.text().catch(() => undefined))
+        }
+        return await res.blob()
+    }
+
     async readSessionFile(sessionId: string, path: string): Promise<FileReadResponse> {
         const params = new URLSearchParams()
         params.set('path', path)
         return await this.request<FileReadResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/file?${params.toString()}`)
+    }
+
+    async writeSessionFile(sessionId: string, path: string, content: string, expectedHash: string): Promise<FileWriteResponse> {
+        return await this.request<FileWriteResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/file`, {
+            method: 'PUT',
+            body: JSON.stringify({ path, content, expectedHash })
+        })
     }
 
     async listSessionDirectory(sessionId: string, path?: string): Promise<ListDirectoryResponse> {
@@ -503,6 +550,14 @@ export class ApiClient {
         return response.sessionId
     }
 
+    async restartSession(sessionId: string, ccSwitchProviderId?: string): Promise<string> {
+        const response = await this.request<{ sessionId: string }>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/restart`,
+            { method: 'POST', body: JSON.stringify({ ccSwitchProviderId }) }
+        )
+        return response.sessionId
+    }
+
     async getCursorChatStoreStatus(sessionId: string): Promise<CursorChatStoreStatus> {
         return await this.request<CursorChatStoreStatus>(
             `/api/sessions/${encodeURIComponent(sessionId)}/cursor-chat-store`
@@ -515,6 +570,7 @@ export class ApiClient {
         localId?: string | null,
         attachments?: AttachmentMetadata[],
         scheduledAt?: number | null,
+        ompInputMode?: OmpInputMode,
         deliveryMode?: MessageDeliveryMode,
     ): Promise<void> {
         await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
@@ -524,6 +580,7 @@ export class ApiClient {
                 localId: localId ?? undefined,
                 attachments: attachments ?? undefined,
                 scheduledAt: scheduledAt ?? undefined,
+                ompInputMode: ompInputMode ?? undefined,
                 deliveryMode: deliveryMode ?? undefined,
             })
         })
@@ -594,6 +651,40 @@ export class ApiClient {
             `/api/sessions/${encodeURIComponent(sessionId)}/reopen`,
             { method: 'POST', body: JSON.stringify({}) }
         )
+    }
+
+    /**
+     * Session fork (fork-features/session-fork). Returns the new hapi session
+     * id for the forked copy.
+     */
+    /**
+     * Fork a session. Absent `forkPoint` = HEAD fork (session-level menu
+     * entry). With `forkPoint.messageId` = per-message fork (UserMessage
+     * trailing-row rewind button, capability-gated to at-message flavors).
+     * Hub computes `tailOffset` from the source session's messages table;
+     * clients don't send it.
+     */
+    async forkSession(
+        sessionId: string,
+        opts?: { forkPoint?: { messageId: string } }
+    ): Promise<ForkRouteResult> {
+        const body: { contract: 'fork-feature'; forkPoint?: { messageId: string } } = { contract: 'fork-feature' }
+        if (opts?.forkPoint) body.forkPoint = opts.forkPoint
+        return await this.request<ForkRouteResult>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/fork`,
+            { method: 'POST', body: JSON.stringify(body) }
+        )
+    }
+
+    /**
+     * Returns per-flavor fork capability shape (see
+     * `useFlavorCapabilities`). Web uses it to capability-gate the
+     * session-level Fork menu and the per-message rewind button.
+     */
+    async getFlavorCapabilities(): Promise<{
+        capabilities: Record<string, { fork: 'none' | 'head-only' | 'at-message'; files: 'none' }>
+    }> {
+        return await this.request('/api/flavors/capabilities')
     }
 
     /**
@@ -672,6 +763,13 @@ export class ApiClient {
         })
     }
 
+    async setResumeWithSessionModel(sessionId: string, resumeWithSessionModel: boolean): Promise<void> {
+        await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/resume-model`, {
+            method: 'POST',
+            body: JSON.stringify({ resumeWithSessionModel })
+        })
+    }
+
     async setModelReasoningEffort(sessionId: string, modelReasoningEffort: string | null): Promise<void> {
         await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/model-reasoning-effort`, {
             method: 'POST',
@@ -729,6 +827,12 @@ export class ApiClient {
         return await this.request<MachinesResponse>('/api/machines')
     }
 
+    async refreshMachineAgentSkills(machineId: string): Promise<ProbeAgentSkillsResponse> {
+        return await this.request(`/api/machines/${encodeURIComponent(machineId)}/agent-skills/refresh`, {
+            method: 'POST'
+        })
+    }
+
     /** Pass an empty string to clear the custom name and fall back to the hostname. */
     async renameMachine(machineId: string, displayName: string): Promise<void> {
         await this.request(`/api/machines/${encodeURIComponent(machineId)}`, {
@@ -750,6 +854,26 @@ export class ApiClient {
             method: 'PUT',
             body: JSON.stringify(settings)
         })
+    }
+
+    async listImportableSessions(
+        machineId: string,
+        provider: import('@hapi/protocol/apiTypes').ImportableSessionProvider,
+        options?: { cursor?: string; cwd?: string; query?: string }
+    ): Promise<import('@hapi/protocol/apiTypes').ImportableSessionsPage> {
+        const query = new URLSearchParams({ provider })
+        if (options?.cursor) query.set('cursor', options.cursor)
+        if (options?.cwd) query.set('cwd', options.cwd)
+        if (options?.query) query.set('query', options.query)
+        return await this.request(`/api/machines/${encodeURIComponent(machineId)}/importable-sessions?${query}`)
+    }
+
+    async importExistingSession(
+        machineId: string,
+        provider: import('@hapi/protocol/apiTypes').ImportableSessionProvider,
+        externalSessionId: string
+    ): Promise<import('@hapi/protocol/apiTypes').ImportExistingSessionResponse> {
+        return await this.request(`/api/machines/${encodeURIComponent(machineId)}/importable-sessions/${provider}/${encodeURIComponent(externalSessionId)}`, { method: 'POST' })
     }
 
     async getUsageSummary(
@@ -780,6 +904,20 @@ export class ApiClient {
             {
                 method: 'POST',
                 body: JSON.stringify({ path, includeHidden: options?.includeHidden === true })
+            }
+        )
+    }
+
+    async createMachineDirectory(
+        machineId: string,
+        parentPath: string,
+        name: string
+    ): Promise<import('@hapi/protocol/apiTypes').MachineCreateDirectoryResponse> {
+        return await this.request(
+            `/api/machines/${encodeURIComponent(machineId)}/create-directory`,
+            {
+                method: 'POST',
+                body: JSON.stringify({ parentPath, name })
             }
         )
     }
@@ -857,9 +995,74 @@ export class ApiClient {
         )
     }
 
+    async getMachineCcSwitchProviders(machineId: string): Promise<ListCcSwitchProvidersResponse> {
+        return await this.request<ListCcSwitchProvidersResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/cc-switch/providers`
+        )
+    }
+
     async getSessionOpencodeModels(sessionId: string): Promise<OpencodeModelsResponse> {
         return await this.request<OpencodeModelsResponse>(
             `/api/sessions/${encodeURIComponent(sessionId)}/opencode-models`
+        )
+    }
+
+    async getSessionOmpModels(sessionId: string): Promise<OmpModelsResponse> {
+        return await this.request<OmpModelsResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/omp-models`
+        )
+    }
+
+    async getSessionOmpThinkingOptions(sessionId: string): Promise<OmpThinkingOptionsResponse> {
+        return await this.request<OmpThinkingOptionsResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/omp-thinking-options`
+        )
+    }
+
+    async cycleSessionOmpModel(sessionId: string): Promise<CycleOmpModelResponse> {
+        return await this.request<CycleOmpModelResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/omp-model-cycle`,
+            { method: 'POST' }
+        )
+    }
+
+    async getMachineOmpLoginProviders(machineId: string): Promise<OmpLoginProvidersResponse> {
+        return await this.request<OmpLoginProvidersResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/omp-login-providers`
+        )
+    }
+
+    async startMachineOmpLogin(machineId: string, providerId: string): Promise<StartOmpLoginResponse> {
+        return await this.request<StartOmpLoginResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/omp-login`,
+            {
+                method: 'POST',
+                body: JSON.stringify({ providerId })
+            }
+        )
+    }
+
+    async respondMachineOmpLoginInput(
+        machineId: string,
+        flowId: string,
+        value: string
+    ): Promise<RespondOmpLoginInputResponse> {
+        return await this.request<RespondOmpLoginInputResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/omp-login-input`,
+            {
+                method: 'POST',
+                body: JSON.stringify({ flowId, value })
+            }
+        )
+    }
+
+    async getSessionOmpExtensionUiRequest(
+        sessionId: string,
+        requestId: string
+    ): Promise<GetOmpExtensionUiResponse> {
+        return await this.request<GetOmpExtensionUiResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/omp-extension-ui/${encodeURIComponent(requestId)}`,
+            { cache: 'no-store' }
         )
     }
 
@@ -898,6 +1101,12 @@ export class ApiClient {
     async getMachineGrokModelsForCwd(machineId: string, cwd: string): Promise<GrokModelsResponse> {
         return await this.request<GrokModelsResponse>(
             `/api/machines/${encodeURIComponent(machineId)}/grok-models?cwd=${encodeURIComponent(cwd)}`
+        )
+    }
+
+    async getMachineOmpModelsForCwd(machineId: string, cwd: string): Promise<OmpModelsResponse> {
+        return await this.request<OmpModelsResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/omp-models?cwd=${encodeURIComponent(cwd)}`
         )
     }
 

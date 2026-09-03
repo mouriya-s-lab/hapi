@@ -31,6 +31,56 @@ describe('Store V10→V11 migration: fcm_devices', () => {
         }
     })
 
+    it('repairs a V11 DB missing fcm_devices before committing the latest version', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'hapi-migration-v11-repair-test-'))
+        const dbPath = join(dir, 'test.db')
+        let store: Store | undefined
+        try {
+            const db = new Database(dbPath, { create: true, readwrite: true, strict: true })
+            createV10Schema(db)
+            db.exec('PRAGMA user_version = 11')
+            db.close()
+
+            store = new Store(dbPath)
+            expect(tableExists(store, 'fcm_devices')).toBe(true)
+            store.close()
+            store = undefined
+
+            const migrated = new Database(dbPath, { readonly: true, strict: true })
+            try {
+                expect(readUserVersion(migrated)).toBe(23)
+            } finally {
+                migrated.close()
+            }
+        } finally {
+            store?.close()
+            rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
+    it('rolls back repaired tables and version when final schema validation fails', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'hapi-migration-v11-rollback-test-'))
+        const dbPath = join(dir, 'test.db')
+        try {
+            const db = new Database(dbPath, { create: true, readwrite: true, strict: true })
+            createV10Schema(db)
+            db.exec('DROP TABLE machines; PRAGMA user_version = 11')
+            db.close()
+
+            expect(() => new Store(dbPath)).toThrow('SQLite schema is missing required tables (machines)')
+
+            const rolledBack = new Database(dbPath, { readonly: true, strict: true })
+            try {
+                expect(readUserVersion(rolledBack)).toBe(11)
+                expect(databaseTableExists(rolledBack, 'fcm_devices')).toBe(false)
+            } finally {
+                rolledBack.close()
+            }
+        } finally {
+            rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
     it('upsert replaces token for same namespace+deviceId+platform', () => {
         const store = new Store(':memory:')
         store.fcm.upsertDevice('default', {
@@ -55,6 +105,20 @@ function tableExists(store: Store, name: string): boolean {
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
     ).get(name) as { name: string } | null
     return row !== null
+}
+
+function readUserVersion(db: Database): number {
+    const row = db.prepare('PRAGMA user_version').get()
+    if (!row || typeof row !== 'object' || !('user_version' in row) || typeof row.user_version !== 'number') {
+        throw new Error('PRAGMA user_version did not return a numeric value')
+    }
+    return row.user_version
+}
+
+function databaseTableExists(db: Database, name: string): boolean {
+    return db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
+    ).get(name) !== null
 }
 
 function createV10Schema(db: Database): void {

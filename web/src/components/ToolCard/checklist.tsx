@@ -51,6 +51,33 @@ export function extractTodoChecklist(input: unknown, result: unknown): Checklist
         if (items.length > 0) return items
     }
 
+    // OMP `todo` results store the live list under details.phases[].tasks[].
+    if (isObject(result) && Array.isArray(result.phases)) {
+        const items: ChecklistItem[] = []
+        for (const phase of result.phases) {
+            if (!isObject(phase) || !Array.isArray(phase.tasks)) continue
+            items.push(...parseChecklistEntries(phase.tasks, {
+                textKey: 'content',
+                idKey: 'id'
+            }))
+        }
+        if (items.length > 0) return items
+    }
+
+    // OMP wraps tool_result as { content, details }. details.phases is the
+    // structured todo list; fall through when only the text summary is present.
+    if (isObject(result) && isObject(result.details) && Array.isArray(result.details.phases)) {
+        const items: ChecklistItem[] = []
+        for (const phase of result.details.phases) {
+            if (!isObject(phase) || !Array.isArray(phase.tasks)) continue
+            items.push(...parseChecklistEntries(phase.tasks, {
+                textKey: 'content',
+                idKey: 'id'
+            }))
+        }
+        if (items.length > 0) return items
+    }
+
     if (isObject(result) && Array.isArray(result.newTodos)) {
         return parseChecklistEntries(result.newTodos, {
             textKey: 'content',

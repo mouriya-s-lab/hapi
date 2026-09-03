@@ -32,7 +32,7 @@ This starts Claude Code wrapped with HAPI. The session appears in the web UI.
 
 Open the URL shown in the terminal, or scan the QR code with your phone.
 
-Enter your access token to log in.
+Enter your access token to log in. The token printed on first hub start (also in `~/.hapi/settings.json` as `cliApiToken`) is the admin seed token — use the bare value without any suffix. Per-account tokens (`hapi_mu_*`) can be created later via Settings → My API Token.
 
 </Steps>
 

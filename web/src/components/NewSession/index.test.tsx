@@ -127,6 +127,16 @@ vi.mock('@/hooks/queries/useGrokModelsForCwd', () => ({
         error: null
     })
 }))
+vi.mock('@/fork-features/omp-host-integration/useOmpModelsForCwd', () => ({
+    useOmpModelsForCwd: () => ({
+        availableModels: [],
+        currentModel: null,
+        isLoading: false,
+        error: null,
+        refetch: vi.fn()
+    })
+}))
+
 vi.mock('@/hooks/queries/useCopilotModelsForCwd', () => ({
     useCopilotModelsForCwd: () => ({
         availableModels: mocks.copilotModels,
@@ -164,6 +174,7 @@ vi.mock('./DirectorySection', () => ({ DirectorySection: () => null }))
 vi.mock('./MachineSelector', () => ({
     MachineSelector: (props: { machines: Machine[]; machineId: string | null; isDisabled: boolean; onChange: (machineId: string) => void }) => (
         <select
+            data-testid="machines"
             aria-label="machine-selector"
             value={props.machineId ?? ''}
             disabled={props.isDisabled}
@@ -847,7 +858,6 @@ describe('NewSession launch preferences', () => {
             effort: 'high',
             modelReasoningEffort: 'default',
         })
-
         render(
             <NewSession
                 api={api}
@@ -858,7 +868,6 @@ describe('NewSession launch preferences', () => {
                 onCancel={() => {}}
             />
         )
-
         await waitFor(() => {
             expect(screen.getByTestId('model')).toHaveTextContent('auto')
             expect(screen.getByTestId('launch-effort')).toHaveTextContent('auto')
@@ -903,4 +912,35 @@ describe('NewSession launch preferences', () => {
             model: 'opencode-go/deepseek-v4-pro',
         }))
     })
+
+    it('selects only OMP-capable runners for OMP sessions', async () => {
+        savePreferredAgent('omp')
+        const unsupported = {
+            id: 'without-omp',
+            metadata: { host: 'No OMP runner' }
+        } as Machine
+        const supported = {
+            id: 'with-omp',
+            metadata: {
+                host: 'OMP runner',
+                ompAvailable: true
+            }
+        } as Machine
+        render(
+            <NewSession
+                api={api}
+                machines={[unsupported, supported]}
+                initialMachineId="without-omp"
+                initialDirectory="C:\\repo"
+                onSuccess={mocks.onSuccess}
+                onCancel={() => {}}
+            />
+        )
+        expect(screen.getByTestId('machines')).toHaveTextContent('with-omp')
+        expect(screen.getByTestId('machines')).not.toHaveTextContent('without-omp')
+        await waitFor(() => {
+            expect(screen.getByTestId('create')).toBeEnabled()
+        })
+    })
+
 })

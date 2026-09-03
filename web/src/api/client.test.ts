@@ -171,7 +171,7 @@ describe('ApiClient error mapping', () => {
         fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
 
         const api = new ApiClient('test-token')
-        await api.sendMessage('session /?#', 'steer this', 'local-1', undefined, null, 'steer')
+        await api.sendMessage('session /?#', 'steer this', 'local-1', undefined, null, undefined, 'steer')
 
         const [url, init] = fetchMock.mock.calls[0] ?? []
         expect(url).toBe('/api/sessions/session%20%2F%3F%23/messages')

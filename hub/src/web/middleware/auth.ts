@@ -6,6 +6,7 @@ export type WebAppEnv = {
     Variables: {
         userId: number
         namespace: string
+        deliveryMetadata?: Record<string, unknown>
     }
 }
 

@@ -6,6 +6,7 @@ type AppContextValue = {
     token: string
     baseUrl: string
     titleSuggestionAvailable?: boolean
+    user: { id: number; username?: string; role?: 'admin' | 'user'; defaultNamespace?: string }
 }
 
 const AppContext = createContext<AppContextValue | null>(null)

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@/lib/i18n-context'
+import { ToastProvider } from '@/lib/toast-context'
 import { formatFileMetadata } from '@/lib/file-metadata'
 import { encodeBase64 } from '@/lib/utils'
 import FilePage from './file'
@@ -53,9 +54,14 @@ vi.mock('@/lib/shiki', () => ({
     langAlias: { md: 'markdown' },
     useShikiHighlighter: (content: string) => content,
 }))
-
 vi.mock('@/components/MarkdownRenderer', () => ({
     MarkdownRenderer: (props: { content: string }) => (
+        <div data-testid="markdown-preview">{props.content}</div>
+    ),
+}))
+
+vi.mock('@/components/FileMarkdownView', () => ({
+    FileMarkdownView: (props: { content: string }) => (
         <div data-testid="markdown-preview">{props.content}</div>
     ),
 }))
@@ -69,7 +75,9 @@ function renderWithProviders() {
     return render(
         <QueryClientProvider client={queryClient}>
             <I18nProvider>
-                <FilePage />
+                <ToastProvider>
+                    <FilePage />
+                </ToastProvider>
             </I18nProvider>
         </QueryClientProvider>
     )
@@ -90,24 +98,18 @@ describe('FilePage markdown preview', () => {
         })
         expect(screen.getByText(formatFileMetadata(fileSize, fileModified, 'en')!)).toBeInTheDocument()
         expect(screen.getAllByText(filePath)).toHaveLength(1)
-        const previewCopyButton = screen.getByRole('button', { name: 'Copy file content' })
-        expect(previewCopyButton.closest('[data-hapi-file-content-header="true"]')).not.toBeNull()
-        expect(previewCopyButton).not.toHaveClass('absolute')
+        const previewCopyButton = screen.getByTitle('Copy file content')
         fireEvent.click(previewCopyButton)
         expect(copyMock).toHaveBeenCalledWith(sampleMarkdown)
         expect(screen.getByRole('button', { name: 'Preview' })).toHaveClass('opacity-80')
 
-        fireEvent.click(screen.getByRole('button', { name: 'Source' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
 
         await waitFor(() => {
-            expect(screen.getByRole('code')).toHaveTextContent('# Heading')
+            expect(screen.getByTestId('file-raw-pre')).toHaveTextContent('# Heading')
         })
-        const sourcePreview = screen.getByRole('code').closest('[data-hapi-file-source-preview="true"]')
-        const sourceCopyButton = screen.getByRole('button', { name: 'Copy file content' })
-        expect(sourcePreview).not.toBeNull()
-        expect(sourcePreview).toContainElement(sourceCopyButton)
-        expect(sourceCopyButton.closest('[data-hapi-file-content-header="true"]')).not.toBeNull()
-        expect(sourceCopyButton).not.toHaveClass('absolute')
+        const sourceCopyButton = screen.getByTitle('Copy file content')
+        expect(screen.getByTestId('file-raw-pre').parentElement).toContainElement(sourceCopyButton)
         expect(screen.queryByTestId('markdown-preview')).not.toBeInTheDocument()
 
         fireEvent.click(screen.getByRole('button', { name: 'Preview' }))

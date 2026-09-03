@@ -1,4 +1,5 @@
 import { PROTOCOL_VERSION } from '@hapi/protocol'
+import { PwaReloadButton } from '@/fork-features/pwa-update/PwaReloadButton'
 import { useTranslation } from '@/lib/use-translation'
 import { SettingsPageContent, SettingsRow, SettingsSection } from '@/components/settings/SettingsPrimitives'
 
@@ -12,6 +13,11 @@ export default function SettingsAboutPage() {
                 } />
                 <SettingsRow label={t('settings.about.appVersion')} trailing={<span className="text-[var(--app-hint)]">{__APP_VERSION__}</span>} />
                 <SettingsRow label={t('settings.about.protocolVersion')} trailing={<span className="text-[var(--app-hint)]">{PROTOCOL_VERSION}</span>} />
+                <SettingsRow
+                    label={t('settings.about.update')}
+                    description={t('settings.about.updateDescription')}
+                    trailing={<PwaReloadButton />}
+                />
             </SettingsSection>
         </SettingsPageContent>
     )

@@ -4,6 +4,7 @@ import { PRESERVE_SESSION_SIDEBAR_SCROLL } from '@/lib/sessionNavigation'
 
 export function getSettingsBackTarget(pathname: string): string | null {
     if (pathname === '/settings') return '/sessions'
+    if (pathname.startsWith('/settings/users/')) return '/settings/users'
     if (pathname === '/settings/voice/advanced' || pathname === '/settings/voice/voices') return '/settings/voice'
     if (pathname.startsWith('/settings/')) return '/settings'
     return null

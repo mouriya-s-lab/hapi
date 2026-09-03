@@ -84,6 +84,11 @@ const BUILTIN_DESCRIPTORS: Record<AgentFlavor, AgentConfigFieldDescriptor[]> = {
         { id: 'model', section: 'model', kind: 'grouped-select', optionSource: 'machine', availability: 'both' },
         { id: 'effort', section: 'effort', kind: 'select', optionSource: 'static', availability: 'both' },
         MANAGED_PERMISSION
+    ),
+    omp: fields(
+        { ...MODEL, optionSource: 'machine' },
+        { id: 'effort', section: 'effort', kind: 'select', optionSource: 'static', availability: 'both' },
+        PERMISSION
     )
 }
 
@@ -107,6 +112,7 @@ export function resolveHapiYoloPermissionMode(flavor: AgentFlavor): PermissionMo
         case 'cursor':
         case 'gemini':
         case 'kimi':
+        case 'omp':
         case 'opencode':
             return 'yolo'
         case 'pi':

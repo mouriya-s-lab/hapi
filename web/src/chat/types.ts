@@ -5,6 +5,7 @@ import type { InlineMediaSource } from '@/chat/inlineMediaSource'
 export type UsageData = {
     input_tokens: number
     output_tokens: number
+    reasoning_output_tokens?: number
     cache_creation_input_tokens?: number
     cache_read_input_tokens?: number
     context_tokens?: number
@@ -12,6 +13,15 @@ export type UsageData = {
     thread_id?: string
     scope_role?: string
     service_tier?: string
+    cost_usd?: number
+}
+
+export type ModelRefusalFallbackEvent = {
+    type: 'model-refusal-fallback'
+    originalModel: string
+    message: string
+    direction?: string
+    trigger?: string
 }
 
 export type AgentEvent =
@@ -30,6 +40,7 @@ export type AgentEvent =
     | { type: 'compact-summary'; summary: string; tokensBefore?: number; estimatedTokensAfter?: number }
     // Claude Code's automatic away-summary recap (TUI window blur 5min+, then focus).
     | { type: 'recap'; text: string }
+    | ModelRefusalFallbackEvent
     | { type: 'thread-goal-updated'; goal: ThreadGoal; threadId?: string; turnId?: string }
     | { type: 'thread-goal-cleared'; threadId?: string }
     | { type: 'abort-restore'; text: string }
@@ -76,6 +87,16 @@ export type GeneratedImageContent = {
     source?: InlineMediaSource
 }
 
+export type GeneratedFileContent = {
+    type: 'generated-file'
+    fileId: string
+    fileName: string
+    mimeType: string | null
+    size: number | null
+    uuid: string
+    parentUUID: string | null
+}
+
 export type CodexReviewFinding = {
     title: string
     body: string
@@ -111,6 +132,7 @@ export type NormalizedAgentContent =
     | ToolUse
     | ToolResult
     | GeneratedImageContent
+    | GeneratedFileContent
     | {
         type: 'codex-review'
         review: CodexReview
@@ -275,6 +297,19 @@ export type GeneratedImageBlock = {
     meta?: unknown
 }
 
+export type GeneratedFileBlock = {
+    kind: 'generated-file'
+    id: string
+    localId: string | null
+    createdAt: number
+    invokedAt?: number | null
+    fileId: string
+    fileName: string
+    mimeType: string | null
+    size: number | null
+    meta?: unknown
+}
+
 export type AgentEventBlock = {
     kind: 'agent-event'
     id: string
@@ -299,4 +334,4 @@ export type ToolCallBlock = {
     meta?: unknown
 }
 
-export type ChatBlock = UserTextBlock | AgentTextBlock | AgentReasoningBlock | CodexReviewBlock | CliOutputBlock | ToolCallBlock | GeneratedImageBlock | AgentEventBlock
+export type ChatBlock = UserTextBlock | AgentTextBlock | AgentReasoningBlock | CodexReviewBlock | CliOutputBlock | ToolCallBlock | GeneratedImageBlock | GeneratedFileBlock | AgentEventBlock

@@ -1,28 +1,47 @@
 import { randomUUID } from 'node:crypto';
 import { INCLUSIVE_INPUT_TOKEN_USAGE_MARKER, type InclusiveInputTokenUsageMarker } from '@hapi/protocol/usage';
-import type { AgentMessage, PlanItem } from './types';
+import type { AgentMessage, AgentUsage, PlanItem } from './types';
 import type { InlineMediaSource } from '@/modules/common/inlineMediaSource';
 
+type CodexUsageInfo = {
+    total: {
+        inputTokens: number;
+        outputTokens: number;
+        totalTokens?: number;
+        thoughtTokens?: number;
+        cachedInputTokens?: number;
+        cacheWriteInputTokens?: number;
+    };
+    contextTokens?: number;
+    modelContextWindow?: number;
+    costUsd?: number;
+};
+
+function convertAgentUsage(message: AgentUsage): CodexUsageInfo {
+    return {
+        total: {
+            inputTokens: message.inputTokens,
+            outputTokens: message.outputTokens,
+            totalTokens: message.totalTokens,
+            thoughtTokens: message.thoughtTokens,
+            cachedInputTokens: message.cacheReadTokens,
+            cacheWriteInputTokens: message.cacheCreationTokens
+        },
+        contextTokens: message.contextTokens,
+        modelContextWindow: message.contextWindow,
+        costUsd: message.costUsd
+    };
+}
+
 export type CodexMessage =
-    | { type: 'message'; message: string; id?: string; streamSnapshot?: boolean }
-    | { type: 'reasoning'; message: string; id: string }
+    | { type: 'message'; message: string; id?: string; streamSnapshot?: boolean; model?: string; usage?: CodexUsageInfo }
+    | { type: 'reasoning'; message: string; id: string; model?: string; usage?: CodexUsageInfo }
     | {
         type: 'token_count';
         model: string | null;
         usageSchema: InclusiveInputTokenUsageMarker['usageSchema'];
         inputTokenSemantics: InclusiveInputTokenUsageMarker['inputTokenSemantics'];
-        info: {
-            total: {
-                inputTokens: number;
-                outputTokens: number;
-                totalTokens?: number;
-                thoughtTokens?: number;
-                cachedInputTokens?: number;
-                cacheWriteInputTokens?: number;
-            };
-            contextTokens?: number;
-            modelContextWindow?: number;
-        };
+        info: CodexUsageInfo;
     }
     | {
         type: 'tool-call';
@@ -32,6 +51,8 @@ export type CodexMessage =
         status?: 'pending' | 'in_progress' | 'completed' | 'failed';
         nativeTitle?: string;
         nativeKind?: string;
+        model?: string;
+        usage?: CodexUsageInfo;
         progress?: unknown;
     }
     | {
@@ -57,6 +78,8 @@ export function convertAgentMessage(message: AgentMessage, model?: string | null
             return {
                 type: 'message',
                 message: message.text,
+                model: message.model,
+                usage: message.usage ? convertAgentUsage(message.usage) : undefined,
                 ...(message.id !== undefined ? { id: message.id } : {}),
                 ...(message.streamSnapshot === true ? { streamSnapshot: true } : {})
             };
@@ -64,7 +87,13 @@ export function convertAgentMessage(message: AgentMessage, model?: string | null
             // AgentMessage uses `text` (consistent with the `text` variant);
             // the wire-level CodexMessage uses `message` to match the
             // existing reasoning format emitted by the Codex path.
-            return { type: 'reasoning', message: message.text, id: message.id ?? randomUUID() };
+            return {
+                type: 'reasoning',
+                message: message.text,
+                id: message.id ?? randomUUID(),
+                model: message.model,
+                usage: message.usage ? convertAgentUsage(message.usage) : undefined
+            };
         case 'usage':
             return {
                 type: 'token_count',
@@ -84,7 +113,8 @@ export function convertAgentMessage(message: AgentMessage, model?: string | null
                             : {})
                     },
                     contextTokens: message.contextTokens,
-                    modelContextWindow: message.contextWindow
+                    modelContextWindow: message.contextWindow,
+                    costUsd: message.costUsd
                 }
             };
         case 'tool_call':
@@ -96,6 +126,8 @@ export function convertAgentMessage(message: AgentMessage, model?: string | null
                 status: message.status,
                 ...(message.title ? { nativeTitle: message.title } : {}),
                 ...(message.kind ? { nativeKind: message.kind } : {}),
+                model: message.model,
+                usage: message.usage ? convertAgentUsage(message.usage) : undefined,
                 ...(message.progress !== undefined ? { progress: message.progress } : {})
             };
         case 'tool_result':

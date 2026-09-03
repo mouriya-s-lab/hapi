@@ -23,6 +23,15 @@ import { ServerChanChannel } from './serverchan/channel'
 import QRCode from 'qrcode'
 import type { Server as BunServer } from 'bun'
 import type { WebSocketData } from '@socket.io/bun-engine'
+import { bootstrapForkMultiUser } from '../../fork-features/multi-user/hubMount'
+import { resolveTerminalNamespace } from '../../fork-features/multi-user/socketAdapter'
+import {
+    createPushNotificationRouting,
+    createTelegramNotificationNamespaceResolver,
+    MultiUserNotificationAdapter
+} from '../../fork-features/multi-user/notificationAdapter'
+import { resolveGatewayCliNamespace } from '../../fork-features/multi-user/cliAdapter'
+import { createGatewayMemoryDelivery } from '../../fork-features/multi-user/memoryAdapter'
 
 /** Format config source for logging */
 function formatSource(source: ConfigSource | 'generated'): string {
@@ -171,11 +180,13 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
         console.log(`[Hub] Tunnel: disabled (${relayFlag.source})`)
     }
 
-    const store = new Store(config.dbPath)
+    const { store, multiUserGatewayStore } = bootstrapForkMultiUser(config)
+    const gatewayMemoryDelivery = createGatewayMemoryDelivery(multiUserGatewayStore)
     const jwtSecret = await getOrCreateJwtSecret()
     const vapidKeys = await getOrCreateVapidKeys(config.dataDir)
     const vapidSubject = process.env.VAPID_SUBJECT ?? 'mailto:admin@hapi.run'
     const pushService = new PushService(vapidKeys, vapidSubject, store)
+    const pushNotificationRouting = createPushNotificationRouting(multiUserGatewayStore, store)
 
     visibilityTracker = new VisibilityTracker()
     sseManager = new SSEManager(30_000, visibilityTracker)
@@ -198,10 +209,17 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
         onBackgroundTaskDelta: (sessionId, delta) => syncEngine?.handleBackgroundTaskDelta(sessionId, delta),
         onSessionActivity: (sessionId, updatedAt) => syncEngine?.recordSessionActivity(sessionId, updatedAt),
         onSweepImmediateQueued: (sessionId, now) => syncEngine?.sweepImmediateQueuedOnSessionEnd(sessionId, now),
-        onMessagesConsumed: (sessionId) => syncEngine?.clearQueuedThinkingGrace(sessionId)
+        onMessagesConsumed: (sessionId) => syncEngine?.clearQueuedThinkingGrace(sessionId),
+        resolveTerminalNamespace: (accountId, sessionId) => resolveTerminalNamespace({
+            store: multiUserGatewayStore,
+            accountId,
+            sessionId,
+            getCoreSession: (id) => syncEngine?.getSession(id) ?? store.sessions.getSession(id)
+        }),
+        resolveCliNamespace: token => resolveGatewayCliNamespace(multiUserGatewayStore, token)
     })
 
-    syncEngine = new SyncEngine(store, socketServer.io, socketServer.rpcRegistry, sseManager)
+    syncEngine = new SyncEngine(store, socketServer.io, socketServer.rpcRegistry, sseManager, gatewayMemoryDelivery.decorateForCli)
     // Accountable principal for A2A work-graph notify ingest (P3).
     syncEngine.setHubOwnerUserId(await getOrCreateOwnerId())
 
@@ -220,16 +238,26 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
     const notificationChannels: NotificationChannel[] = []
 
     if (fcmConfig && fcmService) {
-        notificationChannels.push(new FcmNotificationChannel(fcmService, sseManager, visibilityTracker, store))
+        notificationChannels.push(
+            new MultiUserNotificationAdapter(
+                multiUserGatewayStore,
+                new FcmNotificationChannel(fcmService, sseManager, visibilityTracker, store)
+            )
+        )
         console.log('[Fcm] Native companion push enabled (project:', fcmConfig.projectId + ')')
     }
 
     notificationChannels.push(
-        new PushNotificationChannel(
-            pushService,
-            sseManager,
-            visibilityTracker,
-            config.publicUrl
+        new MultiUserNotificationAdapter(
+            multiUserGatewayStore,
+            new PushNotificationChannel(
+                pushService,
+                sseManager,
+                visibilityTracker,
+                config.publicUrl,
+                pushNotificationRouting.endpointsForAudience
+            ),
+            pushNotificationRouting.namespacesForAccount
         )
     )
 
@@ -252,7 +280,11 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
         })
         // Only add to notification channels if notifications are enabled
         if (config.telegramNotification) {
-            notificationChannels.push(happyBot)
+            notificationChannels.push(new MultiUserNotificationAdapter(
+                multiUserGatewayStore,
+                happyBot,
+                createTelegramNotificationNamespaceResolver(multiUserGatewayStore, store)
+            ))
         }
     }
 
@@ -269,7 +301,11 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
         socketEngine: socketServer.engine,
         corsOrigins,
         relayMode: relayFlag.enabled,
-        officialWebUrl
+        officialWebUrl,
+        multiUser: {
+            store: multiUserGatewayStore,
+            coreUserId: await getOrCreateOwnerId()
+        }
     })
 
     // Start the bot if configured
@@ -378,6 +414,7 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
             syncEngine?.stop()
             sseManager?.stop()
             webServer?.stop()
+            multiUserGatewayStore.close()
         }
     }
 }

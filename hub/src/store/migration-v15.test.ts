@@ -6,38 +6,35 @@ import { tmpdir } from 'node:os'
 import { Store } from './index'
 
 /**
- * Tests for V14→V15 schema migration: adds `session_scratchlist.attachments`
- * for tiann/hapi#921 (scratchlist v2.2 hub attachment storage).
- *
- * Ladder: V11→V12 = session_scratchlist (#896), V12–V14 = message_epochs
- * reconciliation, V14→V15 = attachments column (#921).
+ * Schema v15 diverged across branches: upstream added
+ * `session_scratchlist.attachments`, while the fork added
+ * `sessions.resume_with_session_model`. V16 reconciles both shapes before
+ * subsequent migrations advance the database to the current schema.
  */
-describe('Store V14→V15 migration: scratchlist attachments column', () => {
-    it('fresh DB has session_scratchlist.attachments', () => {
+describe('Store V15 migration: reconcile divergent columns', () => {
+    it('fresh DB has both v15 columns at the current schema', () => {
         const store = new Store(':memory:')
-        const cols = getColumns(store, 'session_scratchlist')
-        expect(cols).toContain('attachments')
+        expect(getColumns(store, 'session_scratchlist')).toContain('attachments')
+        expect(getColumns(store, 'sessions')).toContain('resume_with_session_model')
         expect(getColumns(store, 'usage_events')).toContain('last_input_tokens')
         expect(getColumns(store, 'usage_scan_state')).toContain('last_seq')
         expect(getUserVersion(store)).toBe(23)
         store.close()
     })
 
-    it('V14 text-only scratchlist migrates to V15 and gains attachments column', () => {
-        const dir = mkdtempSync(join(tmpdir(), 'hapi-migration-v14-to-v15-'))
+    it('V14 DB migrates through both additions to the current schema', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'hapi-migration-v14-current-'))
         const dbPath = join(dir, 'test.db')
         let store: Store | undefined
         try {
             const db = new Database(dbPath, { create: true, readwrite: true, strict: true })
-            db.exec('PRAGMA journal_mode = WAL')
-            db.exec('PRAGMA foreign_keys = ON')
             createV14Schema(db)
             db.exec('PRAGMA user_version = 14')
             db.close()
 
             store = new Store(dbPath)
-            const cols = getColumns(store, 'session_scratchlist')
-            expect(cols).toContain('attachments')
+            expect(getColumns(store, 'session_scratchlist')).toContain('attachments')
+            expect(getColumns(store, 'sessions')).toContain('resume_with_session_model')
             expect(getColumns(store, 'usage_events')).toContain('last_input_tokens')
             expect(getColumns(store, 'usage_scan_state')).toContain('last_seq')
             expect(getUserVersion(store)).toBe(23)
@@ -47,23 +44,69 @@ describe('Store V14→V15 migration: scratchlist attachments column', () => {
         }
     })
 
-    it('latest DB reopen is idempotent: schema unchanged', () => {
-        const dir = mkdtempSync(join(tmpdir(), 'hapi-migration-v15-idempotent-'))
+    it('upstream V15 DB gains the fork column', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'hapi-migration-upstream-v15-'))
         const dbPath = join(dir, 'test.db')
-        let store1: Store | undefined
-        let store2: Store | undefined
+        let store: Store | undefined
         try {
-            store1 = new Store(dbPath)
-            const cols1 = getColumns(store1, 'session_scratchlist')
-            expect(cols1).toContain('attachments')
+            const db = new Database(dbPath, { create: true, readwrite: true, strict: true })
+            createV14Schema(db)
+            db.exec('ALTER TABLE session_scratchlist ADD COLUMN attachments TEXT DEFAULT NULL')
+            db.exec('PRAGMA user_version = 15')
+            db.close()
 
-            store2 = new Store(dbPath)
-            const cols2 = getColumns(store2, 'session_scratchlist')
-            expect(cols2).toEqual(cols1)
-            expect(getUserVersion(store2)).toBe(23)
+            store = new Store(dbPath)
+            expect(getColumns(store, 'session_scratchlist')).toContain('attachments')
+            expect(getColumns(store, 'sessions')).toContain('resume_with_session_model')
+            expect(getColumns(store, 'usage_events')).toContain('last_input_tokens')
+            expect(getColumns(store, 'usage_scan_state')).toContain('last_seq')
+            expect(getUserVersion(store)).toBe(23)
         } finally {
-            store2?.close()
-            store1?.close()
+            store?.close()
+            rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
+    it('fork V15 DB gains the upstream column', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'hapi-migration-fork-v15-'))
+        const dbPath = join(dir, 'test.db')
+        let store: Store | undefined
+        try {
+            const db = new Database(dbPath, { create: true, readwrite: true, strict: true })
+            createV14Schema(db)
+            db.exec('ALTER TABLE sessions ADD COLUMN resume_with_session_model INTEGER NOT NULL DEFAULT 0')
+            db.exec('PRAGMA user_version = 15')
+            db.close()
+
+            store = new Store(dbPath)
+            expect(getColumns(store, 'session_scratchlist')).toContain('attachments')
+            expect(getColumns(store, 'sessions')).toContain('resume_with_session_model')
+            expect(getColumns(store, 'usage_events')).toContain('last_input_tokens')
+            expect(getColumns(store, 'usage_scan_state')).toContain('last_seq')
+            expect(getUserVersion(store)).toBe(23)
+        } finally {
+            store?.close()
+            rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
+    it('current schema reopen is idempotent', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'hapi-migration-current-idempotent-'))
+        const dbPath = join(dir, 'test.db')
+        let first: Store | undefined
+        let second: Store | undefined
+        try {
+            first = new Store(dbPath)
+            const scratchlistColumns = getColumns(first, 'session_scratchlist')
+            const sessionColumns = getColumns(first, 'sessions')
+
+            second = new Store(dbPath)
+            expect(getColumns(second, 'session_scratchlist')).toEqual(scratchlistColumns)
+            expect(getColumns(second, 'sessions')).toEqual(sessionColumns)
+            expect(getUserVersion(second)).toBe(23)
+        } finally {
+            second?.close()
+            first?.close()
             rmSync(dir, { recursive: true, force: true })
         }
     })
