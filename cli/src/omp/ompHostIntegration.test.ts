@@ -519,6 +519,36 @@ describe('OMP extension UI bridge', () => {
         await harness.bridge.close('test complete');
         expect(harness.getState().requests).toEqual({});
     });
+    it('strips ANSI escape codes from extension presentation text before it reaches the hub', async () => {
+        const fake = createFakeClient();
+        const harness = createExtensionBridge(fake.client);
+        harness.bridge.handle({
+            type: 'extension_ui_request', id: 'status', method: 'setStatus', statusKey: 'rewind',
+            statusText: '\u001b[38;5;243m◆ \u001b[39m\u001b[38;5;248m4 checkpoints\u001b[39m'
+        });
+        harness.bridge.handle({
+            type: 'extension_ui_request', id: 'notify', method: 'notify', message: '\u001b[31mDeploy failed\u001b[0m', notifyType: 'error'
+        });
+        harness.bridge.handle({
+            type: 'extension_ui_request', id: 'widget', method: 'setWidget', widgetKey: 'build',
+            widgetLines: ['\u001b[32m✓\u001b[39m tests passed']
+        });
+        harness.bridge.handle({
+            type: 'extension_ui_request', id: 'title', method: 'setTitle', title: '\u001b[1mBold title\u001b[0m'
+        });
+
+        expect(harness.messages).toEqual(expect.arrayContaining([
+            expect.objectContaining({ type: 'omp-extension-ui', method: 'notify', message: 'Deploy failed', level: 'error' }),
+            expect.objectContaining({ type: 'omp-extension-ui', method: 'setStatus', key: 'rewind', text: '◆ 4 checkpoints' }),
+            expect.objectContaining({ type: 'omp-extension-ui', method: 'setWidget', key: 'build', lines: ['✓ tests passed'] }),
+            expect.objectContaining({ type: 'omp-extension-ui', method: 'setTitle', title: 'Bold title' })
+        ]));
+        expect(harness.summaries).toEqual(['Bold title']);
+        // No raw escape may leak into anything the bridge emits to the hub.
+        expect(JSON.stringify(harness.messages)).not.toContain('\u001b');
+        expect(JSON.stringify(harness.summaries)).not.toContain('\u001b');
+        await harness.bridge.close('test complete');
+    });
 });
 
 describe('OMP runner capability detection', () => {

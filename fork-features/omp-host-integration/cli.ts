@@ -32,6 +32,26 @@ import type {
     OmpExtensionUiInput
 } from '@hapi/protocol/apiTypes';
 
+const ANSI_REGEX = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
+const ANSI_OSC_REGEX = /\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g;
+const CONTROL_CHARS_REGEX = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
+
+/**
+ * OMP extensions format presentation text (status line, widgets, notices, titles)
+ * for the interactive TUI with chalk / theme.fg, which emits raw ANSI SGR/OSC
+ * escapes. OMP's RPC stream forwards extension_ui_request frames verbatim, and
+ * neither the hub nor the web has an ANSI renderer on the omp-extension-ui path,
+ * so the escapes would surface as garbage in session chat and notifications.
+ * Strip at this single ingress point: it covers hub persistence, SSE, and push
+ * notifications in one place.
+ */
+function stripAnsiAndControls(text: string): string {
+    const normalized = text.replace(/\r\n?/g, '\n');
+    const withoutOsc = normalized.replace(ANSI_OSC_REGEX, '');
+    const withoutAnsi = withoutOsc.replace(ANSI_REGEX, '');
+    return withoutAnsi.replace(CONTROL_CHARS_REGEX, '');
+}
+
 const JsonValueSchema: z.ZodType<unknown> = z.lazy(() => z.union([
     z.string(),
     z.number(),
@@ -715,7 +735,7 @@ export class OmpExtensionUiBridge {
                 this.options.sendAgentMessage({
                     type: 'omp-extension-ui',
                     method: 'notify',
-                    message: request.message,
+                    message: stripAnsiAndControls(request.message),
                     level: request.notifyType ?? 'info'
                 } satisfies OmpExtensionUiPresentationEvent);
                 return;
@@ -724,7 +744,7 @@ export class OmpExtensionUiBridge {
                     type: 'omp-extension-ui',
                     method: 'setStatus',
                     key: request.statusKey,
-                    text: request.statusText ?? null
+                    text: request.statusText == null ? null : stripAnsiAndControls(request.statusText)
                 } satisfies OmpExtensionUiPresentationEvent);
                 return;
             case 'setWidget':
@@ -732,12 +752,12 @@ export class OmpExtensionUiBridge {
                     type: 'omp-extension-ui',
                     method: 'setWidget',
                     key: request.widgetKey,
-                    lines: request.widgetLines ?? [],
+                    lines: (request.widgetLines ?? []).map(stripAnsiAndControls),
                     placement: request.widgetPlacement
                 } satisfies OmpExtensionUiPresentationEvent);
                 return;
             case 'setTitle': {
-                const title = request.title;
+                const title = stripAnsiAndControls(request.title);
                 this.options.sendSummary(title);
                 this.options.sendAgentMessage({
                     type: 'omp-extension-ui',
