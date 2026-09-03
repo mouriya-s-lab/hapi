@@ -663,7 +663,13 @@ export class OmpRpcEventAdapter {
         });
 
         const parentUuid = this.lastDisplayId;
-        const timestamp = new Date(assistant.timestamp ?? Date.now()).toISOString();
+        // Stamp at commit time, NOT with omp's message timestamp: omp sets it to
+        // the turn/model-request start, several seconds before the response exists.
+        // The hub compares this value against the hub-receive time of the user's
+        // prompt, so a runner clock even ~40ms behind the hub clock made the first
+        // assistant message of every turn sort ABOVE the request in the web chat.
+        // Commit time keeps the display order causal regardless of clock skew.
+        const timestamp = new Date().toISOString();
         this.callbacks.onCanonicalMessage({
             type: 'assistant',
             uuid: displayId,
