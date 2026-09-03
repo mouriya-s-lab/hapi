@@ -1,22 +1,19 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ComponentProps, PropsWithChildren } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { I18nProvider } from '@/lib/i18n-context'
 import {
     MessageActions,
-    selectHideShareButton,
     selectThreadIsRunning,
 } from './MessageActions'
 
 const copy = vi.fn()
+const onShareTurn = vi.fn()
 const auiState = {
     message: { id: 'msg-1', createdAt: new Date(2026, 6, 12, 10, 30) },
     thread: {
         isRunning: false,
         messages: [],
-        extras: {
-            shareHiddenByMessageId: new Set<string>(),
-        },
     },
 }
 
@@ -28,13 +25,19 @@ vi.mock('@/components/ui/ConfirmDialog', () => ({
     ConfirmDialog: (props: {
         isOpen: boolean
         title: string
+        description: string
         confirmLabel: string
+        confirmingLabel: string
         onConfirm: () => Promise<void>
         onClose: () => void
+        isPending: boolean
     }) => props.isOpen ? (
-        <div>
+        <div role="dialog">
             <div>{props.title}</div>
-            <button type="button" onClick={() => void props.onConfirm()}>{props.confirmLabel}</button>
+            <div>{props.description}</div>
+            <button type="button" onClick={() => void props.onConfirm()}>
+                {props.isPending ? props.confirmingLabel : props.confirmLabel}
+            </button>
             <button type="button" onClick={props.onClose}>Cancel</button>
         </div>
     ) : null
@@ -52,7 +55,7 @@ vi.mock('@/hooks/useCopyToClipboard', () => ({
 }))
 
 vi.mock('@/components/AssistantChat/context', () => ({
-    useOptionalHappyChatContext: () => ({ onShareTurn: vi.fn() })
+    useOptionalHappyChatContext: () => ({ onShareTurn })
 }))
 
 function renderActions(props: ComponentProps<typeof MessageActions>) {
@@ -63,54 +66,27 @@ function renderActions(props: ComponentProps<typeof MessageActions>) {
     )
 }
 
-describe('MessageActions useAuiState selectors (#1380)', () => {
-    const base = {
-        message: { id: 'msg-1' },
-        thread: {
-            isRunning: false,
-            extras: { shareHiddenByMessageId: new Set<string>(['msg-hidden']) },
-        },
-    }
+describe('MessageActions useAuiState selector (#1380)', () => {
+    it('returns an Object.is-stable primitive so useSyncExternalStore cannot loop', () => {
+        const state = {
+            message: { id: 'msg-1' },
+            thread: { isRunning: false },
+        }
 
-    it('returns Object.is-stable primitives so useSyncExternalStore cannot loop', () => {
-        const hideA = selectHideShareButton(base)
-        const hideB = selectHideShareButton(base)
-        const runningA = selectThreadIsRunning(base)
-        const runningB = selectThreadIsRunning(base)
+        const runningA = selectThreadIsRunning(state)
+        const runningB = selectThreadIsRunning(state)
 
-        expect(Object.is(hideA, hideB)).toBe(true)
         expect(Object.is(runningA, runningB)).toBe(true)
-        expect(hideA).toBe(false)
         expect(runningA).toBe(false)
-    })
-
-    it('hides share for ids in shareHiddenByMessageId; falls back to isRunning when extras are absent', () => {
-        expect(selectHideShareButton({
-            message: { id: 'msg-hidden' },
-            thread: base.thread,
-        })).toBe(true)
-        // When extras exist, `.has()` false is kept (?? does not fall through to isRunning).
-        expect(selectHideShareButton({
-            message: { id: 'msg-1' },
-            thread: { ...base.thread, isRunning: true },
-        })).toBe(false)
-        expect(selectHideShareButton({
-            message: { id: 'msg-1' },
-            thread: { isRunning: true },
-        })).toBe(true)
-        expect(selectThreadIsRunning({
-            message: { id: 'msg-1' },
-            thread: { ...base.thread, isRunning: true },
-        })).toBe(true)
     })
 })
 
 describe('MessageActions', () => {
     beforeEach(() => {
         copy.mockReset()
+        onShareTurn.mockReset()
         localStorage.clear()
         auiState.thread.isRunning = false
-        auiState.thread.extras.shareHiddenByMessageId = new Set()
     })
 
     it('copies the supplied message text', () => {
@@ -216,6 +192,78 @@ describe('MessageActions', () => {
         }
     })
 
+    it('localizes Fork and Rewind labels in Simplified Chinese', () => {
+        localStorage.setItem('hapi-lang', 'zh-CN')
+
+        renderActions({
+            align: 'end',
+            copyText: 'body',
+            showFork: true,
+            showRewind: true,
+            onFork: async () => {},
+            onRewind: async () => {}
+        })
+
+        expect(screen.getByRole('button', { name: '回退' })).toHaveAttribute('title', '回退')
+        expect(screen.getByRole('button', { name: '分叉' })).toHaveAttribute('title', '分叉')
+    })
+
+    it('localizes the Fork confirmation dialog in Simplified Chinese', async () => {
+        localStorage.setItem('hapi-lang', 'zh-CN')
+        let resolveFork: (() => void) | undefined
+        const onFork = vi.fn(() => new Promise<void>((resolve) => {
+            resolveFork = resolve
+        }))
+
+        renderActions({
+            align: 'end',
+            copyText: 'body',
+            showFork: true,
+            onFork
+        })
+
+        fireEvent.click(screen.getByRole('button', { name: '分叉' }))
+        const dialog = screen.getByRole('dialog')
+        expect(dialog.textContent).toContain('分叉对话')
+        expect(dialog.textContent).toContain('从此处创建新会话？')
+        expect(dialog.textContent).toContain('当前会话不会被修改。')
+
+        fireEvent.click(within(dialog).getByRole('button', { name: '分叉' }))
+        expect(onFork).toHaveBeenCalledTimes(1)
+        expect(within(dialog).getByRole('button', { name: '分叉中…' })).not.toBeNull()
+
+        resolveFork?.()
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    })
+
+    it('localizes the Rewind confirmation dialog in Simplified Chinese', async () => {
+        localStorage.setItem('hapi-lang', 'zh-CN')
+        let resolveRewind: (() => void) | undefined
+        const onRewind = vi.fn(() => new Promise<void>((resolve) => {
+            resolveRewind = resolve
+        }))
+
+        renderActions({
+            align: 'end',
+            copyText: 'body',
+            showRewind: true,
+            onRewind
+        })
+
+        fireEvent.click(screen.getByRole('button', { name: '回退' }))
+        const dialog = screen.getByRole('dialog')
+        expect(dialog.textContent).toContain('回退对话')
+        expect(dialog.textContent).toContain('将此会话回退到此处？')
+        expect(dialog.textContent).toContain('之后的对话历史将永久移除。文件不会被修改。')
+
+        fireEvent.click(within(dialog).getByRole('button', { name: '回退' }))
+        expect(onRewind).toHaveBeenCalledTimes(1)
+        expect(within(dialog).getByRole('button', { name: '回退中…' })).not.toBeNull()
+
+        resolveRewind?.()
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    })
+
     it('hides Fork and Rewind while the thread is running', () => {
         auiState.thread.isRunning = true
 
@@ -230,6 +278,24 @@ describe('MessageActions', () => {
 
         expect(screen.queryByRole('button', { name: 'Fork' })).toBeNull()
         expect(screen.queryByRole('button', { name: 'Rewind' })).toBeNull()
+    })
+
+    it('keeps the share action visible while the thread is running', () => {
+        auiState.thread.isRunning = true
+
+        renderActions({
+            align: 'end',
+            copyText: 'partial response',
+            messageElementId: 'message-running'
+        })
+
+        fireEvent.click(screen.getByRole('button', { name: 'Share turn as image' }))
+
+        expect(onShareTurn).toHaveBeenCalledWith('message-running', 0, {
+            html: '',
+            text: 'partial response',
+            role: 'assistant'
+        })
     })
 
     it('hides Fork and Rewind while a history action is pending', () => {

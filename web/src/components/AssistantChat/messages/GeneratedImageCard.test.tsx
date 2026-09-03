@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ApiClient } from '@/api/client'
 import type { GeneratedImageBlock } from '@/chat/types'
 import { HappyChatProvider, type HappyChatContextValue } from '@/components/AssistantChat/context'
+import { I18nProvider } from '@/lib/i18n-context'
 import { GeneratedImageCard } from './ToolMessage'
 
 function block(imageId: string, fileName: string, mimeType: string): GeneratedImageBlock {
@@ -43,11 +44,12 @@ describe('GeneratedImageCard', () => {
 
         const { container } = render(
             <HappyChatProvider value={value}>
-                <GeneratedImageCard block={block('video-1', 'recording.mp4', 'video/mp4')} />
+                <I18nProvider>
+                    <GeneratedImageCard block={block('video-1', 'recording.mp4', 'video/mp4')} />
+                </I18nProvider>
             </HappyChatProvider>
         )
-
-        expect(await screen.findByText('Generated video · recording.mp4')).toBeInTheDocument()
+        expect(await screen.findByText('Displayed video: recording.mp4')).toBeInTheDocument()
         fireEvent.click(await screen.findByRole('button', { name: 'Load video' }))
         await waitFor(() => expect(container.querySelector('video')).not.toBeNull())
         const video = container.querySelector('video')
@@ -65,14 +67,18 @@ describe('GeneratedImageCard', () => {
 
         const view = render(
             <HappyChatProvider value={value}>
-                <GeneratedImageCard block={block('image-1', 'first.png', 'image/png')} />
+                <I18nProvider>
+                    <GeneratedImageCard block={block('image-1', 'first.png', 'image/png')} />
+                </I18nProvider>
             </HappyChatProvider>
         )
         await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1))
 
         view.rerender(
             <HappyChatProvider value={value}>
-                <GeneratedImageCard block={block('image-2', 'second.png', 'image/png')} />
+                <I18nProvider>
+                    <GeneratedImageCard block={block('image-2', 'second.png', 'image/png')} />
+                </I18nProvider>
             </HappyChatProvider>
         )
 

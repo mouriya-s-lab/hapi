@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { PiPromptQueue } from './promptQueue';
+import { PiPromptQueue, isPiSpecialQueued, type PiPreparedPrompt, type PiPromptQueueEntry } from './promptQueue';
+
+/** Narrow a dequeued entry to the prompt variant for assertions. */
+function promptOf(entry: PiPromptQueueEntry | undefined): PiPreparedPrompt {
+    expect(entry).toBeDefined();
+    if (!entry || isPiSpecialQueued(entry)) {
+        throw new Error('expected a prompt entry');
+    }
+    return entry;
+}
 
 describe('PiPromptQueue', () => {
     it('preserves FIFO and permits cancellation before a Pi turn starts', () => {
@@ -8,8 +17,8 @@ describe('PiPromptQueue', () => {
         queue.enqueue({ message: 'cancel', images: [], outboundSequence: 2, localId: 'two' });
         queue.enqueue({ message: 'third', images: [], outboundSequence: 3, localId: 'three' });
         expect(queue.cancelByLocalId('two')).toBe(true);
-        expect(queue.dequeue()?.message).toBe('first');
-        expect(queue.dequeue()?.message).toBe('third');
+        expect(promptOf(queue.dequeue()).message).toBe('first');
+        expect(promptOf(queue.dequeue()).message).toBe('third');
         expect(queue.dequeue()).toBeUndefined();
     });
 
@@ -18,8 +27,8 @@ describe('PiPromptQueue', () => {
         queue.enqueue({ message: 'later ordinary', images: [], outboundSequence: 2, localId: 'two' });
         queue.enqueue({ message: 'earlier steer fallback', images: [], outboundSequence: 1, localId: 'one' });
 
-        expect(queue.dequeue()?.message).toBe('earlier steer fallback');
-        expect(queue.dequeue()?.message).toBe('later ordinary');
+        expect(promptOf(queue.dequeue()).message).toBe('earlier steer fallback');
+        expect(promptOf(queue.dequeue()).message).toBe('later ordinary');
     });
 
     it('removes a queued entry by localId for explicit steer promotion', () => {
@@ -29,11 +38,11 @@ describe('PiPromptQueue', () => {
         queue.enqueue({ message: 'third', images: [], outboundSequence: 3, localId: 'three' });
 
         const removed = queue.removeByLocalId('two');
-        expect(removed?.message).toBe('steer me');
-        expect(removed?.localId).toBe('two');
+        expect(promptOf(removed).message).toBe('steer me');
+        expect(promptOf(removed).localId).toBe('two');
         // Remaining order preserved.
-        expect(queue.dequeue()?.message).toBe('first');
-        expect(queue.dequeue()?.message).toBe('third');
+        expect(promptOf(queue.dequeue()).message).toBe('first');
+        expect(promptOf(queue.dequeue()).message).toBe('third');
         expect(queue.dequeue()).toBeUndefined();
     });
 
@@ -43,7 +52,7 @@ describe('PiPromptQueue', () => {
 
         expect(queue.removeByLocalId('missing')).toBeUndefined();
         expect(queue.removeByLocalId('')).toBeUndefined();
-        expect(queue.removeByLocalId('one')?.message).toBe('only');
+        expect(promptOf(queue.removeByLocalId('one')).message).toBe('only');
         expect(queue.removeByLocalId('one')).toBeUndefined();
     });
 });

@@ -18,7 +18,8 @@ import { useHappyChatContext } from '@/components/AssistantChat/context'
 import { CliOutputBlock } from '@/components/CliOutputBlock'
 import { UserBubbleContent, getUserBubbleClassName, shouldShowMessageStatus } from '@/components/AssistantChat/messages/user-bubble'
 import { ImagePreview } from '@/components/ImagePreview'
-import { generatedInlineMediaLabel, isInlineAudioMimeType, isInlineImageMimeType, isInlineVideoMimeType } from '@/lib/generatedInlineMedia'
+import { useTranslation } from '@/lib/use-translation'
+import { inlineMediaLabelKey, isInlineAudioMimeType, isInlineImageMimeType, isInlineVideoMimeType } from '@/lib/generatedInlineMedia'
 
 function isToolCallBlock(value: unknown): value is ToolCallBlock {
     if (!isObject(value)) return false
@@ -67,6 +68,7 @@ export function computeTinyImageScale(width: number, height: number): number {
 /** Exported for generated-media fetch and renderer tests. */
 export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
     const ctx = useHappyChatContext()
+    const { t } = useTranslation()
     const [objectUrl, setObjectUrl] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
     const [imageStyle, setImageStyle] = useState<CSSProperties | undefined>(undefined)
@@ -76,7 +78,8 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
     const isAudio = isInlineAudioMimeType(props.block.mimeType)
     const isImage = isInlineImageMimeType(props.block.mimeType)
     const isFile = !isVideo && !isAudio && !isImage
-    const mediaLabel = generatedInlineMediaLabel(props.block.mimeType)
+    const mediaLabel = t(inlineMediaLabelKey(props.block.mimeType))
+    const mediaHeader = t('media.displayed.header', { label: mediaLabel, fileName: props.block.fileName })
     // Non-image media can be tens of MB; wait for explicit user intent before downloading.
     const shouldFetch = isImage || loadMedia
 
@@ -136,7 +139,7 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
     return (
         <div className="max-w-[92%] rounded-2xl border border-[var(--app-border)] bg-[var(--app-tool-card-bg)] p-3">
             <div className="mb-2 min-w-0 truncate text-xs font-medium text-[var(--app-hint)]">
-                {mediaLabel} · {props.block.fileName}
+                {mediaHeader}
             </div>
             {objectUrl ? (
                 isVideo ? (
@@ -178,7 +181,7 @@ export function GeneratedImageCard(props: { block: GeneratedImageBlock }) {
                 )
             ) : error ? (
                 <div className="text-sm text-[var(--app-hint)]">
-                    {mediaLabel} is unavailable. {error}
+                    {t('media.displayed.unavailable', { label: mediaLabel, error })}
                 </div>
             ) : !isImage && !loadMedia ? (
                 <button

@@ -25,7 +25,9 @@ import type {
     SpawnResponse,
     VisibilityPayload,
     HapiSessionExport,
+    HubHealthResponse,
     SessionResponse,
+    SessionTitleSuggestionResponse,
     SessionsResponse
 } from '@/types/api'
 import type {
@@ -49,6 +51,7 @@ import type {
     MachinePathsExistsResponse,
     OpencodeModelsResponse,
     OpencodeReasoningEffortResponse,
+    PiModelsResponse,
     QueuedStateResponse,
     OmpModelsResponse,
     OmpThinkingOptionsResponse,
@@ -260,6 +263,10 @@ export class ApiClient {
 
     async getSessions(): Promise<SessionsResponse> {
         return await this.request<SessionsResponse>('/api/sessions')
+    }
+
+    async getHealth(): Promise<HubHealthResponse> {
+        return await this.request<HubHealthResponse>('/health')
     }
 
     async getPushVapidPublicKey(): Promise<PushVapidPublicKeyResponse> {
@@ -970,6 +977,12 @@ export class ApiClient {
         )
     }
 
+    async getMachinePiModels(machineId: string): Promise<PiModelsResponse> {
+        return await this.request<PiModelsResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/pi-models`
+        )
+    }
+
     async getMachineCodexModels(machineId: string): Promise<CodexModelsResponse> {
         return await this.request<CodexModelsResponse>(
             `/api/machines/${encodeURIComponent(machineId)}/codex-models`
@@ -1144,6 +1157,20 @@ export class ApiClient {
         await this.request(`/api/sessions/${encodeURIComponent(sessionId)}`, {
             method: 'PATCH',
             body: JSON.stringify({ name })
+        })
+    }
+
+    async suggestSessionTitle(sessionId: string): Promise<SessionTitleSuggestionResponse> {
+        return await this.request<SessionTitleSuggestionResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/title-suggestion`,
+            { method: 'POST' }
+        )
+    }
+
+    async updateSessionSummary(sessionId: string, text: string): Promise<void> {
+        await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/summary`, {
+            method: 'PATCH',
+            body: JSON.stringify({ text })
         })
     }
 

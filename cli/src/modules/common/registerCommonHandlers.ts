@@ -5,6 +5,7 @@ import { registerCodexModelHandlers } from './handlers/codexModels'
 import { registerCcSwitchHandlers } from './handlers/ccSwitch'
 import { registerCursorModelHandlers } from './handlers/cursorModels'
 import { registerOpencodeModelHandlers } from './handlers/opencodeModels'
+import { registerPiModelHandlers } from './handlers/piModels'
 import { registerGrokModelHandlers } from './handlers/grokModels'
 import { registerCopilotModelHandlers } from './handlers/copilotModels'
 import { registerDirectoryHandlers } from './handlers/directories'
@@ -24,6 +25,7 @@ export function registerCommonHandlers(rpcHandlerManager: RpcHandlerManager, wor
     registerCcSwitchHandlers(rpcHandlerManager)
     registerCursorModelHandlers(rpcHandlerManager)
     registerOpencodeModelHandlers(rpcHandlerManager)
+    registerPiModelHandlers(rpcHandlerManager)
     registerGrokModelHandlers(rpcHandlerManager)
     registerCopilotModelHandlers(rpcHandlerManager)
     registerFileHandlers(rpcHandlerManager, workingDirectory)

@@ -5,15 +5,18 @@ import { trimIdent } from '@/utils/trimIdent';
  * Inject into flavor system prompts and first-prompt bridge instructions.
  */
 export const DISPLAY_IMAGE_PROMPT_CLAUDE = trimIdent(`
-    When you create or find a local image file that the user should see, call the tool "mcp__hapi__display_image" with the image path so HAPI can show it inline.
+    When you create or find a local image file that the human user should see, call the tool "mcp__hapi__display_image" with the absolute filesystem path so HAPI can show it inline.
+    This tool sends the image to the human user for inline display in HAPI. It is not an image-reading or image-understanding tool: it does not provide image input to the model and cannot be used to read, inspect, or analyze image contents.
 `);
 
 export const DISPLAY_IMAGE_PROMPT_CODEX = trimIdent(`
-    When you create or find a local image file that the user should see, call functions.hapi__display_image with the image path. If that exact tool name is unavailable, use an equivalent alias such as hapi__display_image, mcp__hapi__display_image, or hapi_display_image.
+    When you create or find a local image file that the human user should see, call functions.hapi__display_image with the absolute filesystem path. If that exact tool name is unavailable, use an equivalent alias such as hapi__display_image, mcp__hapi__display_image, or hapi_display_image.
+    This tool sends the image to the human user for inline display in HAPI. It is not an image-reading or image-understanding tool: it does not provide image input to the model and cannot be used to read, inspect, or analyze image contents.
 `);
 
 export const DISPLAY_IMAGE_PROMPT_HAPI_MCP = trimIdent(`
-    When you create or find a local image file that the user should see, call the tool "hapi_display_image" with the image path so HAPI can show it inline. If that exact tool name is unavailable, use an equivalent alias such as display_image or mcp__hapi__display_image.
+    When you create or find a local image file that the human user should see, call the tool "hapi_display_image" with the absolute filesystem path so HAPI can show it inline. If that exact tool name is unavailable, use an equivalent alias such as display_image or mcp__hapi__display_image.
+    This tool sends the image to the human user for inline display in HAPI. It is not an image-reading or image-understanding tool: it does not provide image input to the model and cannot be used to read, inspect, or analyze image contents.
 `);
 
 export const DISPLAY_VIDEO_PROMPT_CLAUDE = trimIdent(`
@@ -29,7 +32,8 @@ export const DISPLAY_VIDEO_PROMPT_HAPI_MCP = trimIdent(`
 `);
 
 export const DISPLAY_IMAGE_PROMPT_CURSOR = trimIdent(`
-    When you create or find a local image file that the user should see, call the tool "display_image" with the absolute filesystem path so HAPI can show it inline.
+    When you create or find a local image file that the human user should see, call the tool "display_image" with the absolute filesystem path so HAPI can show it inline.
+    This tool sends the image to the human user for inline display in HAPI. It is not an image-reading or image-understanding tool: it does not provide image input to the model and cannot be used to read, inspect, or analyze image contents.
 `);
 
 export const DISPLAY_VIDEO_PROMPT_CURSOR = trimIdent(`

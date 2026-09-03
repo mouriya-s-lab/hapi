@@ -54,4 +54,23 @@ describe('useMachineLabels', () => {
 
         expect(result.current['machine-1']).toBe('new-name')
     })
+
+    it('reuses the label map when only live machine state changes', () => {
+        const machine = makeMachine('machine-1', { host: 'MacBook Pro' } as Machine['metadata'])
+        const { result, rerender } = renderHook(
+            ({ machines }) => useMachineLabels(machines),
+            { initialProps: { machines: [machine] } }
+        )
+        const initialLabels = result.current
+
+        rerender({
+            machines: [{
+                ...machine,
+                activeAt: 20,
+                health: { collectedAt: 20, load1m: 0.5 },
+            }]
+        })
+
+        expect(result.current).toBe(initialLabels)
+    })
 })

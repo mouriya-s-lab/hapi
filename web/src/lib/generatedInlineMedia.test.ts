@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { generatedInlineMediaLabel, isInlineAudioMimeType, isInlineVideoMimeType } from './generatedInlineMedia'
+import { inlineMediaLabelKey, isInlineAudioMimeType, isInlineVideoMimeType } from './generatedInlineMedia'
 
 describe('generatedInlineMedia', () => {
     it('detects inline video MIME types', () => {
@@ -9,12 +9,12 @@ describe('generatedInlineMedia', () => {
         expect(isInlineVideoMimeType(null)).toBe(false)
     })
 
-    it('labels generated inline media by MIME type', () => {
-        expect(generatedInlineMediaLabel('video/mp4')).toBe('Generated video')
-        expect(generatedInlineMediaLabel('image/png')).toBe('Generated image')
-        expect(generatedInlineMediaLabel('audio/wav')).toBe('Generated audio')
-        expect(generatedInlineMediaLabel('application/octet-stream')).toBe('Generated file')
-        expect(generatedInlineMediaLabel(null)).toBe('Generated image')
+    it('selects the localized displayed-media label by MIME type', () => {
+        expect(inlineMediaLabelKey('video/mp4')).toBe('media.displayed.video')
+        expect(inlineMediaLabelKey('image/png')).toBe('media.displayed.image')
+        expect(inlineMediaLabelKey('audio/wav')).toBe('media.displayed.audio')
+        expect(inlineMediaLabelKey('application/octet-stream')).toBe('media.displayed.file')
+        expect(inlineMediaLabelKey(null)).toBe('media.displayed.image')
         expect(isInlineAudioMimeType('audio/mpeg')).toBe(true)
     })
 })

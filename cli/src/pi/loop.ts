@@ -195,8 +195,10 @@ function handleResponse(
         resolvePendingRpc(resolver, response);
         // get_session_stats is a best-effort compatibility probe. Older Pi
         // versions may reject it, so fall back silently instead of surfacing an
-        // error event to the user on every completed turn.
-        if (command !== 'get_session_stats' && command !== 'steer') {
+        // error event to the user on every completed turn. compact/set_model
+        // are owned by the awaited slash-command/config handlers, which report
+        // their own formatted failure message.
+        if (!['get_session_stats', 'steer', 'compact', 'set_model'].includes(command)) {
             session.sendSessionEvent({ type: 'message', message: error });
         }
         if (command === 'prompt' && pendingLocalIds.length > 0) {
@@ -212,6 +214,11 @@ function handleResponse(
         // only a requested native resume must fail closed.
         if (command === 'get_state' && session.expectedNativeSessionId && !session.isNativeReady) {
             onStartupFailure?.(new Error(`Pi get_state failed: ${error}`));
+        }
+        // A failed model discovery must not strand a startup effort that waits
+        // on the startup-model gate (see runPi startup effort).
+        if (command === 'get_available_models') {
+            session.resolveStartupModelSettled?.();
         }
         return {};
     }
@@ -304,7 +311,8 @@ function handleResponse(
                 // await so resolving the get_available_models RPC itself is not
                 // blocked (it may be awaited by ListPiModels).
                 if (session.initialModel && transport) {
-                    const match = models.find((m) => m.modelId === session.initialModel);
+                    const match = models.find((m) => m.modelId === session.initialModel)
+                        ?? models.find((m) => `${m.provider}/${m.modelId}` === session.initialModel);
                     if (match) {
                         void (async () => {
                             try {
@@ -322,15 +330,29 @@ function handleResponse(
                             } catch (error) {
                                 if (error instanceof PiRpcTimeoutError) {
                                     onStartupFailure?.(new Error(`Pi startup model outcome is indeterminate: ${error.message}`));
+                                    session.resolveStartupModelSettled?.();
                                     return;
                                 }
-                                logger.debug(`[pi] Startup model set_model rejected, keeping Pi default: ${error instanceof Error ? error.message : String(error)}`);
+                                const detail = error instanceof Error ? error.message : String(error);
+                                logger.debug(`[pi] Startup model set_model rejected, keeping Pi default: ${detail}`);
+                                session.sendSessionEvent({
+                                    type: 'message',
+                                    message: `⚠️ Startup model switch failed: ${detail}`,
+                                });
                             }
+                            session.resolveStartupModelSettled?.();
                         })();
                     } else {
                         logger.debug(`[pi] Startup model not found in available models: ${session.initialModel}`);
+                        session.resolveStartupModelSettled?.();
                     }
+                } else {
+                    session.resolveStartupModelSettled?.();
                 }
+            } else {
+                // Empty discovery — settle the startup-model gate so a waiting
+                // startup effort does not strand (nothing to match against).
+                session.resolveStartupModelSettled?.();
             }
             resolvePendingRpc(resolver, response);
             break;
@@ -599,9 +621,18 @@ export function wireTransportEvents(
         clearPromptLifecycleFallback();
         session.updateThinkingState(false);
         if (options.conversationHistory) {
+            // The settled notification fires after an async history sync. A new
+            // lifecycle (e.g. an autonomous wake-up) can begin in the meantime;
+            // generation-scope the callback so a stale settlement cannot mark
+            // that newer lifecycle's abort boundary as settled.
+            const settlementGeneration = lifecycleGeneration;
             void options.conversationHistory.syncEntries()
                 .catch(() => {})
-                .finally(() => options.onAgentSettled?.());
+                .finally(() => {
+                    if (settlementGeneration === lifecycleGeneration) {
+                        options.onAgentSettled?.();
+                    }
+                });
         } else {
             options.onAgentSettled?.();
         }
@@ -757,6 +788,25 @@ export function wireTransportEvents(
         }
 
         if (event.type === 'agent_start' || event.type === 'turn_start') {
+            if (deliveredSettlement) {
+                // Pi can start an agent lifecycle on its own — subagent
+                // completion wake-ups, scheduled work — with no HAPI prompt in
+                // flight. The previous prompt lifecycle already delivered its
+                // settlement, so every settlement path below is gated shut and
+                // this turn's agent_settled/agent_end would be swallowed,
+                // leaving thinking=true (and the FIFO pump blocked) forever.
+                // Open a fresh settlement cycle for the autonomous lifecycle.
+                // Prompt-driven lifecycles are unaffected: beginPromptLifecycle
+                // has already reset deliveredSettlement to false by the time
+                // their agent_start arrives.
+                // Advance the generation so a previous settlement's async
+                // history-sync callback (still in flight) turns stale and
+                // cannot mark this new lifecycle's abort boundary as settled.
+                lifecycleGeneration += 1;
+                deliveredSettlement = false;
+                agentEndObserved = false;
+                activeAgentSettledSeen = false;
+            }
             clearCompactionRetryPending();
             agentLifecycleSeen = true;
             clearLegacySettleFallback();

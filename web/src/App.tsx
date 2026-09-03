@@ -65,6 +65,7 @@ function AppInner() {
     const { serverUrl, baseUrl, setServerUrl, clearServerUrl } = useServerUrl()
     const { authSource, isLoading: isAuthSourceLoading, setAccessToken, setPasswordToken, persistPasswordToken, clearStoredPasswordToken } = useAuthSource(baseUrl)
     const { token, user, api, isLoading: isAuthLoading, error: authError, needsBinding, bind } = useAuth(authSource, baseUrl)
+    const [titleSuggestionAvailable, setTitleSuggestionAvailable] = useState(false)
 
     useEffect(() => {
         if (authSource?.type === 'password' && token && token !== authSource.token) persistPasswordToken(token)
@@ -78,6 +79,26 @@ function AppInner() {
     const matchRoute = useMatchRoute()
     const router = useRouter()
     const { addToast } = useToast()
+
+    useEffect(() => {
+        let cancelled = false
+        setTitleSuggestionAvailable(false)
+        if (!api) return () => { cancelled = true }
+
+        void api.getHealth()
+            .then((health) => {
+                if (!cancelled) {
+                    setTitleSuggestionAvailable(health.capabilities?.titleSuggestion === true)
+                }
+            })
+            .catch(() => {
+                if (!cancelled) setTitleSuggestionAvailable(false)
+            })
+
+        return () => {
+            cancelled = true
+        }
+    }, [api])
 
     useEffect(() => {
         const tg = getTelegramWebApp()
@@ -473,7 +494,7 @@ function AppInner() {
     }
 
     return (
-        <AppContextProvider value={{ api, token, baseUrl, user: (user ?? { id: 0 }) as { id: number; username?: string; role?: 'admin' | 'user'; defaultNamespace?: string } }}>
+        <AppContextProvider value={{ api, token, baseUrl, user: (user ?? { id: 0 }) as { id: number; username?: string; role?: 'admin' | 'user'; defaultNamespace?: string }, titleSuggestionAvailable }}>
             <VoiceProvider>
                 <PwaUpdateBannerWithStatusOffset
                     isSyncing={isSyncing}

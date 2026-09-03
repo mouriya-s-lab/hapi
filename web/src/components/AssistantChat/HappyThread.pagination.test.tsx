@@ -13,10 +13,12 @@ vi.mock('@assistant-ui/react', () => ({
         Root: ({ children }: PropsWithChildren) => <div>{children}</div>,
         Viewport: ({ children }: PropsWithChildren) => <>{children}</>,
         Messages: () => <div id="stable-visible-message" data-testid="stable-visible-message" />,
+        Unstable_MessageById: () => <div id="stable-visible-message" data-testid="stable-visible-message" />,
     },
     useAuiState<T>(selector: (state: { thread: { extras: undefined } }) => T): T {
         return selector({ thread: { extras: undefined } })
     },
+    unstable_useThreadMessageIds: (): string[] => ['stable-visible-message'],
 }))
 
 vi.mock('@/hooks/queries/useMachines', () => ({

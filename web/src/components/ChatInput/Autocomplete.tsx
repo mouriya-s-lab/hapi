@@ -22,14 +22,14 @@ export const Autocomplete = memo(function Autocomplete(props: AutocompleteProps)
             `[data-suggestion-index="${selectedIndex}"]`
         )
         selectedEl?.scrollIntoView({ block: 'nearest' })
-    }, [selectedIndex, suggestions])
+    }, [selectedIndex, suggestions.length])
 
     if (suggestions.length === 0) {
         return null
     }
 
     return (
-        <div className="py-1" ref={listRef}>
+        <div ref={listRef}>
             {suggestions.map((suggestion, index) => (
                 <button
                     key={suggestion.key}

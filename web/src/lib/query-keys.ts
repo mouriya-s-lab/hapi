@@ -38,6 +38,7 @@ export const queryKeys = {
     sessionGrokReasoningEffortOptions: (sessionId: string) => ['session-grok-reasoning-effort-options', sessionId] as const,
     machineCcSwitchProviders: (machineId: string) => ['machine-cc-switch-providers', machineId] as const,
     machineAgyModels: (machineId: string) => ['machine-agy-models', machineId] as const,
+    machinePiModels: (machineId: string) => ['machine-pi-models', machineId] as const,
     skills: (sessionId: string) => ['skills', sessionId] as const,
     scratchlist: (sessionId: string) => ['scratchlist', sessionId] as const,
 }

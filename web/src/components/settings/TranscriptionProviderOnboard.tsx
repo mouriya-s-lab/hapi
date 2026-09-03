@@ -291,7 +291,7 @@ export function TranscriptionProviderOnboard(props: {
             {error ? <p className="text-xs text-red-500">{error}</p> : null}
             {message ? <p className="text-xs text-[var(--app-hint)]">{message}</p> : null}
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
                 <Button type="button" size="sm" disabled={busy || selected?.editable === false} onClick={() => void save()}>
                     {t('settings.voice.credentials.save')}
                 </Button>

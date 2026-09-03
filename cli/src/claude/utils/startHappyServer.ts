@@ -92,8 +92,8 @@ function createHapiMcpServer(
     });
 
     const displayImageInputSchema: z.ZodTypeAny = z.object({
-        path: z.string().describe('Local filesystem path of the image to display to the user'),
-        title: z.string().optional().describe('Optional display title or filename for the image'),
+        path: z.string().describe('Absolute filesystem path of the local image to display to the human user. This file is sent for user display, not provided to the model for image inspection'),
+        title: z.string().optional().describe('Optional display title or filename shown to the human user'),
     });
 
     const skillLookupInputSchema: z.ZodTypeAny = z.object({
@@ -208,7 +208,7 @@ function createHapiMcpServer(
     }
 
     mcp.registerTool<any, any>('display_image', {
-        description: `Display a local image file inline in the current HAPI chat session. ${DISPLAY_IMAGE_PROMPT_CURSOR}`,
+        description: `Display a local image file to the human user inline in the current HAPI chat session. ${DISPLAY_IMAGE_PROMPT_CURSOR}`,
         title: 'Display Image',
         inputSchema: displayImageInputSchema,
     }, async (args: { path: string; title?: string }) => {

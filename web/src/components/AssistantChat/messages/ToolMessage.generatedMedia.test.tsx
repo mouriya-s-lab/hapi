@@ -2,13 +2,21 @@ import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { HappyChatProvider } from '@/components/AssistantChat/context'
 import { GeneratedImageCard } from '@/components/AssistantChat/messages/ToolMessage'
+import { I18nProvider } from '@/lib/i18n-context'
 import type { ApiClient } from '@/api/client'
 import type { HappyChatContextValue } from '@/components/AssistantChat/context'
 
 function renderCard(options: {
     mimeType: string | null
+    locale?: 'en' | 'zh-CN'
     getGeneratedImageBlob?: ReturnType<typeof vi.fn>
 }) {
+    if (options.locale) {
+        localStorage.setItem('hapi-lang', options.locale)
+    } else {
+        localStorage.removeItem('hapi-lang')
+    }
+
     const getGeneratedImageBlob = options.getGeneratedImageBlob ?? vi.fn(async () => new Blob(['x'], { type: options.mimeType ?? 'image/png' }))
     const api = { getGeneratedImageBlob } as unknown as ApiClient
     const value: HappyChatContextValue = {
@@ -26,25 +34,41 @@ function renderCard(options: {
     }
 
     render(
-        <HappyChatProvider value={value}>
-            <GeneratedImageCard
-                block={{
-                    kind: 'generated-image',
-                    id: 'block-1',
-                    localId: null,
-                    createdAt: 1,
-                    imageId: 'img-1',
-                    fileName: 'clip.mp4',
-                    mimeType: options.mimeType,
-                }}
-            />
-        </HappyChatProvider>
+        <I18nProvider>
+            <HappyChatProvider value={value}>
+                <GeneratedImageCard
+                    block={{
+                        kind: 'generated-image',
+                        id: 'block-1',
+                        localId: null,
+                        createdAt: 1,
+                        imageId: 'img-1',
+                        fileName: 'clip.mp4',
+                        mimeType: options.mimeType,
+                    }}
+                />
+            </HappyChatProvider>
+        </I18nProvider>
     )
 
     return { getGeneratedImageBlob }
 }
 
 describe('GeneratedImageCard video fetch', () => {
+    it('labels displayed images in English without implying AI generation', () => {
+        renderCard({ mimeType: 'image/png', locale: 'en' })
+
+        expect(screen.getByText('Displayed image: clip.mp4')).toBeInTheDocument()
+        expect(screen.queryByText(/Generated image/)).not.toBeInTheDocument()
+    })
+
+    it('localizes the displayed image label in Chinese', () => {
+        renderCard({ mimeType: 'image/png', locale: 'zh-CN' })
+
+        expect(screen.getByText('展示图片：clip.mp4')).toBeInTheDocument()
+        expect(screen.queryByText(/Generated image/)).not.toBeInTheDocument()
+    })
+
     it('does not call the API for an untouched video card', async () => {
         const { getGeneratedImageBlob } = renderCard({ mimeType: 'video/mp4' })
 

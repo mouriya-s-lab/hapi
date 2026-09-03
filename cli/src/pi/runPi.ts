@@ -9,11 +9,13 @@ import { PiTransport } from './piTransport';
 import { PiSession } from './session';
 import { PiConversationHistory, PiHistoryRestoreError } from './conversationHistory';
 import { parsePiModels, parsePiCommands, PiRpcTimeoutError, sendPiRpcAndWait, wireTransportEvents } from './loop';
-import { PiThinkingLevelSchema, SetSessionConfigPayloadSchema } from './schemas';
+import { PiThinkingLevelSchema, SetSessionConfigPayloadSchema, PiCompactResultSchema, PiFullSessionStatsSchema } from './schemas';
 import type { PiImageContent, PiThinkingLevel } from './types';
-import { PiPromptQueue, type PiPreparedPrompt } from './promptQueue';
+import { parsePiSpecialCommand, parseLeadingSlashName, type PiSpecialCommand } from './specialCommands';
+import { PiPromptQueue, isPiSpecialQueued, type PiPreparedPrompt } from './promptQueue';
 import { PiSteerDispatcher } from './steerDispatcher';
-import type { ListPiModelsResponse, PiCommandSummary, SlashCommand, SlashCommandsResponse } from '@hapi/protocol/apiTypes';
+import { getBuiltinSlashCommands, mergeSlashCommands } from '@hapi/protocol/slashCommands';
+import type { ListPiModelsResponse, PiCommandSummary, PiModelSummary, SlashCommand, SlashCommandsResponse } from '@hapi/protocol/apiTypes';
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 import type { ListSkillsResponse, SkillSummary } from '@/modules/common/skills';
 import type { AttachmentMetadata } from '@/api/types';
@@ -26,6 +28,44 @@ import { isAuthorizedUploadFile, isPathWithinUploadDir, type UploadFileIdentity 
 // but healthy startup still flips ready via get_state first (issue #1143).
 const PI_READY_FALLBACK_MS = 30_000;
 const PI_ABORT_OPERATION_TIMEOUT_MS = 25_000;
+// Manual compaction runs an LLM summarization pass; give it a generous window
+// far above the 10s default Pi RPC timeout.
+const PI_COMPACT_TIMEOUT_MS = 120_000;
+
+const PI_HELP_TEXT = [
+    'Supported HAPI Pi commands:',
+    '/compact [instructions] — compress conversation history to save context',
+    '/session — show session stats (tokens, cost, context usage)',
+    '/model [modelId] — show or switch the active model',
+    '/help — show this message',
+].join('\n');
+
+function formatPiSessionStatsMessage(stats: {
+    totalMessages?: number;
+    tokens?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number };
+    cost?: number;
+    contextUsage?: { tokens?: number | null; contextWindow?: number; percent?: number };
+}): string {
+    const lines: string[] = ['📊 Pi session stats'];
+    if (stats.totalMessages !== undefined) lines.push(`Messages: ${stats.totalMessages}`);
+    const tokens = stats.tokens;
+    if (tokens && tokens.total !== undefined) {
+        const parts = [`total ${tokens.total}`];
+        if (tokens.input !== undefined) parts.push(`in ${tokens.input}`);
+        if (tokens.output !== undefined) parts.push(`out ${tokens.output}`);
+        if (tokens.cacheRead !== undefined) parts.push(`cacheR ${tokens.cacheRead}`);
+        if (tokens.cacheWrite !== undefined) parts.push(`cacheW ${tokens.cacheWrite}`);
+        lines.push(`Tokens: ${parts.join(' · ')}`);
+    }
+    if (stats.cost !== undefined) lines.push(`Cost: $${stats.cost.toFixed(4)}`);
+    const usage = stats.contextUsage;
+    if (usage && usage.tokens !== null && usage.tokens !== undefined) {
+        const window = usage.contextWindow ? ` / ${usage.contextWindow}` : '';
+        const percent = usage.percent !== undefined && usage.percent !== null ? ` (${usage.percent}%)` : '';
+        lines.push(`Context: ${usage.tokens}${window} tokens${percent}`);
+    }
+    return lines.join('\n');
+}
 
 function isPiNoActiveAbortError(detail: string): boolean {
     return /no active|nothing.*abort/i.test(detail);
@@ -368,6 +408,17 @@ export async function runPi(opts: {
     let preparationChain = Promise.resolve();
     let promptCommandInFlight = false;
     let abortInFlight = false;
+    // Set while a queued Pi special command (e.g. /compact) is executing. Pi's
+    // compact() aborts any active stream itself, so piIsStreaming/
+    // promptCommandInFlight can go false mid-compaction; this flag keeps the
+    // prompt pump from dispatching the next FIFO item Pi would reject
+    // ("Cannot submit a prompt while compaction is in progress").
+    let piSpecialCommandInFlight = false;
+    // Tracks a dequeued /compact through the gap between queue dispatch and
+    // the compact RPC actually being issued (the runtime-mutation lock can
+    // be held by an earlier mutation). Abort uses it to cancel a compact
+    // that has not started yet, or to interrupt one that has.
+    let activeCompact: { rpcStarted: boolean; cancelled: boolean } | null = null;
     let activePromptLocalId: string | undefined;
     let historyPumpDeferred = false;
     let agentLifecycleStarted = false;
@@ -462,25 +513,76 @@ export async function runPi(opts: {
         }
         if (
             !piSession.isReady
-            || piSession.piIsStreaming
-            || promptCommandInFlight
             || abortInFlight
+            || piSpecialCommandInFlight
             // Earlier steers can fall back only after async preparation/runtime
             // lock wait. Do not let a later normal prompt overtake that result.
             || steerDispatcher?.hasPending
         ) return;
-        const next = promptQueue.dequeue();
-        if (!next) return;
+        // A head-of-line /compact stays interruptible while Pi is streaming:
+        // Pi's compact() aborts the active generation itself, so a long or
+        // stuck turn can still be compacted from HAPI. Every other item waits
+        // for the stream to settle (FIFO order preserved).
+        const next = promptQueue.peek();
+        const canInterrupt = next !== undefined
+            && isPiSpecialQueued(next)
+            && next.command.type === 'compact'
+            && piSession.piIsStreaming;
+        if (!canInterrupt && (piSession.piIsStreaming || promptCommandInFlight)) return;
+        const dequeued = promptQueue.dequeue();
+        if (!dequeued) return;
+        if (isPiSpecialQueued(dequeued)) {
+            // Slash commands share the prompt FIFO so dispatch order matches
+            // arrival order; execute out-of-band while the pump stays blocked.
+            piSpecialCommandInFlight = true;
+            if (dequeued.command.type === 'compact') {
+                activeCompact = { rpcStarted: false, cancelled: false };
+            }
+            // Special commands are executed by HAPI itself and are never
+            // delivered to Pi as prompts. Consume the queue row the moment
+            // dispatch starts: deferring consumption until the command
+            // finishes would keep the row stuck in the web queued bar for the
+            // whole execution — a /compact run performs an LLM summarization
+            // pass that can take minutes.
+            if (dequeued.localId) {
+                piSession.emitMessagesConsumed(
+                    [dequeued.localId],
+                    // The queued-thinking grace is session-scoped; only drop
+                    // it for commands that finish synchronously. /compact
+                    // keeps working for minutes with queued prompts behind it
+                    // still awaiting their turn, so its acknowledgement must
+                    // not clear their grace.
+                    dequeued.command.type === 'compact'
+                        ? undefined
+                        : { clearQueuedThinkingGrace: true },
+                );
+            }
+            void handlePiSpecialCommand(dequeued.command)
+                .catch((error) => {
+                    // All known command failures surface as events inside
+                    // handlePiSpecialCommand; this catch only guards against
+                    // an unexpected rejection leaving an unhandled promise
+                    // rejection, and always keeps the pump unblocked via the
+                    // finally below.
+                    logger.warn(`[pi] Special command ${dequeued.command.type} failed unexpectedly: ${error instanceof Error ? error.message : String(error)}`);
+                })
+                .finally(() => {
+                    piSpecialCommandInFlight = false;
+                    activeCompact = null;
+                    pumpPromptQueue();
+                });
+            return;
+        }
         setPromptCommandInFlight(true);
-        activePromptLocalId = next.localId;
+        activePromptLocalId = dequeued.localId;
         agentLifecycleStarted = false;
         const promptId = randomUUID();
         transportEvents?.beginPromptLifecycle(promptId);
-        if (next.localId) {
-            conversationHistory.registerUserEntry(next.localId);
-            pendingLocalIds.push(next.localId);
+        if (dequeued.localId) {
+            conversationHistory.registerUserEntry(dequeued.localId);
+            pendingLocalIds.push(dequeued.localId);
         }
-        transport.send({ id: promptId, type: 'prompt', message: next.message, ...(next.images.length > 0 ? { images: next.images } : {}) });
+        transport.send({ id: promptId, type: 'prompt', message: dequeued.message, ...(dequeued.images.length > 0 ? { images: dequeued.images } : {}) });
     };
 
     transportEvents = wireTransportEvents(transport, piSession, pendingLocalIds, {
@@ -591,6 +693,12 @@ export async function runPi(opts: {
         const entry = promptQueue.removeByLocalId(localId);
         if (!entry) {
             return { steered: false, error: 'Message not found or already dispatched' };
+        }
+        // Slash commands are not steerable prompts: restoring them into the FIFO
+        // lets the pump execute them in arrival order once the turn settles.
+        if (isPiSpecialQueued(entry)) {
+            promptQueue.enqueue(entry);
+            return { steered: false, error: 'Slash commands cannot be steered' };
         }
         // Only steer into a live Pi generation. Otherwise restore the entry to
         // its FIFO position (enqueue re-orders by outboundSequence) and let the
@@ -771,6 +879,20 @@ export async function runPi(opts: {
         }
     };
 
+    const getPiModels = async (): Promise<PiModelSummary[]> => {
+        // Startup model discovery can be late or fail once; retry the RPC on
+        // an empty cache so /model never reports valid models as unknown.
+        if (piSession.cachedPiModels.length > 0) return piSession.cachedPiModels;
+        try {
+            const data = await sendPiRpcAndWait(piSession, transport, { type: 'get_available_models' });
+            const models = parsePiModels(data);
+            if (models.length > 0) piSession.cachedPiModels = models;
+            return models;
+        } catch {
+            return [];
+        }
+    };
+
     // --- Pi commands and skills ---
     apiSession.rpcHandlerManager.registerHandler<{ agent?: string }, SlashCommandsResponse>(
         RPC_METHODS.ListSlashCommands,
@@ -778,7 +900,11 @@ export async function runPi(opts: {
             const { slashCommands } = buildPiCommandInventory(await getPiCommands());
             return {
                 success: true,
-                commands: slashCommands,
+                // Pi's get_commands only reports extension commands, prompt
+                // templates, and skills — never its TUI builtins. Merge the
+                // HAPI-side builtin list (the subset translatable to Pi RPC)
+                // so the web / menu exposes /compact, /session, /model, /help.
+                commands: mergeSlashCommands([...getBuiltinSlashCommands('pi'), ...slashCommands]),
             };
         }
     );
@@ -791,7 +917,178 @@ export async function runPi(opts: {
         }
     );
 
-    // --- User message handler ---
+    // --- Pi built-in slash commands ---
+    // pi only runs as `pi --mode rpc` over piped stdio, so TUI slash commands
+    // typed in web would otherwise fall through to the LLM as plain text and
+    // silently do nothing. Intercept the subset HAPI can translate to Pi RPC
+    // (compact/session/model/help) and make terminal-only commands explicit.
+    const handlePiSpecialCommand = async (command: PiSpecialCommand): Promise<void> => {
+        const sendEvent = (message: string): void => {
+            piSession.sendSessionEvent({ type: 'message', message });
+        };
+        const errorDetail = (error: unknown): string => error instanceof Error ? error.message : String(error);
+
+        switch (command.type) {
+            case 'help':
+                sendEvent(PI_HELP_TEXT);
+                return;
+            case 'session': {
+                try {
+                    const data = await sendPiRpcAndWait(piSession, transport, { type: 'get_session_stats' });
+                    const parsed = PiFullSessionStatsSchema.safeParse(data);
+                    sendEvent(formatPiSessionStatsMessage(parsed.success ? parsed.data : {}));
+                } catch (error) {
+                    sendEvent(`⚠️ Could not read Pi session stats: ${errorDetail(error)}`);
+                }
+                return;
+            }
+            case 'model': {
+                const qualified = (model: PiModelSummary): string => `${model.provider}/${model.modelId}`;
+                const models = await getPiModels();
+                if (!command.modelId) {
+                    // List qualified selectors: duplicate bare IDs across
+                    // providers are rejected by the switch path, so every
+                    // listed entry must be copy-paste usable.
+                    const current = piSession.currentModel && piSession.currentProvider
+                        ? qualified({ provider: piSession.currentProvider, modelId: piSession.currentModel })
+                        : piSession.currentModel ?? 'unset';
+                    const available = models.map(qualified).join(', ');
+                    sendEvent(`Current model: ${current}.\nAvailable: ${available || 'unknown — use /model <modelId>'}`);
+                    return;
+                }
+                // The catalog is provider-qualified; prefer an exact
+                // provider/modelId match and refuse bare IDs shared by more
+                // than one provider instead of silently picking the first.
+                const exact = models.find((model) => qualified(model) === command.modelId);
+                const bare = models.filter((model) => model.modelId === command.modelId);
+                if (!exact && bare.length > 1) {
+                    sendEvent(`⚠️ Ambiguous model: ${command.modelId}. Use ${bare.map(qualified).join(', ')}.`);
+                    return;
+                }
+                const match = exact ?? bare[0];
+                if (!match) {
+                    sendEvent(`⚠️ Unknown model: ${command.modelId}. Use /model to list available models.`);
+                    return;
+                }
+                try {
+                    await piSession.runRuntimeMutation(async () => {
+                        await sendPiRpcAndWait(piSession, transport, {
+                            type: 'set_model',
+                            provider: match.provider,
+                            modelId: match.modelId,
+                        });
+                        piSession.currentModel = match.modelId;
+                        piSession.currentProvider = match.provider;
+                        // The web picker prefers piSelectedModel metadata for
+                        // selection, context-window resolution, and effort
+                        // options; a bare keepalive model is not enough to
+                        // reflect a provider-qualified switch.
+                        piSession.updateMetadata((meta) => ({
+                            ...meta,
+                            piSelectedModel: { provider: match.provider, modelId: match.modelId },
+                        }));
+                        piSession.pushKeepAlive();
+                    }, { poisonOnError: (error) => error instanceof PiRpcTimeoutError });
+                    sendEvent(`Model switched to ${command.modelId}`);
+                } catch (error) {
+                    if (error instanceof PiRpcTimeoutError) {
+                        failNativeStartup(new Error(`Pi model switch outcome is indeterminate: ${error.message}`));
+                    } else {
+                        sendEvent(`⚠️ Model switch failed: ${errorDetail(error)}`);
+                    }
+                }
+                return;
+            }
+            case 'compact': {
+                // A compaction run can take minutes without any Pi streaming
+                // event, so mark the session as thinking for the duration;
+                // the 15s queued-thinking grace alone would let the web show
+                // the session idle while compaction and any queued prompts
+                // are still pending.
+                piSession.updateThinkingState(true)
+                // Interrupting a turn with /compact must retire pending
+                // extension UI requests exactly like the Abort path does;
+                // editor requests have no timeout, so a stale input/permission
+                // card would otherwise stick in AgentState.requests and the
+                // next answer could be routed to the aborted turn.
+                transportEvents?.cancelPendingExtensionUi('Pi prompt compacted', { sendResponse: true });
+                try {
+                    const data = await piSession.runRuntimeMutation(async () => {
+                        // Abort can land while this compact is still queued on
+                        // the runtime-mutation lock; skip it once the lock
+                        // arrives instead of starting a compaction the user
+                        // already cancelled.
+                        const state = activeCompact;
+                        if (state?.cancelled) return null;
+                        if (state) state.rpcStarted = true;
+                        try {
+                            return await sendPiRpcAndWait(piSession, transport, {
+                                type: 'compact',
+                                ...(command.instructions ? { customInstructions: command.instructions } : {}),
+                            }, PI_COMPACT_TIMEOUT_MS);
+                        } finally {
+                            if (state) state.rpcStarted = false;
+                        }
+                    }, { poisonOnError: (error) => error instanceof PiRpcTimeoutError });
+                    if (data === null) {
+                        // Cancelled by Abort before the RPC was issued;
+                        // nothing ran, so there is nothing to report.
+                        return;
+                    }
+                    // Pi emits compaction_start/compaction_end lifecycle events
+                    // which surface as "📦 Compaction …" status messages. The
+                    // summary itself is a structured event so the web chat can
+                    // render it as a dedicated block instead of a tiny status
+                    // line; the token delta rides on the same event.
+                    const parsed = PiCompactResultSchema.safeParse(data);
+                    const result = parsed.success ? parsed.data : {};
+                    if (result.summary) {
+                        piSession.sendSessionEvent({
+                            type: 'compact-summary',
+                            summary: result.summary,
+                            tokensBefore: result.tokensBefore,
+                            estimatedTokensAfter: result.estimatedTokensAfter,
+                        });
+                    } else {
+                        // No summary in the RPC result (defensive): fall back to
+                        // the plain status line so the token delta still lands.
+                        const delta: string[] = [];
+                        if (result.tokensBefore !== undefined) delta.push(String(result.tokensBefore));
+                        delta.push('→');
+                        if (result.estimatedTokensAfter !== undefined) delta.push(String(result.estimatedTokensAfter));
+                        else delta.push('?');
+                        sendEvent(`📦 Compaction completed (tokens: ${delta.join(' ')})`);
+                    }
+                } catch (error) {
+                    if (error instanceof PiRpcTimeoutError) {
+                        // The runtime lease is deliberately retained on timeout
+                        // (poisonOnError), so the session is indeterminate: Pi
+                        // may still be compacting while model switches, steers,
+                        // and history mutations can no longer run. Fail the
+                        // session instead of reopening the prompt FIFO.
+                        failNativeStartup(new Error(`Pi compaction outcome is indeterminate: ${error.message}`));
+                        return;
+                    }
+                    const detail = errorDetail(error);
+                    if (/cancell?ed/i.test(detail)) {
+                        // Interrupted by the Abort action: Pi already emitted
+                        // the compaction_end(aborted) lifecycle event
+                        // ("📦 Compaction canceled"), so do not double-report
+                        // the same cancellation as a failure.
+                        return;
+                    }
+                    sendEvent(`⚠️ Compaction failed: ${detail}`);
+                } finally {
+                    piSession.updateThinkingState(false)
+                }
+                return;
+            }
+            case 'unsupported':
+                sendEvent(`⚠️ /${command.name} is a Pi terminal-only command and cannot run from HAPI web. Supported here: /compact, /session, /model, /help.`);
+                return;
+        }
+    };
+
     // Preparation reads image files asynchronously. A single promise chain keeps
     // attachment completion order identical to user-message arrival order.
     apiSession.onUserMessage((message, localId) => {
@@ -808,6 +1105,45 @@ export async function runPi(opts: {
                 preparingLocalIds.delete(localId);
                 return;
             }
+
+            const name = parseLeadingSlashName(message.content.text);
+            // Discovered extension commands / prompt templates win over HAPI
+            // builtins: the menu already lets them override same-name entries,
+            // so a user extension named "compact" must keep executing instead
+            // of being swallowed by the builtin interception.
+            const discovered = name
+                ? await getPiCommands()
+                : piSession.cachedPiCommands;
+            // Discovery can take an RPC round-trip; a cancel acknowledged during
+            // that window must still win over the command.
+            if (localId && cancelledWhilePreparing.delete(localId)) {
+                preparingLocalIds.delete(localId);
+                return;
+            }
+            const isCustomCommand = Boolean(name && discovered.some((item) => item.name.toLowerCase() === name.toLowerCase()));
+            const specialCommand = isCustomCommand
+                ? null
+                : parsePiSpecialCommand(message.content.text);
+            if (specialCommand) {
+                // Enter the same FIFO as prompts so dispatch order matches
+                // arrival order (a /compact typed after a queued prompt never
+                // jumps it). Release the cancellation reservation first: a
+                // cancel that lands while the queued command is being dispatched
+                // or executing is handled by the queue itself (cancelByLocalId)
+                // and must not be acknowledged via preparingLocalIds.
+                if (localId) {
+                    preparingLocalIds.delete(localId);
+                }
+                promptQueue.enqueue({
+                    kind: 'special',
+                    command: specialCommand,
+                    outboundSequence,
+                    ...(localId ? { localId } : {}),
+                });
+                pumpPromptQueue();
+                return;
+            }
+
             const prepared = await preparePiUserMessage(
                 message.content.text,
                 message.content.attachments,
@@ -887,6 +1223,41 @@ export async function runPi(opts: {
     let abortPromise: Promise<{ success: true }> | null = null;
     apiSession.rpcHandlerManager.registerHandler(RPC_METHODS.Abort, async () => {
         if (abortPromise) return await abortPromise;
+        // /compact owns the runtime-mutation lease for up to
+        // PI_COMPACT_TIMEOUT_MS (120s), far beyond the 25s abort deadline —
+        // waiting on the lease would fail closed and tear down the session.
+        // Interrupt the compaction directly: Pi's abort RPC cancels its
+        // compaction AbortController, and Pi reports the cancellation through
+        // the compaction_end lifecycle event. If the compact RPC has not been
+        // issued yet (still queued on the mutation lock), cancel it in place
+        // instead so it never starts.
+        if (piSpecialCommandInFlight && activeCompact) {
+            abortInFlight = true;
+            const interrupted = activeCompact.rpcStarted
+                ? sendPiRpcAndWait(piSession, transport, { type: 'abort' }, PI_ABORT_OPERATION_TIMEOUT_MS).then(() => ({ success: true } as const))
+                : (() => {
+                    activeCompact.cancelled = true;
+                    return Promise.resolve({ success: true } as const);
+                })();
+            abortPromise = interrupted
+                .catch((error) => {
+                    // Mirror the ordinary Abort path: an unanswered abort RPC
+                    // leaves the compaction outcome indeterminate (the compact
+                    // RPC can keep the mutation lease for up to 120s), so fail
+                    // the session instead of presenting the wrapper as live.
+                    if (error instanceof PiRpcTimeoutError) {
+                        const fatal = new Error(`Pi abort failed closed: ${error.message}`);
+                        failNativeStartup(fatal);
+                        throw fatal;
+                    }
+                    throw error;
+                })
+                .finally(() => {
+                    abortInFlight = false;
+                    abortPromise = null;
+                });
+            return await abortPromise;
+        }
         piSession.assertNoHistoryTransaction('abort Pi');
         const deadlineAt = Date.now() + PI_ABORT_OPERATION_TIMEOUT_MS;
         abortInFlight = true;
@@ -1083,9 +1454,15 @@ export async function runPi(opts: {
         // default (already reported by get_state). Detached so the run loop is
         // not blocked; sent after get_state so the authoritative baseline lands
         // first and a late get_state response does not clobber the confirmed
-        // value (get_state runs on the wire before this await resolves).
+        // value (get_state runs on the wire before this await resolves). When a
+        // startup model is also requested, wait for it to settle first so
+        // set_thinking_level cannot be rejected against Pi's default model
+        // before set_model confirms the requested one.
         if (startupThinkingLevel) {
             void (async () => {
+                if (opts.model) {
+                    await piSession.startupModelSettled;
+                }
                 try {
                     await piSession.runRuntimeMutation(async () => {
                         await sendPiRpcAndWait(piSession, transport, {

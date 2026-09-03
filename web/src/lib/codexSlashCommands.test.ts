@@ -27,8 +27,15 @@ describe('getBuiltinSlashCommands', () => {
         )
     })
 
-    it.each(['pi', 'kimi'])('does not fall back to Claude commands for %s', (flavor) => {
-        expect(getBuiltinSlashCommands(flavor)).toEqual([])
+    it('keeps pi builtins as its own list (no Claude fallback)', () => {
+        const commands = getBuiltinSlashCommands('pi')
+        expect(commands.length).toBeGreaterThan(0)
+        expect(commands.map((command) => command.name)).not.toContain('clear')
+        expect(commands.map((command) => command.name)).toContain('compact')
+    })
+
+    it('does not fall back to Claude commands for kimi', () => {
+        expect(getBuiltinSlashCommands('kimi')).toEqual([])
     })
 
     it('includes debug only in Cursor permission modes', () => {

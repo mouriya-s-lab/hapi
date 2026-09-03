@@ -1,4 +1,5 @@
 import type { PiImageContent } from './types';
+import type { PiSpecialCommand } from './specialCommands';
 
 export type PiPreparedPrompt = {
     message: string;
@@ -9,6 +10,24 @@ export type PiPreparedPrompt = {
 };
 
 /**
+ * A Pi built-in slash command queued through the same FIFO as prompts so
+ * dispatch order matches message arrival order (a /compact typed after a
+ * prompt never jumps the queue).
+ */
+export type PiSpecialQueued = {
+    kind: 'special';
+    command: PiSpecialCommand;
+    outboundSequence: number;
+    localId?: string;
+};
+
+export type PiPromptQueueEntry = PiPreparedPrompt | PiSpecialQueued;
+
+export function isPiSpecialQueued(entry: PiPromptQueueEntry): entry is PiSpecialQueued {
+    return 'kind' in entry && entry.kind === 'special';
+}
+
+/**
  * Small cancellable FIFO: HAPI owns queueing, Pi receives only real turns.
  *
  * A native steer can asynchronously degrade to a prompt after a later ordinary
@@ -16,16 +35,20 @@ export type PiPreparedPrompt = {
  * that boundary instead of using completion order.
  */
 export class PiPromptQueue {
-    private readonly entries: PiPreparedPrompt[] = [];
+    private readonly entries: PiPromptQueueEntry[] = [];
 
-    enqueue(prompt: PiPreparedPrompt): void {
-        const index = this.entries.findIndex((entry) => entry.outboundSequence > prompt.outboundSequence);
-        if (index === -1) this.entries.push(prompt);
-        else this.entries.splice(index, 0, prompt);
+    enqueue(entry: PiPromptQueueEntry): void {
+        const index = this.entries.findIndex((item) => item.outboundSequence > entry.outboundSequence);
+        if (index === -1) this.entries.push(entry);
+        else this.entries.splice(index, 0, entry);
     }
 
-    dequeue(): PiPreparedPrompt | undefined {
+    dequeue(): PiPromptQueueEntry | undefined {
         return this.entries.shift();
+    }
+
+    peek(): PiPromptQueueEntry | undefined {
+        return this.entries[0];
     }
 
     cancelByLocalId(localId: string): boolean {
@@ -41,7 +64,7 @@ export class PiPromptQueue {
      * into the active turn (explicit steer). Returns undefined when the entry
      * is absent (already dispatched, cancelled, or still preparing).
      */
-    removeByLocalId(localId: string): PiPreparedPrompt | undefined {
+    removeByLocalId(localId: string): PiPromptQueueEntry | undefined {
         if (!localId) return undefined;
         const index = this.entries.findIndex((entry) => entry.localId === localId);
         if (index === -1) return undefined;

@@ -333,6 +333,7 @@ sessionPinned = false,
         const openAbove = spaceBelow < menuRect.height + gap && spaceAbove > spaceBelow
 
         let top = openAbove ? anchorPoint.y - menuRect.height - gap : anchorPoint.y + gap
+        // Keep the menu centered on the trigger, then clamp it only when it would leave the viewport.
         let left = anchorPoint.x - menuRect.width / 2
         const transformOrigin = openAbove ? 'bottom center' : 'top center'
 
@@ -403,13 +404,15 @@ sessionPinned = false,
         }
         : undefined
 
+    // The left text inset includes the icon and gap; mirror it on the right so
+    // the text-to-border distance is symmetric without counting the icon twice.
     const baseItemClassName =
-        'flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-base transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]'
+        'flex w-full items-center gap-3 rounded-md py-2 pl-3 pr-[42px] text-left text-base transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)]'
 
     return (
         <div
             ref={menuRef}
-            className="fixed z-50 min-w-[200px] rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-1 shadow-lg animate-menu-pop"
+            className="fixed z-50 box-border w-max max-w-[calc(100vw-16px)] rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-1 shadow-lg animate-menu-pop"
             style={menuStyle}
         >
             <div

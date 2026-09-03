@@ -47,6 +47,9 @@ const PERMISSION_TONE_CLASSES: Record<PermissionModeTone, string> = {
     danger: 'text-red-500'
 }
 
+const CONTEXT_WARNING_THRESHOLD_PERCENT = 70
+const CONTEXT_DANGER_THRESHOLD_PERCENT = 90
+
 function getConnectionStatus(
     active: boolean,
     thinking: boolean,
@@ -112,13 +115,12 @@ function getConnectionStatus(
     }
 }
 
-function getContextWarning(contextSize: number, maxContextSize: number): { color: string } | null {
+export function getContextWarning(contextSize: number, maxContextSize: number): { color: string } {
     const percentageUsed = (contextSize / maxContextSize) * 100
-    const percentageRemaining = Math.max(0, 100 - percentageUsed)
 
-    if (percentageRemaining <= 5) {
+    if (percentageUsed >= CONTEXT_DANGER_THRESHOLD_PERCENT) {
         return { color: 'text-red-500' }
-    } else if (percentageRemaining <= 10) {
+    } else if (percentageUsed >= CONTEXT_WARNING_THRESHOLD_PERCENT) {
         return { color: 'text-amber-500' }
     } else {
         return { color: 'text-[var(--app-hint)]' }

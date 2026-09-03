@@ -316,6 +316,46 @@ const PiSessionStatsDataSchema = z.object({
 }).passthrough();
 
 // ============================================================================
+// Pi compact response data
+// ============================================================================
+
+export const PiCompactResultSchema = z.object({
+    summary: z.string().optional(),
+    firstKeptEntryId: z.string().optional(),
+    tokensBefore: z.number().optional(),
+    estimatedTokensAfter: z.number().optional(),
+}).passthrough();
+
+// ============================================================================
+// Pi get_session_stats response data (used by the /session slash command)
+// ============================================================================
+
+export const PiFullSessionStatsSchema = z.object({
+    sessionId: z.string().optional(),
+    sessionFile: z.string().optional(),
+    userMessages: z.number().optional(),
+    assistantMessages: z.number().optional(),
+    toolCalls: z.number().optional(),
+    toolResults: z.number().optional(),
+    totalMessages: z.number().optional(),
+    tokens: z.object({
+        input: z.number().optional(),
+        output: z.number().optional(),
+        cacheRead: z.number().optional(),
+        cacheWrite: z.number().optional(),
+        total: z.number().optional(),
+    }).passthrough().optional(),
+    cost: z.number().optional(),
+    contextUsage: z.object({
+        tokens: asContextTokens,
+        contextWindow: asOptPositiveNum,
+        percent: asOptNum,
+    }).passthrough().optional(),
+}).passthrough();
+
+export type PiFullSessionStats = z.infer<typeof PiFullSessionStatsSchema>;
+
+// ============================================================================
 // Pi State (get_state response data)
 // ============================================================================
 

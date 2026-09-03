@@ -89,7 +89,7 @@ export function CompanionPairing({ baseUrl }: CompanionPairingProps) {
                     type="button"
                     variant="outline"
                     onClick={() => setRevealed(true)}
-                    className="self-start"
+                    className="self-center"
                 >
                     {t('settings.companion.showQr')}
                 </Button>

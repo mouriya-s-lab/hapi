@@ -10,9 +10,15 @@ export function isInlineImageMimeType(mimeType: string | null | undefined): bool
     return mimeType == null || mimeType.startsWith('image/')
 }
 
-export function generatedInlineMediaLabel(mimeType: string | null | undefined): 'Generated video' | 'Generated audio' | 'Generated image' | 'Generated file' {
-    if (isInlineVideoMimeType(mimeType)) return 'Generated video'
-    if (isInlineAudioMimeType(mimeType)) return 'Generated audio'
-    if (isInlineImageMimeType(mimeType)) return 'Generated image'
-    return 'Generated file'
+export type InlineMediaLabelKey =
+    | 'media.displayed.video'
+    | 'media.displayed.audio'
+    | 'media.displayed.image'
+    | 'media.displayed.file'
+
+export function inlineMediaLabelKey(mimeType: string | null | undefined): InlineMediaLabelKey {
+    if (isInlineVideoMimeType(mimeType)) return 'media.displayed.video'
+    if (isInlineAudioMimeType(mimeType)) return 'media.displayed.audio'
+    if (isInlineImageMimeType(mimeType)) return 'media.displayed.image'
+    return 'media.displayed.file'
 }

@@ -55,14 +55,16 @@ export default function SettingsStoragePage() {
                     }}
                 />
             ) : null}
-            <button
-                type="button"
-                onClick={() => void query.refetch()}
-                disabled={query.isFetching}
-                className="rounded-lg bg-[var(--app-button)] px-3 py-2 text-sm font-medium text-[var(--app-button-text)] disabled:opacity-50"
-            >
-                {query.isFetching ? t('settings.storage.refreshing') : t('settings.storage.refresh')}
-            </button>
+            <div className="flex justify-end">
+                <button
+                    type="button"
+                    onClick={() => void query.refetch()}
+                    disabled={query.isFetching}
+                    className="rounded-lg bg-[var(--app-button)] px-3 py-2 text-sm font-medium text-[var(--app-button-text)] disabled:opacity-50"
+                >
+                    {query.isFetching ? t('settings.storage.refreshing') : t('settings.storage.refresh')}
+                </button>
+            </div>
         </SettingsPageContent>
     )
 }

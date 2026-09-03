@@ -301,14 +301,33 @@ function convertVisibleMetadataRecord(
     createdAt: number
 ): PiImportedMessage[] {
     let text: string | null = null
+    let structured: PiImportedMessageContent | null = null
     if (record.type === 'custom_message' && record.display === true) {
         text = extractText(record.content).trim() || null
     } else if (record.type === 'compaction') {
         const summary = asString(record.summary)
-        if (summary) text = `[Compaction summary]\n\n${summary}`
+        if (summary) {
+            // Structured event: the web chat renders compaction summaries as a
+            // dedicated block (same event envelope as the live pi wrapper's
+            // compact RPC result; the codex payload envelope is dropped by
+            // the web normalizer).
+            structured = {
+                role: 'agent',
+                content: {
+                    type: 'event',
+                    data: { type: 'compact-summary', summary },
+                },
+                meta: { sentFrom: 'cli' },
+            }
+        }
     } else if (record.type === 'branch_summary') {
         const summary = asString(record.summary)
         if (summary) text = `[Branch summary]\n\n${summary}`
+    }
+    if (structured) {
+        const result: PiImportedMessage[] = []
+        pushImportedMessage(result, sessionId, entryId, parentEntryId, createdAt, String(record.type), structured)
+        return result
     }
     if (!text) return []
     const result: PiImportedMessage[] = []

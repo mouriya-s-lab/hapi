@@ -5,6 +5,7 @@ type AppContextValue = {
     api: ApiClient
     token: string
     baseUrl: string
+    titleSuggestionAvailable?: boolean
     user: { id: number; username?: string; role?: 'admin' | 'user'; defaultNamespace?: string }
 }
 

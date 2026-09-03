@@ -134,9 +134,9 @@ vi.mock('@/components/AssistantChat/ComposerButtons', () => ({
         pendingSchedule: PendingSchedule | null
         expanded: boolean
         onExpandedToggle: () => void
-        piModelLabel?: string
-        piModelDisabled?: boolean
-        onPiModelToggle?: () => void
+        modelValueLabel?: string
+        modelValueDisabled?: boolean
+        onModelValueToggle?: () => void
     }) => (
         <div>
             <button type="button" onClick={props.onSend}>send</button>
@@ -145,8 +145,8 @@ vi.mock('@/components/AssistantChat/ComposerButtons', () => ({
             </button>
             <button type="button" onClick={() => props.onSchedule({ type: 'absolute', ms: 9000 })}>select schedule</button>
             <button type="button" onClick={props.onClearSchedule}>clear schedule</button>
-            {props.piModelLabel ? (
-                <button type="button" disabled={props.piModelDisabled} onClick={props.onPiModelToggle}>model</button>
+            {props.modelValueLabel ? (
+                <button type="button" disabled={props.modelValueDisabled} onClick={props.onModelValueToggle}>{props.modelValueLabel}</button>
             ) : null}
             <output data-testid="pending-schedule">{JSON.stringify(props.pendingSchedule)}</output>
         </div>
@@ -257,6 +257,7 @@ function ComposerHarness(props: {
                 )}
                 agentFlavor="pi"
                 thinking={props.piRunning}
+                model="pi-model"
                 piModels={[{ provider: 'pi', modelId: 'pi-model', name: 'Pi model' }]}
                 onModelChange={(model) => runtime.modelChanges.push(model)}
                 pendingSendIntentRef={pendingSendIntentRef}
@@ -295,11 +296,16 @@ it('keeps Pi model selection available while a message is pending', () => {
 
     act(() => controls.current!.setThreadDisabled(true))
 
-    expect(screen.getByRole('button', { name: 'model' })).not.toBeDisabled()
-    fireEvent.click(screen.getByRole('button', { name: 'model' }))
-    expect(screen.getByRole('button', { name: 'select model' })).not.toBeDisabled()
-    fireEvent.click(screen.getByRole('button', { name: 'select model' }))
-    expect(runtime.modelChanges).toEqual([{ provider: 'pi', modelId: 'pi-next' }])
+    // Mid-turn Pi keeps its model control live (#1442): the value button opens
+    // the unified settings sheet, whose provider-grouped rows stay clickable.
+    const valueButton = screen.getByRole('button', { name: 'Pi model' })
+    expect(valueButton).not.toBeDisabled()
+    fireEvent.click(valueButton)
+    const modelRows = screen.getAllByRole('button', { name: 'Pi model' })
+    expect(modelRows.length).toBeGreaterThan(1)
+    // The sheet renders before the toolbar in the DOM, so the first match is the row.
+    fireEvent.click(modelRows[0])
+    expect(runtime.modelChanges).toEqual([{ provider: 'pi', modelId: 'pi-model' }])
 })
 
 function acceptAndClearSchedule(controls: { current: HarnessControls | null }) {

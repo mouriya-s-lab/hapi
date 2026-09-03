@@ -70,6 +70,8 @@ function createApp(session: Session, opts?: {
     listCodexModelsForSession?: SyncEngine['listCodexModelsForSession']
     forkConversation?: SyncEngine['forkConversation']
     rewindConversation?: SyncEngine['rewindConversation']
+    suggestSessionTitle?: SyncEngine['suggestSessionTitle']
+    updateSessionSummary?: SyncEngine['updateSessionSummary']
     setSessionPinned?: (sessionId: string, pinned: boolean) => void
     setSessionPinMode?: (sessionId: string, mode: 'none' | 'project' | 'global') => void
     getOmpExtensionUiRequestForSession?: SyncEngine['getOmpExtensionUiRequestForSession']
@@ -191,7 +193,9 @@ function createApp(session: Session, opts?: {
             commands: []
         })),
         forkConversation: opts?.forkConversation ?? (async () => ({ type: 'success', sessionId: 'child-1' })),
-        rewindConversation: opts?.rewindConversation ?? (async () => ({ type: 'success' }))
+        rewindConversation: opts?.rewindConversation ?? (async () => ({ type: 'success' })),
+        suggestSessionTitle: opts?.suggestSessionTitle ?? (async () => 'Generated title'),
+        updateSessionSummary: opts?.updateSessionSummary ?? (async () => {})
     } as Partial<SyncEngine>
 
     const app = new Hono<WebAppEnv>()
@@ -205,6 +209,49 @@ function createApp(session: Session, opts?: {
 }
 
 describe('sessions routes', () => {
+    it('generates a title suggestion without changing session metadata', async () => {
+        const suggest = async (sessionId: string) => {
+            expect(sessionId).toBe('session-1')
+            return 'Generated title'
+        }
+        const { app } = createApp(createSession(), { suggestSessionTitle: suggest })
+
+        const response = await app.request('/api/sessions/session-1/title-suggestion', { method: 'POST' })
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ title: 'Generated title' })
+    })
+
+    it('writes generated titles through the summary metadata endpoint', async () => {
+        const updates: Array<[string, string]> = []
+        const { app } = createApp(createSession(), {
+            updateSessionSummary: async (sessionId, text) => {
+                updates.push([sessionId, text])
+            }
+        })
+
+        const response = await app.request('/api/sessions/session-1/summary', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: '  Generated title  ' })
+        })
+
+        expect(response.status).toBe(200)
+        expect(updates).toEqual([['session-1', 'Generated title']])
+    })
+
+    it('rejects an empty summary', async () => {
+        const { app } = createApp(createSession())
+
+        const response = await app.request('/api/sessions/session-1/summary', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: '   ' })
+        })
+
+        expect(response.status).toBe(400)
+    })
+
     it('updates the persisted pin mode', async () => {
         const calls: Array<[string, 'none' | 'project' | 'global']> = []
         const { app } = createApp(createSession(), {

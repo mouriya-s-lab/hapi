@@ -179,6 +179,11 @@ export const CodexImportedMessageSchema = z.union([
         role: z.literal('agent'),
         content: z.object({ type: z.literal('codex'), data: z.unknown() }),
         meta: z.object({ sentFrom: z.literal('cli') })
+    }),
+    z.object({
+        role: z.literal('agent'),
+        content: z.object({ type: z.literal('event'), data: z.unknown() }),
+        meta: z.object({ sentFrom: z.literal('cli') })
     })
 ])
 
@@ -323,6 +328,18 @@ export const RenameSessionRequestSchema = z.object({
 })
 
 export type RenameSessionRequest = z.infer<typeof RenameSessionRequestSchema>
+
+export const UpdateSessionSummaryRequestSchema = z.object({
+    text: z.string().trim().min(1).max(255)
+})
+
+export type UpdateSessionSummaryRequest = z.infer<typeof UpdateSessionSummaryRequestSchema>
+
+export const SessionTitleSuggestionResponseSchema = z.object({
+    title: z.string().min(1).max(255)
+})
+
+export type SessionTitleSuggestionResponse = z.infer<typeof SessionTitleSuggestionResponseSchema>
 
 export const SetSessionPinnedRequestSchema = z.object({
     mode: z.enum(['none', 'project', 'global'])

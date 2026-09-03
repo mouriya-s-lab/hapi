@@ -73,6 +73,16 @@ describe('local Pi sessions', () => {
             createdAt: Date.parse('2026-08-04T01:00:01Z'),
             content: { role: 'user' }
         })
+        expect(sessions[0]?.messages.find((message) => message.localId.endsWith(':compaction'))).toMatchObject({
+            content: {
+                content: {
+                    data: {
+                        type: 'compact-summary',
+                        summary: 'condensed context'
+                    }
+                }
+            }
+        })
         rmSync(root, { recursive: true, force: true })
     })
 

@@ -41,7 +41,7 @@ function baseSession(overrides: Partial<Session> = {}): Session {
     }
 }
 
-function renderHeader(session: Session, extra?: { serviceTier?: string | null }) {
+function renderHeader(session: Session, extra?: { serviceTier?: string | null; titleSuggestionAvailable?: boolean }) {
     return render(
         <QueryClientProvider client={new QueryClient()}>
             <ToastProvider>
@@ -49,6 +49,7 @@ function renderHeader(session: Session, extra?: { serviceTier?: string | null })
                     <SessionHeader
                         session={session}
                         serviceTier={extra?.serviceTier}
+                        titleSuggestionAvailable={extra?.titleSuggestionAvailable}
                         onBack={vi.fn()}
                         api={null}
                     />
@@ -83,6 +84,33 @@ describe('resolveSessionHeaderMachineLabel', () => {
 })
 
 describe('SessionHeader', () => {
+    it('hides title generation when the Hub does not advertise the capability', () => {
+        const api = {
+            getMachines: vi.fn().mockResolvedValue({ machines: [] }),
+            getScratchlist: vi.fn().mockResolvedValue({ entries: [] })
+        } as unknown as ApiClient
+
+        render(
+            <QueryClientProvider client={new QueryClient()}>
+                <ToastProvider>
+                    <I18nProvider>
+                        <SessionHeader
+                            session={baseSession()}
+                            onBack={vi.fn()}
+                            api={api}
+                            titleSuggestionAvailable={false}
+                        />
+                    </I18nProvider>
+                </ToastProvider>
+            </QueryClientProvider>
+        )
+
+        fireEvent.click(screen.getByTitle('More actions'))
+        fireEvent.click(screen.getByRole('menuitem', { name: /Rename/ }))
+
+        expect(screen.queryByRole('button', { name: 'Generate' })).not.toBeInTheDocument()
+    })
+
     it('manually syncs an inactive Pi session through its owning machine', async () => {
         const importPiSessions = vi.fn().mockResolvedValue({
             success: true,
@@ -271,6 +299,31 @@ describe('SessionHeader', () => {
             expect(screen.getByTestId('session-header-age')).toHaveTextContent(/1m ago|1分钟前/)
         } finally {
             vi.useRealTimers()
+        }
+    })
+
+    it('anchors the action menu to the center of the More actions trigger', () => {
+        renderHeader(baseSession())
+
+        const moreButton = screen.getByTitle('More actions')
+        const getBoundingClientRect = vi.spyOn(moreButton, 'getBoundingClientRect').mockReturnValue({
+            bottom: 64,
+            height: 32,
+            left: 100,
+            right: 132,
+            top: 32,
+            width: 32,
+            x: 100,
+            y: 32,
+            toJSON: () => ({})
+        } as DOMRect)
+
+        try {
+            fireEvent.click(moreButton)
+
+            expect(screen.getByRole('menu').parentElement).toHaveStyle({ left: '116px' })
+        } finally {
+            getBoundingClientRect.mockRestore()
         }
     })
 

@@ -16,6 +16,7 @@ import remarkDisableIndentedCode from '@/lib/remark-disable-indented-code'
 import remarkRepairTables from '@/lib/remark-repair-tables'
 import remarkLatexBracketMath from '@/lib/remark-latex-bracket-math'
 import { useNavigate } from '@tanstack/react-router'
+import { PRESERVE_SESSION_SIDEBAR_SCROLL } from '@/lib/sessionNavigation'
 import remarkStripCjkAutolink from '@/lib/remark-strip-cjk-autolink'
 import remarkNonHttpsAutolink from '@/lib/remark-non-https-autolink'
 import { cn, encodeBase64 } from '@/lib/utils'
@@ -74,15 +75,22 @@ const MARKDOWN_PLUGIN_TAIL_STANDALONE = [
     [remarkFilePathLinks, { rewriteExplicitLinks: false }],
 ] satisfies NonNullable<MarkdownTextPrimitiveProps['remarkPlugins']>
 
-export const MARKDOWN_PLUGINS = [
+// A single tilde is common in shell prompts (for example, `user@host:~$`).
+// Keep it literal while preserving GFM strikethrough via double tildes.
+const REMARK_GFM_PLUGIN = [
     remarkGfm,
+    { singleTilde: false },
+] satisfies NonNullable<MarkdownTextPrimitiveProps['remarkPlugins']>[number]
+
+export const MARKDOWN_PLUGINS = [
+    REMARK_GFM_PLUGIN,
     remarkRepairTables,
     remarkLatexBracketMath,
     ...MARKDOWN_PLUGIN_TAIL,
 ] satisfies NonNullable<MarkdownTextPrimitiveProps['remarkPlugins']>
 
 export const MARKDOWN_PLUGINS_STANDALONE = [
-    remarkGfm,
+    REMARK_GFM_PLUGIN,
     remarkRepairTables,
     ...MARKDOWN_PLUGIN_TAIL_STANDALONE,
 ] satisfies NonNullable<MarkdownTextPrimitiveProps['remarkPlugins']>
@@ -90,7 +98,7 @@ export const MARKDOWN_PLUGINS_STANDALONE = [
 // User-authored prompts should preserve Shift+Enter/newline intent without
 // changing assistant/tool markdown behavior globally.
 export const MARKDOWN_PLUGINS_WITH_BREAKS = [
-    remarkGfm,
+    REMARK_GFM_PLUGIN,
     remarkRepairTables,
     remarkLatexBracketMath,
     remarkBreaks,
@@ -98,7 +106,7 @@ export const MARKDOWN_PLUGINS_WITH_BREAKS = [
 ] satisfies NonNullable<MarkdownTextPrimitiveProps['remarkPlugins']>
 
 export const MARKDOWN_PLUGINS_STANDALONE_WITH_BREAKS = [
-    remarkGfm,
+    REMARK_GFM_PLUGIN,
     remarkRepairTables,
     remarkBreaks,
     ...MARKDOWN_PLUGIN_TAIL_STANDALONE,
@@ -516,7 +524,8 @@ function FilePathAnchor(props: ComponentPropsWithoutRef<'a'> & { filePath: strin
             search: {
                 path: encodeBase64(filePath),
                 origin: 'chat',
-            }
+            },
+            ...PRESERVE_SESSION_SIDEBAR_SCROLL,
         })
     }
 
@@ -546,6 +555,7 @@ function SessionPathAnchor(props: ComponentPropsWithoutRef<'a'> & { targetSessio
         void navigate({
             to: '/sessions/$sessionId',
             params: { sessionId: props.targetSessionId },
+            ...PRESERVE_SESSION_SIDEBAR_SCROLL,
         })
     }
 
@@ -870,10 +880,11 @@ export const defaultComponents: DefaultComponentsMap = memoizeMarkdownComponents
     img: Image,
 } as const) as unknown as DefaultComponentsMap
 
-export function MarkdownText() {
+export function MarkdownText({ smooth }: { smooth?: boolean } = {}) {
     return (
         <UriConfirmProvider>
             <MarkdownTextPrimitive
+                smooth={smooth}
                 remarkPlugins={MARKDOWN_PLUGINS}
                 rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
                 components={defaultComponents}

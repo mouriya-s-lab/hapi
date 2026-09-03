@@ -119,6 +119,8 @@ function formatGoalStatus(status: string): string {
     if (status === 'active') return 'active'
     if (status === 'paused') return 'paused'
     if (status === 'budgetLimited') return 'limited by budget'
+    if (status === 'usageLimited') return 'limited by usage'
+    if (status === 'blocked') return 'blocked'
     if (status === 'complete') return 'complete'
     return status
 }
@@ -304,6 +306,11 @@ export function getEventPresentation(event: AgentEvent): EventPresentation {
     }
     if (event.type === 'compact') {
         return { icon: '📦', text: 'Conversation compacted' }
+    }
+    if (event.type === 'compact-summary') {
+        // The chat renders the full summary as a dedicated block; this label
+        // only feeds compact contexts (outline anchors, tool traces).
+        return { icon: '📦', text: 'Context compacted' }
     }
     if (event.type === 'recap') {
         // Lowercase `recap:` intentionally mirrors Claude Code's own TUI recap label.

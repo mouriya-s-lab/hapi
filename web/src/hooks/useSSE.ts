@@ -82,6 +82,16 @@ type VisibilityState = 'visible' | 'hidden'
 type ToastEvent = Extract<SyncEvent, { type: 'toast' }>
 
 const HEARTBEAT_STALE_MS = 90_000
+// The hub sends a heartbeat every 30s. When a suspended mobile tab returns to
+// the foreground, the connection may have been silently killed (no FIN/RST
+// ever reaches the browser), so a single missed heartbeat interval is already
+// enough to distrust it on resume. The watchdog keeps the longer 90s
+// threshold for tabs that stayed visible throughout.
+const VISIBILITY_RESUME_STALE_MS = 45_000
+// A new EventSource that hasn't opened within this window is likely hung on a
+// dead pooled socket (common right after a suspended tab resumes) — abandon
+// it and retry on a fresh connection instead of waiting for the watchdog.
+const CONNECT_TIMEOUT_MS = 10_000
 const HEARTBEAT_WATCHDOG_INTERVAL_MS = 10_000
 const RECONNECT_BASE_DELAY_MS = 1_000
 const RECONNECT_MAX_DELAY_MS = 30_000
@@ -453,7 +463,11 @@ export function useSSE(options: {
             const maxDelay = attempt >= RECONNECT_SLOW_AFTER_ATTEMPTS
                 ? RECONNECT_SLOW_MAX_DELAY_MS
                 : RECONNECT_MAX_DELAY_MS
-            const exponentialDelay = Math.min(maxDelay, RECONNECT_BASE_DELAY_MS * (2 ** attempt))
+            // First attempt reconnects immediately (jitter only) — backoff is
+            // for repeated failures, not for the initial recovery.
+            const exponentialDelay = attempt === 0
+                ? 0
+                : Math.min(maxDelay, RECONNECT_BASE_DELAY_MS * (2 ** (attempt - 1)))
             const jitter = Math.floor(Math.random() * (RECONNECT_JITTER_MS + 1))
             reconnectAttemptRef.current = attempt + 1
             if (reconnectTimerRef.current) {
@@ -473,8 +487,8 @@ export function useSSE(options: {
             onDisconnectRef.current?.(reason)
         }
 
-        const requestReconnect = (reason: string) => {
-            if (reconnectRequested) {
+        const requestReconnect = (reason: string, force = false) => {
+            if (reconnectRequested && !force) {
                 return
             }
             reconnectRequested = true
@@ -884,7 +898,24 @@ export function useSSE(options: {
         }
 
         eventSource.onmessage = handleMessage
+        // A connection attempt that never reaches OPEN within CONNECT_TIMEOUT_MS
+        // is likely hung on a dead pooled socket (common right after a
+        // suspended mobile tab resumes). Abandon it and retry on a fresh
+        // connection. force bypasses the one-shot reconnectRequested guard: a
+        // hung attempt is a new attempt cycle, not a duplicate of the previous
+        // reconnect request.
+        const connectDeadlineTimer = setTimeout(() => {
+            if (eventSourceRef.current !== eventSource) {
+                return
+            }
+            if (eventSource.readyState === EventSource.OPEN) {
+                return
+            }
+            requestReconnect('connect-timeout', true)
+        }, CONNECT_TIMEOUT_MS)
+
         eventSource.onopen = () => {
+            clearTimeout(connectDeadlineTimer)
             if (reconnectTimerRef.current) {
                 clearTimeout(reconnectTimerRef.current)
                 reconnectTimerRef.current = null
@@ -925,8 +956,10 @@ export function useSSE(options: {
 
         // When the tab becomes visible again, check immediately whether the
         // SSE connection went stale while hidden (the watchdog skips checks
-        // for hidden tabs).  This avoids the user having to wait up to
-        // HEARTBEAT_WATCHDOG_INTERVAL_MS after switching back.
+        // for hidden tabs). Uses the tighter VISIBILITY_RESUME_STALE_MS
+        // threshold: a device suspend can kill the connection without the
+        // browser ever noticing, so a missed heartbeat interval at resume
+        // already warrants a proactive reconnect.
         const onVisibilityChange = () => {
             if (getVisibilityState() !== 'visible') return
             // A retry fell due while the tab was hidden and was deliberately
@@ -938,7 +971,7 @@ export function useSSE(options: {
                 return
             }
             if (eventSourceRef.current !== eventSource) return
-            if (Date.now() - lastActivityAtRef.current >= HEARTBEAT_STALE_MS) {
+            if (Date.now() - lastActivityAtRef.current >= VISIBILITY_RESUME_STALE_MS) {
                 requestReconnect('visibility-recovery')
             }
         }
@@ -946,6 +979,7 @@ export function useSSE(options: {
 
         return () => {
             clearInterval(watchdogTimer)
+            clearTimeout(connectDeadlineTimer)
             document.removeEventListener('visibilitychange', onVisibilityChange)
             if (invalidationTimerRef.current) {
                 clearTimeout(invalidationTimerRef.current)

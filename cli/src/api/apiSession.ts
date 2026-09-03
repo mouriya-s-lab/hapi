@@ -9,7 +9,7 @@ import { apiValidationError } from '@/utils/errorUtils'
 import { AsyncLock } from '@/utils/lock'
 import type { RawJSONLines } from '@/claude/types'
 import { configuration } from '@/configuration'
-import { extractUserRequest } from '@/agy/utils/agySessionScanner'
+import { extractUserRequest } from '@/agy/utils/agyMessageText'
 import { AGENT_MESSAGE_PAYLOAD_TYPE } from "@hapi/protocol"
 import type { SessionEndReason } from '@hapi/protocol'
 import type { ClientToServerEvents, ServerToClientEvents, TerminalOutputPayload, Update } from '@hapi/protocol'
@@ -1042,6 +1042,13 @@ export class ApiSessionClient extends EventEmitter {
         // Carries the exact in-flight prompt text the web should restore.
         type: 'abort-restore'
         text: string
+    } | {
+        // Structured result of Pi's compact RPC: the web chat renders the
+        // summary as a dedicated block instead of a small status line.
+        type: 'compact-summary'
+        summary: string
+        tokensBefore?: number
+        estimatedTokensAfter?: number
     }, id?: string): void {
         const content = {
             role: 'agent',
@@ -1057,7 +1064,7 @@ export class ApiSessionClient extends EventEmitter {
                 sid: this.sessionId,
                 message: content
             })
-        }, event.type === 'message' || event.type === 'error' ? 'lossless' : 'droppable')
+        }, event.type === 'message' || event.type === 'error' || event.type === 'compact-summary' ? 'lossless' : 'droppable')
     }
 
     emitAgentTerminalOutput(data: string): void {

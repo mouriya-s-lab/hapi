@@ -1535,10 +1535,8 @@ export function buildCliArgs(
       args.push('--resume', options.resumeSessionId);
     }
   }
-  // agy PTY reuses the existing hub row directly on reopen/resume.
-  if (options.existingSessionId && agent === 'agy') {
-    args.push('--hapi-session-id', options.existingSessionId);
-  }
+  // agy headless reuses the existing hub row on reopen/resume via the generic
+  // --existing-session-id flow (no PTY special case anymore).
   // Message-level Fork current for Claude: must follow --resume.
   if (options.forkSession && agentCommand === 'claude') {
     args.push('--fork-session');
@@ -1549,6 +1547,7 @@ export function buildCliArgs(
   // forks reuse the original HAPI row via --existing-session-id.
   if (agent === 'codex' || agent === 'cursor' || agent === 'pi'
       || agent === 'opencode'
+      || agent === 'agy'
       || (agentCommand === 'claude' && options.forkSession)) {
     const existingSessionId = options.existingSessionId ?? options.sessionId;
     if (existingSessionId) {
@@ -1565,7 +1564,7 @@ export function buildCliArgs(
   if (options.model) {
     args.push('--model', options.model);
   }
-  if (options.effort && (agent === 'claude' || agent === 'grok' || agent === 'pi' || agent === 'omp')) {
+  if (options.effort && (agent === 'claude' || agent === 'grok' || agent === 'pi' || agent === 'agy' || agent === 'omp')) {
     args.push('--effort', options.effort);
   }
   if (options.modelReasoningEffort && (agent === 'codex' || agent === 'opencode')) {

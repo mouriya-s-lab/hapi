@@ -19,6 +19,9 @@
     --app-chat-user-fg: #24292f;
     --app-chat-user-chip-bg: #DBEAFE;
     --app-chat-user-chip-fg: #1447E6;
+    --app-chat-user-chip-action-bg: #1d4ed8;
+    --app-chat-user-chip-action-fg: #bfdbfe;
+    --app-chat-user-chip-action-hover-fg: #fecaca;
     --app-tool-card-bg: #f2f4f6;
     --app-tool-group-bg: var(--app-tool-card-bg);
     --app-tool-card-hover-bg: #e9edf2;
@@ -99,6 +102,9 @@
     --app-chat-user-fg: #f5f7fa;
     --app-chat-user-chip-bg: rgba(37, 99, 235, 0.22);
     --app-chat-user-chip-fg: #93c5fd;
+    --app-chat-user-chip-action-bg: #171f32;
+    --app-chat-user-chip-action-fg: #7088aa;
+    --app-chat-user-chip-action-hover-fg: #f87171;
     --app-tool-card-bg: #2b2f34;
     --app-tool-group-bg: var(--app-tool-card-bg);
     --app-tool-card-hover-bg: #343a41;
@@ -177,6 +183,9 @@
     --app-chat-user-fg: #f5f7fa;
     --app-chat-user-chip-bg: rgba(78, 161, 255, 0.18);
     --app-chat-user-chip-fg: #8fc4ff;
+    --app-chat-user-chip-action-bg: #0d1428;
+    --app-chat-user-chip-action-fg: #7088aa;
+    --app-chat-user-chip-action-hover-fg: #f87171;
     --app-tool-card-bg: #0e0e10;
     --app-tool-group-bg: var(--app-tool-card-bg);
     --app-tool-card-hover-bg: #161618;

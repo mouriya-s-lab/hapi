@@ -29,6 +29,8 @@ export function useSessionActions(
     setEffort: (effort: string | null) => Promise<void>
     setServiceTier: (serviceTier: string | null) => Promise<void>
     renameSession: (name: string) => Promise<void>
+    suggestSessionTitle: () => Promise<string>
+    updateSessionSummary: (text: string) => Promise<void>
     setPinMode: (mode: 'none' | 'project' | 'global') => Promise<void>
     deleteSession: () => Promise<void>
     forkSession: (opts?: { forkPoint?: { messageId: string } }) => Promise<ForkRouteResult>
@@ -251,6 +253,26 @@ export function useSessionActions(
         onSuccess: () => void invalidateSession(),
     })
 
+    const titleSuggestionMutation = useMutation({
+        mutationFn: async () => {
+            if (!api || !sessionId) {
+                throw new Error('Session unavailable')
+            }
+            const response = await api.suggestSessionTitle(sessionId)
+            return response.title
+        }
+    })
+
+    const summaryMutation = useMutation({
+        mutationFn: async (text: string) => {
+            if (!api || !sessionId) {
+                throw new Error('Session unavailable')
+            }
+            await api.updateSessionSummary(sessionId, text)
+        },
+        onSuccess: () => void invalidateSession(),
+    })
+
     const pinMutation = useMutation({
         mutationFn: async (mode: 'none' | 'project' | 'global') => {
             if (!api || !sessionId) throw new Error('Session unavailable')
@@ -308,6 +330,8 @@ export function useSessionActions(
         setEffort: effortMutation.mutateAsync,
         setServiceTier: serviceTierMutation.mutateAsync,
         renameSession: renameMutation.mutateAsync,
+        suggestSessionTitle: titleSuggestionMutation.mutateAsync,
+        updateSessionSummary: summaryMutation.mutateAsync,
         setPinMode: pinMutation.mutateAsync,
         deleteSession: deleteMutation.mutateAsync,
         forkSession: forkMutation.mutateAsync,
@@ -324,6 +348,8 @@ export function useSessionActions(
             || effortMutation.isPending
             || serviceTierMutation.isPending
             || renameMutation.isPending
+            || titleSuggestionMutation.isPending
+            || summaryMutation.isPending
             || pinMutation.isPending
             || deleteMutation.isPending
             || forkMutation.isPending,

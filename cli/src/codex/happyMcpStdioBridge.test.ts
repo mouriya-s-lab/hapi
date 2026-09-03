@@ -4,6 +4,7 @@ type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>
 
 const harness = vi.hoisted(() => ({
     tools: new Map<string, ToolHandler>(),
+    configs: new Map<string, Record<string, unknown>>(),
     callTool: vi.fn(async (_request: unknown) => ({
         content: [{ type: 'text', text: 'forwarded' }],
         isError: false
@@ -12,8 +13,9 @@ const harness = vi.hoisted(() => ({
 
 vi.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
     McpServer: class {
-        registerTool(name: string, _config: unknown, handler: ToolHandler): void {
+        registerTool(name: string, config: Record<string, unknown>, handler: ToolHandler): void {
             harness.tools.set(name, handler)
+            harness.configs.set(name, config)
         }
 
         async connect(): Promise<void> {}
@@ -45,7 +47,22 @@ import { runHappyMcpStdioBridge } from './happyMcpStdioBridge'
 describe('runHappyMcpStdioBridge tool forwarding', () => {
     beforeEach(() => {
         harness.tools.clear()
+        harness.configs.clear()
         harness.callTool.mockClear()
+    })
+
+    it('describes display_image as user output rather than image input', async () => {
+        await runHappyMcpStdioBridge([
+            '--url',
+            'http://127.0.0.1:43006',
+            '--tools',
+            'display_image'
+        ])
+
+        const description = harness.configs.get('display_image')?.description
+        expect(description).toContain('human user')
+        expect(description).toContain('does not provide image input to the model')
+        expect(description).toContain('cannot be used to read, inspect, or analyze image contents')
     })
 
     it('registers and forwards skill_lookup when the HTTP server enables it', async () => {

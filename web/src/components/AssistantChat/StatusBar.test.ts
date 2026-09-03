@@ -2,9 +2,26 @@ import { describe, expect, it } from 'vitest'
 import {
     formatCompactContextUsageLabel,
     formatContextUsageLabel,
+    getContextWarning,
     getContextUsageDetails,
     shouldShowCodexFastBadge
 } from './StatusBar'
+
+describe('context warning colors', () => {
+    it('keeps usage below 70% muted', () => {
+        expect(getContextWarning(69, 100).color).toBe('text-[var(--app-hint)]')
+    })
+
+    it('shows a warning from 70% through below 90%', () => {
+        expect(getContextWarning(70, 100).color).toBe('text-amber-500')
+        expect(getContextWarning(89, 100).color).toBe('text-amber-500')
+    })
+
+    it('shows danger at 90% and above', () => {
+        expect(getContextWarning(90, 100).color).toBe('text-red-500')
+        expect(getContextWarning(95, 100).color).toBe('text-red-500')
+    })
+})
 
 describe('context usage labels', () => {
     it('keeps the desktop label compact and expresses used capacity', () => {

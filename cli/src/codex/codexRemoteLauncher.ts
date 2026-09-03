@@ -191,6 +191,10 @@ function formatGoalStatus(status: unknown): string {
             return 'paused';
         case 'budgetLimited':
             return 'limited by budget';
+        case 'usageLimited':
+            return 'limited by usage';
+        case 'blocked':
+            return 'blocked';
         case 'complete':
             return 'complete';
         default:

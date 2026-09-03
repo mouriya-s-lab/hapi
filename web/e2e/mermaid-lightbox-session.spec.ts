@@ -104,4 +104,53 @@ test.describe('mermaid lightbox (live HAPI session)', () => {
             await page.waitForSelector('[role="dialog"]', { state: 'detached', timeout: 5000 }).catch(() => undefined)
         })
     }
+
+    test('live session chat viewport keeps keyboard focus visible', async ({ page }) => {
+        const baseUrl = getHapiBaseUrl()
+        const sessionId = getMermaidTestSessionId()
+        const token = readCliAccessToken()
+
+        await installHapiAuth(page, baseUrl, token)
+        await page.goto(`${baseUrl}/sessions/${sessionId}`, {
+            waitUntil: 'domcontentloaded',
+            timeout: 60_000,
+        })
+        const viewport = page.locator('.chat-scroll-y')
+        await viewport.waitFor({ state: 'visible', timeout: 30_000 })
+        await page.waitForTimeout(1500)
+
+        await page.evaluate(() => {
+            document.body.focus()
+        })
+        let viewportFocused = false
+        for (let index = 0; index < 40; index += 1) {
+            await page.keyboard.press('Tab')
+            viewportFocused = await viewport.evaluate((element) => document.activeElement === element)
+            if (viewportFocused) break
+        }
+        expect(viewportFocused).toBe(true)
+
+        const readFocusState = () => viewport.evaluate((element) => {
+            const style = getComputedStyle(element)
+            return {
+                active: document.activeElement === element,
+                focusVisible: element.matches(':focus-visible'),
+                outlineStyle: style.outlineStyle,
+                boxShadow: style.boxShadow,
+            }
+        })
+        const afterTab = await readFocusState()
+        expect(afterTab).toMatchObject({ active: true, focusVisible: true, outlineStyle: 'none' })
+        expect(afterTab.boxShadow).not.toBe('none')
+
+        await page.keyboard.press('Home')
+        const afterHome = await readFocusState()
+        await page.keyboard.press('End')
+        const afterEnd = await readFocusState()
+
+        expect(afterHome).toMatchObject({ active: true, focusVisible: true, outlineStyle: 'none' })
+        expect(afterHome.boxShadow).not.toBe('none')
+        expect(afterEnd).toMatchObject({ active: true, focusVisible: true, outlineStyle: 'none' })
+        expect(afterEnd.boxShadow).not.toBe('none')
+    })
 })

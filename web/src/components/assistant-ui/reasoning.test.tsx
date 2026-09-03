@@ -1,23 +1,52 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { render, fireEvent, act, cleanup, screen } from '@testing-library/react'
+import React from 'react'
 import { I18nProvider } from '@/lib/i18n-context'
 
-// ReasoningGroup consumes `useMessage` from assistant-ui. Mock it so the
-// message status/content can be controlled per test.
-const { mockUseMessage, onNestedScrollFollowChange } = vi.hoisted(() => ({
-    mockUseMessage: vi.fn(),
-    onNestedScrollFollowChange: vi.fn(),
-}))
+// ReasoningGroup consumes assistant-ui message state. Mock it so the message
+// status and per-part status can be controlled per test.
+const { mockMessage, mockUseMessage, onNestedScrollFollowChange } = vi.hoisted(() => {
+    const mockMessage = {
+        status: null as { type: string } | null,
+        content: [] as { type: string }[],
+        parts: [] as { type: string; status: { type: string } }[],
+    }
+    return {
+        mockMessage,
+        mockUseMessage: vi.fn(() => mockMessage),
+        onNestedScrollFollowChange: vi.fn(),
+    }
+})
 
 vi.mock('@assistant-ui/react', () => ({
-    useMessage: mockUseMessage,
+    useMessage: () => mockMessage,
+    useAuiState: (selector: (state: { message: typeof mockMessage }) => unknown) =>
+        selector({ message: mockMessage }),
+}))
+
+vi.mock('@assistant-ui/react-markdown', () => ({
+    MarkdownTextPrimitive: ({ smooth }: { smooth?: boolean }) => (
+        <div data-testid="reasoning-markdown" data-smooth={String(smooth)}>
+            reasoning text
+        </div>
+    )
+}))
+
+vi.mock('@/components/assistant-ui/markdown-text', () => ({
+    MARKDOWN_CLASSNAME: '',
+    MARKDOWN_COMPONENTS_BY_LANGUAGE: {},
+    MARKDOWN_PLUGINS: [],
+    MARKDOWN_REHYPE_PLUGINS: [],
+    defaultComponents: {},
+    denyOnlyTransform: vi.fn(),
+    UriConfirmProvider: ({ children }: React.PropsWithChildren) => <>{children}</>
 }))
 
 vi.mock('@/components/AssistantChat/context', () => ({
     useOptionalHappyChatContext: () => ({ onNestedScrollFollowChange }),
 }))
 
-import { ReasoningGroup } from './reasoning'
+import { Reasoning, ReasoningGroup } from './reasoning'
 
 const STORAGE_KEY = 'hapi-reasoning-collapsed'
 
@@ -35,21 +64,29 @@ function isCollapsed(container: HTMLElement): boolean {
 }
 
 function setStreaming() {
-    mockUseMessage.mockReturnValue({
-        status: { type: 'running' },
-        content: [{ type: 'reasoning' }],
-    })
+    mockMessage.status = { type: 'running' }
+    mockMessage.content = [{ type: 'reasoning' }]
+    mockMessage.parts = [{ type: 'reasoning', status: { type: 'running' } }]
+}
+
+function setHydratedReasoning() {
+    mockMessage.status = { type: 'running' }
+    mockMessage.content = [{ type: 'reasoning' }]
+    mockMessage.parts = [{ type: 'reasoning', status: { type: 'complete' } }]
+}
+
+function renderReasoning(text: string, statusType: 'complete' | 'running' = 'complete') {
+    return render(<Reasoning type="reasoning" text={text} status={{ type: statusType }} />)
 }
 
 describe('ReasoningGroup', () => {
     beforeEach(() => {
         window.localStorage.clear()
         cleanup()
+        mockMessage.status = null
+        mockMessage.content = []
+        mockMessage.parts = []
         onNestedScrollFollowChange.mockReset()
-        mockUseMessage.mockReturnValue({
-            status: { type: 'complete' },
-            content: [{ type: 'reasoning' }],
-        })
         vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
             callback(0)
             return 1
@@ -270,5 +307,71 @@ describe('ReasoningGroup', () => {
         const { container } = renderGroup()
         const scroll = container.querySelector('.aui-reasoning-scroll') as HTMLDivElement
         expect(scroll.className).not.toContain('overscroll-y-contain')
+    })
+
+    it('does not show a running indicator when only the message status is running', () => {
+        setHydratedReasoning()
+        const { container } = renderGroup()
+
+        expect(container.querySelector('.animate-pulse')).toBeNull()
+        expect(isCollapsed(container)).toBe(true)
+    })
+
+    it('uses the reasoning part status for the running indicator', () => {
+        setHydratedReasoning()
+        const { container, rerender } = renderGroup()
+        expect(container.querySelector('.animate-pulse')).toBeNull()
+
+        setStreaming()
+        rerender(
+            <I18nProvider>
+                <ReasoningGroup>
+                    <div data-testid="reasoning-content">thinking text</div>
+                </ReasoningGroup>
+            </I18nProvider>
+        )
+        expect(container.querySelector('.animate-pulse')).toBeInTheDocument()
+        expect(isCollapsed(container)).toBe(false)
+    })
+})
+
+describe('Reasoning', () => {
+    it('keeps the typewriter for a newly mounted running reasoning part', () => {
+        const view = renderReasoning('Already thought.', 'running')
+
+        expect(screen.getByTestId('reasoning-markdown')).toHaveAttribute('data-smooth', 'true')
+
+        view.rerender(<Reasoning type="reasoning" text="Already thought with more." status={{ type: 'running' }} />)
+
+        expect(screen.getByTestId('reasoning-markdown')).toHaveAttribute('data-smooth', 'true')
+    })
+
+    it('does not enable smoothing when completed reasoning is briefly marked running', () => {
+        const view = renderReasoning('Already thought.')
+
+        view.rerender(<Reasoning type="reasoning" text="Already thought." status={{ type: 'running' }} />)
+        view.rerender(<Reasoning type="reasoning" text="Already thought." status={{ type: 'running' }} />)
+
+        expect(screen.getByTestId('reasoning-markdown')).toHaveAttribute('data-smooth', 'false')
+    })
+
+    it('smooths new reasoning when completed reasoning becomes running', () => {
+        const view = renderReasoning('Already thought.')
+
+        view.rerender(<Reasoning type="reasoning" text="Already thought with new output." status={{ type: 'running' }} />)
+
+        expect(screen.getByTestId('reasoning-markdown')).toHaveAttribute('data-smooth', 'true')
+    })
+
+    it('does not reuse an earlier reasoning stream after the part completes', () => {
+        const view = renderReasoning('Already thought.', 'running')
+
+        view.rerender(<Reasoning type="reasoning" text="Already thought with new output." status={{ type: 'running' }} />)
+        expect(screen.getByTestId('reasoning-markdown')).toHaveAttribute('data-smooth', 'true')
+
+        view.rerender(<Reasoning type="reasoning" text="Already thought with new output." status={{ type: 'complete' }} />)
+        view.rerender(<Reasoning type="reasoning" text="Already thought with new output." status={{ type: 'running' }} />)
+
+        expect(screen.getByTestId('reasoning-markdown')).toHaveAttribute('data-smooth', 'false')
     })
 })

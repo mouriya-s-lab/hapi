@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import type { Machine } from '@/types/api'
 
 export function getMachineTitle(machine: Machine): string {
@@ -49,11 +49,26 @@ function writeCachedLabels(labels: Record<string, string>): void {
  * back to a raw id prefix.
  */
 export function useMachineLabels(machines: Machine[]): Record<string, string> {
+    const previousLabelsRef = useRef<Record<string, string> | null>(null)
     const labels = useMemo(() => {
         const merged = readCachedLabels()
         for (const machine of machines) {
             merged[machine.id] = getMachineTitle(machine)
         }
+
+        const previous = previousLabelsRef.current
+        if (previous) {
+            const previousKeys = Object.keys(previous)
+            const mergedKeys = Object.keys(merged)
+            if (
+                previousKeys.length === mergedKeys.length
+                && mergedKeys.every((key) => merged[key] === previous[key])
+            ) {
+                return previous
+            }
+        }
+
+        previousLabelsRef.current = merged
         return merged
     }, [machines])
 

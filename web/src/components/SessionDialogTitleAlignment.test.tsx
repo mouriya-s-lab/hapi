@@ -1,5 +1,5 @@
-import { render, screen, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { I18nProvider } from '@/lib/i18n-context'
 import { ToastProvider } from '@/lib/toast-context'
 import { RenameSessionDialog } from './RenameSessionDialog'
@@ -13,6 +13,8 @@ function renderWithProviders(content: React.ReactNode) {
         </I18nProvider>
     )
 }
+
+afterEach(() => cleanup())
 
 function expectCenteredTitle(name: string) {
     const dialog = screen.getByRole('dialog')
@@ -36,6 +38,181 @@ describe('session dialog title alignment', () => {
         )
 
         expectCenteredTitle('Rename Session')
+    })
+
+    it('saves an untouched generated draft as metadata.summary.text', async () => {
+        const onRename = vi.fn(async () => {})
+        const onUpdateSummary = vi.fn(async () => {})
+
+        renderWithProviders(
+            <RenameSessionDialog
+                isOpen={true}
+                onClose={vi.fn()}
+                currentName="Session"
+                onRename={onRename}
+                onSuggestTitle={async () => 'Generated title'}
+                onUpdateSummary={onUpdateSummary}
+                isPending={false}
+            />
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
+        await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('Generated title'))
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+        await waitFor(() => expect(onUpdateSummary).toHaveBeenCalledWith('Generated title'))
+        expect(onRename).not.toHaveBeenCalled()
+    })
+
+    it('treats any edit to a generated draft as a manual metadata.name rename', async () => {
+        const onRename = vi.fn(async () => {})
+        const onUpdateSummary = vi.fn(async () => {})
+
+        renderWithProviders(
+            <RenameSessionDialog
+                isOpen={true}
+                onClose={vi.fn()}
+                currentName="Session"
+                onRename={onRename}
+                onSuggestTitle={async () => 'Generated title'}
+                onUpdateSummary={onUpdateSummary}
+                isPending={false}
+            />
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
+        await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('Generated title'))
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: 'My own title' } })
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+        await waitFor(() => expect(onRename).toHaveBeenCalledWith('My own title'))
+        expect(onUpdateSummary).not.toHaveBeenCalled()
+    })
+
+    it('keeps a generated draft manual when the user edits it back to the current title', async () => {
+        const onRename = vi.fn(async () => {})
+        const onUpdateSummary = vi.fn(async () => {})
+
+        renderWithProviders(
+            <RenameSessionDialog
+                isOpen={true}
+                onClose={vi.fn()}
+                currentName="Session"
+                onRename={onRename}
+                onSuggestTitle={async () => 'Generated title'}
+                onUpdateSummary={onUpdateSummary}
+                isPending={false}
+            />
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
+        await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('Generated title'))
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Edited title' } })
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Session' } })
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+        await waitFor(() => expect(onRename).toHaveBeenCalledWith('Session'))
+        expect(onUpdateSummary).not.toHaveBeenCalled()
+    })
+
+    it('ignores a generated result after the dialog closes and reopens', async () => {
+        let resolveSuggestion: ((title: string) => void) | undefined
+        const onSuggestTitle = vi.fn(() => new Promise<string>((resolve) => {
+            resolveSuggestion = resolve
+        }))
+        const onClose = vi.fn()
+        const { rerender } = renderWithProviders(
+            <RenameSessionDialog
+                isOpen={true}
+                onClose={onClose}
+                currentName="Session"
+                onRename={vi.fn(async () => {})}
+                onSuggestTitle={onSuggestTitle}
+                onUpdateSummary={vi.fn(async () => {})}
+                isPending={false}
+            />
+        )
+
+        fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
+        await waitFor(() => expect(onSuggestTitle).toHaveBeenCalledOnce())
+        fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+        rerender(
+            <I18nProvider>
+                <ToastProvider>
+                    <RenameSessionDialog
+                        isOpen={false}
+                        onClose={onClose}
+                        currentName="Session"
+                        onRename={vi.fn(async () => {})}
+                        onSuggestTitle={onSuggestTitle}
+                        onUpdateSummary={vi.fn(async () => {})}
+                        isPending={false}
+                    />
+                </ToastProvider>
+            </I18nProvider>
+        )
+        rerender(
+            <I18nProvider>
+                <ToastProvider>
+                    <RenameSessionDialog
+                        isOpen={true}
+                        onClose={onClose}
+                        currentName="Session"
+                        onRename={vi.fn(async () => {})}
+                        onSuggestTitle={onSuggestTitle}
+                        onUpdateSummary={vi.fn(async () => {})}
+                        isPending={false}
+                    />
+                </ToastProvider>
+            </I18nProvider>
+        )
+
+        resolveSuggestion?.('Stale title')
+        await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('Session'))
+        expect(screen.getByRole('textbox')).not.toHaveValue('Stale title')
+    })
+
+    it('uses metadata.name for direct manual input and does not save on cancel', async () => {
+        const onRename = vi.fn(async () => {})
+        const onUpdateSummary = vi.fn(async () => {})
+        const onClose = vi.fn()
+
+        const { rerender } = renderWithProviders(
+            <RenameSessionDialog
+                isOpen={true}
+                onClose={onClose}
+                currentName="Session"
+                onRename={onRename}
+                onSuggestTitle={async () => 'Generated title'}
+                onUpdateSummary={onUpdateSummary}
+                isPending={false}
+            />
+        )
+
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Manual title' } })
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+        await waitFor(() => expect(onRename).toHaveBeenCalledWith('Manual title'))
+        expect(onUpdateSummary).not.toHaveBeenCalled()
+
+        rerender(
+            <I18nProvider>
+                <ToastProvider>
+                    <RenameSessionDialog
+                        isOpen={true}
+                        onClose={onClose}
+                        currentName="Session"
+                        onRename={onRename}
+                        onSuggestTitle={async () => 'Generated title'}
+                        onUpdateSummary={onUpdateSummary}
+                        isPending={false}
+                    />
+                </ToastProvider>
+            </I18nProvider>
+        )
+        fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
+        await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('Generated title'))
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+        expect(onUpdateSummary).not.toHaveBeenCalled()
     })
 
     it('centers the export dialog title on the close button centerline', () => {
