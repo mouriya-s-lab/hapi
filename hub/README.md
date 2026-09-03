@@ -17,7 +17,7 @@ See `src/configuration.ts` for all options.
 
 ### Required
 
-- `CLI_API_TOKEN` - Base shared secret used by CLI and web login. Clients append `:<namespace>` for isolation. Auto-generated on first run if not set.
+- `CLI_API_TOKEN` - Base shared secret used by CLI connections and as the seed token for the admin account's first login. On first hub start it is imported into the multi-user gateway as the admin account's seed token (name `legacy bootstrap token`, namespace `default`). Per-account API tokens (`hapi_mu_*`) created via `POST /api/tokens` or the web UI are a separate token space. Auto-generated on first run if not set.
 
 ### Optional (Telegram)
 
@@ -67,7 +67,7 @@ hapi hub
 
 If you only need web + CLI, you can omit TELEGRAM_BOT_TOKEN.
 To enable Telegram, set TELEGRAM_BOT_TOKEN and HAPI_PUBLIC_URL, start the hub, open `/app`
-in the bot chat, and bind the Mini App with `CLI_API_TOKEN:<namespace>` when prompted.
+in the bot chat, and bind the Mini App with a per-account API token when prompted.
 
 From source:
 
@@ -80,10 +80,17 @@ bun run dev:hub
 
 See `src/web/routes/` for all endpoints.
 
-### Authentication (`src/web/routes/auth.ts`)
+### Authentication
 
-- `POST /api/auth` - Get JWT token (Telegram initData or `CLI_API_TOKEN[:namespace]`).
-- `POST /api/bind` - Bind a Telegram account using initData + `CLI_API_TOKEN:<namespace>`.
+The multi-user gateway (`fork-features/multi-user/gatewayRoutes.ts`) is mounted at `/api` before the core auth routes, so `POST /api/auth` is handled by the gateway, not the core `src/web/routes/auth.ts`.
+
+Accepted `POST /api/auth` bodies:
+- `{"accessToken":"<token>"}` — token is hashed (sha256) and looked up in the gateway store. Works with the bare `CLI_API_TOKEN` (seed token) or a `hapi_mu_*` per-account token. Appending `:<namespace>` to the token always fails (the full string is hashed, no match).
+- `{"username":"...","password":"..."}` — username/password login (admin defaults to `admin`/`admin`).
+- `{"initData":"..."}` — Telegram WebApp initData.
+
+- `POST /api/auth` — Get JWT (accessToken, username/password, or Telegram initData).
+- `POST /api/bind` — Bind a Telegram account using initData + a per-account API token.
 
 ### Sessions (`src/web/routes/sessions.ts`)
 
@@ -246,18 +253,13 @@ Maintenance scripts (run with the hub stopped before swapping files):
 - `src/socket/` - Socket.IO setup and handlers.
 - `src/socket/handlers/cli/` - Modular CLI handlers.
 - `src/telegram/` - Telegram bot.
-- `src/sync/` - Core session/message logic.
-- `src/store/` - SQLite persistence.
-- `src/sse/` - Server-Sent Events.
-- `src/config/` - Configuration loading and generation.
-- `src/notifications/` - Push and Telegram notifications.
 - `src/visibility/` - Client visibility tracking.
 
 ## Security model
 
 Access is controlled by:
-- Telegram initData verification plus bound Telegram users (bound via `CLI_API_TOKEN:<namespace>`).
-- `CLI_API_TOKEN` base secret for CLI and browser access (namespace is appended by clients).
+- Telegram initData verification plus bound Telegram users (bound via a per-account API token).
+- `CLI_API_TOKEN` seed token (admin) and per-account `hapi_mu_*` tokens for CLI and browser access. Namespace is a stored attribute of each token, not a client-appended suffix.
 
 Transport security depends on HTTPS in front of the hub.
 
