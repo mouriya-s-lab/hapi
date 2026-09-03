@@ -1,4 +1,5 @@
 import React from 'react';
+import { execFile } from 'node:child_process';
 import { logger } from '@/ui/logger';
 import { convertAgentMessage } from '@/agent/messageConverter';
 import {
@@ -270,6 +271,10 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         session.client.rpcHandlerManager.registerHandler<Record<string, never>, ListOmpModelsResponse>(
             RPC_METHODS.ListOmpModels,
             async () => await this.listModels()
+        );
+        session.client.rpcHandlerManager.registerHandler<Record<string, never>, ListOmpModelsResponse>(
+            RPC_METHODS.RefreshOmpModels,
+            async () => await this.refreshModels()
         );
         session.client.rpcHandlerManager.registerHandler<Record<string, never>, ListOmpThinkingOptionsResponse>(
             RPC_METHODS.ListOmpThinkingOptions,
@@ -788,6 +793,71 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
             return {
                 success: false,
                 error: error instanceof Error ? error.message : 'Failed to list OMP models'
+            };
+        }
+    }
+
+    /**
+     * Force a fresh OMP model catalog fetch by running `omp models refresh --json`
+     * as a subprocess. The running OMP RPC process caches its model catalog at
+     * startup; `get_available_models` returns that stale in-memory list and
+     * cannot re-discover providers. This method bypasses the cache by spawning
+     * a fresh `omp models refresh` invocation, which re-fetches every
+     * authenticated provider's catalog and updates ~/.omp/agent/models.db.
+     * Returns the refreshed catalog plus the session's current model.
+     */
+    private async refreshModels(): Promise<ListOmpModelsResponse> {
+        try {
+            const env = buildOmpEnv();
+            const stdout = await new Promise<string>((resolve, reject) => {
+                execFile(
+                    'omp',
+                    ['models', 'refresh', '--json'],
+                    { env, cwd: this.session.path, maxBuffer: 64 * 1024 * 1024 },
+                    (error, out) => {
+                        if (error) {
+                            reject(error);
+                        } else {
+                            resolve(out);
+                        }
+                    }
+                );
+            });
+            const parsed = JSON.parse(stdout) as { models: Array<{
+                provider: string;
+                id: string;
+                name: string;
+                reasoning: boolean;
+                contextWindow: number;
+                maxTokens: number;
+                thinking?: string[];
+            }> };
+            const summaries: OmpModelSummary[] = parsed.models.map((model) => ({
+                provider: model.provider,
+                modelId: model.id,
+                name: model.name,
+                reasoning: model.reasoning,
+                contextWindow: model.contextWindow,
+                maxTokens: model.maxTokens,
+                thinkingLevels: (model.thinking ?? []) as OmpEffort[]
+            }));
+            // Fetch current model from the running RPC process so the web
+            // can highlight the active model in the refreshed list.
+            let currentModel: { provider: string; modelId: string } | null = null;
+            try {
+                const state = await this.requireClient().request({ type: 'get_state' });
+                this.persistRuntimeState(state);
+                currentModel = state.model
+                    ? { provider: state.model.provider, modelId: state.model.id }
+                    : null;
+            } catch {
+                // The running subprocess may be mid-prompt; currentModel is best-effort.
+            }
+            return { success: true, availableModels: summaries, currentModel };
+        } catch (error) {
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to refresh OMP models'
             };
         }
     }

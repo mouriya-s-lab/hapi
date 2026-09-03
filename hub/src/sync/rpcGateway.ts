@@ -469,6 +469,9 @@ return await this.sessionRpc(sessionId, RPC_METHODS.ListCodexModels, {}, MODEL_L
     async listOmpModelsForSession(sessionId: string): Promise<RpcListOmpModelsResponse> {
         return await this.sessionRpc(sessionId, RPC_METHODS.ListOmpModels, {}) as RpcListOmpModelsResponse
     }
+    async refreshOmpModelsForSession(sessionId: string): Promise<RpcListOmpModelsResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.RefreshOmpModels, {}) as RpcListOmpModelsResponse
+    }
     async listOmpModelsForMachine(machineId: string, cwd: string): Promise<RpcListOmpModelsResponse> {
         return await this.machineRpc(
             machineId,

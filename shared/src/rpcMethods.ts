@@ -37,6 +37,7 @@ export const RPC_METHODS = {
     ListCursorModels: 'listCursorModels',
     ListPiModels: 'listPiModels',
     ListOmpModels: 'listOmpModels',
+    RefreshOmpModels: 'refreshOmpModels',
     ListOmpThinkingOptions: 'listOmpThinkingOptions',
     CycleOmpModel: 'cycleOmpModel',
     ListOmpLoginProviders: 'listOmpLoginProviders',

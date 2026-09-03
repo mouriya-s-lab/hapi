@@ -1566,7 +1566,7 @@ function SessionChatInner(props: SessionChatProps) {
     const handleOmpModelsRefresh = useCallback(async () => {
         try {
             await Promise.all([
-                ompModelsState.refetch(),
+                ompModelsState.refresh(),
                 ompThinkingState.refetch()
             ])
         } catch (error) {
@@ -2185,7 +2185,7 @@ function SessionChatInner(props: SessionChatProps) {
                         onRefreshModels={agentFlavor === 'omp' && props.session.active && !controlledByUser
                             ? handleOmpModelsRefresh
                             : undefined}
-                        modelsRefreshing={agentFlavor === 'omp' ? ompModelsState.isFetching : undefined}
+                        modelsRefreshing={agentFlavor === 'omp' ? (ompModelsState.isRefreshing || ompModelsState.isFetching) : undefined}
                         modelsError={agentFlavor === 'omp' ? ompModelsState.error : undefined}
                         onResumeWithSessionModelChange={agentFlavor === 'claude' ? handleResumeWithSessionModelChange : undefined}
                         onModelEffortChange={

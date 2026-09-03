@@ -4113,6 +4113,9 @@ export class SyncEngine {
     async listOmpModelsForSession(sessionId: string): Promise<RpcListOmpModelsResponse> {
         return await this.rpcGateway.listOmpModelsForSession(sessionId)
     }
+    async refreshOmpModelsForSession(sessionId: string): Promise<RpcListOmpModelsResponse> {
+        return await this.rpcGateway.refreshOmpModelsForSession(sessionId)
+    }
     async listOmpModelsForMachine(machineId: string, cwd: string): Promise<RpcListOmpModelsResponse> {
         return await this.rpcGateway.listOmpModelsForMachine(machineId, cwd)
     }
