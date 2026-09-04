@@ -71,6 +71,7 @@ object Flavors {
         "codex" to setOf(FlavorCapability.ModelChange),
         "dsh" to emptySet(),
         "omp" to setOf(FlavorCapability.ModelChange, FlavorCapability.Effort),
+        "cursor" to setOf(FlavorCapability.ModelChange),
         "opencode" to setOf(FlavorCapability.ModelChange),
         "pi" to setOf(FlavorCapability.ModelChange, FlavorCapability.Effort),
     )

@@ -27,7 +27,6 @@ public enum AgentFlavor: Equatable, Hashable, Sendable {
         .agy, .claude, .codex, .dsh, .copilot, .cursor, .gemini, .grok, .kimi, .omp, .opencode, .pi,
     ]
 
-
     /// Flavors offered when creating a new session (`CREATABLE_AGENT_FLAVORS`).
     /// Gemini is excluded: the consumer Gemini CLI was sunset, but stored
     /// Gemini sessions remain viewable.
