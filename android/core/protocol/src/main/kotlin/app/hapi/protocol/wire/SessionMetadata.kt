@@ -45,6 +45,16 @@ data class SessionMetadata(
     val kimiSessionId: String? = null,
     val copilotSessionId: String? = null,
     val piSessionId: String? = null,
+    /** OMP native session handle (`MetadataSchema.ompSession`). */
+    val ompSession: OmpNativeSession? = null,
+)
+
+/** `OmpNativeSessionSchema` (`shared/src/schemas.ts`): OMP resume handle. */
+@Serializable
+data class OmpNativeSession(
+    val id: String,
+    val file: String,
+    val name: String? = null,
 )
 
 /** `metadata.summary` on the detail session (`{text, updatedAt}`). */

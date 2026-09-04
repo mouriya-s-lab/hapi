@@ -122,6 +122,7 @@ public enum SummaryPatching {
             case .agy: flavorSessionId = metadata.agySessionId
             case .cursor: flavorSessionId = metadata.cursorSessionId
             case .kimi: flavorSessionId = metadata.kimiSessionId
+            case .omp: flavorSessionId = metadata.ompSession?.id
             case .copilot: flavorSessionId = metadata.copilotSessionId
             case .pi: flavorSessionId = metadata.piSessionId
             case .other: flavorSessionId = nil

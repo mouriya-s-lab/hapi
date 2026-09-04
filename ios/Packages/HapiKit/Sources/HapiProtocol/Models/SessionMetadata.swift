@@ -19,6 +19,14 @@ public struct SessionMetadataSummary: Codable, Equatable, Sendable {
     }
 }
 
+/// Mirrors `OmpNativeSessionSchema` (`shared/src/schemas.ts`): OMP's native
+/// resume handle, nested on `metadata.ompSession`.
+public struct OmpNativeSession: Codable, Equatable, Sendable {
+    public var id: String
+    public var file: String
+    public var name: String?
+}
+
 /// Worktree info for sessions spawned into a git worktree.
 ///
 /// Mirrors `WorktreeMetadataSchema` (`shared/src/schemas.ts`).
@@ -119,6 +127,9 @@ public struct SessionMetadata: Codable, Equatable, Sendable {
     public var grokSessionId: String?
     public var agySessionId: String?
     public var cursorSessionId: String?
+    /// OMP native session handle (`MetadataSchema.ompSession`): the resume id
+    /// lives nested on `ompSession.id`, unlike the other flavors' flat fields.
+    public var ompSession: OmpNativeSession?
     public var kimiSessionId: String?
     public var copilotSessionId: String?
     public var piSessionId: String?
@@ -147,6 +158,7 @@ public struct SessionMetadata: Codable, Equatable, Sendable {
         agySessionId: String? = nil,
         cursorSessionId: String? = nil,
         kimiSessionId: String? = nil,
+        ompSession: OmpNativeSession? = nil,
         copilotSessionId: String? = nil,
         piSessionId: String? = nil
     ) {
@@ -175,5 +187,6 @@ public struct SessionMetadata: Codable, Equatable, Sendable {
         self.kimiSessionId = kimiSessionId
         self.copilotSessionId = copilotSessionId
         self.piSessionId = piSessionId
+        self.ompSession = ompSession
     }
 }
