@@ -7,9 +7,11 @@ import type {
     OmpInboundEvent,
     OmpModel,
     OmpResponseData,
-    OmpRpcRawResponse
+    OmpRpcRawResponse,
+    OmpTodoKnownStatus,
+    OmpTodoStatus
 } from './types';
-import { OMP_EFFORT_LEVELS, OMP_KNOWN_EVENT_TYPES, OMP_THINKING_LEVELS } from './types';
+import { OMP_EFFORT_LEVELS, OMP_KNOWN_EVENT_TYPES, OMP_KNOWN_TODO_STATUSES, OMP_THINKING_LEVELS } from './types';
 
 const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
     z.string(),
@@ -29,9 +31,14 @@ const InterruptModeSchema = z.enum(['immediate', 'wait']);
 const SubscriptionLevelSchema = z.enum(['off', 'progress', 'events']);
 const KnownEventTypeSchema = z.enum(OMP_KNOWN_EVENT_TYPES);
 
+const TodoStatusSchema = z.string().transform((status): OmpTodoStatus => {
+    const known = OMP_KNOWN_TODO_STATUSES.find((candidate): candidate is OmpTodoKnownStatus => candidate === status);
+    return known ?? 'unknown';
+});
+
 const TodoItemSchema = z.object({
     content: z.string(),
-    status: z.enum(['pending', 'in_progress', 'completed', 'abandoned'])
+    status: TodoStatusSchema
 });
 
 const TodoPhaseSchema = z.object({

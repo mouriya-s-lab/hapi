@@ -21,9 +21,19 @@ export type OmpImageContent = {
     detail?: 'auto' | 'low' | 'high' | 'original';
 };
 
+export const OMP_KNOWN_TODO_STATUSES = ['pending', 'in_progress', 'blocked', 'completed', 'abandoned'] as const;
+export type OmpTodoKnownStatus = typeof OMP_KNOWN_TODO_STATUSES[number];
+
+/**
+ * Todo status as observed from native omp. omp may introduce new statuses in any
+ * release; unknown ones parse to 'unknown' instead of failing get_state
+ * (mouriya-s-lab/hapi#300).
+ */
+export type OmpTodoStatus = OmpTodoKnownStatus | 'unknown';
+
 export type OmpTodoItem = {
     content: string;
-    status: 'pending' | 'in_progress' | 'completed' | 'abandoned';
+    status: OmpTodoStatus;
 };
 
 export type OmpTodoPhase = {
