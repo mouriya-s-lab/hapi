@@ -23,6 +23,7 @@
         "modelReasoningEffort": null,
         "namespace": "default",
         "permissionMode": "default",
+        "resumeWithSessionModel": false,
         "seq": 12,
         "serviceTier": null,
         "teamStateUpdatedAt": 1755000200000,
@@ -51,6 +52,7 @@
         "modelReasoningEffort": null,
         "namespace": "default",
         "permissionMode": "default",
+        "resumeWithSessionModel": false,
         "seq": 12,
         "serviceTier": null,
         "teamState": {

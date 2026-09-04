@@ -1,5 +1,4 @@
-import type { AgentFlavor } from '@hapi/protocol'
-import type { CopilotAgentMode } from '@hapi/protocol'
+import type { AgentFlavor, ClaudeLaunch, CopilotAgentMode } from '@hapi/protocol'
 
 export interface SpawnSessionOptions {
     machineId?: string
@@ -29,6 +28,8 @@ export interface SpawnSessionOptions {
     forkSession?: boolean
     /** Runner-internal post-create containment revalidation. Never serialized. */
     validateDirectory?: (path: string) => Promise<boolean>
+    claudeLaunch?: ClaudeLaunch
+    ccSwitchProviderId?: string
 }
 
 export type SpawnSessionResult =

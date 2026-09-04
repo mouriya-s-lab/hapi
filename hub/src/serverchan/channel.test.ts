@@ -26,6 +26,7 @@ function createSession(overrides: Partial<Session> = {}): Session {
         modelReasoningEffort: null,
         effort: null,
         serviceTier: null,
+        resumeWithSessionModel: false,
         ...overrides
     }
 }

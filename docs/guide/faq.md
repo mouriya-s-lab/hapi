@@ -46,12 +46,18 @@ For internet access:
 
 ### What's the access token for?
 
-The `CLI_API_TOKEN` is a shared secret that authenticates:
+There are two types of access token:
+
+1. **`CLI_API_TOKEN`** (seed token) — auto-generated on first hub start and saved to `~/.hapi/settings.json`. On first start it is imported into the multi-user gateway as the admin account's seed token (stored with name `legacy bootstrap token`, namespace `default`). Use the bare value (no suffix) for admin login or CLI connections.
+
+2. **`hapi_mu_*` tokens** (per-account API tokens) — created via Settings → My API Token in the web UI or `POST /api/tokens` with an authenticated JWT. The plaintext is shown once; only its sha256 hash is stored. Each token is bound to the creating account's namespace.
+
+Both token types authenticate:
 - CLI connections to the hub
-- Web app logins
+- Web app logins (`POST /api/auth` with `{"accessToken":"<token>"}`)
 - Telegram account binding
 
-It's auto-generated on first hub start and saved to `~/.hapi/settings.json`.
+There is no `:<namespace>` suffix syntax. Appending `:namespace` to any token always fails authentication.
 
 ### Do you support multiple accounts?
 

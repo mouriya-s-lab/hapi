@@ -78,7 +78,8 @@ describe('runHappyMcpStdioBridge tool forwarding', () => {
             'display_image',
             'display_video',
             'display_media',
-            'skill_lookup'
+            'skill_lookup',
+            'send_file'
         ])
 
         const handler = harness.tools.get('skill_lookup')
@@ -101,7 +102,12 @@ describe('runHappyMcpStdioBridge tool forwarding', () => {
             'change_title,display_image,display_video'
         ])
 
-        expect([...harness.tools.keys()]).toEqual(['change_title', 'display_image', 'display_video'])
+        expect([...harness.tools.keys()]).toEqual([
+            'change_title',
+            'display_image',
+            'display_video',
+            'send_file'
+        ])
     })
 
     it('forwards display_media arguments unchanged', async () => {
@@ -136,7 +142,8 @@ describe('runHappyMcpStdioBridge tool forwarding', () => {
             'display_image',
             'display_video',
             'display_media',
-            'ping_peer'
+            'ping_peer',
+            'send_file'
         ])
     })
 
@@ -154,7 +161,8 @@ describe('runHappyMcpStdioBridge tool forwarding', () => {
             'display_video',
             'display_media',
             'ping_peer',
-            'inspect_peer'
+            'inspect_peer',
+            'send_file'
         ])
     })
     it('registers list_peers when included in --tools', async () => {
@@ -173,6 +181,7 @@ describe('runHappyMcpStdioBridge tool forwarding', () => {
             'ping_peer',
             'inspect_peer',
             'list_peers',
+            'send_file',
         ])
     })
 

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SessionSummary } from '@/types/api'
 import { isWildcardSearch, matchesSearchQuery } from '@hapi/protocol'
 import type { ApiClient } from '@/api/client'
 import { useLongPress } from '@/hooks/useLongPress'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
+import { useFlavorCapabilities, getFlavorForkCapability } from '@/hooks/queries/useFlavorCapabilities'
 import { SessionActionMenu } from '@/components/SessionActionMenu'
 import { SessionExportDialog } from '@/components/SessionExportDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
@@ -36,6 +37,8 @@ import {
 } from '@/lib/sessionLastSeen'
 import { useSessionRowTooltipIds } from '@/components/HoverTooltip'
 import { subscribeCodexImportedSessions } from '@/lib/codexImportedSessions'
+import { getAttentionLabel, SessionAttentionIndicator } from '@/components/SessionAttentionIndicator'
+import { formatScheduledTooltipDetail } from '@/lib/scheduledTime'
 import { formatReopenError } from '@/lib/reopenError'
 import { resolveCursorReopenGate } from '@/lib/sessionResume'
 import { getSessionTitle, hasSessionTitleSignal } from '@/lib/sessionTitle'
@@ -50,8 +53,15 @@ import { SessionRowSummary } from '@/components/SessionRowSummary'
 import { Spinner } from '@/components/Spinner'
 import { transferComposerDraftThenNavigate } from '@/lib/composer-draft-transfer'
 import { useToast } from '@/lib/toast-context'
+import { DISABLED_SESSION_LIST_SCROLL_STABILITY } from '@/fork-features/session-list-scroll/sessionListScroll'
 
 export { getWorktreeSessionLabel } from '@/lib/sessionWorktreeLabel'
+
+export type SessionListScrollStability = Readonly<{
+    container: HTMLDivElement | null
+    bindContainer: (container: HTMLDivElement | null) => void
+    beforeSelect: (sessionId: string) => void
+}>
 
 type SessionGroup = {
     key: string
@@ -960,12 +970,18 @@ function SessionItem(props: {
         ? t('session.action.reopenCursorUnverified')
         : undefined
 
-    const { archiveSession, reopenSession, renameSession, suggestSessionTitle, updateSessionSummary, deleteSession, setPinMode, isPending } = useSessionActions(
+    const { archiveSession, reopenSession, renameSession, suggestSessionTitle, updateSessionSummary, deleteSession, setPinMode, forkSession, isPending } = useSessionActions(
         api,
         s.id,
         s.metadata?.flavor ?? null
     )
+    const { data: capabilities } = useFlavorCapabilities(api)
+    const sessionFlavor = s.metadata?.flavor ?? null
+    const forkSupported =
+        Boolean(sessionFlavor) &&
+        getFlavorForkCapability(capabilities, sessionFlavor).fork !== 'none'
     const [reopenError, setReopenError] = useState<string | null>(null)
+    const [forkError, setForkError] = useState<string | null>(null)
 
     const handleSetPinMode = async (mode: 'none' | 'project' | 'global') => {
         try {
@@ -996,6 +1012,18 @@ function SessionItem(props: {
             }
         } catch (error) {
             setReopenError(formatReopenError(error))
+        }
+    }
+
+    const handleFork = async () => {
+        setForkError(null)
+        try {
+            const result = await forkSession()
+            if (result.type === 'success') {
+                onSelect(result.newSessionId)
+            }
+        } catch (error) {
+            setForkError(error instanceof Error ? error.message : 'Fork failed')
         }
     }
 
@@ -1034,6 +1062,7 @@ function SessionItem(props: {
             <button
                 type="button"
                 {...longPressHandlers}
+                data-session-id={s.id}
                 className={`session-list-item group/session-row flex w-full flex-col gap-1 py-2 pl-2.5 pr-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-link)] select-none rounded-lg ${selected ? 'bg-[var(--app-secondary-bg)]' : ''}`}
                 style={{ WebkitTouchCallout: 'none' }}
                 aria-current={selected ? 'page' : undefined}
@@ -1071,6 +1100,8 @@ function SessionItem(props: {
                 reopenDisabledReason={cursorReopenDisabledReason}
                 reopenHint={cursorReopenUnverifiedHint}
                 onDelete={() => setDeleteOpen(true)}
+                onFork={forkSupported ? handleFork : undefined}
+                forkSupported={forkSupported}
                 anchorPoint={menuAnchorPoint}
             />
 
@@ -1085,6 +1116,19 @@ function SessionItem(props: {
                     onConfirm={async () => setReopenError(null)}
                     isPending={false}
                     centerTitle
+                />
+            ) : null}
+
+            {forkError ? (
+                <ConfirmDialog
+                    isOpen={true}
+                    onClose={() => setForkError(null)}
+                    title={t('dialog.fork.errorTitle', { defaultValue: 'Fork failed' })}
+                    description={forkError}
+                    confirmLabel={t('dialog.fork.dismiss', { defaultValue: 'OK' })}
+                    confirmingLabel={t('dialog.fork.dismiss', { defaultValue: 'OK' })}
+                    onConfirm={async () => setForkError(null)}
+                    isPending={false}
                 />
             ) : null}
 
@@ -1190,6 +1234,8 @@ export function SessionList(props: {
     machineLabelsById?: Record<string, string>
     machinesById?: Record<string, Machine>
     selectedSessionId?: string | null
+    /** Optional; defaults to no-op so upstream SessionList tests stay type-clean. */
+    scrollStability?: SessionListScrollStability
 }) {
     const { t } = useTranslation()
     const {
@@ -1199,8 +1245,10 @@ export function SessionList(props: {
         selectedSessionId,
         machineLabelsById = {},
         machinesById = {},
-        onNewSessionInDirectory
+        onNewSessionInDirectory,
+        scrollStability = DISABLED_SESSION_LIST_SCROLL_STABILITY,
     } = props
+    const { bindContainer, beforeSelect } = scrollStability
     const { sessionPreviewLimit } = useSessionPreviewLimit()
     const { sessionListStatusMode } = useSessionListStatusMode()
     const { showActiveSessionsOnly } = useShowActiveSessionsOnly()
@@ -1219,18 +1267,24 @@ export function SessionList(props: {
     const timeRange = getSessionTimeRange(customStart, customEnd)
     const isFiltering = normalizedQuery.length > 0 || timeRange !== null
 
-    useEffect(() => {
-        // 中文注释：监听导入标记变化，让列表在“导入完成”或“用户已在 Hapi 中继续会话”后立即刷新时间文案。
-        return subscribeCodexImportedSessions(() => {
-            setCodexImportedSessionsVersion((value) => value + 1)
-        })
-    }, [])
+    // machineId → host fallback built from session metadata. Used when a
+    // machine has no friendly label yet (registered but unnamed): show the
+    // recorded host instead of the abstract 8-char machineId slice.
+    const hostByMachineId = useMemo(() => {
+        const m = new Map<string, string>()
+        for (const s of props.sessions) {
+            const mid = s.metadata?.machineId
+            const host = s.metadata?.host
+            if (mid && host && !m.has(mid)) m.set(mid, host)
+        }
+        return m
+    }, [props.sessions])
 
     const resolveMachineLabel = (machineId: string | null): string => {
-        if (machineId && machineLabelsById[machineId]) {
-            return machineLabelsById[machineId]
-        }
         if (machineId) {
+            if (machineLabelsById[machineId]) return machineLabelsById[machineId]
+            const host = hostByMachineId.get(machineId)
+            if (host) return host
             return machineId.slice(0, 8)
         }
         return t('machine.unknown')
@@ -1455,6 +1509,7 @@ export function SessionList(props: {
         return getVisibleSessionPreview(
             group.sessions,
             {
+
                 selectedSessionId,
                 limit: getGroupVisibleCount(group)
             }
@@ -1657,7 +1712,7 @@ export function SessionList(props: {
                                 ) : null}
                                 <SessionItem
                                     session={s}
-                                    onSelect={props.onSelect}
+                                    onSelect={selectSession}
                                     showPath={false}
                                     api={api}
                                     titleSuggestionAvailable={titleSuggestionAvailable}
@@ -1783,6 +1838,14 @@ export function SessionList(props: {
     // pull-to-load-older pattern in HappyThread; desktop has no overscroll
     // bounce to make a wheel pull feel right, so it stays on live updates.
     const scrollContainerRef = useRef<HTMLDivElement>(null)
+    const assignScrollContainer = useCallback((container: HTMLDivElement | null) => {
+        scrollContainerRef.current = container
+        bindContainer(container)
+    }, [bindContainer])
+    const selectSession = useCallback((sessionId: string) => {
+        beforeSelect(sessionId)
+        props.onSelect(sessionId)
+    }, [beforeSelect, props.onSelect])
     const [pullState, setPullState] = useState<PullToRefreshState>('idle')
     const pullStateRef = useRef<PullToRefreshState>('idle')
     const [isRefreshing, setIsRefreshing] = useState(false)
@@ -1970,7 +2033,10 @@ export function SessionList(props: {
                     </span>
                 </div>
             ) : null}
-            <div ref={scrollContainerRef} className="app-scroll-y session-list-scrollbar-left min-h-0 flex-1">
+            <div
+                ref={assignScrollContainer}
+                className="app-scroll-y session-list-scrollbar-left min-h-0 flex-1"
+            >
             <div className="mx-auto flex w-full max-w-content flex-col gap-1 pl-1.5 pr-2 pb-2">
                 {props.sessions.length === 0 && !props.isLoading ? (
                     <SessionsEmptyState
@@ -2020,7 +2086,7 @@ export function SessionList(props: {
                                         <SessionItem
                                             key={s.id}
                                             session={s}
-                                            onSelect={props.onSelect}
+                                            onSelect={selectSession}
                                             showPath={false}
                                             api={api}
                                             titleSuggestionAvailable={titleSuggestionAvailable}

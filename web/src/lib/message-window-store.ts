@@ -660,6 +660,17 @@ function finishTailSync(sessionId: string, generation: number, warning: string |
 }
 
 async function runTailSync(api: ApiClient, sessionId: string): Promise<void> {
+    const preflight = getState(sessionId)
+    // While the user is reading history, requiresLatestReset only records that
+    // the tail was evicted from the bounded window — the epoch is still valid.
+    // Running the latest-page reset here would replace the loaded history with
+    // the newest page and snap the view back to the bottom. Defer it until the
+    // window returns to tail mode (enterTailMode clears the cursor, and
+    // setViewMode('tail') schedules the sync). An epoch of null means history
+    // itself is invalid, so the reset must still run.
+    if (preflight.viewMode === 'history' && preflight.requiresLatestReset && preflight.epoch !== null) {
+        return
+    }
     const generation = beginTailSync(sessionId)
     try {
         const initial = getState(sessionId)

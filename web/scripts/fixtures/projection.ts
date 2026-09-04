@@ -111,6 +111,13 @@ export function projectChatBlock(block: ChatBlock): JsonObject {
             // carried verbatim (type + typed payload fields).
             projected.event = block.event
             return projected
+        case 'generated-file':
+            projected.localId = block.localId
+            projected.fileId = block.fileId
+            projected.fileName = block.fileName
+            projected.mimeType = block.mimeType
+            projected.size = block.size
+            return projected
         case 'tool-call':
             projected.localId = block.localId
             projected.tool = projectTool(block.tool)

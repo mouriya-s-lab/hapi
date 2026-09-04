@@ -20,6 +20,7 @@ import {
 } from "@/modules/common/generatedImages";
 import type { InlineMediaSource } from "@/modules/common/inlineMediaSource";
 import { DISPLAY_IMAGE_PROMPT_CURSOR, DISPLAY_MEDIA_PROMPT_CURSOR, DISPLAY_VIDEO_PROMPT_CURSOR } from "@/modules/common/displayImagePrompt";
+import { registerGeneratedFile } from "@/modules/common/generatedFiles";
 import { resolveSkill } from "@/modules/common/skills";
 import {
     INSPECT_PEER_TOOL_DESCRIPTION,
@@ -41,14 +42,15 @@ type StartHappyServerOptions = {
 const CLAUDE_MANUAL_APPROVAL_HAPI_TOOLS = new Set([
     'display_media',
     'display_video',
+    'send_file',
     'ping_peer',
     'inspect_peer'
 ]);
 
 /**
  * Map HAPI MCP tool names to Claude `--allowedTools` entries.
- * Keeps `display_media` / `display_video` (arbitrary local-path readers), `ping_peer`, and
- * `inspect_peer` off the auto-allow list so they still prompt.
+ * Keeps `display_media` / `display_video` / `send_file` (arbitrary local-path readers),
+ * `ping_peer`, and `inspect_peer` off the auto-allow list so they still prompt.
  * `list_peers` stays allowed (discovery shortlist only).
  */
 export function toClaudeAllowedHapiMcpTools(toolNames: string[]): string[] {
@@ -106,6 +108,11 @@ function createHapiMcpServer(
     const displayMediaInputSchema: z.ZodTypeAny = z.object({
         path: z.string().describe('Local filesystem path of the media or file to send to the user'),
         title: z.string().trim().min(1).max(255).optional().describe('Optional display title or filename'),
+    });
+
+    const sendFileInputSchema: z.ZodTypeAny = z.object({
+        path: z.string().describe('Local filesystem path of the file to send to the user'),
+        title: z.string().optional().describe('Optional display filename for the file'),
     });
 
     const pingPeerInputSchema: z.ZodTypeAny = z.object({
@@ -395,11 +402,7 @@ function createHapiMcpServer(
                 isError: false,
             };
         } catch (error) {
-            const message = error instanceof PingPeerError
-                ? error.message
-                : error instanceof Error
-                    ? error.message
-                    : String(error);
+            const message = error instanceof Error ? error.message : String(error);
             logger.debug('[hapiMCP] list_peers failed:', message);
             return {
                 content: [
@@ -413,6 +416,52 @@ function createHapiMcpServer(
         }
     });
 
+    mcp.registerTool<any, any>('send_file', {
+        description: 'Send a local file to the current HAPI chat session so the user can download it, like sending a file in an IM app',
+        title: 'Send File',
+        inputSchema: sendFileInputSchema,
+    }, async (args: { path: string; title?: string }) => {
+        logger.debug('[hapiMCP] Send file:', args.path);
+
+        try {
+            const file = await registerGeneratedFile({
+                id: randomUUID(),
+                path: args.path,
+                fileName: args.title
+            });
+
+            client.sendAgentMessage({
+                type: 'generated-file',
+                fileId: file.id,
+                fileName: file.fileName,
+                mimeType: file.mimeType,
+                size: file.size,
+                id: randomUUID()
+            });
+
+            return {
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: `Sent file: ${file.fileName} (${file.size} bytes)`,
+                    },
+                ],
+                isError: false,
+            };
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            logger.debug('[hapiMCP] Failed to send file:', message);
+            return {
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: `Failed to send file: ${message}`,
+                    },
+                ],
+                isError: true,
+            };
+        }
+    });
 
     if (skillLookup) {
         mcp.registerTool<any, any>('skill_lookup', {
@@ -534,8 +583,8 @@ export async function startHappyServer(client: ApiSessionClient, options: StartH
     }));
 
     const toolNames = enableChangeTitle
-        ? ['change_title', 'display_image', 'display_video', 'display_media', 'list_peers', 'ping_peer', 'inspect_peer']
-        : ['display_image', 'display_video', 'display_media', 'list_peers', 'ping_peer', 'inspect_peer'];
+        ? ['change_title', 'display_image', 'display_video', 'display_media', 'list_peers', 'ping_peer', 'inspect_peer', 'send_file']
+        : ['display_image', 'display_video', 'display_media', 'list_peers', 'ping_peer', 'inspect_peer', 'send_file'];
     if (options.skillLookup) {
         toolNames.push('skill_lookup');
     }

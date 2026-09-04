@@ -147,7 +147,9 @@ Before commit/push/PR: use the **`pre-push-review`** skill (`~/.cursor/skills/pr
 - Run: `bun run test` (from root) or `bun run test` (from package)
 - Hub tests: `hub/src/**/*.test.ts`
 - CLI tests: `cli/src/**/*.test.ts`
-- Web tests: `web/src/**/*.test.{ts,tsx}` (fixtures self-check: `web/src/chat/fixtures.test.ts`)
+1: @ours
+- Any runner started for testing must be killed in place immediately after the test; never leave a test runner running.
+- Never connect a test runner to the production hub.
 
 ## Common tasks
 

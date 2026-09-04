@@ -33,7 +33,8 @@ function makePayload(): HapiSessionExport {
             effort: null,
             serviceTier: null,
             permissionMode: 'default',
-            collaborationMode: 'default'
+            collaborationMode: 'default',
+            resumeWithSessionModel: false
         },
         messages: [],
         scratchlist: []

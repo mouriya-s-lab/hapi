@@ -172,7 +172,8 @@ function normalizeCodexTokenUsage(value: unknown, data?: Record<string, unknown>
             ?? info.thread_id
             ?? info.threadId
         ) ?? undefined,
-        scope_role: asString(data?.scope_role ?? data?.scopeRole ?? scope?.role) ?? undefined
+        scope_role: asString(data?.scope_role ?? data?.scopeRole ?? scope?.role) ?? undefined,
+        cost_usd: asNumber(info.costUsd ?? info.cost_usd) ?? undefined
     }
 }
 
@@ -347,8 +348,10 @@ function normalizeAssistantOutput(
             output_tokens: outputTokens,
             cache_creation_input_tokens: asNumber(usage?.cache_creation_input_tokens) ?? undefined,
             cache_read_input_tokens: asNumber(usage?.cache_read_input_tokens) ?? undefined,
+            reasoning_output_tokens: asNumber(usage?.reasoning_output_tokens) ?? undefined,
             service_tier: asString(usage?.service_tier) ?? undefined,
-            context_window: asNumber(usage?.context_window) ?? undefined
+            context_window: asNumber(usage?.context_window) ?? undefined,
+            cost_usd: asNumber(usage?.cost_usd) ?? undefined
         } : undefined
     }
 }
@@ -846,6 +849,27 @@ export function normalizeAgentRecord(
                 meta
             }
         }
+        if (data.type === 'system' && data.subtype === 'model_refusal_fallback') {
+            const originalModel = asString(data.originalModel)
+            const message = asString(data.content)
+            if (!originalModel || !message) return null
+            return {
+                id: messageId,
+                localId,
+                createdAt,
+                role: 'event',
+                content: {
+                    type: 'model-refusal-fallback',
+                    originalModel,
+                    message,
+                    direction: asString(data.direction) ?? undefined,
+                    trigger: asString(data.trigger) ?? undefined
+                },
+                isSidechain: false,
+                meta
+            }
+        }
+
 
         // agy (Antigravity) PTY messages — render the actual response text and
         // tool calls instead of falling through to the raw-JSON stringify
@@ -1040,6 +1064,29 @@ export function normalizeAgentRecord(
             }
         }
 
+        if (data.type === 'generated-file') {
+            const fileId = asString(data.fileId ?? data.file_id)
+            if (!fileId) return null
+            const uuid = asString(data.id) ?? messageId
+            return {
+                id: messageId,
+                localId,
+                createdAt,
+                role: 'agent',
+                isSidechain: false,
+                content: [{
+                    type: 'generated-file',
+                    fileId,
+                    fileName: asString(data.fileName ?? data.file_name) ?? 'file',
+                    mimeType: asString(data.mimeType ?? data.mime_type),
+                    size: typeof data.size === 'number' && Number.isFinite(data.size) ? data.size : null,
+                    uuid,
+                    parentUUID: null
+                }],
+                meta
+            }
+        }
+
         if (data.type === 'error' && typeof data.message === 'string') {
             return {
                 id: messageId,
@@ -1056,6 +1103,7 @@ export function normalizeAgentRecord(
         }
 
         if (data.type === 'message' && typeof data.message === 'string') {
+            const usage = normalizeCodexTokenUsage(data.usage) ?? undefined
             const streamId = asString(data.id)
             const isPiStreamSnapshot = data.streamSnapshot === true
                 || (streamId !== null && /^pi-.+-turn-\d+-message-\d+-text-\d+$/.test(streamId))
@@ -1065,6 +1113,8 @@ export function normalizeAgentRecord(
                     id: messageId,
                     localId,
                     createdAt,
+                    model: asString(data.model),
+                    usage,
                     role: 'agent',
                     isSidechain: false,
                     content: [{ type: 'codex-review', review, uuid: messageId, parentUUID: null }],
@@ -1075,6 +1125,8 @@ export function normalizeAgentRecord(
                 id: messageId,
                 localId,
                 createdAt,
+                model: asString(data.model),
+                usage,
                 role: 'agent',
                 isSidechain: false,
                 content: [{
@@ -1094,6 +1146,8 @@ export function normalizeAgentRecord(
                 id: messageId,
                 localId,
                 createdAt,
+                model: asString(data.model),
+                usage: normalizeCodexTokenUsage(data.usage) ?? undefined,
                 role: 'agent',
                 isSidechain: false,
                 content: [{ type: 'reasoning', text: data.message, uuid: messageId, streamId, parentUUID: null }],
@@ -1134,6 +1188,17 @@ export function normalizeAgentRecord(
                     tokensBefore: asNumber(data.tokensBefore) ?? undefined,
                     estimatedTokensAfter: asNumber(data.estimatedTokensAfter) ?? undefined
                 },
+                isSidechain: false,
+                meta
+            }
+        }
+        if (data.type === 'summary' && typeof data.summary === 'string' && data.summary.trim().length > 0) {
+            return {
+                id: messageId,
+                localId,
+                createdAt,
+                role: 'agent',
+                content: [{ type: 'summary', summary: data.summary.trim() }],
                 isSidechain: false,
                 meta
             }
@@ -1196,6 +1261,8 @@ export function normalizeAgentRecord(
                 id: messageId,
                 localId,
                 createdAt,
+                model: asString(data.model),
+                usage: normalizeCodexTokenUsage(data.usage) ?? undefined,
                 role: 'agent',
                 isSidechain: false,
                 content: [{
@@ -1309,6 +1376,20 @@ export function normalizeAgentRecord(
                         parentUUID: null
                     }
                 ],
+                meta
+            }
+        }
+
+        if (data.type.startsWith('omp-')) {
+            const event = normalizeAgentEvent(data)
+            if (!event) return null
+            return {
+                id: messageId,
+                localId,
+                createdAt,
+                role: 'event',
+                content: event,
+                isSidechain: false,
                 meta
             }
         }

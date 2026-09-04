@@ -5,7 +5,7 @@ import {
     type HapiSessionExport,
     type HapiSessionExportResult
 } from '@hapi/protocol/sessionExport'
-import type { AttachmentMetadata, DecryptedMessage, Session } from '@hapi/protocol/types'
+import type { AttachmentMetadata, DecryptedMessage, OmpInputMode, Session } from '@hapi/protocol/types'
 import {
     isClaudeChatVisibleMessage,
     isRedundantGoalStatusEventContent,
@@ -164,7 +164,8 @@ export class MessageService {
         private readonly store: Store,
         private readonly io: Server,
         private readonly publisher: EventPublisher,
-        private readonly onSessionActivity?: (sessionId: string, updatedAt: number) => void
+        private readonly onSessionActivity?: (sessionId: string, updatedAt: number) => void,
+        private readonly decorateForCli: (content: unknown) => unknown = content => content
     ) {
     }
 
@@ -465,7 +466,7 @@ export class MessageService {
             id: message.id,
             seq: message.seq,
             localId: message.localId,
-            content: contentForDeferredDelivery(message.content),
+            content: this.decorateForCli(contentForDeferredDelivery(message.content)),
             createdAt: message.createdAt,
             invokedAt: message.invokedAt,
             scheduledAt: message.scheduledAt,
@@ -849,8 +850,10 @@ export class MessageService {
             text: string
             localId?: string | null
             attachments?: AttachmentMetadata[]
+            ompInputMode?: OmpInputMode
             sentFrom?: 'telegram-bot' | 'webapp'
             scheduledAt?: number | null
+            deliveryMetadata?: Record<string, unknown>
             deliveryMode?: MessageDeliveryMode
         }
     ): Promise<{ actualSessionId: string; createdAt: number }> {
@@ -882,6 +885,8 @@ export class MessageService {
             },
             meta: {
                 sentFrom,
+                ...payload.deliveryMetadata,
+                ...(payload.ompInputMode ? { ompInputMode: payload.ompInputMode } : {}),
                 deliveryMode
             }
         }
@@ -924,7 +929,7 @@ export class MessageService {
                         seq: msg.seq,
                         createdAt: msg.createdAt,
                         localId: msg.localId,
-                        content: cliContent
+                        content: this.decorateForCli(cliContent)
                     }
                 }
             }
@@ -1078,7 +1083,7 @@ export class MessageService {
                         seq: msg.seq,
                         createdAt: msg.createdAt,
                         localId: msg.localId,
-                        content: contentForDeferredDelivery(msg.content)
+                        content: this.decorateForCli(contentForDeferredDelivery(msg.content))
                     }
                 }
             }

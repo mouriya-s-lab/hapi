@@ -45,9 +45,15 @@
         "release-all": "cd cli && bun run release-all"
     },
     "devDependencies": {
+        "@hapi/protocol": "workspace:*",
         "@playwright/test": "^1.61.0",
+        "axios": "^1.13.2",
+        "hono": "^4.12.32",
+        "jose": "^6.1.3",
         "playwright": "1.61.0",
         "react-devtools-core": "^7.0.1",
-        "vite-plugin-pwa": "^1.2.0"
+        "vite-plugin-pwa": "^1.2.0",
+        "vitest": "^4.0.16",
+        "zod": "^4.2.1"
     }
 }

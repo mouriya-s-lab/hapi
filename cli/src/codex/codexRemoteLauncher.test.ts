@@ -92,7 +92,14 @@ const harness = vi.hoisted(() => ({
     emitRunningChildTurnBeforeSuppressedParent: false,
     emitCompletedChildTurnBeforeSuppressedParent: false,
     emitTurnAbortedOnInterrupt: false,
-    bridgeOptions: [] as unknown[]
+    bridgeOptions: [] as unknown[],
+    compactTranscriptSummary: null as string | null,
+    enableTranscriptScanner: false,
+    transcriptEventHandler: null as ((event: {
+        timestamp?: string;
+        type: string;
+        payload?: unknown;
+    }) => void) | null,
 }));
 
 vi.mock('./codexAppServerClient', () => {
@@ -183,6 +190,13 @@ vi.mock('./codexAppServerClient', () => {
             const compacted = { threadId, turnId: `compact-${harness.compactThreadIds.length}` };
             harness.notifications.push({ method: 'thread/compacted', params: compacted });
             this.notificationHandler?.('thread/compacted', compacted);
+            if (harness.compactTranscriptSummary) {
+                harness.transcriptEventHandler?.({
+                    timestamp: new Date(Date.now() + 1_000).toISOString(),
+                    type: 'compacted',
+                    payload: { message: harness.compactTranscriptSummary }
+                });
+            }
             return {};
         }
 
@@ -1093,6 +1107,36 @@ vi.mock('./utils/buildHapiMcpBridge', () => ({
     }
 }));
 
+vi.mock('./utils/codexSessionScanner', () => ({
+    createCodexSessionScanner: async (options: {
+        onEvent: (event: {
+            timestamp?: string;
+            type: string;
+            payload?: unknown;
+        }) => void;
+    }) => {
+        harness.transcriptEventHandler = options.onEvent;
+        return {
+            flush: async () => {},
+            cleanup: async () => {},
+            setTranscriptPath: async () => {}
+        };
+    }
+}));
+
+vi.mock('./utils/codexTranscriptLocator', () => ({
+    createCodexTranscriptLocator: (options: {
+        onLocated: (located: { transcriptPath: string }) => void;
+    }) => ({
+        ready: Promise.resolve().then(() => {
+            if (harness.enableTranscriptScanner) {
+                options.onLocated({ transcriptPath: '/tmp/hapi-codex-transcript.jsonl' });
+            }
+        }),
+        cleanup: async () => {}
+    })
+}));
+
 import { codexRemoteLauncher, isCurrentSteerHandler } from './codexRemoteLauncher';
 import { INDETERMINATE_SYMBOL } from './codexAppServerClient';
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
@@ -1478,6 +1522,9 @@ describe('codexRemoteLauncher', () => {
         harness.emitCompletedChildTurnBeforeSuppressedParent = false;
         harness.emitTurnAbortedOnInterrupt = false;
         harness.bridgeOptions = [];
+        harness.compactTranscriptSummary = null;
+        harness.enableTranscriptScanner = false;
+        harness.transcriptEventHandler = null;
     });
 
     it('finishes a turn and emits ready when task lifecycle events include turn_id', async () => {
@@ -1582,6 +1629,53 @@ describe('codexRemoteLauncher', () => {
             success: true,
             skills: [{ name: 'new-skill', description: 'New skill' }]
         });
+    });
+
+    it('forwards owned compact summaries and suppresses external turn summaries', async () => {
+        harness.suppressTurnCompletion = true;
+        harness.enableTranscriptScanner = true;
+        const { session, codexMessages } = createSessionStub(['first message']);
+        const running = codexRemoteLauncher(session as never);
+
+        await vi.waitFor(() => {
+            expect(harness.startTurnThreadIds).toEqual(['thread-1']);
+            expect(harness.transcriptEventHandler).toBeTypeOf('function');
+        });
+
+        const timestamp = new Date(Date.now() + 1_000).toISOString();
+        const emitCompact = (turnId: string, summary: string) => {
+            harness.transcriptEventHandler?.({
+                timestamp,
+                type: 'response_item',
+                payload: {
+                    type: 'message',
+                    internal_chat_message_metadata_passthrough: { turn_id: turnId }
+                }
+            });
+            harness.transcriptEventHandler?.({
+                timestamp,
+                type: 'compacted',
+                payload: { message: summary }
+            });
+        };
+
+        emitCompact('turn-1', 'owned summary');
+        emitCompact('turn-external', 'external summary');
+
+        expect(codexMessages).toContainEqual(expect.objectContaining({
+            type: 'summary',
+            summary: 'owned summary'
+        }));
+        expect(codexMessages).not.toContainEqual(expect.objectContaining({
+            type: 'summary',
+            summary: 'external summary'
+        }));
+
+        harness.dispatchNotification?.('turn/completed', {
+            status: 'Completed',
+            turn: { id: 'turn-1' }
+        });
+        expect(await running).toBe('exit');
     });
 
     it('routes app-server MCP elicitation through the existing user-input transport', async () => {
@@ -1975,6 +2069,12 @@ describe('codexRemoteLauncher', () => {
         expect(harness.resumeThreadIds).toEqual([]);
         expect(harness.startTurnThreadIds).toEqual(['thread-1', 'thread-1', 'thread-1', 'thread-1']);
         expect(harness.startTurnMessages).toEqual(['first message', 'first message', 'first message', 'first message']);
+        expect(harness.rollbackCalls).toEqual([
+            { threadId: 'thread-1', numTurns: 1 },
+            { threadId: 'thread-1', numTurns: 1 },
+            { threadId: 'thread-1', numTurns: 1 }
+        ]);
+        expect(sessionEvents.filter((event) => String(event.message ?? '').startsWith('Attempt failed:'))).toHaveLength(3);
         expect(sessionEvents).toContainEqual({
             type: 'message',
             message: 'Task failed: Codex thread entered systemError'
@@ -1994,10 +2094,51 @@ describe('codexRemoteLauncher', () => {
         expect(harness.resumeThreadIds).toEqual([]);
         expect(harness.startTurnThreadIds).toEqual(['thread-1', 'thread-1']);
         expect(harness.startTurnMessages).toEqual(['first message', 'first message']);
+        expect(harness.rollbackCalls).toEqual([{ threadId: 'thread-1', numTurns: 1 }]);
         expect(session.sessionId).toBe('thread-1');
         expect(sessionEvents).not.toContainEqual({
             type: 'message',
             message: 'Task failed: Codex thread entered systemError'
+        });
+        expect(session.thinking).toBe(false);
+    });
+
+    it('keeps three failed attempts traceable without leaving a final failure after recovery', async () => {
+        harness.remainingThreadSystemErrors = 3;
+        const { session, sessionEvents } = createSessionStub(['first message']);
+
+        const exitReason = await codexRemoteLauncher(session as never);
+
+        expect(exitReason).toBe('exit');
+        expect(harness.startTurnMessages).toEqual([
+            'first message',
+            'first message',
+            'first message',
+            'first message'
+        ]);
+        expect(harness.rollbackCalls).toEqual([
+            { threadId: 'thread-1', numTurns: 1 },
+            { threadId: 'thread-1', numTurns: 1 },
+            { threadId: 'thread-1', numTurns: 1 }
+        ]);
+        expect(sessionEvents.filter((event) => String(event.message ?? '').startsWith('Attempt failed:'))).toHaveLength(3);
+        expect(sessionEvents.some((event) => String(event.message ?? '').startsWith('Task failed'))).toBe(false);
+        expect(session.thinking).toBe(false);
+    });
+
+    it('stops retrying when the failed turn cannot be removed from the conversation', async () => {
+        harness.remainingThreadSystemErrors = 1;
+        harness.rollbackErrors.push(new Error('rollback unsupported'));
+        const { session, sessionEvents } = createSessionStub(['first message']);
+
+        const exitReason = await codexRemoteLauncher(session as never);
+
+        expect(exitReason).toBe('exit');
+        expect(harness.startTurnMessages).toEqual(['first message']);
+        expect(harness.rollbackCalls).toEqual([{ threadId: 'thread-1', numTurns: 1 }]);
+        expect(sessionEvents).toContainEqual({
+            type: 'message',
+            message: 'Task failed: Codex thread entered systemError; same-conversation retry could not remove the failed attempt: rollback unsupported'
         });
         expect(session.thinking).toBe(false);
     });
@@ -2008,19 +2149,10 @@ describe('codexRemoteLauncher', () => {
         const {
             session,
             sessionEvents,
-            codexMessages,
-            rpcHandlers
+            codexMessages
         } = createSessionStub(['first message']);
 
-        const running = codexRemoteLauncher(session as never);
-        const timeout = new Promise<'timeout'>((resolve) => {
-            setTimeout(() => resolve('timeout'), 500);
-        });
-        const result = await Promise.race([running, timeout]);
-        if (result === 'timeout') {
-            await rpcHandlers.get('switch')?.({});
-            await running;
-        }
+        const result = await codexRemoteLauncher(session as never);
 
         expect(result).toBe('exit');
         expect(harness.startThreadIds).toEqual(['thread-1']);
@@ -2083,7 +2215,7 @@ describe('codexRemoteLauncher', () => {
         expect(harness.startTurnMessages).toEqual(['first message', 'first message']);
         expect(sessionEvents).toContainEqual({
             type: 'message',
-            message: 'Task failed: Codex thread entered systemError; retrying same conversation (1/3)'
+            message: 'Attempt failed: Codex thread entered systemError; retrying same conversation (1/3)'
         });
         expect(session.thinking).toBe(false);
     });
@@ -2623,7 +2755,8 @@ describe('codexRemoteLauncher', () => {
             agentId: 'child-thread',
             message: expect.objectContaining({
                 type: 'message',
-                message: 'child output should stay hidden'
+                message: 'child output should stay hidden',
+                model: 'gpt-5.4'
             })
         }));
         expect(codexMessages).toContainEqual(expect.objectContaining({
@@ -3295,15 +3428,22 @@ describe('codexRemoteLauncher', () => {
         expect(session.thinking).toBe(false);
     });
 
-    it('compacts the current thread without starting a turn', async () => {
-        const { session, sessionEvents } = createSessionStub(['first message', '/compact']);
+    it('forwards manual compact summaries without starting a turn', async () => {
+        harness.enableTranscriptScanner = true;
+        harness.compactTranscriptSummary = 'manual compact summary';
+        const { session, sessionEvents, codexMessages } = createSessionStub(['/compact']);
+        session.sessionId = 'thread-existing';
 
         const exitReason = await codexRemoteLauncher(session as never);
 
         expect(exitReason).toBe('exit');
-        expect(harness.startThreadIds).toEqual(['thread-1']);
-        expect(harness.startTurnThreadIds).toEqual(['thread-1']);
-        expect(harness.compactThreadIds).toEqual(['thread-1']);
+        expect(harness.startThreadIds).toEqual([]);
+        expect(harness.startTurnThreadIds).toEqual([]);
+        expect(harness.compactThreadIds).toEqual(['thread-existing']);
+        expect(codexMessages).toContainEqual(expect.objectContaining({
+            type: 'summary',
+            summary: 'manual compact summary'
+        }));
         expect(sessionEvents).toContainEqual({
             type: 'message',
             message: 'Compaction started'
@@ -3349,7 +3489,7 @@ describe('codexRemoteLauncher', () => {
         expect(harness.startTurnMessages).toEqual(['first message', 'after compact']);
         expect(sessionEvents).toContainEqual({
             type: 'message',
-            message: 'Compaction completed'
+            message: 'Compaction completed, but the summary was unavailable'
         });
     });
 
@@ -3366,7 +3506,7 @@ describe('codexRemoteLauncher', () => {
         expect(harness.compactThreadIds).toEqual(['thread-1']);
         expect(sessionEvents).toContainEqual({
             type: 'message',
-            message: 'Compaction completed'
+            message: 'Compaction completed, but the summary was unavailable'
         });
         expect(session.thinking).toBe(false);
     });

@@ -36,6 +36,7 @@ function baseSession(overrides: Partial<Session> = {}): Session {
         modelReasoningEffort: null,
         effort: null,
         serviceTier: null,
+        resumeWithSessionModel: false,
         ...overrides
     }
 }
@@ -351,7 +352,8 @@ describe('SessionHeader', () => {
             effort: null,
             serviceTier: null,
             pinned: false,
-            globalPinned: false
+            globalPinned: false,
+            resumeWithSessionModel: false
         }
 
         render(

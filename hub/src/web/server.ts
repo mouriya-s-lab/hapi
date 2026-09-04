@@ -32,6 +32,9 @@ import { createDevicesRoutes } from './routes/devices'
 import { createVoiceRoutes } from './routes/voice'
 import { createHubSettingsRoutes } from './routes/hubSettings'
 import { createWorkGraphRoutes } from './routes/workGraph'
+import { createImportableSessionsRoutes } from '../../../fork-features/history-import/hub/routes'
+import { mountForkRoutes } from '../../../fork-features/session-fork/hubMount'
+import { buildForkDeps } from '../../../fork-features/session-fork/hubSyncEngineAdapter'
 import type { SSEManager } from '../sse/sseManager'
 import type { VisibilityTracker } from '../visibility/visibilityTracker'
 import type { Server as BunServer, ServerWebSocket } from 'bun'
@@ -43,6 +46,12 @@ import type { WebSocketData } from '@socket.io/bun-engine'
 import { loadEmbeddedAssetMap, type EmbeddedWebAsset } from './embeddedAssets'
 import { isBunCompiled } from '../utils/bunCompiled'
 import type { Store } from '../store'
+import { mountMultiUserGateway, mountMultiUserPostAuth } from '../../../fork-features/multi-user/hubMount'
+import type { MultiUserGatewayStore } from '../../../fork-features/multi-user/gatewayStore'
+import { createExecutionMiddleware, mountExecutionRoutes } from '../../../fork-features/multi-user/executionMount'
+import { resolveGatewayCliNamespace } from '../../../fork-features/multi-user/cliAdapter'
+import { mountAgentOrchestrationRoutes } from '../../../fork-features/agent-orchestration/hub'
+import { mountAgentSkillRoutes } from '../../../fork-features/agent-skill-deploy/hubRoutes'
 
 // Normalise upstream close codes before forwarding to the browser client.
 // Codes 1005/1006/1015 are reserved and cannot be sent in a close frame;
@@ -228,6 +237,7 @@ function createWebApp(options: {
     embeddedAssetMap: Map<string, EmbeddedWebAsset> | null
     relayMode?: boolean
     officialWebUrl?: string
+    multiUser: { store: MultiUserGatewayStore; coreUserId: number }
 }): Hono<WebAppEnv> {
     const app = new Hono<WebAppEnv>()
 
@@ -257,6 +267,12 @@ function createWebApp(options: {
             titleSuggestion: readTitleProviderConfig() !== null
         }
     }))
+    mountMultiUserGateway(app, {
+        ...options.multiUser,
+        jwtSecret: options.jwtSecret,
+        coreStore: options.store
+    })
+    const multiUserStore = options.multiUser.store
 
     // Gzip JSON API responses. Over the relay tunnel every byte is metered
     // twice (the SNI proxy copies in both directions), and API payloads are
@@ -279,12 +295,23 @@ function createWebApp(options: {
         return next()
     })
 
-    app.route('/cli', createCliRoutes(options.getSyncEngine))
+    app.route('/cli', createCliRoutes(options.getSyncEngine, token => resolveGatewayCliNamespace(multiUserStore, token)))
 
     app.route('/api', createAuthRoutes(options.jwtSecret, options.store))
     app.route('/api', createBindRoutes(options.jwtSecret, options.store))
 
     app.use('/api/*', createAuthMiddleware(options.jwtSecret))
+    mountMultiUserPostAuth(app, {
+        store: multiUserStore,
+        jwtSecret: options.jwtSecret
+    })
+    mountExecutionRoutes(app, {
+        store: multiUserStore,
+        jwtSecret: options.jwtSecret,
+        getSyncEngine: options.getSyncEngine,
+        getSseManager: options.getSseManager
+    })
+    app.use('/api/*', createExecutionMiddleware({ store: multiUserStore, jwtSecret: options.jwtSecret }))
     app.route('/api', createEventsRoutes(options.getSseManager, options.getSyncEngine, options.getVisibilityTracker))
     app.route('/api', createSessionsRoutes(options.getSyncEngine))
     app.route('/api', createMessagesRoutes(options.getSyncEngine))
@@ -292,6 +319,7 @@ function createWebApp(options: {
     app.route('/api', createMachinesRoutes(options.getSyncEngine))
     app.route('/api', createStorageRoutes(configuration.dbPath))
     app.route('/api', createHubSettingsRoutes(configuration.dataDir))
+    app.route('/api', createImportableSessionsRoutes(options.getSyncEngine))
     app.route('/api', createUsageRoutes(options.store))
     app.route('/api', createGitRoutes(options.getSyncEngine))
     // 中文注释：这里提供两类 Codex 辅助能力：扫描本地 transcript 以导入到 Hapi，以及按需重启 Codex Desktop 客户端。
@@ -308,6 +336,21 @@ function createWebApp(options: {
     app.route('/api', createVoiceRoutes({ dataDir: configuration.dataDir }))
     // Path is intentionally NOT `/api/events` — that route is the SSE stream.
     app.route('/api', createWorkGraphRoutes(options.store))
+    mountAgentOrchestrationRoutes(app, options.getSyncEngine)
+
+    // fork-features/agent-skill-deploy (#261): POST
+    // /api/machines/:id/agent-skills/refresh. Trunk patch — full handler
+    // lives in fork-features/agent-skill-deploy/hubRoutes.ts.
+    mountAgentSkillRoutes(app, options.getSyncEngine)
+
+    // fork-features/session-fork: POST /api/sessions/:id/fork +
+    // GET /api/flavors/capabilities. Trunk patch — full handler lives
+    // in fork-features/session-fork/hubMount.ts.
+    mountForkRoutes(app, (namespace) => {
+        const engine = options.getSyncEngine()
+        if (!engine) return null
+        return buildForkDeps({ store: options.store, syncEngine: engine, namespace })
+    }, options.getSseManager)
 
     // Skip static serving in relay mode, show helpful message on root
     if (options.relayMode) {
@@ -423,6 +466,7 @@ export async function startWebServer(options: {
     corsOrigins?: string[]
     relayMode?: boolean
     officialWebUrl?: string
+    multiUser: { store: MultiUserGatewayStore; coreUserId: number }
 }): Promise<BunServer<WebSocketData>> {
     const isCompiled = isBunCompiled()
     const embeddedAssetMap = isCompiled ? await loadEmbeddedAssetMap() : null
@@ -436,7 +480,8 @@ export async function startWebServer(options: {
         corsOrigins: options.corsOrigins,
         embeddedAssetMap,
         relayMode: options.relayMode,
-        officialWebUrl: options.officialWebUrl
+        officialWebUrl: options.officialWebUrl,
+        multiUser: options.multiUser
     })
 
     const configuration = getConfiguration()

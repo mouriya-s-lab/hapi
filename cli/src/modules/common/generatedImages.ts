@@ -45,6 +45,26 @@ export type GeneratedImageMetadata = {
     createdAt: number
 }
 
+export type InlineMediaKind = 'image' | 'video'
+
+export type InlineMediaRegistrationError = {
+    code:
+        | 'invalid_block'
+        | 'missing_content'
+        | 'invalid_uri'
+        | 'remote_uri'
+        | 'not_file'
+        | 'too_large'
+        | 'unsupported_content'
+        | 'mime_mismatch'
+        | 'read_failed'
+    message: string
+}
+
+export type InlineMediaRegistrationResult =
+    | { ok: true; media: GeneratedImageMetadata }
+    | { ok: false; error: InlineMediaRegistrationError }
+
 export const MAX_GENERATED_IMAGE_BYTES = 25 * 1024 * 1024
 /** Reject base64 strings that cannot fit under MAX_GENERATED_IMAGE_BYTES once decoded (+ padding). */
 export const MAX_GENERATED_IMAGE_BASE64_CHARS = Math.ceil(MAX_GENERATED_IMAGE_BYTES * 4 / 3) + 4
@@ -305,6 +325,10 @@ function ascii(bytes: Uint8Array, start: number, end: number): string {
     return String.fromCharCode(...bytes.subarray(start, end))
 }
 
+function detectMimeType(bytes: Uint8Array, kind: InlineMediaKind): string | null {
+    return kind === 'image' ? detectImageMimeType(bytes) : detectVideoMimeType(bytes)
+}
+
 export function registerGeneratedImage(args: { id: string; path: string; mimeType: string; bytes: Uint8Array; fileName?: string | null }): GeneratedImageMetadata {
     const content = Buffer.from(args.bytes)
     if (content.byteLength > MAX_GENERATED_IMAGE_BYTES) {
@@ -352,6 +376,13 @@ export function getGeneratedImage(id: string): GeneratedImageMetadata | null {
     return generatedImages.get(id) ?? null
 }
 
+export function unregisterGeneratedImage(id: string): void {
+    const image = generatedImages.get(id)
+    if (!image) return
+    generatedImages.delete(id)
+    generatedImageBytes -= image.content.byteLength
+}
+
 export function clearGeneratedImages(): void {
     generatedImages.clear()
     generatedImageBytes = 0
@@ -380,18 +411,66 @@ export async function registerGeneratedImageFromPath(args: {
     }
 }
 
-function parseAcpImageUri(uri: string): string | null {
-    if (uri.startsWith('file://')) {
-        try {
-            return fileURLToPath(uri)
-        } catch {
-            return null
+export async function registerGeneratedMediaFromPath(args: {
+    id?: string
+    path: string
+    kind: InlineMediaKind
+    fileName?: string | null
+}): Promise<InlineMediaRegistrationResult> {
+    let bytes: Buffer
+    try {
+        bytes = await readBoundedRegularFile(args.path, MAX_GENERATED_IMAGE_BYTES)
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (/not a regular file/i.test(message)) {
+            return { ok: false, error: { code: 'not_file', message: 'Path is not a regular file' } }
+        }
+        if (/too large/i.test(message)) {
+            return { ok: false, error: { code: 'too_large', message: 'File is too large to display inline' } }
+        }
+        return {
+            ok: false,
+            error: { code: 'read_failed', message }
         }
     }
-    if (/^https?:\/\//i.test(uri)) {
-        return null
+
+    const mimeType = detectMimeType(bytes, args.kind)
+    if (!mimeType) {
+        return {
+            ok: false,
+            error: {
+                code: 'unsupported_content',
+                message: args.kind === 'image' ? 'Unsupported image content' : 'Unsupported video content'
+            }
+        }
     }
-    return uri
+
+    return {
+        ok: true,
+        media: registerGeneratedImage({
+            id: args.id ?? randomUUID(),
+            path: args.path,
+            fileName: args.fileName,
+            mimeType,
+            bytes
+        })
+    }
+}
+
+function localPathFromAcpUri(uri: string):
+    | { ok: true; path: string }
+    | { ok: false; error: InlineMediaRegistrationError } {
+    if (/^https?:\/\//i.test(uri)) {
+        return { ok: false, error: { code: 'remote_uri', message: 'Remote ACP image URIs are not supported' } }
+    }
+    if (!uri.startsWith('file://')) {
+        return { ok: true, path: uri }
+    }
+    try {
+        return { ok: true, path: fileURLToPath(uri) }
+    } catch {
+        return { ok: false, error: { code: 'invalid_uri', message: 'Invalid ACP image file URI' } }
+    }
 }
 
 /** Bound safe display name from an ACP uri/url — never reuse raw data/signed URLs. */
@@ -415,9 +494,9 @@ export function safeAcpFileName(uri: string | undefined | null): string | null {
     return null
 }
 
-export async function registerGeneratedImageFromAcpBlock(block: unknown): Promise<GeneratedImageMetadata | null> {
+export async function registerGeneratedImageFromAcpBlock(block: unknown): Promise<InlineMediaRegistrationResult> {
     if (!isObject(block) || block.type !== 'image') {
-        return null
+        return { ok: false, error: { code: 'invalid_block', message: 'Expected an ACP image content block' } }
     }
 
     const data = asString(block.data)
@@ -427,27 +506,47 @@ export async function registerGeneratedImageFromAcpBlock(block: unknown): Promis
     if (data) {
         const bytes = decodeGeneratedImageBase64(data)
         if (!bytes) {
-            return null
+            return { ok: false, error: { code: 'too_large', message: 'File is too large to display inline' } }
         }
         const sniffedMimeType = detectImageMimeType(bytes)
         if (!sniffedMimeType) {
-            return null
+            return { ok: false, error: { code: 'unsupported_content', message: 'Unsupported image content' } }
         }
         if (declaredMimeType && declaredMimeType !== sniffedMimeType) {
-            return null
+            return {
+                ok: false,
+                error: { code: 'mime_mismatch', message: `Declared MIME ${declaredMimeType} does not match ${sniffedMimeType}` }
+            }
         }
-        const localPath = uri ? parseAcpImageUri(uri) : null
+        const local = uri ? localPathFromAcpUri(uri) : null
+        const localPath = local && local.ok ? local.path : null
         const fileName = safeAcpFileName(uri) ?? `generated-${randomUUID()}.png`
-        return registerGeneratedImage({
-            id: randomUUID(),
-            path: localPath ?? fileName,
-            fileName,
-            mimeType: sniffedMimeType,
-            bytes
-        })
+        return {
+            ok: true,
+            media: registerGeneratedImage({
+                id: randomUUID(),
+                path: localPath ?? fileName,
+                fileName,
+                mimeType: sniffedMimeType,
+                bytes
+            })
+        }
     }
 
     // URI-only ACP image blocks are not permission-gated. Local-path display must
     // go through display_image / display_video / display_media MCP tools (approval_mode: prompt).
-    return null
+    if (uri) {
+        if (/^https?:\/\//i.test(uri)) {
+            return { ok: false, error: { code: 'remote_uri', message: 'Remote ACP image URIs are not supported' } }
+        }
+        return {
+            ok: false,
+            error: {
+                code: 'missing_content',
+                message: 'ACP image URI-only blocks are not auto-loaded; use display_image'
+            }
+        }
+    }
+
+    return { ok: false, error: { code: 'missing_content', message: 'ACP image block has no data or URI' } }
 }

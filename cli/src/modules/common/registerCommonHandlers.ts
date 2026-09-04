@@ -2,6 +2,7 @@ import type { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager'
 import { registerAgyModelHandlers } from './handlers/agyModels'
 import { registerBashHandlers } from './handlers/bash'
 import { registerCodexModelHandlers } from './handlers/codexModels'
+import { registerCcSwitchHandlers } from './handlers/ccSwitch'
 import { registerCursorModelHandlers } from './handlers/cursorModels'
 import { registerOpencodeModelHandlers } from './handlers/opencodeModels'
 import { registerPiModelHandlers } from './handlers/piModels'
@@ -15,11 +16,13 @@ import { registerRipgrepHandlers } from './handlers/ripgrep'
 import { registerSlashCommandHandlers } from './handlers/slashCommands'
 import { registerSkillsHandlers } from './handlers/skills'
 import { registerUploadHandlers } from './handlers/uploads'
+import { registerImportableSessionHandlers } from '../../../../fork-features/history-import/cli/register'
 
 export function registerCommonHandlers(rpcHandlerManager: RpcHandlerManager, workingDirectory: string): void {
     registerAgyModelHandlers(rpcHandlerManager)
     registerBashHandlers(rpcHandlerManager, workingDirectory)
     registerCodexModelHandlers(rpcHandlerManager)
+    registerCcSwitchHandlers(rpcHandlerManager)
     registerCursorModelHandlers(rpcHandlerManager)
     registerOpencodeModelHandlers(rpcHandlerManager)
     registerPiModelHandlers(rpcHandlerManager)
@@ -33,4 +36,5 @@ export function registerCommonHandlers(rpcHandlerManager: RpcHandlerManager, wor
     registerSkillsHandlers(rpcHandlerManager, workingDirectory)
     registerGitHandlers(rpcHandlerManager, workingDirectory)
     registerUploadHandlers(rpcHandlerManager)
+    registerImportableSessionHandlers(rpcHandlerManager)
 }

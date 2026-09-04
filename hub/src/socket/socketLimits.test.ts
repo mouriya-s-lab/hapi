@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { MAX_GENERATED_IMAGE_BYTES, SOCKET_MAX_HTTP_BUFFER_SIZE } from './socketLimits'
+import { MAX_SOCKET_RPC_BINARY_BYTES, SOCKET_RPC_FRAMING_HEADROOM_BYTES } from '@hapi/protocol/socketLimits'
 
 describe('socket limits', () => {
     it('buffer size can carry the largest generated image after base64 + JSON-RPC framing', () => {
@@ -10,5 +11,10 @@ describe('socket limits', () => {
         expect(SOCKET_MAX_HTTP_BUFFER_SIZE).toBeGreaterThan(base64Bytes)
         // and must be well above the 1 MB engine default that caused the regression
         expect(SOCKET_MAX_HTTP_BUFFER_SIZE).toBeGreaterThan(1e6)
+    })
+
+    it('derived raw RPC limit fits after base64 expansion and framing', () => {
+        const base64Bytes = Math.ceil(MAX_SOCKET_RPC_BINARY_BYTES / 3) * 4
+        expect(base64Bytes + SOCKET_RPC_FRAMING_HEADROOM_BYTES).toBeLessThanOrEqual(SOCKET_MAX_HTTP_BUFFER_SIZE)
     })
 })

@@ -1,17 +1,22 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, fireEvent, act, cleanup, screen } from '@testing-library/react'
 import React from 'react'
+import { I18nProvider } from '@/lib/i18n-context'
 
 // ReasoningGroup consumes assistant-ui message state. Mock it so the message
 // status and per-part status can be controlled per test.
-const { mockMessage, onNestedScrollFollowChange } = vi.hoisted(() => ({
-    mockMessage: {
+const { mockMessage, mockUseMessage, onNestedScrollFollowChange } = vi.hoisted(() => {
+    const mockMessage = {
         status: null as { type: string } | null,
         content: [] as { type: string }[],
         parts: [] as { type: string; status: { type: string } }[],
-    },
-    onNestedScrollFollowChange: vi.fn(),
-}))
+    }
+    return {
+        mockMessage,
+        mockUseMessage: vi.fn(() => mockMessage),
+        onNestedScrollFollowChange: vi.fn(),
+    }
+})
 
 vi.mock('@assistant-ui/react', () => ({
     useMessage: () => mockMessage,
@@ -47,17 +52,15 @@ const STORAGE_KEY = 'hapi-reasoning-collapsed'
 
 function renderGroup() {
     return render(
-        <ReasoningGroup>
-            <div data-testid="reasoning-content">thinking text</div>
-        </ReasoningGroup>
+        <I18nProvider>
+            <ReasoningGroup><div>long reasoning</div></ReasoningGroup>
+        </I18nProvider>
     )
 }
 
-// The collapsible region is the direct div child of .aui-reasoning-group
-// (the header is a button). Collapsed state is signalled by the max-h-0 class.
 function isCollapsed(container: HTMLElement): boolean {
-    const region = container.querySelector('.aui-reasoning-group > div') as HTMLElement
-    return region.className.includes('max-h-0')
+    const region = container.querySelector('.aui-reasoning-group > div')
+    return region?.className.includes('max-h-0') ?? false
 }
 
 function setStreaming() {
@@ -90,9 +93,32 @@ describe('ReasoningGroup', () => {
         })
         vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
     })
-
     it('is collapsed by default', () => {
         const { container } = renderGroup()
+        expect(isCollapsed(container)).toBe(true)
+    })
+
+    it('keeps the collapse button sticky while expanded', () => {
+        const { container } = renderGroup()
+
+        const button = screen.getByRole('button', { name: /Reasoning/i })
+        expect(button).toHaveClass('sticky', 'top-0')
+        expect(button.parentElement).not.toHaveClass('overflow-hidden')
+
+        fireEvent.click(button)
+
+        expect(screen.getByText('click to collapse')).toBeInTheDocument()
+        expect(isCollapsed(container)).toBe(false)
+    })
+
+    it('hides the collapse hint after the sticky button collapses the block', () => {
+        const { container } = renderGroup()
+
+        const button = screen.getByRole('button', { name: /Reasoning/i })
+        fireEvent.click(button)
+        fireEvent.click(button)
+
+        expect(screen.queryByText('click to collapse')).not.toBeInTheDocument()
         expect(isCollapsed(container)).toBe(true)
     })
 
@@ -109,33 +135,25 @@ describe('ReasoningGroup', () => {
         const { container, rerender } = renderGroup()
         setStreaming()
         rerender(
-            <ReasoningGroup>
-                <div data-testid="reasoning-content">thinking text</div>
-            </ReasoningGroup>
+            <I18nProvider>
+                <ReasoningGroup><div>long reasoning</div></ReasoningGroup>
+            </I18nProvider>
         )
+
         expect(isCollapsed(container)).toBe(false)
     })
 
     it('stays collapsed while streaming when the preference is enabled', () => {
         window.localStorage.setItem(STORAGE_KEY, 'true')
-        const { container, rerender } = renderGroup()
         setStreaming()
-        rerender(
-            <ReasoningGroup>
-                <div data-testid="reasoning-content">thinking text</div>
-            </ReasoningGroup>
-        )
+        const { container } = renderGroup()
+
         expect(isCollapsed(container)).toBe(true)
     })
 
-    it('collapses an auto-expanded streaming block when the preference is enabled from another tab', () => {
-        const { container, rerender } = renderGroup()
+    it('collapses an auto-expanded streaming block when the preference changes in another tab', () => {
         setStreaming()
-        rerender(
-            <ReasoningGroup>
-                <div data-testid="reasoning-content">thinking text</div>
-            </ReasoningGroup>
-        )
+        const { container } = renderGroup()
         expect(isCollapsed(container)).toBe(false)
 
         const scroll = container.querySelector('.aui-reasoning-scroll') as HTMLDivElement
@@ -172,9 +190,11 @@ describe('ReasoningGroup', () => {
 
         scrollHeight = 700
         rerender(
-            <ReasoningGroup>
-                <div data-testid="reasoning-content">more thinking text</div>
-            </ReasoningGroup>
+            <I18nProvider>
+                <ReasoningGroup>
+                    <div data-testid="reasoning-content">more thinking text</div>
+                </ReasoningGroup>
+            </I18nProvider>
         )
         expect(scroll.scrollTop).toBe(700)
     })
@@ -193,9 +213,11 @@ describe('ReasoningGroup', () => {
 
         scrollHeight = 700
         rerender(
-            <ReasoningGroup>
-                <div data-testid="reasoning-content">more thinking text</div>
-            </ReasoningGroup>
+            <I18nProvider>
+                <ReasoningGroup>
+                    <div data-testid="reasoning-content">more thinking text</div>
+                </ReasoningGroup>
+            </I18nProvider>
         )
         expect(scroll.scrollTop).toBe(100)
     })
@@ -248,9 +270,11 @@ describe('ReasoningGroup', () => {
         fireEvent.pointerDown(scroll)
         scrollHeight = 700
         rerender(
-            <ReasoningGroup>
-                <div data-testid="reasoning-content">more thinking text</div>
-            </ReasoningGroup>
+            <I18nProvider>
+                <ReasoningGroup>
+                    <div data-testid="reasoning-content">more thinking text</div>
+                </ReasoningGroup>
+            </I18nProvider>
         )
         fireEvent.scroll(scroll)
 
@@ -300,9 +324,11 @@ describe('ReasoningGroup', () => {
 
         setStreaming()
         rerender(
-            <ReasoningGroup>
-                <div data-testid="reasoning-content">thinking text</div>
-            </ReasoningGroup>
+            <I18nProvider>
+                <ReasoningGroup>
+                    <div data-testid="reasoning-content">thinking text</div>
+                </ReasoningGroup>
+            </I18nProvider>
         )
         expect(container.querySelector('.animate-pulse')).toBeInTheDocument()
         expect(isCollapsed(container)).toBe(false)

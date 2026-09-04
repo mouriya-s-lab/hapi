@@ -192,6 +192,18 @@
                 "tone": "danger"
             }
         ],
+        "omp": [
+            {
+                "label": "Default",
+                "mode": "default",
+                "tone": "neutral"
+            },
+            {
+                "label": "Yolo",
+                "mode": "yolo",
+                "tone": "danger"
+            }
+        ],
         "opencode": [
             {
                 "label": "Default",

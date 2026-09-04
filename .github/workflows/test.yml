@@ -13,7 +13,16 @@ jobs:
             - run: bun install --frozen-lockfile
             - run: bun typecheck
             - run: bunx playwright install --with-deps chromium
-            - run: bun run test:e2e -- terminal-wrap-fidelity.spec.ts composer-copy.spec.ts
+            - run: bun run test:e2e -- terminal-wrap-fidelity.spec.ts composer-copy.spec.ts session-scroll.spec.ts
+            - name: Create integration test env
+              run: |
+                  {
+                      echo "HAPI_HOME=~/.hapi-dev-test"
+                      echo "HAPI_API_URL=http://localhost:3006"
+                      echo "CLI_API_TOKEN=${CLI_API_TOKEN:-dev-test-token}"
+                      echo "HAPI_DAEMON_HTTP_TIMEOUT=60000"
+                      echo "HAPI_DAEMON_HEARTBEAT_INTERVAL=30000"
+                  } > cli/.env.integration-test
             - run: bun run test
 
     # Serial runner-integration suite: starts real detached runner/session

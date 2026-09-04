@@ -12,6 +12,7 @@ import { doctorCommand } from './doctor'
 import { kimiCommand } from './kimi'
 import { copilotCommand } from './copilot'
 import { grokCommand } from './grok'
+import { ompCommand } from './omp'
 import { opencodeCommand } from './opencode'
 import { piCommand } from './pi'
 import { hookForwarderCommand } from './hookForwarder'
@@ -20,6 +21,7 @@ import { notifyCommand } from './notify'
 import { hubCommand } from './hub'
 import { pingPeerCommand } from './pingPeer'
 import { inspectPeerCommand } from './inspectPeer'
+import { agentCommand } from '../../../fork-features/agent-orchestration/cli'
 import type { CommandContext, CommandDefinition } from './types'
 
 // Gemini CLI was sunset (Google stopped serving the consumer Gemini CLI on
@@ -48,6 +50,7 @@ const COMMANDS: CommandDefinition[] = [
     removedGeminiCommand,
     grokCommand,
     kimiCommand,
+    ompCommand,
     copilotCommand,
     opencodeCommand,
     piCommand,
@@ -60,7 +63,8 @@ const COMMANDS: CommandDefinition[] = [
     runnerCommand,
     notifyCommand,
     pingPeerCommand,
-    inspectPeerCommand
+    inspectPeerCommand,
+    agentCommand
 ]
 
 const commandMap = new Map<string, CommandDefinition>()

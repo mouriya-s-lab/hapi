@@ -142,6 +142,36 @@ describe('convertAgentMessage', () => {
         expect(converted !== null && 'live' in converted).toBe(false);
     });
 
+    it('keeps native assistant usage on the visible message footer payload', () => {
+        const converted = convertAgentMessage({
+            type: 'text',
+            text: 'answer',
+            model: 'openai-codex/gpt-5.4-mini',
+            usage: {
+                inputTokens: 120,
+                outputTokens: 30,
+                totalTokens: 150,
+                cacheReadTokens: 100,
+                costUsd: 0.031
+            }
+        });
+
+        expect(converted).toEqual({
+            type: 'message',
+            message: 'answer',
+            model: 'openai-codex/gpt-5.4-mini',
+            usage: {
+                total: {
+                    inputTokens: 120,
+                    outputTokens: 30,
+                    totalTokens: 150,
+                    cachedInputTokens: 100
+                },
+                costUsd: 0.031
+            }
+        });
+    });
+
     it('converts error messages into codex error payloads', () => {
         const converted = convertAgentMessage({
             type: 'error',

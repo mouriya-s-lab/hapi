@@ -22,6 +22,7 @@ import type {
 } from '@/types/api'
 import { queryKeys } from '@/lib/query-keys'
 import { clearMessageWindow, getMessageWindowState, ingestIncomingMessages, markMessagesConsumed, markMessagesIndeterminate, markMessagesRequeued, removeOptimisticMessage, updateMessageStatus } from '@/lib/message-window-store'
+import { agentSkillMachinesQueryKey } from '@/fork-features/agent-skill-readiness/machineQuery'
 import { applySessionDetailPatch } from '@/lib/sessionPatch'
 
 // Pure patch-application rules live in @/lib/sessionPatch (React-free, shared
@@ -765,6 +766,7 @@ export function useSSE(options: {
             }
 
             if (event.type === 'machine-updated') {
+                void queryClient.invalidateQueries({ queryKey: agentSkillMachinesQueryKey })
                 if (isMachineRecord(event.data)) {
                     upsertMachine(event.data)
                 } else if (event.data === null) {

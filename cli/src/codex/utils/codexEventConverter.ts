@@ -11,9 +11,19 @@ const CodexSessionEventSchema = z.object({
 
 export type CodexSessionEvent = z.infer<typeof CodexSessionEventSchema>;
 
+export function isCodexEventFromCurrentProcess(event: CodexSessionEvent, startupTimestampMs: number): boolean {
+    if (!event.timestamp) return false;
+    const eventTimestampMs = Date.parse(event.timestamp);
+    return Number.isFinite(eventTimestampMs) && eventTimestampMs >= startupTimestampMs;
+}
+
 export type CodexMessage = {
     type: 'message';
     message: string;
+    id: string;
+} | {
+    type: 'summary';
+    summary: string;
     id: string;
 } | {
     type: 'proposed_plan';
@@ -398,7 +408,7 @@ export function createCodexEventConverter(): CodexEventConverter {
 
             const earlierVisibleFinals = drainPendingPrefix(summaryIndex);
             pendingResponseFinals.shift();
-            return [...earlierVisibleFinals, ...convertedActions];
+            return earlierVisibleFinals;
         }
 
         const eventType = parsed.data.type === 'event_msg' ? asString(payload?.type) : null;
@@ -464,6 +474,17 @@ export function createCodexEventConverter(): CodexEventConverter {
     });
 }
 
+export function getCodexEventTurnId(event: CodexSessionEvent): string | null {
+    const payload = asRecord(event.payload);
+    if (!payload) {
+        return null;
+    }
+
+    return asString(payload.turn_id)
+        ?? asString(payload.turnId)
+        ?? extractResponseItemTurnId(payload);
+}
+
 export function convertCodexEvent(rawEvent: unknown): CodexEventProjection | null {
     const parsed = CodexSessionEventSchema.safeParse(rawEvent);
     if (!parsed.success) {
@@ -479,6 +500,20 @@ export function convertCodexEvent(rawEvent: unknown): CodexEventProjection | nul
             return null;
         }
         return { sessionId };
+    }
+
+    if (type === 'compacted') {
+        const summary = payloadRecord ? asString(payloadRecord.message)?.trim() : null;
+        if (!summary) {
+            return null;
+        }
+        return {
+            messages: [{
+                type: 'summary',
+                summary,
+                id: randomUUID()
+            }]
+        };
     }
 
     if (!payloadRecord) {

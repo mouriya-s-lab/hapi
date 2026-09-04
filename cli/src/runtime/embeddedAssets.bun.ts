@@ -5,6 +5,7 @@ import ripgrepArchiveLicense from '../../tools/archives/ripgrep-LICENSE' assert 
 import difftasticLicense from '../../tools/licenses/difftastic-LICENSE' assert { type: 'file' };
 import ripgrepLicense from '../../tools/licenses/ripgrep-LICENSE' assert { type: 'file' };
 import tunwgLicense from '../../../shared/tools/tunwg/LICENSE' assert { type: 'file' };
+import hapiAgentSkill from '../../../.agents/skills/hapi-agent/SKILL.md' assert { type: 'file' };
 
 export interface EmbeddedAsset {
     relativePath: string;
@@ -23,7 +24,8 @@ const COMMON_ASSETS: EmbeddedAsset[] = [
     asset('tools/archives/ripgrep-LICENSE', ripgrepArchiveLicense),
     asset('tools/licenses/difftastic-LICENSE', difftasticLicense),
     asset('tools/licenses/ripgrep-LICENSE', ripgrepLicense),
-    asset('tools/tunwg/LICENSE', tunwgLicense)
+    asset('tools/tunwg/LICENSE', tunwgLicense),
+    asset('skills/hapi-agent/SKILL.md', hapiAgentSkill)
 ];
 
 async function selectEmbeddedAssets(): Promise<EmbeddedAsset[]> {

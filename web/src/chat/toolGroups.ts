@@ -3,6 +3,8 @@ import { getCodexCommandActions, isCodexExplorationTool } from '@/chat/codexComm
 import { isSubagentToolName } from '@/chat/subagentTool'
 import { isAskUserQuestionToolName } from '@/components/ToolCard/askUserQuestion'
 import { isRequestUserInputToolName } from '@/components/ToolCard/requestUserInput'
+import { resolveToolViewName } from '@/components/ToolCard/toolNameAliases'
+
 import { getInputStringAny } from '@/lib/toolInputUtils'
 
 export type ToolGroupActionKind = 'read' | 'search' | 'command' | 'mutation' | 'web' | 'other'
@@ -112,7 +114,7 @@ function normalizeCommandInput(input: unknown): string | null {
 }
 
 export function getToolGroupActionKind(block: ToolCallBlock): ToolGroupActionKind {
-    const name = block.tool.name
+    const name = resolveToolViewName(block.tool.name)
 
     if (name === 'Read' || name === 'NotebookRead') return 'read'
     if (name === 'Grep' || name === 'Glob' || name === 'LS') return 'search'

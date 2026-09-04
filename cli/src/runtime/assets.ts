@@ -1,4 +1,4 @@
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { arch, platform } from 'node:os';
 import * as tar from 'tar';
@@ -16,20 +16,26 @@ const bunRuntime = (globalThis as typeof globalThis & {
     Bun?: { file: (source: string | URL) => { arrayBuffer: () => Promise<ArrayBuffer> } };
 }).Bun;
 
+async function readAssetBytes(asset: EmbeddedAsset): Promise<Buffer> {
+    if (bunRuntime) {
+        return Buffer.from(await bunRuntime.file(asset.sourcePath).arrayBuffer());
+    }
+    return readFileSync(asset.sourcePath);
+}
+
 async function copyAssetFile(asset: EmbeddedAsset, targetPath: string): Promise<void> {
     ensureDirectory(dirname(targetPath));
-    if (bunRuntime) {
-        const data = await bunRuntime.file(asset.sourcePath).arrayBuffer();
-        writeFileSync(targetPath, Buffer.from(data));
-        return;
-    }
-
-    copyFileSync(asset.sourcePath, targetPath);
+    const tempPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
     try {
-        const stats = statSync(asset.sourcePath);
-        chmodSync(targetPath, stats.mode);
-    } catch {
-        // Best-effort; permission adjustments are not critical.
+        writeFileSync(tempPath, await readAssetBytes(asset));
+        if (!bunRuntime) {
+            const stats = statSync(asset.sourcePath);
+            chmodSync(tempPath, stats.mode);
+        }
+        renameSync(tempPath, targetPath);
+    } catch (error) {
+        rmSync(tempPath, { force: true });
+        throw error;
     }
 }
 
@@ -131,8 +137,24 @@ function unpackTools(runtimeRoot: string): void {
     }
 }
 
-function runtimeAssetsReady(runtimeRoot: string): boolean {
-    return areToolsUnpacked(join(runtimeRoot, 'tools', 'unpacked')) && isTunwgReady(runtimeRoot);
+const HAPI_AGENT_SKILL_ASSET = 'skills/hapi-agent/SKILL.md';
+
+async function isCanonicalSkillStaged(runtimeRoot: string, embeddedAssets: EmbeddedAsset[]): Promise<boolean> {
+    const asset = embeddedAssets.find((candidate) => candidate.relativePath === HAPI_AGENT_SKILL_ASSET);
+    if (!asset) {
+        return false;
+    }
+    try {
+        return readFileSync(join(runtimeRoot, asset.relativePath)).equals(await readAssetBytes(asset));
+    } catch {
+        return false;
+    }
+}
+
+async function runtimeAssetsReady(runtimeRoot: string, embeddedAssets: EmbeddedAsset[]): Promise<boolean> {
+    return areToolsUnpacked(join(runtimeRoot, 'tools', 'unpacked'))
+        && isTunwgReady(runtimeRoot)
+        && await isCanonicalSkillStaged(runtimeRoot, embeddedAssets);
 }
 
 export async function ensureRuntimeAssets(): Promise<void> {
@@ -141,18 +163,18 @@ export async function ensureRuntimeAssets(): Promise<void> {
     }
 
     const { loadEmbeddedAssets } = await import('#embedded-assets');
+    const embeddedAssets = await loadEmbeddedAssets();
     const runtimeRoot = runtimePath();
     const markerPath = join(runtimeRoot, RUNTIME_MARKER);
     if (existsSync(markerPath)) {
         const markerVersion = readFileSync(markerPath, 'utf-8').trim();
-        if (markerVersion === packageJson.version && runtimeAssetsReady(runtimeRoot)) {
+        if (markerVersion === packageJson.version && await runtimeAssetsReady(runtimeRoot, embeddedAssets)) {
             return;
         }
     }
 
     ensureDirectory(runtimeRoot);
 
-    const embeddedAssets = await loadEmbeddedAssets();
 
     for (const asset of embeddedAssets) {
         const targetPath = join(runtimeRoot, asset.relativePath);
@@ -161,6 +183,9 @@ export async function ensureRuntimeAssets(): Promise<void> {
 
     unpackTools(runtimeRoot);
     ensureTunwgExecutable(runtimeRoot);
+    if (!await isCanonicalSkillStaged(runtimeRoot, embeddedAssets)) {
+        throw new Error('Embedded hapi-agent skill failed canonical staging verification');
+    }
     writeFileSync(markerPath, packageJson.version, 'utf-8');
 }
 

@@ -2,8 +2,8 @@
 
 **Audience:** Implementers of native companion apps (Android phone + Wear OS via FCM, iOS via APNs) that pair with a hapi hub.
 
-**Auth:** Exchange the pairing `code` / CLI access token with `POST /api/auth`:
-`{ "accessToken": "<code>" }`. Use the returned JWT as `Authorization: Bearer <token>`
+**Auth:** Exchange an access token with `POST /api/auth`:
+`{ "accessToken": "<token>" }`. The token is the bare `CLI_API_TOKEN` (admin seed token, from `~/.hapi/settings.json`) or a `hapi_mu_*` per-account API token. Do not append `:<namespace>` — the full string is hashed and looked up, so any suffix fails. Use the returned JWT as `Authorization: Bearer <token>`
 for device registration and session actions. `POST /api/bind` is only for Telegram Mini App
 binding (requires Telegram `initData`).
 

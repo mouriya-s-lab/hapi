@@ -36,6 +36,9 @@ export type SessionSummaryMetadata = {
     name?: string
     path: string
     machineId?: string
+    /** Session-recorded host name. Falls back to displaying an unfriendly-named
+     *  machine's `host` when the sidebar has no `machineLabelsById` entry. */
+    host?: string
     summary?: { text: string }
     flavor?: string | null
     worktree?: WorktreeMetadata
@@ -43,6 +46,8 @@ export type SessionSummaryMetadata = {
     lifecycleState?: string
     /** Loopback MCP URL when session CLI happy server is running (#956). */
     hapiMcpUrl?: string
+    /** Present when the session was explicitly archived via the session menu. */
+    archivedAt?: number
 }
 
 export type SessionSummary = {
@@ -158,12 +163,19 @@ const AGENT_SESSION_ID_FIELD_BY_FLAVOR: Partial<Record<AgentFlavor, keyof Metada
     cursor: 'cursorSessionId',
     kimi: 'kimiSessionId',
     copilot: 'copilotSessionId',
-    pi: 'piSessionId'
-}
+    pi: 'piSessionId',
+    omp: 'ompSession'
+} as const satisfies Partial<Record<AgentFlavor, keyof Metadata>>
 
 function getSummaryAgentSessionId(metadata: Metadata): string | undefined {
     const flavor = metadata.flavor
     if (isKnownFlavor(flavor)) {
+        // OMP stores its native id nested on `metadata.ompSession.id` rather
+        // than as a top-level string field like the other flavors.
+        if (flavor === 'omp') {
+            const ompId = metadata.ompSession?.id
+            return typeof ompId === 'string' && ompId.trim() ? ompId.trim() : undefined
+        }
         const flavorField = AGENT_SESSION_ID_FIELD_BY_FLAVOR[flavor]
         if (!flavorField) return undefined
         const flavorSessionId = metadata[flavorField]
@@ -181,6 +193,7 @@ function getSummaryAgentSessionId(metadata: Metadata): string | undefined {
         ?? metadata.agySessionId
         ?? metadata.cursorSessionId
         ?? metadata.kimiSessionId
+        ?? metadata.ompSession?.id
         ?? metadata.copilotSessionId
         ?? undefined
 }
@@ -193,12 +206,14 @@ export function toSessionSummaryMetadata(metadata: Metadata | null | undefined):
         name: metadata.name,
         path: metadata.path,
         machineId: metadata.machineId ?? undefined,
+        host: metadata.host,
         summary: metadata.summary ? { text: metadata.summary.text } : undefined,
         flavor: metadata.flavor ?? null,
         worktree: metadata.worktree,
         agentSessionId: getSummaryAgentSessionId(metadata),
         lifecycleState: metadata.lifecycleState,
-        hapiMcpUrl: metadata.hapiMcpUrl ?? undefined
+        hapiMcpUrl: metadata.hapiMcpUrl ?? undefined,
+        archivedAt: metadata.archivedAt
     }
 }
 

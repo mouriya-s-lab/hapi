@@ -15,6 +15,7 @@ export type StoredSession = {
     modelReasoningEffort: string | null
     effort: string | null
     serviceTier: string | null
+    resumeWithSessionModel: boolean
     todos: unknown | null
     todosUpdatedAt: number | null
     teamState: unknown | null

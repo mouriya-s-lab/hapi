@@ -141,12 +141,15 @@ export function createMessagesRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({ error: 'Message requires text or attachments' }, 400)
         }
 
+        const deliveryMetadata = c.get('deliveryMetadata') ?? {}
         await engine.sendMessage(sessionId, {
             text: parsed.data.text,
             localId: parsed.data.localId,
             attachments: parsed.data.attachments,
+            ompInputMode: parsed.data.ompInputMode,
             sentFrom: 'webapp',
             scheduledAt: parsed.data.scheduledAt,
+            deliveryMetadata,
             deliveryMode: parsed.data.deliveryMode
         })
         return c.json({ ok: true })

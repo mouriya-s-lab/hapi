@@ -11,9 +11,21 @@ import SettingsVoicePage from './voice'
 import SettingsVoiceVoicesPage from './voice-voices'
 import SettingsVoiceAdvancedPage from './voice-advanced'
 
-const { context, navigate, setAppearance, setColorTheme, setFontScale, setTerminalFontSize, setComposerEnterBehavior, setCodexExplorationCollapsed, setVoice } = vi.hoisted(() => ({
+const {
+    context,
+    navigate,
+    reloadPwa,
+    setAppearance,
+    setColorTheme,
+    setFontScale,
+    setTerminalFontSize,
+    setComposerEnterBehavior,
+    setCodexExplorationCollapsed,
+    setVoice,
+} = vi.hoisted(() => ({
     context: { token: '' },
     navigate: vi.fn(),
+    reloadPwa: vi.fn(),
     setAppearance: vi.fn(),
     setColorTheme: vi.fn(),
     setFontScale: vi.fn(),
@@ -41,7 +53,20 @@ vi.mock('@tanstack/react-router', () => ({
     useNavigate: () => navigate,
 }))
 
+vi.mock('@/lib/app-context', () => ({
+    useAppContext: () => ({
+        api: { getHubSettings, updateHubSettings },
+        baseUrl: 'http://127.0.0.1:3006',
+        token: context.token,
+        user: { role: 'admin' },
+    }),
+}))
+
 vi.mock('@hapi/protocol', () => ({ PROTOCOL_VERSION: 1 }))
+
+vi.mock('@/lib/pwa-update-context', () => ({
+    usePwaUpdateContext: () => ({ needRefresh: false, reload: reloadPwa }),
+}))
 
 vi.mock('@/hooks/useTheme', () => ({
     useAppearance: () => ({ appearance: 'system', setAppearance }),
@@ -158,13 +183,6 @@ vi.mock('@/hooks/useChatSurfaceColors', () => ({
     toCustomChatSurfaceColorPreference: (value: string) => `custom:${value}`,
 }))
 
-vi.mock('@/lib/app-context', () => ({
-    useAppContext: () => ({
-        api: { getHubSettings, updateHubSettings },
-        baseUrl: 'http://127.0.0.1:3006',
-        token: context.token,
-    }),
-}))
 
 vi.mock('@/components/settings/CompanionPairing', () => ({
     CompanionPairing: () => <div>Companion pairing</div>,
@@ -202,6 +220,7 @@ vi.mock('./useVoiceSettings', () => ({
         previewVoice: vi.fn(),
     }),
 }))
+
 
 function renderPage(page: React.ReactElement) {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -293,13 +312,16 @@ describe('responsive settings pages', () => {
         expect(setCodexExplorationCollapsed).toHaveBeenCalledWith(false)
     })
 
-    it('renders About metadata on its own route page', () => {
+    it('renders About metadata and reloads the PWA on demand', () => {
         renderPage(<SettingsAboutPage />)
         expect(screen.queryByText('Companion')).not.toBeInTheDocument()
         expect(screen.getByText('App Version')).toBeInTheDocument()
         expect(screen.getByText(String(__APP_VERSION__))).toBeInTheDocument()
         expect(screen.getByText('Protocol Version')).toBeInTheDocument()
         expect(screen.getByRole('link', { name: 'hapi.run' })).toHaveAttribute('rel', 'noopener noreferrer')
+
+        fireEvent.click(screen.getByRole('button', { name: 'Reload' }))
+        expect(reloadPwa).toHaveBeenCalledTimes(1)
     })
 
     it('links common voice settings to full-page voices and advanced pages', () => {
