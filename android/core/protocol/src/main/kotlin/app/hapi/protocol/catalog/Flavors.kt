@@ -28,6 +28,7 @@ sealed interface AgentFlavor {
         override val id: String get() = raw
     }
 
+    companion object {
         /** `AGENT_FLAVORS` — declaration order preserved. */
         val KNOWN: List<AgentFlavor> = listOf(
             Agy, Claude, Codex, Dsh, Copilot, Cursor, Gemini, Grok, Kimi, Omp, Opencode, Pi,
