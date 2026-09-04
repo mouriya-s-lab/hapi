@@ -35,7 +35,7 @@ function convertAgentUsage(message: AgentUsage): CodexUsageInfo {
 
 export type CodexMessage =
     | { type: 'message'; message: string; id?: string; streamSnapshot?: boolean; model?: string; usage?: CodexUsageInfo }
-    | { type: 'reasoning'; message: string; id: string; model?: string; usage?: CodexUsageInfo }
+    | { type: 'reasoning'; message: string; id: string; live?: boolean; model?: string; usage?: CodexUsageInfo }
     | {
         type: 'token_count';
         model: string | null;
@@ -87,10 +87,16 @@ export function convertAgentMessage(message: AgentMessage, model?: string | null
             // AgentMessage uses `text` (consistent with the `text` variant);
             // the wire-level CodexMessage uses `message` to match the
             // existing reasoning format emitted by the Codex path.
+            //
+            // `live` marks a throttled snapshot of a still-growing buffer, so
+            // the hub can keep just the newest one per stream instead of
+            // storing every intermediate. The settled message that closes a
+            // stream carries no marker, which is what makes it the survivor.
             return {
                 type: 'reasoning',
                 message: message.text,
                 id: message.id ?? randomUUID(),
+                ...(message.live === true ? { live: true } : {}),
                 model: message.model,
                 usage: message.usage ? convertAgentUsage(message.usage) : undefined
             };

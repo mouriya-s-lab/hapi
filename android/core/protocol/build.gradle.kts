@@ -22,6 +22,15 @@ kotlin {
 dependencies {
     api(libs.kotlinx.serialization.json)
 
+    // CommonMark parsing lives in this pure-JVM module so parser configuration
+    // (GFM extensions, disabled indented code blocks) is covered by millisecond
+    // JVM tests together with the source-level transforms that feed it.
+    // `api`: :app walks the commonmark AST directly in the Compose renderer.
+    api(libs.commonmark)
+    api(libs.commonmark.ext.gfm.tables)
+    api(libs.commonmark.ext.gfm.strikethrough)
+    api(libs.commonmark.ext.autolink)
+
     testImplementation(libs.junit)
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlinx.coroutines.test)

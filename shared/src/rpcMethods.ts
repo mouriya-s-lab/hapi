@@ -12,6 +12,7 @@ export const RPC_METHODS = {
     ListMachineDirectory: 'list-directory',
     CreateMachineDirectory: 'create-directory',
     PathExists: 'path-exists',
+    AgentAvailability: 'agent-availability',
     CursorChatStoreStatus: 'cursor-chat-store-status',
     GitStatus: 'git-status',
     GitDiffNumstat: 'git-diff-numstat',

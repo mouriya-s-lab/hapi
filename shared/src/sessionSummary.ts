@@ -153,7 +153,7 @@ export function computeTodoProgress(todos: TodoItem[] | undefined): SessionSumma
     }
 }
 
-const AGENT_SESSION_ID_FIELD_BY_FLAVOR = {
+const AGENT_SESSION_ID_FIELD_BY_FLAVOR: Partial<Record<AgentFlavor, keyof Metadata>> = {
     claude: 'claudeSessionId',
     codex: 'codexSessionId',
     gemini: 'geminiSessionId',
@@ -165,7 +165,7 @@ const AGENT_SESSION_ID_FIELD_BY_FLAVOR = {
     copilot: 'copilotSessionId',
     pi: 'piSessionId',
     omp: 'ompSession'
-} as const satisfies Record<AgentFlavor, keyof Metadata>
+} as const satisfies Partial<Record<AgentFlavor, keyof Metadata>>
 
 function getSummaryAgentSessionId(metadata: Metadata): string | undefined {
     const flavor = metadata.flavor
@@ -177,6 +177,7 @@ function getSummaryAgentSessionId(metadata: Metadata): string | undefined {
             return typeof ompId === 'string' && ompId.trim() ? ompId.trim() : undefined
         }
         const flavorField = AGENT_SESSION_ID_FIELD_BY_FLAVOR[flavor]
+        if (!flavorField) return undefined
         const flavorSessionId = metadata[flavorField]
         return typeof flavorSessionId === 'string' && flavorSessionId.trim()
             ? flavorSessionId.trim()

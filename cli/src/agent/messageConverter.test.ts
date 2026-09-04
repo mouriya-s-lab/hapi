@@ -116,6 +116,32 @@ describe('convertAgentMessage', () => {
         });
     });
 
+    it('marks a live reasoning snapshot on the wire payload', () => {
+        const converted = convertAgentMessage({
+            type: 'reasoning',
+            text: 'thinking',
+            id: 'reasoning-stream-1',
+            live: true
+        });
+
+        expect(converted).toEqual({
+            type: 'reasoning',
+            message: 'thinking',
+            id: 'reasoning-stream-1',
+            live: true
+        });
+    });
+
+    it('omits the live marker from a settled reasoning payload', () => {
+        const converted = convertAgentMessage({
+            type: 'reasoning',
+            text: 'thinking',
+            id: 'reasoning-stream-1'
+        });
+
+        expect(converted !== null && 'live' in converted).toBe(false);
+    });
+
     it('keeps native assistant usage on the visible message footer payload', () => {
         const converted = convertAgentMessage({
             type: 'text',

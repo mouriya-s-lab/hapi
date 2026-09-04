@@ -671,7 +671,8 @@ describe('ApiMachineClient SpawnHappySession handler', () => {
 
             expect(result).toEqual({
                 type: 'error',
-                errorMessage: 'Directory is outside this machine\'s workspace roots'
+                errorMessage: 'Directory is outside this machine\'s workspace roots',
+                code: 'outside_workspace_roots'
             })
             expect(spawnSession).not.toHaveBeenCalled()
         } finally {

@@ -26,6 +26,8 @@ export interface SpawnSessionOptions {
     startingMode?: 'remote' | 'pty'
     /** Claude: spawn with --fork-session after --resume. */
     forkSession?: boolean
+    /** Runner-internal post-create containment revalidation. Never serialized. */
+    validateDirectory?: (path: string) => Promise<boolean>
     claudeLaunch?: ClaudeLaunch
     ccSwitchProviderId?: string
 }
@@ -33,4 +35,9 @@ export interface SpawnSessionOptions {
 export type SpawnSessionResult =
     | { type: 'success'; sessionId: string }
     | { type: 'requestToApproveDirectoryCreation'; directory: string }
-    | { type: 'error'; errorMessage: string }
+    | {
+        type: 'error'
+        errorMessage: string
+        code?: 'agent_unavailable' | 'outside_workspace_roots'
+        agent?: AgentFlavor
+    }

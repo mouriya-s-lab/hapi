@@ -31,7 +31,7 @@ data class BindLink(
          *
          * Returns null on any malformed input: unparseable URI, wrong scheme or
          * host, missing/blank `hub` or `code` parameter, invalid percent escapes,
-         * or a `hub` value that is not an http(s) URL.
+         * or a `hub` value that is not an HTTPS URL.
          */
         fun parse(raw: String): BindLink? {
             val uri = try {
@@ -46,16 +46,17 @@ data class BindLink(
             val params = parseFormQuery(uri.rawQuery ?: return null) ?: return null
             val hub = params["hub"]?.takeIf { it.isNotBlank() } ?: return null
             val code = params["code"]?.takeIf { it.isNotBlank() } ?: return null
-            if (!isHttpUrl(hub)) return null
+            if (!isHttpsUrl(hub)) return null
             return BindLink(hubUrl = hub, accessToken = code)
         }
 
         /**
          * Decodes an `application/x-www-form-urlencoded` query string.
          * First occurrence wins for duplicate keys. Returns null if any
-         * component carries invalid escapes.
+         * component carries invalid escapes. Internal so [PairingLinks] can
+         * decode the web direct-access QR with identical semantics.
          */
-        private fun parseFormQuery(rawQuery: String): Map<String, String>? {
+        internal fun parseFormQuery(rawQuery: String): Map<String, String>? {
             val result = LinkedHashMap<String, String>()
             for (pair in rawQuery.split('&')) {
                 if (pair.isEmpty()) continue
@@ -79,14 +80,14 @@ data class BindLink(
             null // unreachable: UTF-8 is always supported
         }
 
-        private fun isHttpUrl(value: String): Boolean {
+        internal fun isHttpsUrl(value: String): Boolean {
             val uri = try {
                 URI(value)
             } catch (_: URISyntaxException) {
                 return false
             }
             val scheme = uri.scheme?.lowercase() ?: return false
-            if (scheme != "http" && scheme != "https") return false
+            if (scheme != "https") return false
             return !(uri.host ?: uri.authority).isNullOrBlank()
         }
     }

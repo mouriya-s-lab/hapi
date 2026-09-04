@@ -26,6 +26,7 @@ sessionPinned?: boolean
     onSetPinMode?: (mode: 'none' | 'project' | 'global') => void
     onShowSessionId?: () => void
     onExport?: () => void
+    onMarkUnread?: () => void
     onSyncCodex?: () => void
     onSyncPi?: () => void
     onArchive: () => void
@@ -62,6 +63,21 @@ function EditIcon(props: { className?: string }) {
         >
             <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
             <path d="m15 5 4 4" />
+        </svg>
+    )
+}
+
+function UnreadIcon(props: { className?: string }) {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            className={props.className}
+        >
+            <circle cx="12" cy="12" r="4" fill="currentColor" />
         </svg>
     )
 }
@@ -240,6 +256,7 @@ sessionPinned = false,
         onSetPinMode,
         onShowSessionId,
         onExport,
+        onMarkUnread,
         onSyncCodex,
         onSyncPi,
         onArchive,
@@ -296,6 +313,11 @@ sessionPinned = false,
     const handleExport = () => {
         onClose()
         onExport?.()
+    }
+
+    const handleMarkUnread = () => {
+        onClose()
+        onMarkUnread?.()
     }
 
     const handleSyncCodex = () => {
@@ -446,6 +468,18 @@ sessionPinned = false,
                     <CopyIcon className="h-[18px] w-[18px] text-[var(--app-hint)]" />
                     {t('session.action.copyReference')}
                 </button>
+
+                {onMarkUnread ? (
+                    <button
+                        type="button"
+                        role="menuitem"
+                        className={`${baseItemClassName} hover:bg-[var(--app-subtle-bg)]`}
+                        onClick={handleMarkUnread}
+                    >
+                        <UnreadIcon className="text-[var(--app-hint)]" />
+                        {t('session.action.markUnread')}
+                    </button>
+                ) : null}
 
                 {onSetPinMode ? (
                     <>

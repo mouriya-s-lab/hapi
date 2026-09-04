@@ -111,21 +111,9 @@ vi.mock('@/components/AssistantChat/StatusBar', () => ({
     shouldShowComposerStatusBar: () => true,
     StatusBar: () => null,
 }))
-vi.mock('./PiModelPanel', () => ({
-    PiModelPanel: (props: {
-        controlsDisabled?: boolean
-        onSelect: (model: { provider: string; modelId: string }) => void
-    }) => (
-        <button
-            type="button"
-            disabled={props.controlsDisabled}
-            onClick={() => props.onSelect({ provider: 'pi', modelId: 'pi-next' })}
-        >
-            select model
-        </button>
-    ),
+vi.mock('@/components/AssistantChat/SortableComposerAttachments', () => ({
+    SortableComposerAttachments: () => null,
 }))
-vi.mock('./PiThinkingLevelPanel', () => ({ PiThinkingLevelPanel: () => null }))
 vi.mock('@/components/AssistantChat/ComposerButtons', () => ({
     ComposerButtons: (props: {
         onSend: () => void

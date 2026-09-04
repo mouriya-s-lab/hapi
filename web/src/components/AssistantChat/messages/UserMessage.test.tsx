@@ -31,6 +31,10 @@ const state = vi.hoisted(() => {
     }
 })
 
+vi.mock('@/lib/use-translation', () => ({
+    useTranslation: () => ({ t: (key: string) => key })
+}))
+
 vi.mock('@assistant-ui/react', () => ({
     MessagePrimitive: {
         Root: (props: { children?: ReactNode; id?: string; className?: string }) => (

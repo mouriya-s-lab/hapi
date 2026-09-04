@@ -18,7 +18,7 @@ describe('Store V15 migration: reconcile divergent columns', () => {
         expect(getColumns(store, 'sessions')).toContain('resume_with_session_model')
         expect(getColumns(store, 'usage_events')).toContain('last_input_tokens')
         expect(getColumns(store, 'usage_scan_state')).toContain('last_seq')
-        expect(getUserVersion(store)).toBe(23)
+        expect(getUserVersion(store)).toBe(25)
         store.close()
     })
 
@@ -37,7 +37,7 @@ describe('Store V15 migration: reconcile divergent columns', () => {
             expect(getColumns(store, 'sessions')).toContain('resume_with_session_model')
             expect(getColumns(store, 'usage_events')).toContain('last_input_tokens')
             expect(getColumns(store, 'usage_scan_state')).toContain('last_seq')
-            expect(getUserVersion(store)).toBe(23)
+            expect(getUserVersion(store)).toBe(25)
         } finally {
             store?.close()
             rmSync(dir, { recursive: true, force: true })
@@ -60,7 +60,7 @@ describe('Store V15 migration: reconcile divergent columns', () => {
             expect(getColumns(store, 'sessions')).toContain('resume_with_session_model')
             expect(getColumns(store, 'usage_events')).toContain('last_input_tokens')
             expect(getColumns(store, 'usage_scan_state')).toContain('last_seq')
-            expect(getUserVersion(store)).toBe(23)
+            expect(getUserVersion(store)).toBe(25)
         } finally {
             store?.close()
             rmSync(dir, { recursive: true, force: true })
@@ -83,7 +83,7 @@ describe('Store V15 migration: reconcile divergent columns', () => {
             expect(getColumns(store, 'sessions')).toContain('resume_with_session_model')
             expect(getColumns(store, 'usage_events')).toContain('last_input_tokens')
             expect(getColumns(store, 'usage_scan_state')).toContain('last_seq')
-            expect(getUserVersion(store)).toBe(23)
+            expect(getUserVersion(store)).toBe(25)
         } finally {
             store?.close()
             rmSync(dir, { recursive: true, force: true })
@@ -103,7 +103,7 @@ describe('Store V15 migration: reconcile divergent columns', () => {
             second = new Store(dbPath)
             expect(getColumns(second, 'session_scratchlist')).toEqual(scratchlistColumns)
             expect(getColumns(second, 'sessions')).toEqual(sessionColumns)
-            expect(getUserVersion(second)).toBe(23)
+            expect(getUserVersion(second)).toBe(25)
         } finally {
             second?.close()
             first?.close()
