@@ -376,6 +376,7 @@ export const OMP_KNOWN_EVENT_TYPES = [
     'tool_execution_start',
     'tool_execution_update',
     'tool_execution_end',
+    'tool_stream_update',
     'auto_compaction_start',
     'auto_compaction_end',
     'auto_retry_start',
@@ -390,6 +391,9 @@ export const OMP_KNOWN_EVENT_TYPES = [
     'notice',
     'thinking_level_changed',
     'goal_updated',
+    'config_warnings_changed',
+    'advisor_cost_changed',
+    'advisor_yielded',
     'available_commands_update',
     'prompt_result',
     'subagent_lifecycle',
@@ -406,6 +410,54 @@ export const OMP_KNOWN_EVENT_TYPES = [
     'extension_error',
     'rpc_frame_error'
 ] as const;
+
+/**
+ * Allowlist of raw OMP RPC event types whose derived output may surface in the
+ * hub chat (structured event rows, tool cards, canonical messages). Everything
+ * not listed here is processed functionally (turn lifecycle, state reconciliation,
+ * host integration) but never forwarded to the hub — including unknown/future
+ * event types, which previously leaked as `omp-rpc-warning` rows.
+ *
+ * Verified against real OMP 18.1.6 (`@oh-my-pi/pi-agent-core/dist/types/types.d.ts`
+ * `AgentEvent`, `pi-coding-agent/dist/types/session/agent-session-events.d.ts`
+ * `AgentSessionEvent`, and `dist/types/modes/rpc/rpc-types.d.ts`
+ * `RpcSessionEventFrame`).
+ */
+export const OMP_DISPLAYABLE_EVENT_TYPES = [
+    // Chat content and tool/subagent cards.
+    'message_start',
+    'message_update',
+    'message_end',
+    'tool_execution_start',
+    'tool_execution_update',
+    'tool_execution_end',
+    'subagent_lifecycle',
+    'subagent_progress',
+    'subagent_event',
+    // Status rows worth showing in the hub timeline.
+    'notice',
+    'extension_error',
+    'auto_compaction_start',
+    'auto_compaction_end',
+    'auto_retry_start',
+    'auto_retry_end',
+    'retry_fallback_applied',
+    'retry_fallback_succeeded',
+    'model_changed',
+    'command_output',
+    // Functional UI surfaced through host integration (permission dialogs, OAuth).
+    'extension_ui_request',
+    'host_tool_call',
+    'host_tool_cancel',
+    'host_uri_request',
+    'host_uri_cancel'
+] as const;
+
+export type OmpDisplayableEventType = typeof OMP_DISPLAYABLE_EVENT_TYPES[number];
+
+export function isDisplayableOmpEventType(eventType: string): boolean {
+    return (OMP_DISPLAYABLE_EVENT_TYPES as readonly string[]).includes(eventType);
+}
 
 export type OmpKnownEventType = typeof OMP_KNOWN_EVENT_TYPES[number];
 

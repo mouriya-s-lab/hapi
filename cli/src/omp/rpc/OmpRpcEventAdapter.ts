@@ -11,6 +11,7 @@ import type {
     OmpAvailableCommand,
     OmpSubagentSnapshot
 } from './types';
+import { isDisplayableOmpEventType } from './types';
 
 const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
     z.string(),
@@ -378,12 +379,9 @@ export class OmpRpcEventAdapter {
 
     handle(event: OmpInboundEvent): void {
         if (event.kind === 'unknown') {
-            this.callbacks.onStructuredEvent({
-                type: 'omp-rpc-warning',
-                eventType: event.type,
-                warning: `OMP event: ${event.type.replaceAll('_', ' ')}`,
-                frame: event.raw
-            });
+            // Unknown/future OMP events are logged for diagnosis only. They used
+            // to surface as `omp-rpc-warning` hub rows, which polluted the chat
+            // timeline every time OMP shipped a new event type.
             this.callbacks.onDiagnostic(`OMP event: ${event.type}`);
             return;
         }
@@ -500,17 +498,29 @@ export class OmpRpcEventAdapter {
             case 'config_update':
                 this.callbacks.onSessionInfoUpdate();
                 return;
+            case 'tool_stream_update':
+                // Intra-tool streaming detail; display comes from
+                // tool_execution_start/update/end lifecycle events instead.
+                return;
+            case 'config_warnings_changed':
+            case 'advisor_cost_changed':
+            case 'advisor_yielded':
+                // Session-state changes only; reconcile without a hub row.
+                this.callbacks.onSessionInfoUpdate();
+                return;
             case 'ttsr_triggered':
             case 'todo_reminder':
             case 'todo_auto_clear':
             case 'irc_message':
             case 'goal_updated':
             case 'model_changed':
-                this.callbacks.onStructuredEvent({
-                    type: 'omp-session-event',
-                    eventType: event.type,
-                    frame: event.raw
-                });
+                if (isDisplayableOmpEventType(event.type)) {
+                    this.callbacks.onStructuredEvent({
+                        type: 'omp-session-event',
+                        eventType: event.type,
+                        frame: event.raw
+                    });
+                }
                 this.callbacks.onSessionInfoUpdate();
                 return;
             case 'command_output':

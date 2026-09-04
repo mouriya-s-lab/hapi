@@ -573,25 +573,49 @@ describe('OmpRpcEventAdapter', () => {
         expect(harness.diagnostics).toEqual(['OMP rpc_frame_error: RPC frame exceeded the transport limit']);
     });
 
-    it('preserves unknown frames and emits a short label instead of Unknown', () => {
+    it('drops unknown frames from the hub timeline and logs them only', () => {
         const harness = createHarness();
-        expect(OMP_KNOWN_EVENT_TYPES).toHaveLength(39);
+        expect(OMP_KNOWN_EVENT_TYPES).toHaveLength(43);
         harness.adapter.handle(rpcEvent({
             type: 'future_event',
             nested: { future: true },
             version: 18
         }));
 
-        expect(harness.structuredEvents).toEqual([{
-            type: 'omp-rpc-warning',
-            eventType: 'future_event',
-            warning: 'OMP event: future event',
-            frame: {
-                type: 'future_event',
-                nested: { future: true },
-                version: 18
-            }
-        }]);
+        expect(harness.structuredEvents).toEqual([]);
         expect(harness.diagnostics).toEqual(['OMP event: future_event']);
+    });
+
+    it('suppresses session bookkeeping events from the hub timeline but still reconciles', () => {
+        const harness = createHarness();
+        for (const type of ['ttsr_triggered', 'todo_reminder', 'todo_auto_clear', 'irc_message', 'goal_updated']) {
+            harness.adapter.handle(rpcEvent({ type }));
+        }
+
+        expect(harness.structuredEvents).toEqual([]);
+        expect(harness.callbacks.onSessionInfoUpdate).toHaveBeenCalledTimes(5);
+    });
+
+    it('still forwards model_changed as a displayable session event', () => {
+        const harness = createHarness();
+        harness.adapter.handle(rpcEvent({ type: 'model_changed' }));
+
+        expect(harness.structuredEvents).toEqual([{
+            type: 'omp-session-event',
+            eventType: 'model_changed',
+            frame: { type: 'model_changed' }
+        }]);
+    });
+
+    it('recognizes omp 18.1.6 internal events without warning rows', () => {
+        const harness = createHarness();
+        harness.adapter.handle(rpcEvent({ type: 'tool_stream_update', toolCallId: 't1', toolName: 'bash', update: {} }));
+        harness.adapter.handle(rpcEvent({ type: 'config_warnings_changed' }));
+        harness.adapter.handle(rpcEvent({ type: 'advisor_cost_changed' }));
+        harness.adapter.handle(rpcEvent({ type: 'advisor_yielded' }));
+
+        expect(harness.structuredEvents).toEqual([]);
+        expect(harness.diagnostics).toEqual([]);
+        expect(harness.callbacks.onSessionInfoUpdate).toHaveBeenCalledTimes(3);
     });
 });
