@@ -155,12 +155,12 @@ struct CatalogTests {
     @Test func knownFlavorsMatchAgentFlavorsOrder() {
         #expect(AgentFlavor.knownFlavors.map(\.rawValue) == [
             "agy", "claude", "codex", "dsh", "copilot", "cursor",
-            "gemini", "grok", "kimi", "opencode", "pi",
+            "gemini", "grok", "kimi", "omp", "opencode", "pi",
         ])
     }
 
     @Test func creatableFlavorsExcludeOnlyGemini() {
-        #expect(AgentFlavor.creatableFlavors.count == 10)
+        #expect(AgentFlavor.creatableFlavors.count == 11)
         #expect(!AgentFlavor.creatableFlavors.contains(.gemini))
         #expect(AgentFlavor.creatableFlavors.contains(.claude))
     }
@@ -190,6 +190,7 @@ struct CatalogTests {
         #expect(AgentFlavor.claude.supportsEffort)
         #expect(AgentFlavor.grok.supportsEffort)
         #expect(AgentFlavor.pi.supportsEffort)
+        #expect(AgentFlavor.omp.supportsEffort)
         #expect(!AgentFlavor.codex.supportsEffort)
         #expect(!AgentFlavor.cursor.supportsEffort)
         #expect(supportsEffort(forFlavor: "claude"))
@@ -213,6 +214,7 @@ struct CatalogTests {
         #expect(isCodexFamilyFlavor("kimi"))
         #expect(isCodexFamilyFlavor("copilot"))
         #expect(isCodexFamilyFlavor("opencode"))
+        #expect(isCodexFamilyFlavor("omp"))
         #expect(!isCodexFamilyFlavor("dsh"))
         #expect(!isCodexFamilyFlavor("claude"))
         #expect(!isCodexFamilyFlavor("cursor"))

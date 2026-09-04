@@ -91,6 +91,7 @@ object PermissionModes {
         "agy" -> AGY
         "cursor" -> CURSOR
         "pi" -> emptyList()
+        "omp" -> listOf(PermissionMode.Default, PermissionMode.Yolo)
         else -> CLAUDE
     }
 

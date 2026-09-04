@@ -103,6 +103,8 @@ extension AgentFlavor {
             return [.default, .plan, .ask, .debug, .autoReview, .yolo]
         case .pi:
             return []
+        case .omp:
+            return [.default, .yolo]
         case .claude, .other:
             return [.default, .acceptEdits, .auto, .bypassPermissions, .plan]
         }

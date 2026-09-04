@@ -19,6 +19,7 @@ sealed interface AgentFlavor {
     data object Gemini : AgentFlavor { override val id = "gemini" }
     data object Grok : AgentFlavor { override val id = "grok" }
     data object Kimi : AgentFlavor { override val id = "kimi" }
+    data object Omp : AgentFlavor { override val id = "omp" }
     data object Opencode : AgentFlavor { override val id = "opencode" }
     data object Pi : AgentFlavor { override val id = "pi" }
 
@@ -27,10 +28,9 @@ sealed interface AgentFlavor {
         override val id: String get() = raw
     }
 
-    companion object {
         /** `AGENT_FLAVORS` — declaration order preserved. */
         val KNOWN: List<AgentFlavor> = listOf(
-            Agy, Claude, Codex, Dsh, Copilot, Cursor, Gemini, Grok, Kimi, Opencode, Pi,
+            Agy, Claude, Codex, Dsh, Copilot, Cursor, Gemini, Grok, Kimi, Omp, Opencode, Pi,
         )
 
         /**
@@ -69,7 +69,7 @@ object Flavors {
         "grok" to setOf(FlavorCapability.ModelChange, FlavorCapability.Effort),
         "codex" to setOf(FlavorCapability.ModelChange),
         "dsh" to emptySet(),
-        "cursor" to setOf(FlavorCapability.ModelChange),
+        "omp" to setOf(FlavorCapability.ModelChange, FlavorCapability.Effort),
         "opencode" to setOf(FlavorCapability.ModelChange),
         "pi" to setOf(FlavorCapability.ModelChange, FlavorCapability.Effort),
     )
@@ -83,6 +83,7 @@ object Flavors {
         "grok" to "Grok Build",
         "codex" to "Codex",
         "dsh" to "DeepSeek Harness",
+        "omp" to "Oh My Pi",
         "cursor" to "Cursor",
         "opencode" to "OpenCode",
         "pi" to "Pi",
@@ -104,4 +105,5 @@ object Flavors {
     fun isCodexFamily(flavor: String?): Boolean =
         flavor == "codex" || flavor == "gemini" || flavor == "grok"
             || flavor == "kimi" || flavor == "copilot" || flavor == "opencode"
+            || flavor == "omp"
 }

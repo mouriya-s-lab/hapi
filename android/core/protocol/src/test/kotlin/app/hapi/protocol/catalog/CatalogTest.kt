@@ -90,7 +90,7 @@ class CatalogTest {
     @Test
     fun `agent flavors match AGENT_FLAVORS and CREATABLE excludes gemini`() {
         assertEquals(
-            listOf("agy", "claude", "codex", "dsh", "copilot", "cursor", "gemini", "grok", "kimi", "opencode", "pi"),
+            listOf("agy", "claude", "codex", "dsh", "copilot", "cursor", "gemini", "grok", "kimi", "omp", "opencode", "pi"),
             AgentFlavor.KNOWN.map { it.id }
         )
         assertFalse(AgentFlavor.CREATABLE.contains(AgentFlavor.Gemini))

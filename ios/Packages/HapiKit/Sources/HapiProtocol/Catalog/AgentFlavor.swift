@@ -17,14 +17,16 @@ public enum AgentFlavor: Equatable, Hashable, Sendable {
     case gemini
     case grok
     case kimi
+    case omp
     case opencode
     case pi
     case other(String)
 
     /// Order matches `AGENT_FLAVORS`.
     public static let knownFlavors: [AgentFlavor] = [
-        .agy, .claude, .codex, .dsh, .copilot, .cursor, .gemini, .grok, .kimi, .opencode, .pi,
+        .agy, .claude, .codex, .dsh, .copilot, .cursor, .gemini, .grok, .kimi, .omp, .opencode, .pi,
     ]
+
 
     /// Flavors offered when creating a new session (`CREATABLE_AGENT_FLAVORS`).
     /// Gemini is excluded: the consumer Gemini CLI was sunset, but stored
@@ -49,6 +51,7 @@ extension AgentFlavor: RawRepresentable {
         case "gemini": self = .gemini
         case "grok": self = .grok
         case "kimi": self = .kimi
+        case "omp": self = .omp
         case "opencode": self = .opencode
         case "pi": self = .pi
         default: self = .other(rawValue)
@@ -66,6 +69,7 @@ extension AgentFlavor: RawRepresentable {
         case .gemini: return "gemini"
         case .grok: return "grok"
         case .kimi: return "kimi"
+        case .omp: return "omp"
         case .opencode: return "opencode"
         case .pi: return "pi"
         case .other(let raw): return raw
@@ -100,6 +104,7 @@ extension AgentFlavor {
         case .gemini: return "Gemini"
         case .grok: return "Grok Build"
         case .kimi: return "Kimi"
+        case .omp: return "Oh My Pi"
         case .opencode: return "OpenCode"
         case .pi: return "Pi"
         case .other: return "Unknown"
@@ -115,10 +120,10 @@ extension AgentFlavor {
         }
     }
 
-    /// `hasCapability(flavor, 'effort')` — claude, grok, and pi only.
+    /// `hasCapability(flavor, 'effort')` — claude, grok, omp, and pi only.
     public var supportsEffort: Bool {
         switch self {
-        case .claude, .grok, .pi: return true
+        case .claude, .grok, .pi, .omp: return true
         default: return false
         }
     }
@@ -127,7 +132,7 @@ extension AgentFlavor {
     /// protocol variants.
     public var isCodexFamily: Bool {
         switch self {
-        case .codex, .gemini, .grok, .kimi, .copilot, .opencode: return true
+        case .codex, .gemini, .grok, .kimi, .copilot, .opencode, .omp: return true
         default: return false
         }
     }
