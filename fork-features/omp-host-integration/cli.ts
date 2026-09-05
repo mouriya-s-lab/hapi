@@ -705,7 +705,6 @@ type OmpExtensionUiBridgeOptions = {
     client: OmpRpcClient;
     updateAgentState: (handler: (state: AgentState) => AgentState) => void;
     sendAgentMessage: (message: unknown) => void;
-    sendSummary: (title: string) => void;
     onFatal: (error: Error) => void;
 };
 
@@ -756,16 +755,9 @@ export class OmpExtensionUiBridge {
                     placement: request.widgetPlacement
                 } satisfies OmpExtensionUiPresentationEvent);
                 return;
-            case 'setTitle': {
-                const title = stripAnsiAndControls(request.title);
-                this.options.sendSummary(title);
-                this.options.sendAgentMessage({
-                    type: 'omp-extension-ui',
-                    method: 'setTitle',
-                    title
-                } satisfies OmpExtensionUiPresentationEvent);
+            case 'setTitle':
+                // Terminal decoration is not a canonical session name or conversation event.
                 return;
-            }
             case 'set_editor_text':
                 this.options.sendAgentMessage({
                     type: 'omp-extension-ui',
@@ -1163,7 +1155,6 @@ export class OmpHostIntegration {
             client: options.client,
             updateAgentState: (handler) => options.sessionClient.updateAgentState(handler),
             sendAgentMessage: (message) => options.sessionClient.sendAgentMessage(message),
-            sendSummary,
             onFatal: options.onFatal
         });
 
