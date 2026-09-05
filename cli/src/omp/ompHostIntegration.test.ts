@@ -63,18 +63,17 @@ function createFakeClient(options?: {
 function createExtensionBridge(client: OmpRpcClient) {
     let state: AgentState = { requests: {}, completedRequests: {} };
     const messages: unknown[] = [];
-    const summaries: string[] = [];
     const onFatal = vi.fn();
+    const updateAgentState = vi.fn((handler: (state: AgentState) => AgentState) => {
+        state = handler(state);
+    });
     const bridge = new OmpExtensionUiBridge({
         client,
-        updateAgentState: (handler) => {
-            state = handler(state);
-        },
+        updateAgentState,
         sendAgentMessage: (message) => messages.push(message),
-        sendSummary: (title) => summaries.push(title),
         onFatal
     });
-    return { bridge, messages, summaries, onFatal, getState: () => state };
+    return { bridge, messages, updateAgentState, onFatal, getState: () => state };
 }
 
 describe('OMP host tool bridge', () => {
@@ -488,7 +487,25 @@ describe('OMP extension UI bridge', () => {
         });
     });
 
-    it('presents all seven fire-and-forget methods without waiting for an OMP response', async () => {
+    it('consumes terminal titles without conversation, agent-state, or response side effects', async () => {
+        const fake = createFakeClient();
+        const harness = createExtensionBridge(fake.client);
+        const initialState = structuredClone(harness.getState());
+
+        harness.bridge.handle({
+            type: 'extension_ui_request', id: 'title', method: 'setTitle',
+            title: '\u001b[1m⠋ arbitrary native title /workspace\u001b[0m'
+        });
+        await harness.bridge.close('test complete');
+
+        expect(harness.messages).toEqual([]);
+        expect(harness.getState()).toEqual(initialState);
+        expect(harness.updateAgentState).not.toHaveBeenCalled();
+        expect(fake.frames).toEqual([]);
+        expect(harness.onFatal).not.toHaveBeenCalled();
+    });
+
+    it('preserves other fire-and-forget methods without waiting for an OMP response', async () => {
         const fake = createFakeClient();
         const harness = createExtensionBridge(fake.client);
         harness.bridge.handle({ type: 'extension_ui_request', id: 'waited', method: 'input', title: 'Cancel me' });
@@ -496,19 +513,16 @@ describe('OMP extension UI bridge', () => {
         harness.bridge.handle({ type: 'extension_ui_request', id: 'notify', method: 'notify', message: 'Hello', notifyType: 'warning' });
         harness.bridge.handle({ type: 'extension_ui_request', id: 'status', method: 'setStatus', statusKey: 'build', statusText: 'running' });
         harness.bridge.handle({ type: 'extension_ui_request', id: 'widget', method: 'setWidget', widgetKey: 'checks', widgetLines: ['one'] });
-        harness.bridge.handle({ type: 'extension_ui_request', id: 'title', method: 'setTitle', title: 'Native title' });
         harness.bridge.handle({ type: 'extension_ui_request', id: 'editor-text', method: 'set_editor_text', text: 'draft' });
         harness.bridge.handle({
             type: 'extension_ui_request', id: 'url', method: 'open_url', url: 'https://provider.example/oauth', launchUrl: 'http://127.0.0.1:4567/launch'
         });
 
         expect(fake.frames).toEqual([]);
-        expect(harness.summaries).toEqual(['Native title']);
         expect(harness.messages).toEqual(expect.arrayContaining([
             expect.objectContaining({ type: 'omp-extension-ui', method: 'notify', level: 'warning' }),
             expect.objectContaining({ type: 'omp-extension-ui', method: 'setStatus', key: 'build' }),
             expect.objectContaining({ type: 'omp-extension-ui', method: 'setWidget', key: 'checks' }),
-            expect.objectContaining({ type: 'omp-extension-ui', method: 'setTitle', title: 'Native title' }),
             expect.objectContaining({ type: 'omp-extension-ui', method: 'set_editor_text', text: 'draft' }),
             expect.objectContaining({ type: 'omp-extension-ui', method: 'open_url', url: 'https://provider.example/oauth' })
         ]));
@@ -533,20 +547,14 @@ describe('OMP extension UI bridge', () => {
             type: 'extension_ui_request', id: 'widget', method: 'setWidget', widgetKey: 'build',
             widgetLines: ['\u001b[32m✓\u001b[39m tests passed']
         });
-        harness.bridge.handle({
-            type: 'extension_ui_request', id: 'title', method: 'setTitle', title: '\u001b[1mBold title\u001b[0m'
-        });
 
         expect(harness.messages).toEqual(expect.arrayContaining([
             expect.objectContaining({ type: 'omp-extension-ui', method: 'notify', message: 'Deploy failed', level: 'error' }),
             expect.objectContaining({ type: 'omp-extension-ui', method: 'setStatus', key: 'rewind', text: '◆ 4 checkpoints' }),
-            expect.objectContaining({ type: 'omp-extension-ui', method: 'setWidget', key: 'build', lines: ['✓ tests passed'] }),
-            expect.objectContaining({ type: 'omp-extension-ui', method: 'setTitle', title: 'Bold title' })
+            expect.objectContaining({ type: 'omp-extension-ui', method: 'setWidget', key: 'build', lines: ['✓ tests passed'] })
         ]));
-        expect(harness.summaries).toEqual(['Bold title']);
         // No raw escape may leak into anything the bridge emits to the hub.
         expect(JSON.stringify(harness.messages)).not.toContain('\u001b');
-        expect(JSON.stringify(harness.summaries)).not.toContain('\u001b');
         await harness.bridge.close('test complete');
     });
 });
