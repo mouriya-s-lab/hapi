@@ -30,7 +30,25 @@ describe('Metadata fork fields', () => {
                 }
             }
         })
-        expect(parsed.pendingClaudeLaunch?.resumeSessionId).toBe('new-session-id')
+        expect(parsed.pendingClaudeLaunch).toEqual({
+            resumeSessionId: 'new-session-id',
+            launch: {
+                type: 'resume-at',
+                sourceSessionId: 'source-session-id',
+                providerMessageId: 'provider-message-id'
+            }
+        })
+    })
+
+    it('rejects a deferred resume-at recipe without its provider message', () => {
+        expect(() => MetadataSchema.parse({
+            path: '/work',
+            host: 'localhost',
+            pendingClaudeLaunch: {
+                resumeSessionId: 'new-session-id',
+                launch: { type: 'resume-at', sourceSessionId: 'source-session-id' }
+            }
+        })).toThrow()
     })
 })
 

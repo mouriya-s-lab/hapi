@@ -81,15 +81,18 @@ test.describe('tool file preview — word wrap', () => {
 
         const pre = page.getByTestId('file-raw-pre')
         await expect(pre).toBeVisible()
-        await expect(pre).toHaveAttribute('data-word-wrap', 'off')
+        await expect(pre).toHaveCSS('white-space', 'pre')
+        await expect.poll(() => pre.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
 
         await page.getByTestId('word-wrap-toggle').click()
-        await expect(pre).toHaveAttribute('data-word-wrap', 'on')
+        await expect(pre).toHaveCSS('white-space', 'pre-wrap')
+        await expect.poll(() => pre.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
 
         // Preference is persisted to localStorage → survives a full reload.
         await page.reload()
         await expect(page.getByTestId('tool-file-preview-host')).toBeVisible()
-        await expect(page.getByTestId('file-raw-pre')).toHaveAttribute('data-word-wrap', 'on')
+        await expect(pre).toHaveCSS('white-space', 'pre-wrap')
+        await expect.poll(() => pre.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
     })
 
     test('non-markdown files do not show the preview/raw toggle', async ({ page }) => {

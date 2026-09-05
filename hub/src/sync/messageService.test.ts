@@ -109,16 +109,60 @@ describe('MessageService CLI delivery extension', () => {
         const decorate = (content: unknown) => ({ decorated: true, original: content })
         const service = new MessageService(store, io, publisher as any, undefined, decorate)
 
-        await service.sendMessage(session.id, { text: 'raw immediate', localId: 'immediate', deliveryMetadata: { accountId: 1 } })
-        expect(updates[0]).toMatchObject({ body: { message: { content: { decorated: true } } } })
-        expect(service.getMessagesPage(session.id, { limit: 10, before: null }).messages[0]?.content).toMatchObject({ content: { text: 'raw immediate' } })
-        expect(publisher.events.find(event => event.type === 'message-received')).toMatchObject({ message: { content: { content: { text: 'raw immediate' } } } })
-        expect(service.getDeliverableMessagesAfter(session.id, { afterSeq: 0, limit: 10, now: Date.now() })[0]?.content).toMatchObject({ decorated: true })
+        const originalDateNow = Date.now
+        let now = 1_780_000_000_000
+        Date.now = () => now
+        try {
+            const immediateContent = {
+                role: 'user',
+                content: { type: 'text', text: 'raw immediate' },
+                meta: { sentFrom: 'webapp', accountId: 1, deliveryMode: 'queue' }
+            }
+            const scheduledContent = {
+                role: 'user',
+                content: { type: 'text', text: 'raw scheduled' },
+                meta: { sentFrom: 'webapp', deliveryMode: 'queue' }
+            }
+            await service.sendMessage(session.id, { text: 'raw immediate', localId: 'immediate', deliveryMetadata: { accountId: 1 } })
+            expect(updates).toHaveLength(1)
+            expect(updates[0]).toMatchObject({
+                body: { message: { localId: 'immediate', content: { decorated: true, original: immediateContent } } }
+            })
+            expect(service.getDeliverableMessagesAfter(session.id, { afterSeq: 0, limit: 10, now })[0]?.content)
+                .toEqual({ decorated: true, original: immediateContent })
 
-        await service.sendMessage(session.id, { text: 'raw scheduled', localId: 'scheduled', scheduledAt: Date.now() + 20 })
-        await Bun.sleep(30)
-        service.releaseMatureScheduledMessages(Date.now())
-        expect(updates.at(-1)).toMatchObject({ body: { message: { content: { decorated: true } } } })
+            const scheduledAt = now + 20
+            await service.sendMessage(session.id, { text: 'raw scheduled', localId: 'scheduled', scheduledAt })
+            expect(updates).toHaveLength(1)
+            const updatesBeforeRelease = updates.length
+            now = scheduledAt + 1
+            service.releaseMatureScheduledMessages(now)
+            expect(updates).toHaveLength(updatesBeforeRelease + 1)
+            const scheduled = service.getMessagesPage(session.id, { limit: 10, before: null }).messages
+                .find(message => message.localId === 'scheduled')
+            expect(scheduled?.id).toBeDefined()
+            expect(updates[updatesBeforeRelease]).toMatchObject({
+                id: scheduled?.id,
+                body: { message: {
+                    id: scheduled?.id,
+                    localId: 'scheduled',
+                    content: { decorated: true, original: scheduledContent }
+                } }
+            })
+            const persisted = service.getMessagesPage(session.id, { limit: 10, before: null }).messages
+            expect(persisted.map(message => ({ localId: message.localId, content: message.content }))).toEqual([
+                { localId: 'immediate', content: immediateContent },
+                { localId: 'scheduled', content: scheduledContent }
+            ])
+            expect(publisher.events.filter(event => event.type === 'message-received')
+                .map(event => ({ localId: event.message.localId, content: event.message.content }))).toEqual([
+                { localId: 'immediate', content: immediateContent },
+                { localId: 'scheduled', content: scheduledContent }
+            ])
+        } finally {
+            Date.now = originalDateNow
+            store.close()
+        }
     })
 
     it('persists and delivers the explicit OMP input command in user message metadata', async () => {

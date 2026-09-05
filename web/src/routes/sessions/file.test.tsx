@@ -109,7 +109,9 @@ describe('FilePage markdown preview', () => {
             expect(screen.getByTestId('file-raw-pre')).toHaveTextContent('# Heading')
         })
         const sourceCopyButton = screen.getByTitle('Copy file content')
-        expect(screen.getByTestId('file-raw-pre').parentElement).toContainElement(sourceCopyButton)
+        copyMock.mockClear()
+        fireEvent.click(sourceCopyButton)
+        expect(copyMock).toHaveBeenCalledWith(sampleMarkdown)
         expect(screen.queryByTestId('markdown-preview')).not.toBeInTheDocument()
 
         fireEvent.click(screen.getByRole('button', { name: 'Preview' }))

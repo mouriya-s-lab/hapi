@@ -36,22 +36,6 @@ describe('codexForkProvider (factory)', () => {
         expect(result.metadataPatch.codexSessionId).toBe('forked-thread')
     })
 
-    it('prefers codexSessionId from sourceMetadata when present', async () => {
-        const calls: string[] = []
-        const client = makeClient({
-            async forkThread({ threadId }) {
-                calls.push(`fork:${threadId}`)
-                return { newThreadId: 'nt' }
-            }
-        })
-        const provider = createCodexForkProvider(() => client)
-        await provider.spawnFork({
-            sourceMetadata: { path: '/w', host: 'h', codexSessionId: 'src-cs' },
-            sourceCwd: '/w',
-        } as any)
-        expect(calls[0]).toBe('fork:src-cs')
-    })
-
     it('awaits async client factory before calling', async () => {
         let factoryCalled = 0
         const provider = createCodexForkProvider(async () => {

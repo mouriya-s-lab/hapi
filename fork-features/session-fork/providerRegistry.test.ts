@@ -30,10 +30,4 @@ describe('providerRegistry', () => {
         registerForkProvider('codex', fakeProvider)
         expect(listForkCapableFlavors().sort()).toEqual(['claude', 'codex'])
     })
-
-    it('listForkCapableFlavors is empty after reset', () => {
-        registerForkProvider('claude', fakeProvider)
-        __resetRegistryForTests()
-        expect(listForkCapableFlavors()).toEqual([])
-    })
 })

@@ -191,7 +191,7 @@ describe('mountForkRoutes', () => {
         expect((forkReqs[0] as any).payload.forkPoint).toBeUndefined()
     })
 
-    it('POST body forkPoint.messageId non-existent → 400 with no session written', async () => {
+    it('POST body forkPoint.messageId non-existent returns 400 without copying messages', async () => {
         const app = new Hono()
         let copyCalled = false
         mountForkRoutes(app, () =>

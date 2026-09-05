@@ -1148,7 +1148,7 @@ describe('sessions routes', () => {
         expect(getOmpExtensionUiRequestCalls).toEqual([['session-1', 'request-1']])
     })
 
-    it('validates transient OMP extension UI session ownership and failure states', async () => {
+    it('validates transient OMP extension UI flavor, control, and failure states', async () => {
         const wrongFlavor = createApp(createSession())
         const localOmp = createApp(createSession({
             metadata: { path: '/tmp/project', host: 'localhost', flavor: 'omp' },
@@ -1500,7 +1500,7 @@ describe('sessions routes', () => {
         expect((await response.json() as { code: string }).code).toBe('no_machine_online')
     })
 
-    it('restarts an active session through the ordered engine operation', async () => {
+    it('delegates active-session restart with namespace and provider selection', async () => {
         const calls: Array<[string, string, string | undefined]> = []
         const session = createSession({ active: true })
         const { app } = createApp(session, {

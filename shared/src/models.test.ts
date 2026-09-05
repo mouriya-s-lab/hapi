@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import {
-    CLAUDE_MODEL_ID_LABELS,
     CLAUDE_MODEL_IDS,
     CLAUDE_MODEL_PRESETS,
     CLAUDE_MODEL_LABELS,
@@ -69,9 +68,8 @@ describe('model constants consistency', () => {
         }
     })
 
-    test('every CLAUDE_MODEL_ID has a label and is not a preset', () => {
+    test('specific Claude model IDs are disjoint from presets', () => {
         for (const id of CLAUDE_MODEL_IDS) {
-            expect(CLAUDE_MODEL_ID_LABELS[id]).toBeDefined()
             expect(isClaudeModelPreset(id)).toBe(false)
         }
     })

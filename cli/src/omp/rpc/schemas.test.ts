@@ -39,9 +39,12 @@ const STATE = {
     contextUsage: { tokens: 100, contextWindow: 128_000, percent: 0.078125 }
 } satisfies JsonValue;
 
+const DECODED_MODEL = { ...MODEL, raw: MODEL };
+
 const RESPONSE_CASES: ReadonlyArray<{
     command: OmpCommandType;
     data?: JsonValue;
+    expected?: JsonValue;
 }> = [
     { command: 'prompt', data: { agentInvoked: true } },
     { command: 'steer' },
@@ -49,7 +52,7 @@ const RESPONSE_CASES: ReadonlyArray<{
     { command: 'abort' },
     { command: 'abort_and_prompt' },
     { command: 'new_session', data: { cancelled: false } },
-    { command: 'get_state', data: STATE },
+    { command: 'get_state', data: STATE, expected: { ...STATE, model: DECODED_MODEL } },
     { command: 'get_available_commands', data: { commands: [{ name: 'help', source: 'built-in' }] } },
     { command: 'set_todos', data: { todoPhases: [] } },
     { command: 'set_host_tools', data: { toolNames: ['display_image'] } },
@@ -77,11 +80,23 @@ const RESPONSE_CASES: ReadonlyArray<{
             reset: false,
             entries: [],
             messages: [{ role: 'assistant', content: [] }]
+        },
+        expected: {
+            sessionFile: '/home/user/subagent.jsonl',
+            fromByte: 0,
+            nextByte: 10,
+            reset: false,
+            entries: [],
+            messages: [{ role: 'assistant', raw: { role: 'assistant', content: [] } }]
         }
     },
-    { command: 'set_model', data: MODEL },
-    { command: 'cycle_model', data: { model: MODEL, thinkingLevel: 'inherit', isScoped: false } },
-    { command: 'get_available_models', data: { models: [MODEL] } },
+    { command: 'set_model', data: MODEL, expected: DECODED_MODEL },
+    {
+        command: 'cycle_model',
+        data: { model: MODEL, thinkingLevel: 'inherit', isScoped: false },
+        expected: { model: DECODED_MODEL, thinkingLevel: 'inherit', isScoped: false }
+    },
+    { command: 'get_available_models', data: { models: [MODEL] }, expected: { models: [DECODED_MODEL] } },
     { command: 'set_thinking_level' },
     { command: 'cycle_thinking_level', data: { level: 'auto' } },
     { command: 'set_steering_mode' },
@@ -141,7 +156,11 @@ const RESPONSE_CASES: ReadonlyArray<{
     { command: 'get_last_assistant_text', data: { text: 'answer' } },
     { command: 'set_session_name' },
     { command: 'handoff', data: { savedPath: '/home/user/handoff.md' } },
-    { command: 'get_messages', data: { messages: [{ role: 'user', content: [] }] } },
+    {
+        command: 'get_messages',
+        data: { messages: [{ role: 'user', content: [] }] },
+        expected: { messages: [{ role: 'user', raw: { role: 'user', content: [] } }] }
+    },
     {
         command: 'get_login_providers',
         data: {
@@ -157,13 +176,32 @@ const RESPONSE_CASES: ReadonlyArray<{
 ];
 
 describe('OMP RPC protocol schemas', () => {
-    it('parses the success payload for every one of the 39 commands', () => {
-        expect(RESPONSE_CASES).toHaveLength(39);
-        expect(new Set(RESPONSE_CASES.map((entry) => entry.command)).size).toBe(39);
+    it.each(RESPONSE_CASES)('decodes the $command response for consumers', (entry) => {
+        expect(parseOmpResponseData(entry.command, entry.data)).toEqual(
+            'expected' in entry ? entry.expected : entry.data
+        );
+    });
 
-        for (const entry of RESPONSE_CASES) {
-            expect(() => parseOmpResponseData(entry.command, entry.data)).not.toThrow();
-        }
+    it('distinguishes an omitted prompt result from a native non-invocation result', () => {
+        expect(parseOmpResponseData('prompt', undefined)).toBeUndefined();
+        expect(parseOmpResponseData('prompt', { agentInvoked: false })).toEqual({ agentInvoked: false });
+        expect(() => parseOmpResponseData('prompt', {})).toThrow();
+    });
+
+    it('preserves nullable native cycle and handoff outcomes', () => {
+        expect(parseOmpResponseData('cycle_model', null)).toBeNull();
+        expect(parseOmpResponseData('cycle_thinking_level', null)).toBeNull();
+        expect(parseOmpResponseData('handoff', null)).toBeNull();
+    });
+
+    it('rejects missing state, invalid model capabilities, and messages without a string role', () => {
+        expect(() => parseOmpResponseData('get_state', undefined)).toThrow();
+        expect(() => parseOmpResponseData('get_available_models', {
+            models: [{ ...MODEL, thinking: { ...MODEL.thinking, efforts: ['unsupported'] } }]
+        })).toThrow();
+        expect(() => parseOmpResponseData('get_messages', {
+            messages: [{ role: 42, content: [] }]
+        })).toThrow();
     });
 
     it('parses todo statuses omp introduced after the schema, including blocked', () => {

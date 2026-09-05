@@ -129,6 +129,32 @@ describe('runHappyMcpStdioBridge tool forwarding', () => {
         })
     })
 
+    it('forwards send_file path and title and returns the HTTP tool result', async () => {
+        await runHappyMcpStdioBridge([
+            '--url',
+            'http://127.0.0.1:43006',
+            '--tools',
+            'send_file'
+        ])
+        harness.callTool.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'Sent file: quarterly-report.pdf (42 bytes)' }],
+            isError: false
+        })
+
+        const handler = harness.tools.get('send_file')
+        if (!handler) throw new Error('send_file handler was not registered')
+        const result = await handler({ path: '/workspace/output/report.pdf', title: 'quarterly-report.pdf' })
+
+        expect(harness.callTool).toHaveBeenCalledExactlyOnceWith({
+            name: 'send_file',
+            arguments: { path: '/workspace/output/report.pdf', title: 'quarterly-report.pdf' }
+        })
+        expect(result).toEqual({
+            content: [{ type: 'text', text: 'Sent file: quarterly-report.pdf (42 bytes)' }],
+            isError: false
+        })
+    })
+
     it('registers ping_peer when included in --tools', async () => {
         await runHappyMcpStdioBridge([
             '--url',

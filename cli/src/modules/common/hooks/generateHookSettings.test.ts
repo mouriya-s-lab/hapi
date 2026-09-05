@@ -1,12 +1,33 @@
+import { execSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import {
     buildHookSettings,
     cleanupHookSettingsFile,
     generateHookSettingsFile
 } from './generateHookSettings'
+
+vi.mock('@/utils/spawnHappyCLI', () => ({
+    getHappyCliCommand: (args: string[]) => ({
+        command: process.execPath,
+        args: ['-e', 'process.stdout.write(JSON.stringify(process.argv.slice(1)))', '--', ...args]
+    })
+}))
+
+const generatedSettingsSchema = z.object({
+    hooks: z.object({
+        SessionStart: z.array(z.object({
+            matcher: z.string(),
+            hooks: z.array(z.object({
+                type: z.literal('command'),
+                command: z.string()
+            }))
+        }))
+    }).passthrough()
+}).passthrough()
 
 describe('buildHookSettings', () => {
     it('registers only SessionStart by default', () => {
@@ -58,7 +79,7 @@ describe('generateHookSettingsFile', () => {
             hooksConfig: { customValue: true }
         }))
 
-        const generatedPath = generateHookSettingsFile(4312, 'secret-token', {
+        const generatedPath = generateHookSettingsFile(4312, 'secret token "quoted"', {
             filenamePrefix: 'test-claude-hooks',
             logLabel: 'test',
             hooksEnabled: true,
@@ -66,12 +87,7 @@ describe('generateHookSettingsFile', () => {
         })
 
         try {
-            const generated = JSON.parse(readFileSync(generatedPath, 'utf8')) as {
-                model: string
-                permissions: { allow: string[] }
-                hooks: Record<string, unknown[]>
-                hooksConfig: Record<string, unknown>
-            }
+            const generated = generatedSettingsSchema.parse(JSON.parse(readFileSync(generatedPath, 'utf8')))
 
             expect(generated.model).toBe('claude-opus-4-6')
             expect(generated.permissions).toEqual({ allow: ['Read'] })
@@ -83,6 +99,10 @@ describe('generateHookSettingsFile', () => {
                 matcher: '*',
                 hooks: [{ type: 'command' }]
             })
+            const command = generated.hooks.SessionStart[1].hooks[0].command
+            expect(JSON.parse(execSync(command, { encoding: 'utf8' }))).toEqual([
+                'hook-forwarder', '--flavor', 'claude', '--port', '4312', '--token', 'secret token "quoted"'
+            ])
             expect(generated.hooks.UserPromptSubmit).toHaveLength(1)
             expect(generated.hooks.PreToolUse).toHaveLength(1)
             expect(generated.hooksConfig).toEqual({ customValue: true, enabled: true })
@@ -100,10 +120,19 @@ describe('generateHookSettingsFile', () => {
         })
 
         try {
-            const generated = JSON.parse(readFileSync(generatedPath, 'utf8')) as {
-                hooks: { SessionStart: unknown[] }
-            }
-            expect(generated.hooks.SessionStart).toHaveLength(1)
+            const generated = generatedSettingsSchema.parse(JSON.parse(readFileSync(generatedPath, 'utf8')))
+            expect(generated).toEqual({
+                hooks: {
+                    SessionStart: [{
+                        matcher: '*',
+                        hooks: [{ type: 'command', command: expect.any(String) }]
+                    }]
+                }
+            })
+            const command = generated.hooks.SessionStart[0].hooks[0].command
+            expect(JSON.parse(execSync(command, { encoding: 'utf8' }))).toEqual([
+                'hook-forwarder', '--flavor', 'claude', '--port', '4312', '--token', 'secret-token'
+            ])
         } finally {
             cleanupHookSettingsFile(generatedPath, 'test')
         }

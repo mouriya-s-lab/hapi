@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 import { CREATABLE_AGENT_FLAVORS } from '@hapi/protocol/modes'
+import type { MachineMetadata } from '@hapi/protocol/schemas'
 import {
     probeAgentSkillDeployment,
     registerAgentSkillProbeHandler,
@@ -80,7 +81,7 @@ describe('runAgentSkillDeployment', () => {
         expect(readFileSync(resolveManagedSkillTargetPath(), 'utf-8')).toBe(before)
     })
 
-    test('managed older version is atomically updated', () => {
+    test('replaces managed older content with the canonical skill', () => {
         runAgentSkillDeployment()
         const targetPath = resolveManagedSkillTargetPath()
         const oldContent = 'old managed skill body\n'
@@ -195,25 +196,48 @@ describe('registerAgentSkillProbeHandler', () => {
     test('persists the probe report before returning it', async () => {
         runAgentSkillDeployment()
         let handler: ((params: unknown) => unknown | Promise<unknown>) | undefined
-        let persistedHash: string | undefined
-
+        const expectedHash = sha256(canonicalContent())
+        const originalMetadata: MachineMetadata = {
+            host: 'runner',
+            platform: process.platform,
+            happyCliVersion: '1.0.0'
+        }
+        const committed: { metadata: MachineMetadata | null } = { metadata: null }
+        let commit: () => void = () => {}
+        const commitGate = new Promise<void>((resolve) => { commit = resolve })
+        let started: () => void = () => {}
+        const persistenceStarted = new Promise<void>((resolve) => { started = resolve })
         registerAgentSkillProbeHandler({
-            registerHandler: (_method, registered) => {
-                handler = registered
-            }
+            registerHandler: (_method, registered) => { handler = registered }
         }, async (update) => {
-            const metadata = update({
-                host: 'runner',
-                platform: process.platform,
-                happyCliVersion: '1.0.0'
-            })
-            persistedHash = metadata.agentSkills?.canonicalHash
+            const metadata = update(originalMetadata)
+            started()
+            await commitGate
+            committed.metadata = metadata
         })
 
-        const response = await handler?.({})
-        expect(response).toEqual({
-            agentSkills: expect.objectContaining({ canonicalHash: persistedHash })
+        if (!handler) throw new Error('Probe handler not registered')
+        let returned = false
+        const responsePromise = Promise.resolve(handler({})).then((response) => {
+            returned = true
+            return response
         })
+        await persistenceStarted
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        const returnedBeforeCommit = returned
+        const persistedBeforeCommit = committed.metadata
+        commit()
+        const response = await responsePromise
+        expect(returnedBeforeCommit).toBe(false)
+        expect(persistedBeforeCommit).toBeNull()
+        expect(committed.metadata).toEqual({
+            ...originalMetadata,
+            agentSkills: expect.objectContaining({ canonicalHash: expectedHash })
+        })
+        expect(response).toEqual({
+            agentSkills: expect.objectContaining({ canonicalHash: expectedHash })
+        })
+        expect(response).toEqual({ agentSkills: committed.metadata?.agentSkills })
     })
 
     test('fails the probe RPC when machine metadata cannot be persisted', async () => {

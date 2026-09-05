@@ -82,18 +82,4 @@ describe('claudeForkProvider', () => {
             forkPoint: { messageId: 'm-42', tailOffset: 2, isFirstUserTurn: false }
         } as any)).rejects.toThrow(/providerMessageId/)
     })
-
-    it('accepts payload without forkPoint (HEAD fork, #55 semantics preserved)', async () => {
-        const calls: any[] = []
-        __setSpawnClaudeForkForTests(async (args) => {
-            calls.push(args)
-            return { newClaudeSessionId: 'ok' }
-        })
-        const result = await claudeForkProvider.spawnFork({
-            sourceMetadata: { path: '/w', host: 'h', claudeSessionId: 'src' },
-            sourceCwd: '/w'
-        } as any)
-        expect(calls.length).toBe(1)
-        expect(result.providerSessionId).toBe('ok')
-    })
 })

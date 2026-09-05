@@ -16,6 +16,7 @@ import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import '../src/index.css'
 import { I18nProvider } from '../src/lib/i18n-context'
+import { ToastProvider } from '../src/lib/toast-context'
 import { SessionList } from '../src/components/SessionList'
 import { DISABLED_SESSION_LIST_SCROLL_STABILITY } from '../src/fork-features/session-list-scroll/sessionListScroll'
 import { useHideArchivedSessions } from '../src/hooks/useHideArchivedSessions'
@@ -36,7 +37,6 @@ function summary(overrides: Partial<SessionSummary> & { id: string; name: string
         thinking: false,
         activeAt: 0,
         updatedAt: 0,
-        metadata: { path: '/proj/demo', name },
         todoProgress: null,
         pendingRequestsCount: 0,
         pendingRequestKinds: [],
@@ -66,6 +66,7 @@ function App() {
     return (
         <QueryClientProvider client={queryClient}>
         <I18nProvider>
+        <ToastProvider>
             <div style={{ maxWidth: 480, margin: '0 auto' }}>
                 <button
                     type="button"
@@ -88,6 +89,7 @@ function App() {
                     />
                 </div>
             </div>
+        </ToastProvider>
         </I18nProvider>
         </QueryClientProvider>
     )

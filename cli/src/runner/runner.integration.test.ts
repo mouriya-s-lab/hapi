@@ -41,6 +41,7 @@ import { isProcessAlive, isWindows, killProcess, killProcessByChildProcess } fro
 import { buildTestChildEnv, testOwnedMarker } from '@/test/integrationEnv';
 import { trackChildProcess, trackRunnerPid, trackSession, cleanupAllRegisteredProcesses } from '@/test/processRegistry';
 import { findTestOwnedProcesses, reapTestOwnedProcesses } from '@/test/auditTestProcesses';
+import { resolveCanonicalSkillSourcePath } from '../../../fork-features/agent-skill-deploy/deploy';
 
 // Utility to wait for condition
 async function waitFor(
@@ -121,6 +122,7 @@ describe.skipIf(!await isServerHealthy())('Runner Integration Tests', { timeout:
   beforeEach(async () => {
     // First ensure no runner is running by checking PID in metadata file
     await stopRunner()
+    rmSync(path.dirname(runnerSkillPath), { recursive: true, force: true });
     
     // Start fresh runner for this test
     // This will return and start a background process - we don't need to wait for it
@@ -150,6 +152,7 @@ describe.skipIf(!await isServerHealthy())('Runner Integration Tests', { timeout:
     runnerPid = runnerState.pid;
     trackRunnerPid(runnerPid, 'runner');
     await waitFor(async () => existsSync(runnerSkillPath), 5_000, 50);
+    expect(readFileSync(runnerSkillPath)).toEqual(readFileSync(resolveCanonicalSkillSourcePath()));
 
     console.log(`[TEST] Runner started for test: PID=${runnerPid}`);
     console.log(`[TEST] Runner log file: ${runnerState?.runnerLogPath}`);

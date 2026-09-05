@@ -17,10 +17,17 @@ describe('gateway account memory delivery', () => {
         const decorated = delivery.decorateForCli(original) as typeof original
         expect(decorated.content.text).toContain('ALICE-PC')
         expect(decorated.content.text).not.toContain('BOB-PC')
+        expect(decorated).not.toBe(original)
+        expect(decorated.content).not.toBe(original.content)
+        expect(decorated.content.text.endsWith('\n\ncheck my machine')).toBe(true)
+        expect(decorated).toEqual({
+            ...original,
+            content: { ...original.content, text: decorated.content.text }
+        })
         expect(original.content.text).toBe('check my machine')
     })
 
-    it('leaves messages without an account or memory unchanged', () => {
+    it('leaves messages for an account without memory unchanged', () => {
         const store = new MultiUserGatewayStore(':memory:'); stores.push(store)
         const alice = store.createAccount('alice', 'user', 'alice-ns')
         const delivery = createGatewayMemoryDelivery(store)

@@ -6,6 +6,16 @@ remove if upstream provided a native register API or the feature is obsolete.
 
 Rule reference: `~/.claude/rules/fork-customization-placement.rule.md`.
 
+## Fork test quality and browser discovery
+
+| Files | Missing upstream seam | Why it cannot move out | Verification |
+|---|---|---|---|
+| `package.json:39-40`, `.github/workflows/test.yml:15-16` | No external test-script or CI browser-spec registration API | Fork geometry regressions replace weak unit assertions and must run in CI; invoking the declared `@playwright/test` CLI also keeps its browser installation and runner on the same package version despite other workspace Playwright versions | Run the exact CI `test:e2e` command; confirm reasoning, expansion, file wrapping, and session-list cases execute with existing browser regressions |
+
+The geometry spec lives in root `e2e/`, not the separate Web Playwright project.
+Re-check upstream test discovery and package CLI resolution on each sync; remove
+these patches when upstream provides an equivalent test registration surface.
+
 ## Classified fork-specific fixes and small features (2026-07-18)
 
 `fork-features/upstream-fix-dispositions.tsv` is the path-level source of

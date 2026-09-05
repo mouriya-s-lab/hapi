@@ -6,7 +6,7 @@ const stores: MultiUserGatewayStore[] = []
 afterEach(() => { for (const store of stores.splice(0)) store.close() })
 
 describe('ExecutionDispatcher', () => {
-    it('routes owner and operator through the resource core namespace without changing core state', () => {
+    it('resolves an authorized operator to the resource core namespace', () => {
         const store = new MultiUserGatewayStore(':memory:')
         stores.push(store)
         const owner = store.createAccount('owner', 'user', 'account-owner')

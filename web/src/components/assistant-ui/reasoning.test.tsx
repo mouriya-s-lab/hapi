@@ -5,7 +5,7 @@ import { I18nProvider } from '@/lib/i18n-context'
 
 // ReasoningGroup consumes assistant-ui message state. Mock it so the message
 // status and per-part status can be controlled per test.
-const { mockMessage, mockUseMessage, onNestedScrollFollowChange } = vi.hoisted(() => {
+const { mockMessage, onNestedScrollFollowChange } = vi.hoisted(() => {
     const mockMessage = {
         status: null as { type: string } | null,
         content: [] as { type: string }[],
@@ -13,7 +13,6 @@ const { mockMessage, mockUseMessage, onNestedScrollFollowChange } = vi.hoisted((
     }
     return {
         mockMessage,
-        mockUseMessage: vi.fn(() => mockMessage),
         onNestedScrollFollowChange: vi.fn(),
     }
 })
@@ -96,19 +95,6 @@ describe('ReasoningGroup', () => {
     it('is collapsed by default', () => {
         const { container } = renderGroup()
         expect(isCollapsed(container)).toBe(true)
-    })
-
-    it('keeps the collapse button sticky while expanded', () => {
-        const { container } = renderGroup()
-
-        const button = screen.getByRole('button', { name: /Reasoning/i })
-        expect(button).toHaveClass('sticky', 'top-0')
-        expect(button.parentElement).not.toHaveClass('overflow-hidden')
-
-        fireEvent.click(button)
-
-        expect(screen.getByText('click to collapse')).toBeInTheDocument()
-        expect(isCollapsed(container)).toBe(false)
     })
 
     it('hides the collapse hint after the sticky button collapses the block', () => {

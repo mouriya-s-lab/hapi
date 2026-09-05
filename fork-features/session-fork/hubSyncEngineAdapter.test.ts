@@ -286,7 +286,7 @@ describe('buildForkDeps', () => {
                             role: 'agent',
                             content: {
                                 type: 'output',
-                                data: { type: 'assistant', uuid: 'asst-x' }
+                                data: { type: 'assistant', uuid: 'display-only', providerMessageId: 'asst-x' }
                             }
                         }
                     }
@@ -294,6 +294,10 @@ describe('buildForkDeps', () => {
             }
         }
         const deps = buildForkDeps({ store: store as any, syncEngine: {} as any, namespace: 'default' })
+        expect(deps.resolveProviderMessageId('src', 5, 'claude')).toEqual({
+            type: 'message-uuid',
+            messageUuid: 'asst-x'
+        })
         expect(deps.resolveProviderMessageId('src', 5, 'codex')).toBeUndefined()
         expect(deps.resolveProviderMessageId('src', 5, 'omp')).toBeUndefined()
         expect(deps.resolveProviderMessageId('src', 5, 'opencode')).toBeUndefined()

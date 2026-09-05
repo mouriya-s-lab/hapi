@@ -20,7 +20,7 @@ describe('TodoPanel', () => {
         expect(screen.queryByTestId('todo-panel')).toBeNull()
     })
 
-    it('shows task state and progress above the composer', () => {
+    it('renders supplied task contents and completed progress', () => {
         renderPanel([
             { id: '1', content: '分析来源', status: 'completed', priority: 'medium' },
             { id: '2', content: '重新实现', status: 'in_progress', priority: 'medium' }
@@ -43,7 +43,7 @@ describe('TodoPanel', () => {
         expect(screen.getByRole('button', { name: /Tasks/ })).toHaveAttribute('aria-expanded', 'false')
     })
 
-    it('renders only the currently selected session projection', () => {
+    it('clears and restores task content when the supplied projection changes', () => {
         const firstSession: TodoItem[] = [
             { id: '1', content: '仅属于 session A', status: 'in_progress', priority: 'medium' }
         ]

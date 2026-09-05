@@ -61,15 +61,6 @@ describe('UserBubbleContent', () => {
         expect(lazyText).toHaveAttribute('data-preserve-single-line-breaks', 'true')
     })
 
-    it('collapses long multi-line user content but leaves short content without a toggle', () => {
-        const longText = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`).join('\n')
-        const { rerender } = renderWithI18n(<UserBubbleContent text={longText} />)
-        expect(screen.getByText('Show all (30 lines)')).toBeInTheDocument()
-
-        rerender(<I18nProvider><UserBubbleContent text="short" /></I18nProvider>)
-        expect(screen.queryByText(/Show all/)).not.toBeInTheDocument()
-    })
-
     it('preserves original directive casing in chip labels', () => {
         expect(formatDirectiveLabel('$DeEp-INTERVIEW')).toBe('DeEp INTERVIEW')
     })

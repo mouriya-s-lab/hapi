@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ApiClient } from '@/api/client'
 import type { GeneratedImageBlock } from '@/chat/types'
 import { HappyChatProvider, type HappyChatContextValue } from '@/components/AssistantChat/context'
@@ -63,7 +63,11 @@ describe('GeneratedImageCard', () => {
             .mockReturnValueOnce('blob:image-1')
             .mockReturnValueOnce('blob:image-2')
         const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
-        const value = context(async (_sessionId, imageId) => new Blob([imageId], { type: 'image/png' }))
+        let resolveReplacement!: (blob: Blob) => void
+        const replacement = new Promise<Blob>((resolve) => { resolveReplacement = resolve })
+        const value = context(async (_sessionId, imageId) => imageId === 'image-2'
+            ? replacement
+            : new Blob([imageId], { type: 'image/png' }))
 
         const view = render(
             <HappyChatProvider value={value}>
@@ -72,7 +76,7 @@ describe('GeneratedImageCard', () => {
                 </I18nProvider>
             </HappyChatProvider>
         )
-        await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1))
+        expect(await screen.findByRole('img')).toHaveAttribute('src', 'blob:image-1')
 
         view.rerender(
             <HappyChatProvider value={value}>
@@ -82,7 +86,10 @@ describe('GeneratedImageCard', () => {
             </HappyChatProvider>
         )
 
-        await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(2))
+        expect(screen.queryByRole('img')).not.toBeInTheDocument()
         expect(revokeObjectURL).toHaveBeenCalledWith('blob:image-1')
+        expect(createObjectURL).toHaveBeenCalledTimes(1)
+        await act(async () => resolveReplacement(new Blob(['second'], { type: 'image/png' })))
+        expect(await screen.findByRole('img')).toHaveAttribute('src', 'blob:image-2')
     })
 })

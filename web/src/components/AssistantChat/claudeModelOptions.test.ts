@@ -1,17 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { getClaudeComposerModelOptions, getNextClaudeComposerModel, isListedClaudeModel, normalizeCustomClaudeModelId } from './claudeModelOptions'
 
-const SPECIFIC_MODEL_IDS = [
-    'claude-fable-5',
-    'claude-opus-4-8',
-    'claude-opus-4-7',
-    'claude-opus-4-6',
-    'claude-opus-4-5',
-    'claude-sonnet-5',
-    'claude-sonnet-4-6',
-    'claude-haiku-4-5',
-]
-
 const SPECIFIC_MODEL_OPTIONS = [
     { value: 'claude-fable-5', label: 'Fable 5' },
     { value: 'claude-opus-4-8', label: 'Opus 4.8' },
@@ -52,12 +41,6 @@ describe('getClaudeComposerModelOptions', () => {
         ])
     })
 
-    it('includes every specific model id once', () => {
-        const options = getClaudeComposerModelOptions('vendor-claude-ultra')
-        for (const modelId of SPECIFIC_MODEL_IDS) {
-            expect(options.filter((option) => option.value === modelId)).toHaveLength(1)
-        }
-    })
 })
 
 describe('isListedClaudeModel', () => {

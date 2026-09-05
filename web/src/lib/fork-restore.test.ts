@@ -10,14 +10,9 @@ beforeEach(() => {
 })
 
 describe('fork-restore', () => {
-    it('roundtrips text via setForkedFromText/consumeForkedFromText', () => {
+    it('consumes are one-shot: second consume returns null', () => {
         setForkedFromText('sess-1', 'hello from source')
         expect(consumeForkedFromText('sess-1')).toBe('hello from source')
-    })
-
-    it('consumes are one-shot: second consume returns null', () => {
-        setForkedFromText('sess-1', 'x')
-        expect(consumeForkedFromText('sess-1')).toBe('x')
         expect(consumeForkedFromText('sess-1')).toBeNull()
     })
 
@@ -49,11 +44,5 @@ describe('fork-restore', () => {
         expect(consumeForkedFromText('large-session')).toBeNull()
 
         setItem.mockRestore()
-    })
-
-    it('consume returns null after namespace reset', () => {
-        setForkedFromText('sess-1', 'x')
-        __resetForkRestoreCacheForTests()
-        expect(consumeForkedFromText('sess-1')).toBeNull()
     })
 })

@@ -45,12 +45,15 @@ describe('createCodexForkClient', () => {
         expect(resumeCalls).toEqual(['t1'])
     })
 
-    it('per-message fork resolves the previous turn to lastTurnId', async () => {
+    it('forks through the selected native turn and requests rollback on the child', async () => {
         const forkCalls: Array<{ threadId: string; lastTurnId?: string }> = []
+        const rollbackCalls: Array<{ threadId: string; numTurns: number }> = []
         const turns = ['t1', 't2', 't3', 't4'].map((id) => ({ id }))
-        const client = createCodexForkClient(fakeAppServer({ forkCalls, turns }))
-        await client.forkThread({ threadId: 'src', tailOffset: 1 })
+        const client = createCodexForkClient(fakeAppServer({ forkCalls, rollbackCalls, turns }))
+        const result = await client.forkThread({ threadId: 'src', tailOffset: 1 })
         expect(forkCalls).toEqual([{ threadId: 'src', lastTurnId: 't3' }])
+        expect(rollbackCalls).toEqual([{ threadId: 'forked-src', numTurns: 1 }])
+        expect(result.newThreadId).toBe('forked-src')
     })
 
     it('first-message rewind forks through the first turn then rolls it back', async () => {

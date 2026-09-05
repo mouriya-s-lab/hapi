@@ -101,7 +101,7 @@ describe('generated files registry', () => {
         await expect(registerGeneratedFile({ id: 'file-3', path: sourceDir })).rejects.toThrow('not a regular file')
     })
 
-    it('rejects a file whose base64 RPC response would exceed the socket transport limit', async () => {
+    it('rejects a file above the configured generated-file size cap', async () => {
         const sourcePath = join(sourceDir, 'oversized.bin')
         await writeFile(sourcePath, '')
         await truncate(sourcePath, MAX_GENERATED_FILE_BYTES + 1)
@@ -155,14 +155,29 @@ describe('generated files registry', () => {
         expect(existsSync(file.snapshotPath)).toBe(false)
     })
 
-    it('unregisters one snapshot without disturbing the registry lifecycle', async () => {
+    it('unregisters one snapshot while another remains downloadable', async () => {
         const sourcePath = join(sourceDir, 'discarded.txt')
         await writeFile(sourcePath, 'discard me')
         const file = await registerGeneratedFile({ id: 'file-discard', path: sourcePath })
+        const retainedPath = join(sourceDir, 'retained.txt')
+        await writeFile(retainedPath, 'keep these bytes')
+        await registerGeneratedFile({ id: 'file-retained', path: retainedPath })
+        const rpc = new RpcHandlerManager({ scopePrefix: 'session-test' })
+        registerFileHandlers(rpc, sourceDir)
 
         await unregisterGeneratedFile(file.id)
 
         expect(getGeneratedFile(file.id)).toBeNull()
         expect(existsSync(file.snapshotPath)).toBe(false)
+        const response = await rpc.handleRequest({
+            method: 'session-test:readGeneratedFile',
+            params: JSON.stringify({ id: 'file-retained' })
+        })
+        expect(JSON.parse(response)).toMatchObject({
+            success: true,
+            content: Buffer.from('keep these bytes').toString('base64'),
+            fileName: 'retained.txt',
+            size: Buffer.byteLength('keep these bytes')
+        })
     })
 })

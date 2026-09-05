@@ -3,8 +3,9 @@ import { parseOmpSessionMutation } from './ompSessionMutation'
 
 describe('parseOmpSessionMutation', () => {
     it('parses valid native lifecycle commands', () => {
-        expect(parseOmpSessionMutation('/clear')).toEqual({ type: 'new_session' })
-        expect(parseOmpSessionMutation('/rename Native title')).toEqual({
+        expect(parseOmpSessionMutation(' /clear ')).toEqual({ type: 'new_session' })
+        expect(parseOmpSessionMutation('/new')).toEqual({ type: 'new_session' })
+        expect(parseOmpSessionMutation('/rename  Native title ')).toEqual({
             type: 'set_session_name',
             name: 'Native title'
         })
@@ -12,6 +13,7 @@ describe('parseOmpSessionMutation', () => {
             type: 'handoff',
             customInstructions: 'focus'
         })
+        expect(parseOmpSessionMutation('/handoff')).toEqual({ type: 'handoff' })
         expect(parseOmpSessionMutation('/resume native-prefix')).toEqual({
             type: 'resume_session',
             sessionArg: 'native-prefix'

@@ -170,18 +170,28 @@ describe('generatedImages', () => {
         clearGeneratedImages()
     })
 
-    it('unregisters one media snapshot and releases its registry entry', () => {
+    it('unregisters one media snapshot while retaining another snapshot’s bytes', () => {
         registerGeneratedImage({
             id: 'discarded-image',
             path: '/tmp/discarded.png',
             mimeType: 'image/png',
             bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
         })
+        registerGeneratedImage({
+            id: 'retained-image',
+            path: '/tmp/retained.gif',
+            mimeType: 'image/gif',
+            bytes: Buffer.from('GIF89a')
+        })
 
-        unregisterGeneratedImage('discarded-image')
+        try {
+            unregisterGeneratedImage('discarded-image')
 
-        expect(getGeneratedImage('discarded-image')).toBeNull()
-        clearGeneratedImages()
+            expect(getGeneratedImage('discarded-image')).toBeNull()
+            expect(getGeneratedImage('retained-image')?.content).toEqual(Buffer.from('GIF89a'))
+        } finally {
+            clearGeneratedImages()
+        }
     })
 
     it('registers images from ACP base64 image blocks after MIME sniffing', async () => {
