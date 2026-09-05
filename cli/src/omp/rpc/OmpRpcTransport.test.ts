@@ -119,6 +119,30 @@ describe('buildOmpRpcArgs', () => {
 });
 
 describe('OmpRpcTransport', () => {
+    it('delivers startup logical events once after discovery without replaying control frames', async () => {
+        const { child } = createFakeProcess();
+        const { dependencies } = createDependencies(child);
+        const connecting = OmpRpcTransport.connect(
+            { cwd: '/workspace' },
+            { readyTimeoutMs: 1_000, dependencies }
+        );
+        child.stdout.write('{"type":"available_commands_update","commands":[]}\n{"type":"ready"}\n');
+        const transport = await connecting;
+        child.stdout.write('{"type":"config_update"}\n');
+        transport.markReady();
+        const firstEvents: string[] = [];
+        const unsubscribe = transport.onEvent((event) => firstEvents.push(event.type));
+        expect(firstEvents).toEqual(['available_commands_update', 'config_update']);
+        child.stdout.write('{"type":"agent_start"}\n');
+        expect(firstEvents).toEqual(['available_commands_update', 'config_update', 'agent_start']);
+        unsubscribe();
+        const laterEvents: string[] = [];
+        transport.onEvent((event) => laterEvents.push(event.type));
+        child.stdout.write('{"type":"agent_end"}\n');
+        expect(laterEvents).toEqual(['agent_end']);
+        await transport.close();
+    });
+
     it('gates business commands until discovery completes', async () => {
         const { child, frames } = createFakeProcess();
         const transport = await connectFake(child);

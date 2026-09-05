@@ -13,11 +13,13 @@ import {
 } from '../../cli/src/modules/common/generatedImages';
 import { resolveSkill } from '../../cli/src/modules/common/skills';
 import type { OmpRpcClient } from '../../cli/src/omp/rpc/OmpRpcClient';
+import { defaultOmpEventAllowlist } from '../../cli/src/omp/rpc/eventAllowlist';
 import type {
     JsonObject,
     OmpAgentToolResult,
     OmpExtensionUiRequest,
     OmpHostIntegrationEvent,
+    OmpKnownEventType,
     OmpHostToolCallRequest,
     OmpHostToolDefinition,
     OmpHostUriRequest,
@@ -454,7 +456,15 @@ export class OmpHostToolBridge {
                 await this.discardExecution(pending);
                 return;
             }
-            execution.publish?.();
+            if (execution.publish) {
+                execution.publish();
+            } else {
+                this.options.sendAgentMessage({
+                    type: 'omp-session-event',
+                    eventType: 'host_tool_call',
+                    frame: { ...pending.request, result: execution.result }
+                });
+            }
         } catch (error) {
             this.removePending(pending);
             await this.discardExecution(pending);
@@ -471,7 +481,13 @@ export class OmpHostToolBridge {
                 result: textResult(errorText(error)),
                 isError: true
             });
-            this.completePending(pending);
+            if (this.completePending(pending)) {
+                this.options.sendAgentMessage({
+                    type: 'omp-session-event',
+                    eventType: 'host_tool_call',
+                    frame: { ...pending.request, error: errorText(error) }
+                });
+            }
         } catch (writeError) {
             this.removePending(pending);
             throw writeError;
@@ -1130,19 +1146,35 @@ export class OmpHostIntegration {
         client: OmpRpcClient;
         cwd: string;
         sessionClient: Pick<ApiSessionClient,
-            'sendAgentMessage' | 'sendClaudeSessionMessage' | 'updateAgentState' | 'rpcHandlerManager'>;
+            'sendAgentMessage' | 'sendClaudeSessionMessage' | 'updateAgentState' | 'updateMetadata' | 'rpcHandlerManager'>;
         onFatal: (error: Error) => void;
         hostUriProviders?: OmpHostUriProvider[];
+        eventAllowlist?: ReadonlySet<OmpKnownEventType>;
     }) {
-        const sendSummary = (title: string) => options.sessionClient.sendClaudeSessionMessage({
-            type: 'summary',
-            summary: title,
-            leafUuid: randomUUID()
-        } satisfies RawJSONLines);
+        const eventAllowlist = options.eventAllowlist ?? defaultOmpEventAllowlist;
+        // These closures retain the originating event family even after await,
+        // cancellation, or an unrelated RPC event dispatch.
+        const sendSummary = (title: string) => {
+            if (eventAllowlist.has('host_tool_call')) {
+                options.sessionClient.sendClaudeSessionMessage({
+                    type: 'summary',
+                    summary: title,
+                    leafUuid: randomUUID()
+                } satisfies RawJSONLines);
+            } else {
+                // Changing the session title is a tool side effect, not a timeline projection.
+                options.sessionClient.updateMetadata((metadata) => ({
+                    ...metadata,
+                    summary: { text: title, updatedAt: Date.now() }
+                }));
+            }
+        };
         this.hostTools = new OmpHostToolBridge({
             client: options.client,
             cwd: options.cwd,
-            sendAgentMessage: (message) => options.sessionClient.sendAgentMessage(message),
+            sendAgentMessage: (message) => {
+                if (eventAllowlist.has('host_tool_call')) options.sessionClient.sendAgentMessage(message);
+            },
             sendSummary,
             onFatal: options.onFatal
         });
@@ -1154,7 +1186,9 @@ export class OmpHostIntegration {
         this.extensionUi = new OmpExtensionUiBridge({
             client: options.client,
             updateAgentState: (handler) => options.sessionClient.updateAgentState(handler),
-            sendAgentMessage: (message) => options.sessionClient.sendAgentMessage(message),
+            sendAgentMessage: (message) => {
+                if (eventAllowlist.has('extension_ui_request')) options.sessionClient.sendAgentMessage(message);
+            },
             onFatal: options.onFatal
         });
 

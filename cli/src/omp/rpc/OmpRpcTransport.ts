@@ -113,6 +113,8 @@ export class OmpRpcTransport {
     private readonly dependencies: OmpRpcTransportDependencies;
     private readonly pending = new Map<string, PendingRequest>();
     private readonly eventListeners = new Set<(event: OmpInboundEvent) => void>();
+    // Native startup events can precede ready/discovery and the first subscriber.
+    private startupEvents: OmpInboundEvent[] | null = [];
     private readonly diagnosticListeners = new Set<(message: string) => void>();
     private readonly closeListeners = new Set<(reason: Error) => void>();
     private readonly readyPromise: Promise<void>;
@@ -185,6 +187,11 @@ export class OmpRpcTransport {
 
     onEvent(listener: (event: OmpInboundEvent) => void): () => void {
         this.eventListeners.add(listener);
+        const startupEvents = this.startupEvents;
+        this.startupEvents = null;
+        if (startupEvents) {
+            for (const event of startupEvents) listener(event);
+        }
         return () => this.eventListeners.delete(listener);
     }
 
@@ -361,6 +368,10 @@ export class OmpRpcTransport {
                 this.handleResponse(parsed.response);
                 return;
             case 'event':
+                if (this.startupEvents) {
+                    this.startupEvents.push(parsed.event);
+                    return;
+                }
                 for (const listener of this.eventListeners) {
                     listener(parsed.event);
                 }
