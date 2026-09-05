@@ -103,12 +103,14 @@ Lifecycle, incremental assistant stream events, `tool_stream_update`, state/conf
 and advisor invalidations, cancellations, and other bookkeeping are off by
 default. Add their exact names to your replacement array to expose them.
 
-`extension_ui_request` is also opt-in as one complete 11-method family. Native
-title updates can carry rapidly changing spinner/status text, so its optional
-titles, widgets, status rows, and notifications are hidden by default. Required
-input and permission controls still work when this event is excluded. Add
+`extension_ui_request` is opt-in as one complete 11-method family. Its optional
+widgets, status rows, and notifications are hidden by default. Required input
+and permission controls still work when this event is excluded. Add
 `extension_ui_request` to the replacement array to show its optional output;
-individual methods are not separate selectors.
+individual methods are not separate selectors. Native `setTitle` is terminal
+decoration and is always consumed without changing the conversation or its
+metadata. Use the explicit `change_title` host tool to rename a HAPI session;
+that side effect remains available even with an empty allowlist.
 
 ### Complete top-level catalog
 

@@ -721,7 +721,6 @@ type OmpExtensionUiBridgeOptions = {
     client: OmpRpcClient;
     updateAgentState: (handler: (state: AgentState) => AgentState) => void;
     sendAgentMessage: (message: unknown) => void;
-    sendSummary: (title: string) => void;
     onFatal: (error: Error) => void;
 };
 
@@ -772,16 +771,9 @@ export class OmpExtensionUiBridge {
                     placement: request.widgetPlacement
                 } satisfies OmpExtensionUiPresentationEvent);
                 return;
-            case 'setTitle': {
-                const title = stripAnsiAndControls(request.title);
-                this.options.sendSummary(title);
-                this.options.sendAgentMessage({
-                    type: 'omp-extension-ui',
-                    method: 'setTitle',
-                    title
-                } satisfies OmpExtensionUiPresentationEvent);
+            case 'setTitle':
+                // Terminal decoration is not a canonical session name or conversation event.
                 return;
-            }
             case 'set_editor_text':
                 this.options.sendAgentMessage({
                     type: 'omp-extension-ui',
@@ -1162,8 +1154,8 @@ export class OmpHostIntegration {
         const eventAllowlist = options.eventAllowlist ?? defaultOmpEventAllowlist;
         // These closures retain the originating event family even after await,
         // cancellation, or an unrelated RPC event dispatch.
-        const sendSummary = (type: 'host_tool_call' | 'extension_ui_request', title: string) => {
-            if (eventAllowlist.has(type)) {
+        const sendSummary = (title: string) => {
+            if (eventAllowlist.has('host_tool_call')) {
                 options.sessionClient.sendClaudeSessionMessage({
                     type: 'summary',
                     summary: title,
@@ -1183,7 +1175,7 @@ export class OmpHostIntegration {
             sendAgentMessage: (message) => {
                 if (eventAllowlist.has('host_tool_call')) options.sessionClient.sendAgentMessage(message);
             },
-            sendSummary: (title) => sendSummary('host_tool_call', title),
+            sendSummary,
             onFatal: options.onFatal
         });
         this.hostUris = new OmpHostUriBridge(
@@ -1197,7 +1189,6 @@ export class OmpHostIntegration {
             sendAgentMessage: (message) => {
                 if (eventAllowlist.has('extension_ui_request')) options.sessionClient.sendAgentMessage(message);
             },
-            sendSummary: (title) => sendSummary('extension_ui_request', title),
             onFatal: options.onFatal
         });
 
