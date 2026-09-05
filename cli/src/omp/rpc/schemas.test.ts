@@ -166,6 +166,30 @@ describe('OMP RPC protocol schemas', () => {
         }
     });
 
+    it('parses todo statuses omp introduced after the schema, including blocked', () => {
+        const base = {
+            isStreaming: false,
+            isCompacting: false,
+            steeringMode: 'all',
+            followUpMode: 'all',
+            interruptMode: 'immediate',
+            autoCompactionEnabled: false,
+            messageCount: 0,
+            queuedMessageCount: 0
+        };
+        const state = (status: string): JsonValue => ({
+            sessionId: 'session-1',
+            ...base,
+            todoPhases: [{ name: 'Phase', tasks: [{ content: 'task', status }] }]
+        });
+
+        const blocked = parseOmpResponseData('get_state', state('blocked'));
+        expect(blocked.todoPhases[0].tasks[0].status).toBe('blocked');
+
+        const unknown = parseOmpResponseData('get_state', state('deferred_future_x'));
+        expect(unknown.todoPhases[0].tasks[0].status).toBe('unknown');
+    });
+
     it('separates exhaustive known events from unknown raw diagnostic frames', () => {
         expect(parseOmpInboundLine('{"type":"message_end","futureField":true}')).toEqual({
             kind: 'event',

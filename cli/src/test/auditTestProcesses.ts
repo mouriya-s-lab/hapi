@@ -38,11 +38,14 @@ export function findTestOwnedProcesses(marker: string): TestOwnedProcess[] {
 
     let output: string
     try {
-        // `-eo` (not `-axo`): procps-ng 4.x rejects `-x` with "must set
-        // personality" on some Linux builds. `e` shows the environment after
-        // the command; `ww` removes width truncation so the env dump is not
-        // cut off.
-        output = execFileSync('ps', ['eww', '-eo', 'pid=,ppid=,rss=,command='], {
+        // `-eww -eo` (dashed): bare `eww` exits 1 silently on darwin when run
+        // without a controlling terminal (execFileSync has none), which made
+        // the audit fail on every macOS run. Dashed form works on both darwin
+        // and procps-ng. `-eo` (not `-axo`): procps-ng 4.x rejects `-x` with
+        // "must set personality" on some Linux builds. `e` shows the
+        // environment after the command; `ww` removes width truncation so the
+        // env dump is not cut off.
+        output = execFileSync('ps', ['-eww', '-eo', 'pid=,ppid=,rss=,command='], {
             encoding: 'utf8',
             maxBuffer: 64 * 1024 * 1024,
             stdio: ['ignore', 'pipe', 'pipe'],

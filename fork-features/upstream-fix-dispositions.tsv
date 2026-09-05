@@ -51,3 +51,4 @@ web/src/lib/toast-context.tsx	upstream-issue	https://github.com/tiann/hapi/issue
 web/src/routes/sessions/file.test.tsx	fork-specific	#179	fork file viewer behavior merge resolution
 web/src/types/global.d.ts	fork-specific	#179	fork PWA changelog feature
 web/vite.config.ts	fork-specific	#179	fork PWA changelog feature; fork release/build metadata
+cli/src/test/auditTestProcesses.ts	upstream-issue	https://github.com/tiann/hapi/issues/1768	general fix reported against latest upstream main
