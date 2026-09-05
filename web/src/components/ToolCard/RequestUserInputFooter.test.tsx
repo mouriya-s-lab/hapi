@@ -112,7 +112,7 @@ describe('RequestUserInputFooter transient OMP input', () => {
         expect(await screen.findByDisplayValue('provider-prefill')).toBeInTheDocument()
     })
 
-    it('shows a recoverable error when transient input is no longer available', async () => {
+    it('shows the unavailable-input error returned by the transient API', async () => {
         const api = {
             getSessionOmpExtensionUiRequest: vi.fn(async () => ({
                 success: false as const,

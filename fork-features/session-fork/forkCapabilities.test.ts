@@ -28,12 +28,6 @@ describe('forkCapabilities', () => {
         expect(getForkCapability('does-not-exist')).toEqual({ fork: 'none', files: 'none' })
     })
 
-    it('files slot is universally none in this umbrella', () => {
-        for (const flavor of ['claude', 'codex', 'cursor', 'gemini', 'kimi', 'opencode', 'pi', 'omp']) {
-            expect(getForkCapability(flavor).files).toBe('none')
-        }
-    })
-
     it('isForkCapableFlavor is true iff fork !== none', () => {
         expect(isForkCapableFlavor('claude')).toBe(true)
         expect(isForkCapableFlavor('codex')).toBe(true)

@@ -77,7 +77,7 @@ beforeEach(() => {
 })
 
 describe('forkSession', () => {
-    it('happy path: provider fork → spawnSession → copyMessages → updateMetadata', async () => {
+    it('passes HEAD fork payloads and records child provider identity, title, and lineage', async () => {
         const captured: any[] = []
         const deps = makeDeps({ captured })
         const res = await forkSession({ srcSessionId: 'src', deps })
@@ -125,7 +125,9 @@ describe('forkSession', () => {
 
     it('returns 404 when source missing', async () => {
         const deps = makeDeps({ source: null })
-        await expect(forkSession({ srcSessionId: 'src', deps })).rejects.toMatchObject({
+        const result = forkSession({ srcSessionId: 'src', deps })
+        await expect(result).rejects.toBeInstanceOf(HttpError)
+        await expect(result).rejects.toMatchObject({
             status: 404
         })
     })
@@ -246,16 +248,6 @@ describe('forkSession', () => {
         expect(spawnCall[1].cwd).toBe(worktree.worktreePath)
         const updateCall = captured.find(c => c[0] === 'updateMetadata')!
         expect(updateCall[2].worktree).toEqual(worktree)
-    })
-
-    it('rejects with HttpError instances', async () => {
-        const deps = makeDeps({ source: null })
-        try {
-            await forkSession({ srcSessionId: 'src', deps })
-            throw new Error('expected throw')
-        } catch (err) {
-            expect(err).toBeInstanceOf(HttpError)
-        }
     })
 })
 

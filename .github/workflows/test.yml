@@ -12,8 +12,8 @@ jobs:
             - uses: oven-sh/setup-bun@v2
             - run: bun install --frozen-lockfile
             - run: bun typecheck
-            - run: bunx playwright install --with-deps chromium
-            - run: bun run test:e2e -- terminal-wrap-fidelity.spec.ts composer-copy.spec.ts session-scroll.spec.ts
+            - run: node node_modules/@playwright/test/cli.js install --with-deps chromium
+            - run: bun run test:e2e -- terminal-wrap-fidelity.spec.ts composer-copy.spec.ts session-scroll.spec.ts reasoning-sticky.spec.ts file-viewer.spec.ts tool-file-preview.spec.ts session-list.spec.ts
             - name: Create integration test env
               run: |
                   {

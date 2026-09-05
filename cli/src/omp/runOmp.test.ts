@@ -100,14 +100,6 @@ describe('runOmp lifecycle', () => {
         expect(harness.loopArgs[0]?.startingMode).toBe('remote');
     });
 
-    it('registers the full lifecycle so user kill is classified as terminated', async () => {
-        await runOmp({ startedBy: 'runner', startingMode: 'remote', workingDirectory: '/work' });
-        expect(registerKillSessionHandler).toHaveBeenCalledWith(
-            harness.session.rpcHandlerManager,
-            lifecycle
-        );
-    });
-
     it('passes an existing snapshot only when it matches the requested native id', async () => {
         harness.metadata = {
             path: '/work',

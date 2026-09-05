@@ -530,33 +530,48 @@ describe('ompRemoteLauncher RPC lifecycle', () => {
         ]);
         const launch = ompRemoteLauncher(session as never);
         await waitForRequest('prompt');
+        expect(session.sessionId).toBe('omp-session-1');
+        harness.sessionId = 'omp-session-updated';
+        harness.sessionName = 'Updated native title';
 
         emitEvent('session_info_update');
         await vi.waitFor(() => {
-            expect(harness.requests.filter((request) => request.type === 'get_state').length).toBeGreaterThan(0);
-            expect(snapshots.length).toBeGreaterThan(1);
+            expect(snapshots.at(-1)).toEqual({
+                id: 'omp-session-updated',
+                file: '/sessions/omp-session-updated.jsonl',
+                name: 'Updated native title'
+            });
+            expect(session.sessionId).toBe('omp-session-updated');
         });
         emitEvent('agent_end');
         await launch;
     });
 
-    it('reconciles state after every prompt without depending on session_info_update', async () => {
+    it('publishes the post-turn native snapshot without a session_info_update event', async () => {
+        harness.autoFinishPrompt = false;
         const { session, snapshots } = createSessionStub([
             { message: 'ordinary turn', mode: createMode() }
         ]);
+        const launch = ompRemoteLauncher(session as never);
+        await waitForRequest('prompt');
+        expect(snapshots.at(-1)).toEqual({
+            id: 'omp-session-1',
+            file: '/sessions/omp-session-1.jsonl',
+            name: 'OMP session one'
+        });
 
-        await ompRemoteLauncher(session as never);
+        harness.sessionId = 'omp-session-after-turn';
+        harness.sessionName = null;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(session.sessionId).toBe('omp-session-1');
 
-        expect(harness.requests.map((request) => request.type)).toEqual([
-            'set_host_tools',
-            'set_host_uri_schemes',
-            'set_subagent_subscription',
-            'get_subagents',
-            'prompt',
-            'get_state',
-            'get_state'
-        ]);
-        expect(snapshots).toHaveLength(2);
+        emitEvent('agent_end');
+        await launch;
+        expect(snapshots.at(-1)).toEqual({
+            id: 'omp-session-after-turn',
+            file: '/sessions/omp-session-after-turn.jsonl'
+        });
+        expect(session.sessionId).toBe('omp-session-after-turn');
     });
 
     it('restores active subagents before transcript replay and deduplicates a repeated live message', async () => {

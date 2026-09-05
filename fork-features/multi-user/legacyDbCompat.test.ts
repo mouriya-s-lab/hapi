@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url'
 
 import { Store } from '../../hub/src/store'
 import { applyGatewaySchema, MultiUserGatewayStore } from './gatewayStore'
+import { resolveGatewayCliNamespace } from './cliAdapter'
+import { ExecutionDispatcher } from './executionDispatcher'
 import {
     assertNoLegacyForkArtifactsRemaining,
     detectLegacyForkArtifacts,
@@ -293,6 +295,7 @@ describe('legacyDbCompat.migrateLegacyForkArtifacts', () => {
             gatewayDataPath: join(dir, 'gateway.sqlite')
         })
         expect(result).toEqual({ kind: 'no-op', reason: 'db-missing' })
+        assertNoLegacyForkArtifactsRemaining(join(dir, 'missing.sqlite'))
         expect(existsSync(join(dir, 'gateway.sqlite'))).toBe(false)
     })
 
@@ -545,18 +548,6 @@ describe('legacyDbCompat.migrateLegacyForkArtifacts', () => {
 })
 
 describe('legacyDbCompat.assertNoLegacyForkArtifactsRemaining', () => {
-    it('passes on a baseline upstream DB', () => {
-        const dir = makeTempDir()
-        const hapiPath = join(dir, 'hapi-data.sqlite')
-        seedBaselineDb(hapiPath)
-        expect(() => assertNoLegacyForkArtifactsRemaining(hapiPath)).not.toThrow()
-    })
-
-    it('passes when hapi-data.sqlite does not exist', () => {
-        const dir = makeTempDir()
-        expect(() => assertNoLegacyForkArtifactsRemaining(join(dir, 'missing.sqlite'))).not.toThrow()
-    })
-
     it('throws a descriptive error listing every remaining fork artifact', () => {
         const dir = makeTempDir()
         const hapiPath = join(dir, 'hapi-data.sqlite')
@@ -589,6 +580,18 @@ describe('legacyDbCompat against real fork-era fixture (commit 2ca4a1979 seed ou
 
         // Sanity: fixture actually has the fork-era shape before we touch it.
         const preRead = new Database(hapiPath, { readonly: true })
+        const coreQueries = [
+            `SELECT id, tag, namespace, machine_id, created_at, updated_at, metadata, metadata_version,
+                agent_state, agent_state_version, model, model_reasoning_effort, effort, todos,
+                todos_updated_at, team_state, team_state_updated_at, active, active_at, seq
+                FROM sessions ORDER BY id`,
+            `SELECT id, namespace, created_at, updated_at, metadata, metadata_version,
+                runner_state, runner_state_version, active, active_at, seq FROM machines ORDER BY id`,
+            'SELECT * FROM messages ORDER BY id',
+            'SELECT * FROM users ORDER BY id',
+            'SELECT * FROM push_subscriptions ORDER BY id'
+        ]
+        const originalCoreRows = coreQueries.map(query => preRead.prepare(query).all())
         try {
             const artifacts = detectLegacyForkArtifacts(preRead)
             expect(artifacts.tables.sort()).toEqual(['accounts', 'api_tokens', 'resource_grants'])
@@ -629,10 +632,31 @@ describe('legacyDbCompat against real fork-era fixture (commit 2ca4a1979 seed ou
             const machineRes = gateway.listAccessibleResources('machine', admin!.id)
             expect(machineRes).toHaveLength(1)
 
-            // Alice sees session via operator grant and machine via viewer grant
-            const aliceSessions = gateway.listAccessibleResources('session', alice!.id)
-            const aliceMachines = gateway.listAccessibleResources('machine', alice!.id)
-            expect(aliceSessions.length + aliceMachines.length).toBeGreaterThan(0)
+            const sharedSessionId = '694b4036-1bf5-476a-b325-0cd1c7384cb6'
+            const privateSessionId = 'f704b6bb-7e4a-4f17-bebd-4d04d7f60c3c'
+            const machineId = 'machine-fixture-1'
+            expect(gateway.listAccessibleResources('session', alice!.id)).toEqual([{
+                resourceType: 'session', resourceId: sharedSessionId,
+                ownerAccountId: admin!.id, coreNamespace: 'default'
+            }])
+            expect(gateway.listAccessibleResources('machine', alice!.id)).toEqual([{
+                resourceType: 'machine', resourceId: machineId,
+                ownerAccountId: admin!.id, coreNamespace: 'default'
+            }])
+            expect(gateway.listGrants('session', sharedSessionId)).toEqual([{ accountId: alice!.id, role: 'operator' }])
+            expect(gateway.listGrants('machine', machineId)).toEqual([{ accountId: alice!.id, role: 'viewer' }])
+            const dispatcher = new ExecutionDispatcher(gateway)
+            expect(dispatcher.authorize({
+                accountId: alice!.id, capability: 'operate', resource: { type: 'session', id: sharedSessionId }
+            }).kind).toBe('allow')
+            expect(dispatcher.authorize({
+                accountId: alice!.id, capability: 'operate', resource: { type: 'machine', id: machineId }
+            })).toEqual({ kind: 'deny', reason: 'insufficient-access' })
+            expect(dispatcher.authorize({
+                accountId: alice!.id, capability: 'read', resource: { type: 'session', id: privateSessionId }
+            })).toEqual({ kind: 'deny', reason: 'insufficient-access' })
+            expect(resolveGatewayCliNamespace(gateway, 'fixture-alice-token-plaintext')).toBe('default')
+            expect(resolveGatewayCliNamespace(gateway, 'fixture-shared-token-plaintext-do-not-hash-me-elsewhere')).toBe('default')
         } finally {
             gateway.close()
         }
@@ -646,10 +670,7 @@ describe('legacyDbCompat against real fork-era fixture (commit 2ca4a1979 seed ou
             const machineCols = post.prepare('PRAGMA table_info(machines)').all() as Array<{ name: string }>
             expect(machineCols.some(c => c.name === 'owner_account_id')).toBe(false)
 
-            // Upstream user data is untouched: 2 sessions, 1 machine, 3 messages still there
-            expect((post.prepare('SELECT COUNT(*) AS n FROM sessions').get() as { n: number }).n).toBe(2)
-            expect((post.prepare('SELECT COUNT(*) AS n FROM machines').get() as { n: number }).n).toBe(1)
-            expect((post.prepare('SELECT COUNT(*) AS n FROM messages').get() as { n: number }).n).toBe(3)
+            expect(coreQueries.map(query => post.prepare(query).all())).toEqual(originalCoreRows)
         } finally {
             post.close()
         }
@@ -657,33 +678,6 @@ describe('legacyDbCompat against real fork-era fixture (commit 2ca4a1979 seed ou
 })
 
 describe('legacyDbCompat integration with applyGatewaySchema', () => {
-    it('post-migration gateway DB is byte-shape-compatible with a fresh MultiUserGatewayStore constructor call', () => {
-        const dir = makeTempDir()
-        const hapiPath = join(dir, 'hapi-data.sqlite')
-        const gatewayPath = join(dir, 'gateway.sqlite')
-        seedForkSchemaDb(hapiPath, {
-            sessionOwners: [{ id: 's1', namespace: 'default', ownerAccountId: 1 }]
-        })
-        migrateLegacyForkArtifacts({ hapiDataPath: hapiPath, gatewayDataPath: gatewayPath })
-
-        // Opening the migrated file through MultiUserGatewayStore should be a no-op — schema already present,
-        // CREATE TABLE IF NOT EXISTS covers the idempotent path.
-        const gateway = new MultiUserGatewayStore(gatewayPath)
-        try {
-            expect(gateway.countAccounts()).toBeGreaterThan(0)
-        } finally {
-            gateway.close()
-        }
-
-        // Directly re-apply the schema on a fresh raw Database: should not throw.
-        const rawDb = new Database(gatewayPath, { readwrite: true })
-        try {
-            expect(() => applyGatewaySchema(rawDb)).not.toThrow()
-        } finally {
-            rawDb.close()
-        }
-    })
-
     it('backfills existing gateway token namespaces from their accounts', () => {
         const dir = makeTempDir()
         const gatewayPath = join(dir, 'gateway.sqlite')

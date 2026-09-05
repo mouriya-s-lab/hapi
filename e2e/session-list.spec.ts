@@ -19,11 +19,14 @@ test.describe('session list — ready blue dot', () => {
     test('shows a ready dot for the idle active session and none for the thinking one', async ({ page }) => {
         await gotoFixture(page)
 
-        // Exactly one ready dot (the active, non-thinking session).
-        await expect(page.locator('[data-attention="ready"]')).toHaveCount(1)
-        // No other attention dots: the thinking session shows a spinner, the
-        // archived (inactive, seen) session shows nothing.
-        await expect(page.locator('[data-attention]')).toHaveCount(1)
+        const ready = page.locator('[data-session-id]').filter({ hasText: 'Ready Session' })
+        const thinking = page.locator('[data-session-id]').filter({ hasText: 'Thinking Session' })
+        const archived = page.locator('[data-session-id]').filter({ hasText: 'Archived Session' })
+        await expect(ready.locator('[data-attention="ready"]')).toHaveCount(1)
+        await expect(thinking).toBeVisible()
+        await expect(thinking.locator('[data-attention]')).toHaveCount(0)
+        await expect(archived).toBeVisible()
+        await expect(archived.locator('[data-attention]')).toHaveCount(0)
     })
 })
 

@@ -22,22 +22,25 @@ async function gotoFile(page: Page, file: string): Promise<void> {
 }
 
 test.describe('file viewer — markdown preview', () => {
-    test('wraps code without line numbers on mobile while preserving desktop code layout', async ({ page }) => {
+    test('honors the explicit code-wrap preference on mobile and desktop', async ({ page }) => {
         await page.setViewportSize({ width: 390, height: 844 })
         await gotoFile(page, 'README.md')
 
-        const codeBlock = page.locator('.aui-md-codeblock').first()
-        const gutter = codeBlock.locator('.aui-md-codeblock-gutter')
-        const content = codeBlock.locator('.aui-md-codeblock-content')
-
-        await expect(gutter).toBeHidden()
-        await expect(content).toHaveCSS('white-space', 'pre-wrap')
-        await expect.poll(() => codeBlock.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
-
-        await page.setViewportSize({ width: 1280, height: 800 })
-        await expect(gutter).toBeVisible()
+        const codeBlock = page.locator('[data-hapi-code-body]').first()
+        const content = codeBlock.locator('[data-code-cell]').first()
         await expect(content).toHaveCSS('white-space', 'pre')
         await expect.poll(() => codeBlock.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+
+        await page.evaluate(() => {
+            localStorage.setItem('hapi-code-wrap', '1')
+            window.dispatchEvent(new StorageEvent('storage', { key: 'hapi-code-wrap', newValue: '1' }))
+        })
+        await expect(content).toHaveCSS('white-space', 'pre-wrap')
+        await expect.poll(() => codeBlock.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+
+        await page.setViewportSize({ width: 1280, height: 800 })
+        await expect(content).toHaveCSS('white-space', 'pre-wrap')
+        await expect.poll(() => codeBlock.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
     })
 
     test('renders markdown preview with a mermaid diagram by default', async ({ page }) => {
@@ -55,13 +58,13 @@ test.describe('file viewer — markdown preview', () => {
     test('mermaid diagram zooms into an overlay and closes', async ({ page }) => {
         await gotoFile(page, 'README.md')
 
-        const trigger = page.locator('[data-mermaid-zoom-trigger]')
+        const trigger = page.getByRole('button', { name: 'Open diagram full screen' })
         await expect(trigger).toBeVisible()
         await trigger.click()
 
-        const overlay = page.locator('[data-mermaid-zoom-overlay]')
+        const overlay = page.getByRole('dialog', { name: 'Diagram' })
         await expect(overlay).toBeVisible()
-        await expect(overlay.getByRole('document')).toBeVisible()
+        await expect(overlay.locator('[data-mermaid-lightbox] svg')).toBeVisible()
 
         // Escape closes it.
         await page.keyboard.press('Escape')
@@ -69,9 +72,9 @@ test.describe('file viewer — markdown preview', () => {
 
         // Re-open and close via the close button.
         await trigger.click()
-        await expect(page.locator('[data-mermaid-zoom-overlay]')).toBeVisible()
-        await page.locator('[data-mermaid-zoom-close]').click()
-        await expect(page.locator('[data-mermaid-zoom-overlay]')).toHaveCount(0)
+        await expect(overlay).toBeVisible()
+        await overlay.getByTitle('Close', { exact: true }).click()
+        await expect(overlay).toHaveCount(0)
     })
 
     test('preview/raw toggle switches between rendered markdown and raw source', async ({ page }) => {
@@ -96,15 +99,18 @@ test.describe('file viewer — word wrap', () => {
 
         const pre = page.getByTestId('file-raw-pre')
         await expect(pre).toBeVisible()
-        await expect(pre).toHaveAttribute('data-word-wrap', 'off')
+        await expect(pre).toHaveCSS('white-space', 'pre')
+        await expect.poll(() => pre.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
 
         await page.getByTestId('word-wrap-toggle').click()
-        await expect(pre).toHaveAttribute('data-word-wrap', 'on')
+        await expect(pre).toHaveCSS('white-space', 'pre-wrap')
+        await expect.poll(() => pre.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
 
         // Preference is persisted to localStorage → survives a full reload.
         await page.reload()
         await expect(page.getByTestId('file-viewer-host')).toBeVisible()
-        await expect(page.getByTestId('file-raw-pre')).toHaveAttribute('data-word-wrap', 'on')
+        await expect(pre).toHaveCSS('white-space', 'pre-wrap')
+        await expect.poll(() => pre.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
     })
 
     test('non-markdown files do not show the preview/raw toggle', async ({ page }) => {

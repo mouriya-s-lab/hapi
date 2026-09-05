@@ -60,7 +60,7 @@ describe('Task todo state', () => {
         expect(applyTaskTodoEvents(created, [{ kind: 'update', taskId: 'missing', status: 'completed' }])).toBeNull()
     })
 
-    test('real-time application and chronological backfill produce identical state', () => {
+    test('reduces chronological task messages into the latest todo state', () => {
         const messages = [
             taskCreated('1', '分析来源'),
             taskCreated('2', '重新实现'),
@@ -71,7 +71,6 @@ describe('Task todo state', () => {
             (todos, message) => applyTodoMessageContent(todos, message) ?? todos,
             initial
         )
-        expect(replay(null)).toEqual(replay(null))
         expect(replay(null)).toEqual([
             { id: '1', content: '分析来源', status: 'completed', priority: 'medium' },
             { id: '2', content: '重新实现', status: 'in_progress', priority: 'medium', activeForm: '正在实现' }

@@ -1,130 +1,96 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiClient } from '@/api/client'
+import { queryKeys } from '@/lib/query-keys'
 import { OmpProviderSettingsRow } from './OmpProviderSettingsRow'
+import { useOmpModelsForCwd } from './useOmpModelsForCwd'
 
 const mocks = vi.hoisted(() => ({
-    invalidateQueries: vi.fn(),
-    queryData: {
-        success: true as const,
-        providers: [{
-            id: 'openai-codex',
-            name: 'ChatGPT Plus/Pro',
-            available: true,
-            authenticated: false
-        }],
-        flow: null
-    } as {
-        success: true
-        providers: Array<{
-            id: string
-            name: string
-            available: boolean
-            authenticated: boolean
-        }>
-        flow: null
-    },
-    machines: [{
-        id: 'machine-1',
-        active: true,
-        metadata: { host: 'runner', ompAvailable: true }
-    }] as Array<{
-        id: string
-        active: boolean
-        metadata: { host: string; ompAvailable?: boolean }
-    }>,
-    queryEnabled: false
+    machines: [] as Array<{ id: string; active: boolean; metadata: { host: string; ompAvailable?: boolean } }>
 }))
+const api = new ApiClient('test-token')
+vi.mock('@/hooks/queries/useMachines', () => ({ useMachines: () => ({ machines: mocks.machines }) }))
+vi.mock('@/lib/app-context', () => ({ useAppContext: () => ({ api }) }))
+vi.mock('@/lib/use-translation', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
 
-vi.mock('@tanstack/react-query', () => ({
-    useQuery: (options: { enabled: boolean }) => {
-        mocks.queryEnabled = options.enabled
-        return {
-            data: mocks.queryData,
-            error: null,
-            isLoading: false,
-            refetch: vi.fn()
-        }
-    },
-    useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries })
-}))
-vi.mock('@/hooks/queries/useMachines', () => ({
-    useMachines: () => ({ machines: mocks.machines })
-}))
-vi.mock('@/lib/app-context', () => ({ useAppContext: () => ({ api: {} }) }))
-vi.mock('@/lib/use-translation', () => ({
-    useTranslation: () => ({ t: (key: string) => key })
-}))
+function ModelCatalog() {
+    const query = useOmpModelsForCwd({ api, machineId: 'machine-1', cwd: '/project', enabled: true })
+    return <output>{query.currentModel?.modelId}</output>
+}
+
+function renderRow(withModels = false) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+    const view = render(<QueryClientProvider client={client}>
+        <OmpProviderSettingsRow />
+        {withModels ? <ModelCatalog /> : null}
+    </QueryClientProvider>)
+    return { client, ...view }
+}
 
 beforeEach(() => {
-    mocks.invalidateQueries.mockReset()
-    mocks.queryData = {
-        ...mocks.queryData,
-        providers: mocks.queryData.providers.map((provider) => ({
-            ...provider,
-            authenticated: false
-        }))
-    }
-    mocks.machines = [{
-        id: 'machine-1',
-        active: true,
-        metadata: { host: 'runner', ompAvailable: true }
-    }]
-    mocks.queryEnabled = false
+    mocks.machines = [{ id: 'machine-1', active: true, metadata: { host: 'OMP runner', ompAvailable: true } }]
+})
+afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
 })
 
 describe('OmpProviderSettingsRow', () => {
-    it('invalidates machine model catalogs when provider authentication changes', async () => {
-        const view = render(<OmpProviderSettingsRow />)
-        await waitFor(() => expect(mocks.invalidateQueries).toHaveBeenCalled())
-        mocks.invalidateQueries.mockReset()
+    it('refetches an active model catalog when provider authentication changes', async () => {
+        let authenticated = false
+        vi.spyOn(api, 'getMachineOmpLoginProviders').mockImplementation(async () => ({
+            success: true,
+            providers: [{ id: 'openai-codex', name: 'ChatGPT', available: true, authenticated }],
+            flow: null
+        }))
+        const models = vi.spyOn(api, 'getMachineOmpModelsForCwd').mockImplementation(async () => ({
+            success: true,
+            currentModel: { provider: 'openai-codex', modelId: authenticated ? 'signed-in-model' : 'public-model' }
+        }))
+        const { client } = renderRow(true)
+        await screen.findByText('public-model')
+        await waitFor(() => expect(client.isFetching()).toBe(0))
+        const initialCalls = models.mock.calls.length
 
-        mocks.queryData = {
-            ...mocks.queryData,
-            providers: mocks.queryData.providers.map((provider) => ({
-                ...provider,
-                authenticated: true
-            }))
-        }
-        view.rerender(<OmpProviderSettingsRow />)
-
-        await waitFor(() => {
-            expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['machine-omp-models'] })
+        await act(async () => {
+            await client.refetchQueries({ queryKey: queryKeys.machineOmpLoginProviders('machine-1') })
         })
+        expect(models).toHaveBeenCalledTimes(initialCalls)
+
+        authenticated = true
+        await act(async () => {
+            await client.refetchQueries({ queryKey: queryKeys.machineOmpLoginProviders('machine-1') })
+        })
+        await screen.findByText('signed-in-model')
+        expect(models).toHaveBeenCalledWith('machine-1', '/project')
     })
 
-    it('filters runners without OMP before provider discovery', async () => {
+    it('discovers providers only for the selected OMP-capable runner', async () => {
         mocks.machines = [
-            {
-                id: 'without-omp',
-                active: true,
-                metadata: { host: 'No OMP runner' }
-            },
-            {
-                id: 'with-omp',
-                active: true,
-                metadata: { host: 'OMP runner', ompAvailable: true }
-            }
+            { id: 'without-omp', active: true, metadata: { host: 'No OMP runner' } },
+            ...mocks.machines,
+            { id: 'second-omp', active: true, metadata: { host: 'Second OMP runner', ompAvailable: true } }
         ]
-
-        render(<OmpProviderSettingsRow />)
+        const discover = vi.spyOn(api, 'getMachineOmpLoginProviders').mockResolvedValue({ success: true, providers: [], flow: null })
+        renderRow()
         fireEvent.click(screen.getByText('settings.fork.omp.title'))
-
         expect(screen.queryByRole('option', { name: 'No OMP runner' })).not.toBeInTheDocument()
         expect(screen.getByRole('option', { name: 'OMP runner' })).toBeInTheDocument()
-        await waitFor(() => expect(mocks.queryEnabled).toBe(true))
+        await waitFor(() => expect(discover.mock.calls).toEqual([['machine-1']]))
+        fireEvent.change(screen.getByRole('combobox'), { target: { value: 'second-omp' } })
+        await waitFor(() => expect(discover.mock.calls).toEqual([['machine-1'], ['second-omp']]))
     })
 
-    it('does not issue provider discovery when no runner supports OMP', () => {
-        mocks.machines = [{
-            id: 'without-omp',
-            active: true,
-            metadata: { host: 'No OMP runner' }
-        }]
-
-        render(<OmpProviderSettingsRow />)
+    it('does not discover providers until a capable runner becomes available', async () => {
+        mocks.machines = [{ id: 'without-omp', active: true, metadata: { host: 'No OMP runner' } }]
+        const discover = vi.spyOn(api, 'getMachineOmpLoginProviders').mockResolvedValue({ success: true, providers: [], flow: null })
+        const { client, rerender } = renderRow()
         fireEvent.click(screen.getByText('settings.fork.omp.title'))
-
-        expect(mocks.queryEnabled).toBe(false)
-        expect(screen.getAllByText('settings.fork.omp.noRunners')).not.toHaveLength(0)
+        expect(screen.getAllByText('settings.fork.omp.noRunners').length).toBeGreaterThan(0)
+        expect(discover).not.toHaveBeenCalled()
+        mocks.machines = [{ id: 'new-omp', active: true, metadata: { host: 'New OMP runner', ompAvailable: true } }]
+        rerender(<QueryClientProvider client={client}><OmpProviderSettingsRow /></QueryClientProvider>)
+        await waitFor(() => expect(discover.mock.calls).toEqual([['new-omp']]))
     })
 })

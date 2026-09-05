@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { useSessionActions } from './useSessionActions'
-import { ApiError, type ApiClient } from '@/api/client'
+import { ApiError, ApiClient } from '@/api/client'
+import { queryKeys } from '@/lib/query-keys'
+import type { ForkRouteResult } from '../../../../fork-features/session-fork/rpcPayloads'
 
 function createWrapper() {
     const queryClient = new QueryClient({
@@ -27,30 +29,49 @@ afterEach(() => {
 })
 
 describe('useSessionActions - forkSession', () => {
-    it('invokes api.forkSession with sessionId and returns the server result', async () => {
-        const forkSpy = vi.fn(async (_sessionId: string) => ({ type: 'success' as const, newSessionId: 'forked-id' }))
-        const api = { forkSession: forkSpy } as unknown as ApiClient
-
-        const { result } = renderHook(
-            () => useSessionActions(api, 'src-session', 'claude'),
-            { wrapper: createWrapper() }
-        )
-
-        let response: { type: 'success'; newSessionId: string } | { type: 'blocked' } | undefined
-        await act(async () => {
-            response = await result.current.forkSession()
+    it.each(['success', 'blocked'] as const)('preserves the selected fork point and %s result while refreshing the session list', async (type) => {
+        const api = new ApiClient('test-token')
+        const response: ForkRouteResult = type === 'success'
+            ? { type: 'success', newSessionId: 'forked-id' }
+            : { type: 'blocked' }
+        let sessionIds = ['src-session']
+        const forkSpy = vi.spyOn(api, 'forkSession').mockImplementation(async () => {
+            if (type === 'success') sessionIds = ['src-session', 'forked-id']
+            return response
         })
+        const listSessions = vi.fn(async () => sessionIds)
+        const { result } = renderHook(() => ({
+            actions: useSessionActions(api, 'src-session', 'claude'),
+            sessions: useQuery({ queryKey: queryKeys.sessions, queryFn: listSessions }).data
+        }), { wrapper: createWrapper() })
+        await waitFor(() => expect(result.current.sessions).toEqual(['src-session']))
 
-        expect(forkSpy).toHaveBeenCalledWith('src-session')
-        expect(response).toEqual({ type: 'success', newSessionId: 'forked-id' })
+        let actual: ForkRouteResult | undefined
+        await act(async () => {
+            actual = await result.current.actions.forkSession({ forkPoint: { messageId: 'selected-message' } })
+        })
+        expect(forkSpy).toHaveBeenCalledWith('src-session', { forkPoint: { messageId: 'selected-message' } })
+        expect(actual).toEqual(response)
+        if (type === 'success') {
+            await waitFor(() => expect(result.current.sessions).toEqual(['src-session', 'forked-id']))
+        } else {
+            expect(result.current.sessions).toEqual(['src-session'])
+        }
+        // Blocked is a resolved domain result; the hook refreshes the list in either case.
+        expect(listSessions).toHaveBeenCalledTimes(2)
     })
 
-    it('throws when api or sessionId is missing', async () => {
+    it.each(['api', 'sessionId'] as const)('rejects a fork when only %s is missing', async (missing) => {
+        const api = new ApiClient('test-token')
+        const forkSpy = vi.spyOn(api, 'forkSession')
         const { result } = renderHook(
-            () => useSessionActions(null, null, null),
+            () => useSessionActions(missing === 'api' ? null : api, missing === 'sessionId' ? null : 'src-session', 'claude'),
             { wrapper: createWrapper() }
         )
-        await expect(result.current.forkSession()).rejects.toThrow('Session unavailable')
+        await act(async () => {
+            await expect(result.current.forkSession()).rejects.toThrow('Session unavailable')
+        })
+        expect(forkSpy).not.toHaveBeenCalled()
     })
 })
 

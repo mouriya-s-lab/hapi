@@ -141,10 +141,8 @@ describe('Query', () => {
 
         const args = spawnMock.mock.calls[0][1] as string[]
         expect(args.indexOf('--plugin-dir')).toBeLessThan(args.indexOf('--settings'))
-        expect(args).toContain('--allowedTools')
-        expect(args).toContain('Read,Write')
-        expect(args).toContain('--disallowedTools')
-        expect(args).toContain('Bash')
+        expect(args.slice(args.indexOf('--allowedTools'), args.indexOf('--allowedTools') + 2)).toEqual(['--allowedTools', 'Read,Write'])
+        expect(args.slice(args.indexOf('--disallowedTools'), args.indexOf('--disallowedTools') + 2)).toEqual(['--disallowedTools', 'Bash'])
         child.stdout.end()
         child.emit('close', 0)
     })

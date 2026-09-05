@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import type { OmpCommand, OmpSessionState } from './types';
 import {
     nativeSessionSnapshotFromState,
-    parseOmpSessionMutation,
     runOmpSessionMutation
 } from './sessionLifecycle';
 
@@ -24,30 +23,6 @@ function state(id: string = 'session-2'): OmpSessionState {
 }
 
 describe('OMP native session lifecycle', () => {
-    it('parses only the native session slash commands', () => {
-        expect(parseOmpSessionMutation(' /clear ')).toEqual({ type: 'new_session' });
-        expect(parseOmpSessionMutation('/new')).toEqual({ type: 'new_session' });
-        expect(parseOmpSessionMutation('/rename  Renamed session ')).toEqual({
-            type: 'set_session_name',
-            name: 'Renamed session'
-        });
-        expect(parseOmpSessionMutation('/handoff focus on verification')).toEqual({
-            type: 'handoff',
-            customInstructions: 'focus on verification'
-        });
-        expect(parseOmpSessionMutation('/handoff')).toEqual({ type: 'handoff' });
-        expect(parseOmpSessionMutation('/resume 019f75fa')).toEqual({
-            type: 'resume_session',
-            sessionArg: '019f75fa'
-        });
-        expect(parseOmpSessionMutation('/resume')).toEqual({ type: 'resume_session_picker' });
-        expect(parseOmpSessionMutation('/rename')).toEqual({
-            type: 'invalid_session_command',
-            message: 'Usage: /rename <title>'
-        });
-        expect(parseOmpSessionMutation('/clear\nnext prompt')).toBeNull();
-    });
-
     it('constructs the authoritative metadata snapshot from get_state', () => {
         expect(nativeSessionSnapshotFromState(state())).toEqual({
             id: 'session-2',

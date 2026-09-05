@@ -8,7 +8,11 @@ describe('getSettingsCategory', () => {
         expect(getSettingsCategory('/settings/users/42')?.id).toBe('users')
     })
 
-    it('keeps HAPI Extensions limited to its actual entry page', () => {
+    it('matches the fork settings root and descendants without swallowing adjacent prefixes', () => {
         expect(getSettingsCategory('/settings/fork')?.id).toBe('fork')
+        expect(getSettingsCategory('/settings/fork/grants')?.id).toBe('fork')
+        expect(getSettingsCategory('/settings/forked')?.id).not.toBe('fork')
+        expect(getSettingsCategory('/settings/account')?.id).not.toBe('fork')
+        expect(getSettingsCategory('/settings/users')?.id).not.toBe('fork')
     })
 })

@@ -256,7 +256,7 @@ describe('getToolResultViewComponent registry', () => {
         expect(getToolResultViewComponent('todo')).toBe(getToolResultViewComponent('TodoWrite'))
     })
 
-    it('renders OMP read results as a code block instead of collapsed markdown prose', () => {
+    it('passes the full OMP read source to CodeBlock instead of markdown', () => {
         const ReadView = getToolResultViewComponent('read')
         const body = [
             "export async function runHappyMcpStdioBridge(argv: string[]): Promise<void> {",
@@ -299,14 +299,10 @@ describe('getToolResultViewComponent registry', () => {
         )
 
         const code = container.querySelector('pre code')
-        expect(code).not.toBeNull()
-        expect(code?.textContent).toContain('runHappyMcpStdioBridge')
-        expect(code?.textContent).toContain('\n')
-        // Must not collapse into a single whitespace-squashed run.
-        expect(code?.textContent).not.toBe(body.replace(/\s+/g, ' ').trim())
+        expect(code?.textContent).toBe(body)
     })
 
-    it('honours OMP details.displayContent.startLine for the CodeBlock gutter', () => {
+    it('passes OMP displayContent.startLine to the CodeBlock boundary', () => {
         const ReadView = getToolResultViewComponent('read')
         const body = [
             "const { attentionId, scheduleId } = useSessionRowTooltipIds(",
@@ -588,7 +584,7 @@ describe('read file result formatting', () => {
     // FileContentToggleView (markdown-preview + word-wrap toggles), matching the
     // file-viewer route. These assert the routing + path/content handed over;
     // the toggle behaviour itself is covered by the component test + e2e spec.
-    it('renders read file content through the toggle view with its path', () => {
+    it('passes read file content and its path to the toggle-view boundary', () => {
         const { container } = renderToolResult('Read', {
             file: {
                 filePath: '/tmp/example.ts',
@@ -606,7 +602,7 @@ describe('read file result formatting', () => {
         expect(screen.getAllByText('Raw JSON').length).toBeGreaterThan(0)
     })
 
-    it('renders plain read output through the toggle view', () => {
+    it('passes plain read output to the toggle-view boundary', () => {
         const { container } = renderToolResult('Read', {
             file: {
                 filePath: '/tmp/notes.txt',
@@ -658,7 +654,7 @@ describe('read file result formatting', () => {
         expect(pre?.textContent).not.toContain('50:')
     })
 
-    it('renders parsed Codex read command output through the toggle view', () => {
+    it('passes parsed Codex read command output to the toggle-view boundary', () => {
         const { container } = renderToolResult(
             'CodexBash',
             'Exit code: 0\nWall time: 0.1s\nOutput:\nhello from file',
@@ -668,7 +664,7 @@ describe('read file result formatting', () => {
         expect(container.querySelector('[data-testid="file-content-toggle"]')).toHaveTextContent('hello from file')
     })
 
-    it('renders parsed Codex read command source output through the toggle view', () => {
+    it('passes parsed Codex read command source to the toggle-view boundary', () => {
         const { container } = renderToolResult(
             'CodexBash',
             'Exit code: 0\nWall time: 0.1s\nOutput:\nconst value = 1',

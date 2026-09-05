@@ -7,7 +7,8 @@ import { mountAgentSkillRoutes } from './hubRoutes'
 
 describe('agent skill machine routes', () => {
     it('probes only a machine in the authenticated namespace', async () => {
-        const getMachineByNamespace = vi.fn(() => ({ id: 'machine-1' }))
+        const getMachineByNamespace = vi.fn((id: string, namespace: string) =>
+            id === 'machine-1' && namespace === 'alpha' ? { id } : undefined)
         const result = { agentSkills: { canonicalHash: 'hash', cliVersion: '1.0.0', checkedAt: 1, harnesses: {} } }
         const probeMachineAgentSkills = vi.fn(async () => result)
         const engine = { getMachineByNamespace, probeMachineAgentSkills } as unknown as SyncEngine
@@ -18,11 +19,15 @@ describe('agent skill machine routes', () => {
         })
         mountAgentSkillRoutes(app, () => engine)
 
+        const denied = await app.request('/api/machines/inaccessible/agent-skills/refresh', { method: 'POST' })
+        expect(denied.status).toBe(404)
+        expect(await denied.json()).toEqual({ error: 'Machine not found' })
+        expect(probeMachineAgentSkills).not.toHaveBeenCalled()
+
         const response = await app.request('/api/machines/machine-1/agent-skills/refresh', { method: 'POST' })
 
         expect(response.status).toBe(200)
         expect(await response.json()).toEqual(result)
-        expect(getMachineByNamespace).toHaveBeenCalledWith('machine-1', 'alpha')
-        expect(probeMachineAgentSkills).toHaveBeenCalledWith('machine-1')
+        expect(probeMachineAgentSkills.mock.calls).toEqual([['machine-1']])
     })
 })

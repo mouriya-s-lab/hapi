@@ -45,6 +45,7 @@ vi.mock('@assistant-ui/react', () => ({
     },
     useAuiState: (selector: (state: unknown) => unknown) =>
         selector({
+            thread: { messages: [] },
             message: {
                 role: 'user',
                 id: state.messageId,
@@ -58,11 +59,6 @@ vi.mock('@tanstack/react-router', () => ({
     useNavigate: () => state.navigate
 }))
 
-vi.mock('@/components/AssistantChat/messages/MessageActions', () => ({
-    MessageActions: ({ copyText }: { copyText?: string }) => (
-        copyText ? <button type="button" aria-label="Copy">Copy</button> : null
-    )
-}))
 vi.mock('@/hooks/queries/useFlavorCapabilities', () => ({
     useFlavorCapabilities: () => ({ data: state.capabilities }),
     getFlavorForkCapability: (caps: any, flavor: string | null | undefined) => {
@@ -93,6 +89,7 @@ vi.mock('@/hooks/mutations/useSessionActions', () => ({
 }))
 
 vi.mock('@/components/AssistantChat/context', () => ({
+    useOptionalHappyChatContext: () => null,
     useHappyChatContext: () => ({
         api: {} as any,
         sessionId: 'sess-src',
@@ -111,9 +108,6 @@ vi.mock('@/lib/fork-restore', () => ({
     setForkedFromText: state.setForkedFromText
 }))
 
-vi.mock('@/hooks/useCopyToClipboard', () => ({
-    useCopyToClipboard: () => ({ copied: false, copy: vi.fn() })
-}))
 
 vi.mock('@/components/AssistantChat/messages/MessageStatusIndicator', () => ({
     MessageStatusIndicator: () => null
@@ -127,10 +121,6 @@ vi.mock('@/components/AssistantChat/messages/user-bubble', () => ({
     shouldShowMessageStatus: () => false
 }))
 vi.mock('@/components/CliOutputBlock', () => ({ CliOutputBlock: () => null }))
-vi.mock('@/components/icons', () => ({
-    CopyIcon: () => null,
-    CheckIcon: () => null
-}))
 vi.mock('@/chat/outline', () => ({
     getConversationMessageAnchorId: (id: string) => `anchor-${id}`
 }))
@@ -148,6 +138,7 @@ import { HappyUserMessage } from './UserMessage'
 
 afterEach(() => {
     cleanup()
+    vi.unstubAllGlobals()
     state.forkSession.mockClear()
     state.navigate.mockClear()
     state.setForkedFromText.mockClear()
@@ -161,9 +152,14 @@ afterEach(() => {
 })
 
 describe('HappyUserMessage actions', () => {
-    it('renders one copy action for a text message', () => {
+    it('copies the source text through one real message action', async () => {
+        const writeText = vi.fn(async () => undefined)
+        vi.stubGlobal('navigator', { clipboard: { writeText } })
         render(<HappyUserMessage />)
-        expect(screen.getAllByRole('button', { name: 'Copy' })).toHaveLength(1)
+        const buttons = screen.getAllByRole('button', { name: 'message.copy' })
+        expect(buttons).toHaveLength(1)
+        fireEvent.click(buttons[0]!)
+        await waitFor(() => expect(writeText).toHaveBeenCalledWith('source user prompt'))
     })
 })
 
@@ -222,15 +218,15 @@ describe('HappyUserMessage rewind button (#62 c5)', () => {
     it('Does not stash forked-from text when source message text is empty', async () => {
         state.text = ''
         render(<HappyUserMessage />)
-        // With empty text UserMessage still renders trailing row but bubble is
-        // hidden; the rewind button is capability-gated on flavor, not text.
-        // If click still fires, setForkedFromText should be skipped.
-        const btn = screen.queryByRole('button', { name: /Rewind to this message/i })
-        if (btn) {
-            fireEvent.click(btn)
-            await waitFor(() => expect(state.forkSession).toHaveBeenCalled())
-            expect(state.setForkedFromText).not.toHaveBeenCalled()
-        }
+        fireEvent.click(screen.getByRole('button', { name: /Rewind to this message/i }))
+        await waitFor(() => expect(state.forkSession).toHaveBeenCalledWith({
+            forkPoint: { messageId: 'msg-42' }
+        }))
+        await waitFor(() => expect(state.navigate).toHaveBeenCalledWith({
+            to: '/sessions/$sessionId',
+            params: { sessionId: 'new-forked-id' }
+        }))
+        expect(state.setForkedFromText).not.toHaveBeenCalled()
     })
 
     it('stays on the source session when the server reports that fork is blocked', async () => {

@@ -282,22 +282,49 @@ describe('OmpRpcTransport', () => {
         await vi.waitFor(() => expect(transport.state).toBe('closed'));
     });
 
-    it('waits for stdin drain before completing a backpressured write', async () => {
-        const stdin = new PassThrough({ highWaterMark: 1 });
-        const { child, frames } = createFakeProcess(stdin);
+    it('holds subsequent control frames until both the write callback and drain complete', async () => {
+        const stdin = new Writable();
+        const writes: string[] = [];
+        const callbacks: Array<() => void> = [];
+        vi.spyOn(stdin, 'write').mockImplementation((chunk, encodingOrCallback, callback) => {
+            writes.push(String(chunk));
+            const done = typeof encodingOrCallback === 'function' ? encodingOrCallback : callback;
+            if (!done) throw new Error('Expected a write callback');
+            callbacks.push(() => done(null));
+            return false;
+        });
+        const { child } = createFakeProcess(stdin);
         const transport = await connectFake(child);
-        const request = transport.request({ type: 'get_state' }, { discovery: true });
-        await waitForFrames(frames, 1);
+        transport.markReady();
+        const firstFrame = { type: 'extension_ui_response', id: 'first', value: 'one' } as const;
+        const secondFrame = { type: 'extension_ui_response', id: 'second', value: 'two' } as const;
+        let firstCompleted = false;
+        let secondCompleted = false;
+        const first = transport.sendControlFrame(firstFrame).then(() => { firstCompleted = true; });
+        const second = transport.sendControlFrame(secondFrame).then(() => { secondCompleted = true; });
+        const writesSettled = Promise.allSettled([first, second]);
+        try {
+            await vi.waitFor(() => expect(writes).toEqual([`${JSON.stringify(firstFrame)}\n`]));
+            callbacks[0]();
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            expect(firstCompleted).toBe(false);
+            expect(writes).toEqual([`${JSON.stringify(firstFrame)}\n`]);
 
-        child.stdout.write(`${JSON.stringify({
-            type: 'response',
-            id: frames[0].id,
-            command: 'get_state',
-            success: true,
-            data: {}
-        })}\n`);
-        await expect(request).resolves.toMatchObject({ command: 'get_state' });
-        await transport.close();
+            stdin.emit('drain');
+            await first;
+            await vi.waitFor(() => expect(writes).toEqual([
+                `${JSON.stringify(firstFrame)}\n`,
+                `${JSON.stringify(secondFrame)}\n`
+            ]));
+            stdin.emit('drain');
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            expect(secondCompleted).toBe(false);
+            callbacks[1]();
+            await second;
+        } finally {
+            await transport.close();
+            await writesSettled;
+        }
     });
 
     it('rejects every pending request when stdin fails', async () => {

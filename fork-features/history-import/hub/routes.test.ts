@@ -77,7 +77,7 @@ describe('importable session routes', () => {
         expect(imported).toBe(false)
     })
 
-    it('imports directly through the machine without spawning an agent session', async () => {
+    it('maps a successful machine import response to a newly imported session', async () => {
         const calls: unknown[][] = []
         const app = appFor({
             getMachine: () => machine,
@@ -137,7 +137,7 @@ describe('importable session routes', () => {
         expect(imports).toBe(1)
     })
 
-    it('deletes an inactive partial session when direct import fails', async () => {
+    it('requests deletion of the partial session reported by a failed import', async () => {
         const deleted: string[] = []
         const app = appFor({
             getMachine: () => machine,

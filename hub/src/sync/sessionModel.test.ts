@@ -791,35 +791,42 @@ describe('session model', () => {
     })
 
     it('does not advance updatedAt on agent_state updates, but message activity does (fork #5/#2)', () => {
+        const originalDateNow = Date.now
+        let now = 1_780_000_000_000
+        Date.now = () => now
         const store = new Store(':memory:')
-        const events: SyncEvent[] = []
-        const cache = new SessionCache(store, createPublisher(events))
+        try {
+            const events: SyncEvent[] = []
+            const cache = new SessionCache(store, createPublisher(events))
+            const session = cache.getOrCreateSession(
+                'session-agent-state-no-touch',
+                { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
+                null,
+                'default'
+            )
+            const before = store.sessions.getSession(session.id)!.updatedAt
+            const versionBefore = store.sessions.getSession(session.id)!.agentStateVersion
+            expect(before).toBe(now)
 
-        const session = cache.getOrCreateSession(
-            'session-agent-state-no-touch',
-            { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
-            null,
-            'default'
-        )
-        const before = store.sessions.getSession(session.id)!.updatedAt
-        const versionBefore = store.sessions.getSession(session.id)!.agentStateVersion
+            now += 30_000
+            const result = store.sessions.updateSessionAgentState(
+                session.id,
+                { requests: { r1: { tool: 'Bash' } } },
+                versionBefore,
+                'default'
+            )
+            expect(result.result).toBe('success')
+            const after = store.sessions.getSession(session.id)!
+            expect(after.agentStateVersion).toBe(versionBefore + 1)
+            expect(after.updatedAt).toBe(before)
 
-        // agent_state churn (thinking / internal request changes) must NOT advance updatedAt
-        const result = store.sessions.updateSessionAgentState(
-            session.id,
-            { requests: { r1: { tool: 'Bash' } } },
-            versionBefore,
-            'default'
-        )
-        expect(result.result).toBe('success')
-        const after = store.sessions.getSession(session.id)!
-        expect(after.agentStateVersion).toBe(versionBefore + 1) // the update really happened
-        expect(after.updatedAt).toBe(before) // ...but updatedAt did not move
-
-        // a real message/reply still advances updatedAt ("time since last reply")
-        const activityAt = before + 60_000
-        cache.recordSessionActivity(session.id, activityAt)
-        expect(store.sessions.getSession(session.id)!.updatedAt).toBe(activityAt)
+            now += 30_000
+            cache.recordSessionActivity(session.id, now)
+            expect(store.sessions.getSession(session.id)!.updatedAt).toBe(now)
+        } finally {
+            Date.now = originalDateNow
+            store.close()
+        }
     })
 
     it('rejects active session config updates when CLI ignores requested keys', async () => {

@@ -29,6 +29,8 @@ describe('hapi agent prompt consumption wait', () => {
     test('settles only for the target local message and releases its subscription', async () => {
         const source = consumptionSource()
         const watcher = watchMessageConsumption(source.engine, 'target', 'prompt-local-id')
+        let settled = false
+        void watcher.promise.then(() => { settled = true })
 
         source.emit({
             type: 'messages-consumed',
@@ -36,6 +38,16 @@ describe('hapi agent prompt consumption wait', () => {
             localIds: ['prompt-local-id'],
             invokedAt: 1
         })
+        expect(source.subscriptionCount()).toBe(1)
+
+        source.emit({
+            type: 'messages-consumed',
+            sessionId: 'target',
+            localIds: ['another-prompt'],
+            invokedAt: 2
+        })
+        await Promise.resolve()
+        expect(settled).toBe(false)
         expect(source.subscriptionCount()).toBe(1)
 
         source.emit({

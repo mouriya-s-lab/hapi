@@ -78,7 +78,7 @@ describe('rpcPayloads', () => {
             ForkSpawnPayloadSchema.parse({
                 sourceMetadata: { path: '/w', host: 'h' },
                 sourceCwd: '/w',
-                forkPoint: { messageId: 'm-42' }
+                forkPoint: { messageId: 'm-42', isFirstUserTurn: false }
             })
         ).toThrow()
     })
@@ -88,7 +88,7 @@ describe('rpcPayloads', () => {
             ForkSpawnPayloadSchema.parse({
                 sourceMetadata: { path: '/w', host: 'h' },
                 sourceCwd: '/w',
-                forkPoint: { messageId: 'm-42', tailOffset: -1 }
+                forkPoint: { messageId: 'm-42', tailOffset: -1, isFirstUserTurn: false }
             })
         ).toThrow()
     })
@@ -98,7 +98,7 @@ describe('rpcPayloads', () => {
             ForkSpawnPayloadSchema.parse({
                 sourceMetadata: { path: '/w', host: 'h' },
                 sourceCwd: '/w',
-                forkPoint: { messageId: 'm-42', tailOffset: 1.5 }
+                forkPoint: { messageId: 'm-42', tailOffset: 1.5, isFirstUserTurn: false }
             })
         ).toThrow()
     })

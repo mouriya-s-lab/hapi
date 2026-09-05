@@ -149,9 +149,20 @@ describe('claudeLocalLauncher message filtering', () => {
 
         harness.scannerOnMessage!({ type: 'system', subtype: 'api_error', uuid: '1' })
         harness.scannerOnMessage!({ type: 'system', subtype: 'turn_duration', uuid: '2' })
-        harness.scannerOnMessage!({ type: 'system', subtype: 'model_refusal_fallback', uuid: '3' })
+        harness.scannerOnMessage!({
+            type: 'system',
+            subtype: 'model_refusal_fallback',
+            uuid: '3',
+            content: 'Retrying with the fallback model after a refusal'
+        })
 
         expect(sentMessages).toHaveLength(3)
+        expect(sentMessages).toContainEqual({
+            type: 'system',
+            subtype: 'model_refusal_fallback',
+            uuid: '3',
+            content: 'Retrying with the fallback model after a refusal'
+        })
     })
 
     it('forwards away_summary (auto recap) system messages', async () => {

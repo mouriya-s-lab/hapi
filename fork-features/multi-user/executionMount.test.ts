@@ -68,7 +68,7 @@ describe('createExecutionMiddleware', () => {
         store.close()
     })
 
-    it('binds a fork-created session to the source session owner', async () => {
+    it('binds the returned fork session when the caller owns the source session', async () => {
         const store = new MultiUserGatewayStore(':memory:')
         const owner = store.createAccount('owner', 'user', 'owner-namespace', null)
         store.bindResource({
@@ -99,7 +99,7 @@ describe('createExecutionMiddleware', () => {
     })
 
     for (const path of ['resume', 'reopen', 'restart'] as const) {
-        it(`binds a ${path}-created replacement session to the source session owner`, async () => {
+        it(`binds the returned ${path} session when the caller owns the source session`, async () => {
             const store = new MultiUserGatewayStore(':memory:')
             const owner = store.createAccount('owner', 'user', 'owner-namespace', null)
             store.bindResource({
