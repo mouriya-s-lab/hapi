@@ -128,11 +128,20 @@ controls for DSH.
 - `HAPI_HOME` - Config/data directory (default: ~/.hapi).
 - `HAPI_EXPERIMENTAL` - Enable experimental features (true/1/yes).
 - `HAPI_EXTRA_HEADERS_JSON` - JSON object of extra headers to send on CLI → hub requests, e.g. `{"Cookie":"CF_Authorization=..."}`. Can also be set as the `extraHeaders` object in `~/.hapi/settings.json` (environment variable wins).
+- `HAPI_OMP_EVENT_ALLOWLIST_JSON` - JSON array of OMP timeline event names, overriding `ompEventAllowlist` in `$HAPI_HOME/settings.json`. Complete replacement, not a merge; `[]` hides all RPC-derived timeline output without disabling control processing. Invalid JSON/types, unknown or duplicate names fail explicitly. Read on each remote launcher start, not hot-reloaded. See the [OMP event catalog and defaults](../docs/guide/omp.md#rpc-event-timeline-allowlist).
 - `HAPI_CLAUDE_PATH` - Path to a specific `claude` executable.
 - `HAPI_DSH_ACP_COMMAND` - ACP server executable for `hapi dsh` (default: `dsh-acp-demo`).
 - `HAPI_DSH_ACP_CONFIG` - Optional `dsh-acp-demo --config` path.
 - `HAPI_DSH_ACP_ARGS_JSON` - Optional JSON array of ACP server arguments.
 - `HAPI_HTTP_MCP_URL` - Default MCP target for `hapi mcp`.
+
+For OMP, edit only the `ompEventAllowlist` field in the existing settings file,
+preserving its other fields. For example, `"ompEventAllowlist":
+["message_end", "notice", "todo_reminder"]` selects those three events. All 43
+known top-level names are selectable; an omitted field uses the documented
+low-noise default. A supplied environment array overrides the file, including
+an empty array. These settings belong on the machine launching OMP (the runner
+for runner-created sessions), not on the hub or in a Web settings page.
 
 ### Runner
 

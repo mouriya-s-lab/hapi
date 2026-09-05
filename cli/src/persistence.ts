@@ -10,6 +10,7 @@ import { existsSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs'
 import { withSettingsFileLock } from '@hapi/protocol/settingsFileLock'
 import { configuration } from '@/configuration'
 import { isProcessAlive } from '@/utils/process';
+import type { OmpKnownEventType } from '@/omp/rpc/types';
 
 interface Settings {
   // This ID is used as the actual database ID on the server
@@ -22,6 +23,8 @@ interface Settings {
   apiUrl?: string
   // Extra headers for CLI -> hub requests (priority: env HAPI_EXTRA_HEADERS_JSON > this)
   extraHeaders?: unknown
+  // RPC timeline presentation, overridden by HAPI_OMP_EVENT_ALLOWLIST_JSON
+  ompEventAllowlist?: readonly OmpKnownEventType[]
   // Legacy field name (for migration, read-only)
   serverUrl?: string
 }

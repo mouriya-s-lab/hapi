@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { AgentState } from '@/api/types';
+import type { AgentState, Metadata } from '@/api/types';
 import { clearGeneratedFiles, getGeneratedFile } from '@/modules/common/generatedFiles';
 import { clearGeneratedImages, getGeneratedImage } from '@/modules/common/generatedImages';
 import type { OmpRpcClient } from '@/omp/rpc/OmpRpcClient';
+import { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager';
+import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 import type {
     JsonObject,
     OmpCommand,
@@ -13,6 +15,7 @@ import type {
 } from '@/omp/rpc/types';
 import {
     OmpExtensionUiBridge,
+    OmpHostIntegration,
     OmpHostToolBridge,
     OmpHostUriBridge,
     type OmpHostUriProvider
@@ -76,6 +79,107 @@ function createExtensionBridge(client: OmpRpcClient) {
     });
     return { bridge, messages, summaries, onFatal, getState: () => state };
 }
+
+describe('OMP host presentation policy', () => {
+    it('hides asynchronous host output while completing tool and waited input protocols', async () => {
+        const gate = Promise.withResolvers<void>();
+        const fake = createFakeClient({
+            sendControlFrame: async (frame) => {
+                if (frame.type === 'host_tool_update') await gate.promise;
+            }
+        });
+        let state: AgentState = {};
+        let metadata: Metadata = { path: process.cwd(), host: 'test-host' };
+        const sendAgentMessage = vi.fn();
+        const sendClaudeSessionMessage = vi.fn();
+        const rpcHandlerManager = new RpcHandlerManager({ scopePrefix: 'policy-test' });
+        const onFatal = vi.fn();
+        const integration = new OmpHostIntegration({
+            client: fake.client,
+            cwd: process.cwd(),
+            eventAllowlist: new Set(),
+            sessionClient: {
+                sendAgentMessage,
+                sendClaudeSessionMessage,
+                updateAgentState: (handler) => { state = handler(state); },
+                updateMetadata: (handler) => { metadata = handler(metadata); },
+                rpcHandlerManager
+            },
+            onFatal
+        });
+        integration.handle({ type: 'host_tool_call', raw: {
+            type: 'host_tool_call', id: 'title-call', toolCallId: 'title-tool',
+            toolName: 'change_title', arguments: { title: 'Hidden title' }
+        } });
+        integration.handle({ type: 'extension_ui_request', raw: {
+            type: 'extension_ui_request', id: 'notice', method: 'notify', message: 'Hidden notice'
+        } });
+        integration.handle({ type: 'extension_ui_request', raw: {
+            type: 'extension_ui_request', id: 'input', method: 'input', title: 'Required input'
+        } });
+        expect(state.requests?.input).toBeDefined();
+        await rpcHandlerManager.handleRequest({
+            method: `policy-test:${RPC_METHODS.Permission}`,
+            params: JSON.stringify({ id: 'input', approved: true, answers: { value: { answers: ['accepted'] } } })
+        });
+        gate.resolve();
+        await vi.waitFor(() => {
+            expect(fake.frames).toContainEqual(expect.objectContaining({
+                type: 'host_tool_result', id: 'title-call'
+            }));
+        });
+        expect(fake.frames).toContainEqual({ type: 'extension_ui_response', id: 'input', value: 'accepted' });
+        expect(metadata.summary?.text).toBe('Hidden title');
+        integration.handle({ type: 'extension_ui_request', raw: {
+            type: 'extension_ui_request', id: 'native-title', method: 'setTitle', title: 'Native hidden title'
+        } });
+        expect(metadata.summary?.text).toBe('Native hidden title');
+        expect(state.requests).toEqual({});
+        expect(sendAgentMessage).not.toHaveBeenCalled();
+        expect(sendClaudeSessionMessage).not.toHaveBeenCalled();
+        expect(onFatal).not.toHaveBeenCalled();
+        await integration.close('test complete');
+    });
+
+    it('retains the host call policy across an intervening excluded extension request', async () => {
+        const gate = Promise.withResolvers<void>();
+        const fake = createFakeClient({
+            sendControlFrame: async (frame) => {
+                if (frame.type === 'host_tool_update') await gate.promise;
+            }
+        });
+        const sendAgentMessage = vi.fn();
+        const sendClaudeSessionMessage = vi.fn();
+        const integration = new OmpHostIntegration({
+            client: fake.client,
+            cwd: process.cwd(),
+            eventAllowlist: new Set(['host_tool_call']),
+            sessionClient: {
+                sendAgentMessage,
+                sendClaudeSessionMessage,
+                updateAgentState: vi.fn(),
+                updateMetadata: vi.fn(),
+                rpcHandlerManager: new RpcHandlerManager({ scopePrefix: 'policy-test' })
+            },
+            onFatal: vi.fn()
+        });
+        integration.handle({ type: 'host_tool_call', raw: {
+            type: 'host_tool_call', id: 'title-call', toolCallId: 'title-tool',
+            toolName: 'change_title', arguments: { title: 'Selected title' }
+        } });
+        integration.handle({ type: 'extension_ui_request', raw: {
+            type: 'extension_ui_request', id: 'notice', method: 'notify', message: 'Hidden notice'
+        } });
+        gate.resolve();
+        await vi.waitFor(() => {
+            expect(sendClaudeSessionMessage).toHaveBeenCalledWith(expect.objectContaining({
+                type: 'summary', summary: 'Selected title'
+            }));
+        });
+        expect(sendAgentMessage).not.toHaveBeenCalled();
+        await integration.close('test complete');
+    });
+});
 
 describe('OMP host tool bridge', () => {
     let sourceDir: string;

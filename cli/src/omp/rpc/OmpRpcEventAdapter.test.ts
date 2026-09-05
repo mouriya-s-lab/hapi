@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentMessage } from '@/agent/types';
 import type { RawJSONLines } from '@/claude/types';
-import { OMP_KNOWN_EVENT_TYPES } from './types';
+import type { JsonObject, OmpKnownEventType } from './types';
 import type { OmpAgentRunEvent, OmpRpcEventAdapterCallbacks, OmpStructuredEvent } from './OmpRpcEventAdapter';
 import { OmpRpcEventAdapter } from './OmpRpcEventAdapter';
 import { parseOmpInboundLine } from './schemas';
@@ -12,7 +12,7 @@ function rpcEvent(frame: Record<string, unknown>) {
     return parsed.event;
 }
 
-function assistantMessage(text: string, responseId?: string) {
+function assistantMessage(text: string, responseId?: string): JsonObject {
     return {
         role: 'assistant',
         content: [
@@ -21,7 +21,7 @@ function assistantMessage(text: string, responseId?: string) {
         ],
         provider: 'test-provider',
         model: 'test-model',
-        responseId,
+        ...(responseId === undefined ? {} : { responseId }),
         usage: {
             input: 11,
             output: 7,
@@ -35,7 +35,7 @@ function assistantMessage(text: string, responseId?: string) {
     };
 }
 
-function createHarness() {
+function createHarness(eventAllowlist?: ReadonlySet<OmpKnownEventType>) {
     const canonicalMessages: RawJSONLines[] = [];
     const agentMessages: AgentMessage[] = [];
     const agentRunEvents: OmpAgentRunEvent[] = [];
@@ -65,7 +65,7 @@ function createHarness() {
         onHostEvent: (event) => hostEvents.push(event)
     };
     return {
-        adapter: new OmpRpcEventAdapter(callbacks),
+        adapter: new OmpRpcEventAdapter(callbacks, eventAllowlist),
         callbacks,
         canonicalMessages,
         agentMessages,
@@ -541,7 +541,7 @@ describe('OmpRpcEventAdapter', () => {
     });
 
     it('forwards model_changed as a session event instead of an unknown warning', () => {
-        const harness = createHarness();
+        const harness = createHarness(new Set(['model_changed']));
         harness.adapter.handle(rpcEvent({ type: 'model_changed' }));
 
         expect(harness.structuredEvents).toEqual([{
@@ -573,25 +573,201 @@ describe('OmpRpcEventAdapter', () => {
         expect(harness.diagnostics).toEqual(['OMP rpc_frame_error: RPC frame exceeded the transport limit']);
     });
 
-    it('preserves unknown frames and emits a short label instead of Unknown', () => {
+    it('keeps future events diagnostic without creating timeline warnings', () => {
         const harness = createHarness();
-        expect(OMP_KNOWN_EVENT_TYPES).toHaveLength(39);
         harness.adapter.handle(rpcEvent({
             type: 'future_event',
             nested: { future: true },
             version: 18
         }));
 
-        expect(harness.structuredEvents).toEqual([{
-            type: 'omp-rpc-warning',
-            eventType: 'future_event',
-            warning: 'OMP event: future event',
-            frame: {
-                type: 'future_event',
-                nested: { future: true },
-                version: 18
-            }
-        }]);
+        expect(harness.structuredEvents).toEqual([]);
         expect(harness.diagnostics).toEqual(['OMP event: future_event']);
+    });
+
+    it('keeps native control and accumulators working with no timeline output', () => {
+        const harness = createHarness(new Set());
+        for (const text of ['first', 'second']) {
+            harness.adapter.handle(rpcEvent({ type: 'agent_start' }));
+            harness.adapter.handle(rpcEvent({ type: 'message_start', message: assistantMessage(text) }));
+            harness.adapter.handle(rpcEvent({ type: 'message_update', message: assistantMessage(text),
+                assistantMessageEvent: { type: 'text_delta', delta: text } }));
+            harness.adapter.handle(rpcEvent({ type: 'message_end', message: assistantMessage(text) }));
+            harness.adapter.handle(rpcEvent({ type: 'message_end', message: { role: 'user', steering: false } }));
+            harness.adapter.handle(rpcEvent({ type: 'tool_execution_start', toolCallId: text, toolName: 'read', args: {} }));
+            harness.adapter.handle(rpcEvent({ type: 'tool_execution_end', toolCallId: text, toolName: 'read', result: {} }));
+            harness.adapter.handle(rpcEvent({ type: 'agent_end' }));
+        }
+        harness.adapter.handle(rpcEvent({ type: 'prompt_result', agentInvoked: false }));
+        harness.adapter.handle(rpcEvent({ type: 'available_commands_update', commands: [{ name: 'review', source: 'extension' }] }));
+        harness.adapter.handle(rpcEvent({ type: 'thinking_level_changed', thinkingLevel: 'high' }));
+        harness.adapter.handle(rpcEvent({ type: 'config_update' }));
+        harness.adapter.handle(rpcEvent({ type: 'host_tool_cancel', id: 'cancel', targetId: 'call' }));
+        expect(harness.canonicalMessages).toEqual([]);
+        expect(harness.agentMessages).toEqual([]);
+        expect(harness.agentRunEvents).toEqual([]);
+        expect(harness.traces).toEqual([]);
+        expect(harness.structuredEvents).toEqual([]);
+        expect(harness.callbacks.onInkMessage).toHaveBeenCalledWith('first', 'assistant');
+        expect(harness.callbacks.onInkMessage).toHaveBeenCalledWith('second', 'assistant');
+        expect(harness.callbacks.onTurnStarted).toHaveBeenCalledTimes(2);
+        expect(harness.callbacks.onTurnFinished).toHaveBeenCalledTimes(2);
+        expect(harness.callbacks.onUserMessageCommitted).toHaveBeenCalledTimes(2);
+        expect(harness.callbacks.onPromptResult).toHaveBeenCalledWith(false);
+        expect(harness.callbacks.onThinkingStateChanged).toHaveBeenCalledWith({ thinkingLevel: 'high' });
+        expect(harness.callbacks.onSessionInfoUpdate).toHaveBeenCalledOnce();
+        expect(harness.availableCommands).toEqual([[{ name: 'review', source: 'extension' }]]);
+        expect(harness.hostEvents).toEqual([{ type: 'host_tool_cancel', raw: {
+            type: 'host_tool_cancel', id: 'cancel', targetId: 'call'
+        } }]);
+    });
+
+    it('projects selected state and stream events without requiring final messages', () => {
+        const harness = createHarness(new Set(['message_start', 'message_update', 'available_commands_update']));
+        const frames = [
+            { type: 'message_start', message: assistantMessage('start') },
+            { type: 'message_update', message: assistantMessage('delta'),
+                assistantMessageEvent: { type: 'text_delta', delta: 'delta' } },
+            { type: 'available_commands_update', commands: [{ name: 'review', source: 'extension' }] }
+        ];
+        for (const frame of frames) harness.adapter.handle(rpcEvent(frame));
+        harness.adapter.handle(rpcEvent({ type: 'message_end', message: assistantMessage('hidden') }));
+        expect(harness.structuredEvents).toEqual(frames.map((frame) => ({
+            type: 'omp-session-event', eventType: frame.type, frame
+        })));
+        expect(harness.canonicalMessages).toEqual([]);
+    });
+
+    it('reconstructs a selected tool end from excluded start and update events', () => {
+        const harness = createHarness(new Set(['tool_execution_end']));
+        harness.adapter.handle(rpcEvent({ type: 'tool_execution_start', toolCallId: 'read-1', toolName: 'read',
+            args: { path: 'file.ts' } }));
+        harness.adapter.handle(rpcEvent({ type: 'tool_execution_update', toolCallId: 'read-1', toolName: 'read',
+            args: {}, partialResult: { text: 'partial' } }));
+        harness.adapter.handle(rpcEvent({ type: 'tool_execution_end', toolCallId: 'read-1', toolName: 'read',
+            result: { text: 'complete' } }));
+        expect(harness.agentMessages).toEqual([{
+            type: 'tool_call', id: 'read-1', name: 'read', input: { path: 'file.ts' }, status: 'completed'
+        }]);
+        expect(harness.structuredEvents).toEqual([]);
+    });
+
+    it('applies envelope policy to seeded cards and replay, not nested event names', () => {
+        const hidden = createHarness(new Set());
+        const replayOnly = createHarness(new Set(['subagent_event']));
+        for (const harness of [hidden, replayOnly]) {
+            harness.adapter.seedSubagents([{
+                id: 'alpha', index: 0, agent: 'task', agentSource: 'bundled',
+                status: 'running', lastUpdate: 123, progress: { id: 'alpha', status: 'running' }
+            }]);
+            expect(harness.agentRunEvents).toEqual([]);
+            harness.adapter.seedSubagentMessages('alpha', [assistantMessage('replayed', 'replay-id')]);
+            harness.adapter.handle(rpcEvent({ type: 'subagent_event', payload: {
+                id: 'alpha', event: { type: 'tool_execution_start', toolCallId: 'child', toolName: 'read',
+                    args: { path: 'child.ts' } }
+            } }));
+        }
+        expect(hidden.agentRunEvents).toEqual([]);
+        expect(hidden.traces).toEqual([]);
+        expect(hidden.structuredEvents).toEqual([]);
+        expect(replayOnly.agentRunEvents).toEqual([expect.objectContaining({
+            type: 'agent-run-start', agentId: 'alpha', cardId: 'omp-subagent:alpha'
+        })]);
+        expect(replayOnly.traces.map((trace) => trace.message)).toEqual([
+            expect.objectContaining({ type: 'reasoning', text: 'reasoning:replayed' }),
+            expect.objectContaining({ type: 'text', text: 'replayed' }),
+            expect.objectContaining({ type: 'tool_call', id: 'child', input: { path: 'child.ts' } })
+        ]);
+        expect(replayOnly.structuredEvents).toEqual([]);
+    });
+
+    it('does not replace intentionally silent rich projections with generic timeline rows', () => {
+        const harness = createHarness(new Set(['message_end', 'subagent_lifecycle', 'subagent_event']));
+        harness.adapter.handle(rpcEvent({ type: 'message_end', message: { role: 'user', steering: false } }));
+        harness.adapter.handle(rpcEvent({ type: 'message_end', message: { role: 'developer', content: 'context' } }));
+        const lifecycle = { type: 'subagent_lifecycle', payload: {
+            id: 'alpha', index: 0, agent: 'task', agentSource: 'bundled', status: 'started'
+        } };
+        harness.adapter.handle(rpcEvent(lifecycle));
+        harness.adapter.handle(rpcEvent(lifecycle));
+        harness.adapter.seedSubagentMessages('alpha', [assistantMessage('replayed', 'same-response')]);
+        harness.adapter.handle(rpcEvent({ type: 'subagent_event', payload: {
+            id: 'alpha', event: { type: 'message_end', message: assistantMessage('replayed', 'same-response') }
+        } }));
+        expect(harness.structuredEvents).toEqual([]);
+        expect(harness.canonicalMessages).toEqual([]);
+        expect(harness.agentRunEvents).toEqual([expect.objectContaining({
+            type: 'agent-run-start', agentId: 'alpha'
+        })]);
+        expect(harness.traces.map((trace) => trace.message)).toEqual([
+            expect.objectContaining({ type: 'reasoning', text: 'reasoning:replayed' }),
+            expect.objectContaining({ type: 'text', text: 'replayed' })
+        ]);
+    });
+
+    it('keeps nested stream and state events quiet while retaining final child traces', () => {
+        const visible = createHarness();
+        const hidden = createHarness(new Set());
+        const childEvents: JsonObject[] = [
+            { type: 'message_start', message: assistantMessage('partial') },
+            { type: 'message_update', message: assistantMessage('partial'),
+                assistantMessageEvent: { type: 'text_delta', delta: 'partial' } },
+            { type: 'message_update', message: assistantMessage('final'),
+                assistantMessageEvent: { type: 'done', message: assistantMessage('final') } },
+            { type: 'advisor_yielded' },
+            { type: 'config_warnings_changed' },
+            { type: 'turn_end', message: assistantMessage('final'), toolResults: [] },
+            { type: 'message_end', message: assistantMessage('final', 'child-final') },
+            { type: 'tool_execution_start', toolCallId: 'read-child', toolName: 'read', args: { path: 'child.ts' } },
+            { type: 'tool_execution_end', toolCallId: 'read-child', toolName: 'read',
+                result: { content: [{ type: 'text', text: 'read output' }] }, isError: false }
+        ];
+        for (const harness of [visible, hidden]) {
+            harness.adapter.handle(rpcEvent({ type: 'subagent_lifecycle', payload: {
+                id: 'alpha', index: 0, agent: 'task', agentSource: 'bundled', status: 'started'
+            } }));
+            for (const event of childEvents) {
+                harness.adapter.handle(rpcEvent({ type: 'subagent_event', payload: { id: 'alpha', event } }));
+            }
+            expect(harness.structuredEvents).toEqual([]);
+            expect(harness.canonicalMessages).toEqual([]);
+            expect(harness.agentMessages).toEqual([]);
+        }
+        expect(visible.traces.map((trace) => trace.message)).toEqual([
+            expect.objectContaining({ type: 'reasoning', text: 'reasoning:final' }),
+            expect.objectContaining({ type: 'text', text: 'final' }),
+            { type: 'tool_call', id: 'read-child', name: 'read', input: { path: 'child.ts' }, status: 'in_progress' },
+            { type: 'tool_call', id: 'read-child', name: 'read', input: { path: 'child.ts' }, status: 'completed' }
+        ]);
+        expect(hidden.traces).toEqual([]);
+        expect(hidden.agentRunEvents).toEqual([]);
+    });
+
+    it('keeps native streaming visible locally when default policy excludes hub stream events', () => {
+        const harness = createHarness();
+        harness.adapter.handle(rpcEvent({ type: 'message_start', message: assistantMessage('initial') }));
+        harness.adapter.handle(rpcEvent({
+            type: 'message_update', message: assistantMessage('streamed'),
+            assistantMessageEvent: { type: 'thinking_delta', delta: 'considering' }
+        }));
+        harness.adapter.handle(rpcEvent({
+            type: 'message_update', message: assistantMessage('streamed'),
+            assistantMessageEvent: { type: 'text_delta', delta: 'streamed' }
+        }));
+        expect(harness.callbacks.onInkMessage).toHaveBeenCalledWith('[Thinking] considering', 'system');
+        expect(harness.callbacks.onInkMessage).toHaveBeenCalledWith('streamed', 'assistant');
+        expect(harness.structuredEvents).toEqual([]);
+        expect(harness.canonicalMessages).toEqual([]);
+        expect(harness.agentMessages).toEqual([]);
+        harness.adapter.handle(rpcEvent({ type: 'message_end', message: assistantMessage('final') }));
+        expect(harness.canonicalMessages).toEqual([expect.objectContaining({
+            type: 'assistant', message: expect.objectContaining({
+                content: [
+                    { type: 'thinking', thinking: 'reasoning:final' },
+                    { type: 'text', text: 'final' }
+                ]
+            })
+        })]);
+        expect(harness.structuredEvents).toEqual([]);
     });
 });

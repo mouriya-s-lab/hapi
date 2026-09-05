@@ -15,6 +15,7 @@ import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
 import { buildOmpEnv } from './utils/config';
 import { OmpRpcClient } from './rpc/OmpRpcClient';
 import { OmpRpcEventAdapter } from './rpc/OmpRpcEventAdapter';
+import { loadOmpEventAllowlist } from './rpc/eventAllowlist';
 import type {
     OmpContextUsage,
     OmpInboundEvent,
@@ -106,6 +107,7 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
     }
 
     protected async runMainLoop(): Promise<void> {
+        const eventAllowlist = await loadOmpEventAllowlist();
         const session = this.session;
         const requestedSpawnModel = session.getModel();
         const spawnBase = {
@@ -148,6 +150,7 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
         this.sessionReconciler = sessionReconciler;
         const hostIntegration = new OmpHostIntegration({
             client,
+            eventAllowlist,
             cwd: session.path,
             sessionClient: session.client,
             onFatal: (error) => this.handleTransportFailure(error)
@@ -229,7 +232,7 @@ class OmpRemoteLauncher extends RemoteLauncherBase {
             onThinkingStateChanged: (state) => this.handleThinkingStateChanged(state),
             onDiagnostic: (message) => logger.warn(`[omp-remote] ${message}`),
             onHostEvent: (event) => hostIntegration.handle(event)
-        });
+        }, eventAllowlist);
         const bufferedEvents: OmpInboundEvent[] = [];
         let subagentSnapshotApplied = false;
         client.onEvent((event) => {

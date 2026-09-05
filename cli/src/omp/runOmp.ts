@@ -13,6 +13,7 @@ import { PermissionModeSchema } from '@hapi/protocol/schemas';
 import { getInvokedCwd } from '@/utils/invokedCwd';
 import { resolveOmpRuntimeConfig } from './utils/config';
 import { OmpInputQueue } from './OmpInputQueue';
+import { loadOmpEventAllowlist } from './rpc/eventAllowlist';
 import {
     OMP_THINKING_LEVELS,
     type OmpConfiguredThinkingLevel
@@ -45,6 +46,9 @@ export async function runOmp(opts: {
     existingSessionId?: string;
     workingDirectory?: string;
 } = {}): Promise<void> {
+    // Reject invalid presentation configuration before creating a hub session.
+    // The remote launcher reads it again on every remote entry.
+    await loadOmpEventAllowlist();
     const workingDirectory = opts.workingDirectory ?? getInvokedCwd();
     const startedBy = opts.startedBy ?? 'terminal';
 

@@ -7,11 +7,13 @@ import type {
     JsonValue,
     OmpInboundEvent,
     OmpKnownEvent,
+    OmpKnownEventType,
     OmpHostIntegrationEvent,
     OmpAvailableCommand,
     OmpSubagentSnapshot
 } from './types';
 
+import { defaultOmpEventAllowlist } from './eventAllowlist';
 const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
     z.string(),
     z.number(),
@@ -368,26 +370,125 @@ export type OmpRpcEventAdapterCallbacks = {
     }) => void;
 };
 
+/** One event's presentation scope, never shared with another dispatch or async host work. */
+class OmpEventProjection {
+    constructor(
+        readonly enabled: boolean,
+        private readonly callbacks: OmpRpcEventAdapterCallbacks
+    ) {}
+
+    onAgentMessage(message: AgentMessage): void {
+        if (!this.enabled) return;
+        this.callbacks.onAgentMessage(message);
+    }
+
+    onCanonicalMessage(message: RawJSONLines): void {
+        if (!this.enabled) return;
+        this.callbacks.onCanonicalMessage(message);
+    }
+
+    onAgentRunEvent(event: OmpAgentRunEvent): void {
+        if (!this.enabled) return;
+        this.callbacks.onAgentRunEvent(event);
+    }
+
+    onAgentRunTrace(
+        scope: Parameters<OmpRpcEventAdapterCallbacks['onAgentRunTrace']>[0],
+        message: AgentMessage
+    ): void {
+        if (!this.enabled) return;
+        this.callbacks.onAgentRunTrace(scope, message);
+    }
+
+    onStructuredEvent(event: OmpStructuredEvent): void {
+        if (!this.enabled) return;
+        this.callbacks.onStructuredEvent(event);
+    }
+
+}
+
 export class OmpRpcEventAdapter {
     private activeMessage: MainMessageAccumulator | null = null;
     private lastDisplayId: string | null = null;
     private readonly tools = new Map<string, ToolLifecycle>();
     private readonly subagents = new Map<string, SubagentState>();
 
-    constructor(private readonly callbacks: OmpRpcEventAdapterCallbacks) {}
+    constructor(
+        private readonly callbacks: OmpRpcEventAdapterCallbacks,
+        private readonly eventAllowlist: ReadonlySet<OmpKnownEventType> = defaultOmpEventAllowlist
+    ) {}
 
     handle(event: OmpInboundEvent): void {
         if (event.kind === 'unknown') {
-            this.callbacks.onStructuredEvent({
-                type: 'omp-rpc-warning',
-                eventType: event.type,
-                warning: `OMP event: ${event.type.replaceAll('_', ' ')}`,
-                frame: event.raw
-            });
+            // Unknown protocol extensions remain diagnostic, never chat warnings.
             this.callbacks.onDiagnostic(`OMP event: ${event.type}`);
             return;
         }
-        this.handleKnown(event);
+        const output = this.projection(event.type);
+        this.handleKnown(output, event);
+        // Generic projection belongs to event kinds without a timeline format,
+        // not to individual occurrences suppressed by role handling or dedupe.
+        switch (event.type) {
+            case 'message_end':
+            case 'tool_execution_start':
+            case 'tool_execution_update':
+            case 'tool_execution_end':
+            case 'auto_compaction_start':
+            case 'auto_compaction_end':
+            case 'auto_retry_start':
+            case 'auto_retry_end':
+            case 'retry_fallback_applied':
+            case 'retry_fallback_succeeded':
+            case 'notice':
+            case 'command_output':
+            case 'extension_error':
+            case 'rpc_frame_error':
+            case 'subagent_lifecycle':
+            case 'subagent_progress':
+            case 'subagent_event':
+            case 'host_tool_call':
+            case 'ttsr_triggered':
+            case 'todo_reminder':
+            case 'todo_auto_clear':
+            case 'irc_message':
+            case 'goal_updated':
+            case 'model_changed':
+                return;
+            case 'extension_ui_request':
+                // Host presentation methods own their output; waited input and
+                // cancellation are represented by independent control state.
+                if (['notify', 'setStatus', 'setWidget', 'setTitle', 'set_editor_text', 'open_url']
+                    .includes(String(event.raw.method))) return;
+                break;
+            case 'agent_start':
+            case 'agent_end':
+            case 'turn_start':
+            case 'turn_end':
+            case 'message_start':
+            case 'message_update':
+            case 'tool_stream_update':
+            case 'config_warnings_changed':
+            case 'advisor_cost_changed':
+            case 'advisor_yielded':
+            case 'prompt_result':
+            case 'thinking_level_changed':
+            case 'available_commands_update':
+            case 'session_info_update':
+            case 'config_update':
+            case 'host_tool_cancel':
+            case 'host_uri_request':
+            case 'host_uri_cancel':
+                break;
+            default: {
+                const exhaustive: never = event;
+                return exhaustive;
+            }
+        }
+        output.onStructuredEvent({ type: 'omp-session-event', eventType: event.type, frame: event.raw });
+    }
+
+    private projection(type: OmpKnownEventType): OmpEventProjection {
+        return new OmpEventProjection(this.eventAllowlist.has(type), this.callbacks);
     }
 
     seedSubagents(snapshots: OmpSubagentSnapshot[]): void {
@@ -404,9 +505,9 @@ export class OmpRpcEventAdapter {
                 parentToolCallId: snapshot.parentToolCallId,
                 startedAt: snapshot.lastUpdate
             });
-            this.emitSubagentStart(state);
+            this.emitSubagentStart(this.projection('subagent_lifecycle'), state);
             if (snapshot.progress) {
-                this.emitSubagentProgress(state, snapshot.progress, snapshot.status);
+                this.emitSubagentProgress(this.projection('subagent_progress'), state, snapshot.progress, snapshot.status);
             }
         }
     }
@@ -417,12 +518,13 @@ export class OmpRpcEventAdapter {
             this.callbacks.onDiagnostic(`OMP subagent transcript has no registry entry: ${subagentId}`);
             return;
         }
+        const output = this.projection('subagent_event');
         for (const message of messages) {
-            this.emitSubagentMessage(state, message);
+            this.emitSubagentMessage(output, state, message);
         }
     }
 
-    private handleKnown(event: OmpKnownEvent): void {
+    private handleKnown(output: OmpEventProjection, event: OmpKnownEvent): void {
         switch (event.type) {
             case 'agent_start':
                 this.callbacks.onTurnStarted();
@@ -432,6 +534,10 @@ export class OmpRpcEventAdapter {
                 this.callbacks.onTurnFinished();
                 return;
             case 'turn_start':
+            case 'tool_stream_update':
+            case 'config_warnings_changed':
+            case 'advisor_cost_changed':
+            case 'advisor_yielded':
                 return;
             case 'turn_end':
                 this.reconcileBoundary('turn_end');
@@ -443,16 +549,16 @@ export class OmpRpcEventAdapter {
                 this.handleMessageUpdate(event.raw);
                 return;
             case 'message_end':
-                this.handleMessageEnd(event.raw);
+                this.handleMessageEnd(output, event.raw);
                 return;
             case 'tool_execution_start':
-                this.handleToolStart(event.raw);
+                this.handleToolStart(output, event.raw);
                 return;
             case 'tool_execution_update':
-                this.handleToolUpdate(event.raw);
+                this.handleToolUpdate(output, event.raw);
                 return;
             case 'tool_execution_end':
-                this.handleToolEnd(event.raw);
+                this.handleToolEnd(output, event.raw);
                 return;
             case 'prompt_result': {
                 const parsed = z.object({ agentInvoked: z.boolean() }).safeParse(event.raw);
@@ -464,25 +570,25 @@ export class OmpRpcEventAdapter {
                 return;
             }
             case 'notice':
-                this.handleNotice(event.raw);
+                this.handleNotice(output, event.raw);
                 return;
             case 'auto_retry_start':
-                this.handleRetryEvent(event.raw, 'started');
+                this.handleRetryEvent(output, event.raw, 'started');
                 return;
             case 'auto_retry_end':
-                this.handleRetryEvent(event.raw, 'finished');
+                this.handleRetryEvent(output, event.raw, 'finished');
                 return;
             case 'retry_fallback_applied':
-                this.handleRetryEvent(event.raw, 'fallback-applied');
+                this.handleRetryEvent(output, event.raw, 'fallback-applied');
                 return;
             case 'retry_fallback_succeeded':
-                this.handleRetryEvent(event.raw, 'fallback-succeeded');
+                this.handleRetryEvent(output, event.raw, 'fallback-succeeded');
                 return;
             case 'auto_compaction_start':
-                this.handleCompactionStart(event.raw);
+                this.handleCompactionStart(output, event.raw);
                 return;
             case 'auto_compaction_end':
-                this.handleCompactionEnd(event.raw);
+                this.handleCompactionEnd(output, event.raw);
                 return;
             case 'thinking_level_changed':
                 this.handleThinkingLevelChanged(event.raw);
@@ -506,7 +612,7 @@ export class OmpRpcEventAdapter {
             case 'irc_message':
             case 'goal_updated':
             case 'model_changed':
-                this.callbacks.onStructuredEvent({
+                output.onStructuredEvent({
                     type: 'omp-session-event',
                     eventType: event.type,
                     frame: event.raw
@@ -514,22 +620,22 @@ export class OmpRpcEventAdapter {
                 this.callbacks.onSessionInfoUpdate();
                 return;
             case 'command_output':
-                this.handleCommandOutput(event.raw);
+                this.handleCommandOutput(output, event.raw);
                 return;
             case 'extension_error':
-                this.handleExtensionError(event.raw);
+                this.handleExtensionError(output, event.raw);
                 return;
             case 'rpc_frame_error':
-                this.handleRpcFrameError(event.raw);
+                this.handleRpcFrameError(output, event.raw);
                 return;
             case 'subagent_lifecycle':
-                this.handleSubagentLifecycle(event.raw);
+                this.handleSubagentLifecycle(output, event.raw);
                 return;
             case 'subagent_progress':
-                this.handleSubagentProgress(event.raw);
+                this.handleSubagentProgress(output, event.raw);
                 return;
             case 'subagent_event':
-                this.handleSubagentEvent(event.raw);
+                this.handleSubagentEvent(output, event.raw);
                 return;
             case 'extension_ui_request':
             case 'host_tool_call':
@@ -591,7 +697,7 @@ export class OmpRpcEventAdapter {
         }
     }
 
-    private handleMessageEnd(raw: JsonObject): void {
+    private handleMessageEnd(output: OmpEventProjection, raw: JsonObject): void {
         const event = MessageEndSchema.safeParse(raw);
         if (!event.success) {
             this.invalidEvent('message_end', event.error);
@@ -606,13 +712,13 @@ export class OmpRpcEventAdapter {
 
         const assistant = AssistantMessageSchema.safeParse(event.data.message);
         if (assistant.success) {
-            this.commitAssistant(displayId, assistant.data);
+            this.commitAssistant(output, displayId, assistant.data);
             return;
         }
 
         const toolResult = ToolResultMessageSchema.safeParse(event.data.message);
         if (toolResult.success) {
-            this.commitToolResult(displayId, toolResult.data);
+            this.commitToolResult(output, displayId, toolResult.data);
             return;
         }
 
@@ -628,7 +734,7 @@ export class OmpRpcEventAdapter {
         }
     }
 
-    private commitAssistant(
+    private commitAssistant(output: OmpEventProjection, 
         displayId: string,
         assistant: z.infer<typeof AssistantMessageSchema>
     ): void {
@@ -670,7 +776,7 @@ export class OmpRpcEventAdapter {
         // assistant message of every turn sort ABOVE the request in the web chat.
         // Commit time keeps the display order causal regardless of clock skew.
         const timestamp = new Date().toISOString();
-        this.callbacks.onCanonicalMessage({
+        output.onCanonicalMessage({
             type: 'assistant',
             uuid: displayId,
             parentUuid,
@@ -691,24 +797,24 @@ export class OmpRpcEventAdapter {
                 }
             }
         });
-        this.lastDisplayId = displayId;
-        this.callbacks.onAgentMessage({ type: 'usage', ...usage });
+        if (output.enabled) this.lastDisplayId = displayId;
+        output.onAgentMessage({ type: 'usage', ...usage });
         if (assistant.errorMessage) {
-            this.callbacks.onAgentMessage({ type: 'error', message: assistant.errorMessage });
+            output.onAgentMessage({ type: 'error', message: assistant.errorMessage });
         }
     }
 
-    private commitToolResult(
+    private commitToolResult(output: OmpEventProjection, 
         displayId: string,
         toolResult: z.infer<typeof ToolResultMessageSchema>
     ): void {
         const parentUuid = this.lastDisplayId;
         const timestamp = new Date(toolResult.timestamp ?? Date.now()).toISOString();
-        const output = {
+        const toolOutput = {
             content: toolResult.content,
             details: toolResult.details
         };
-        this.callbacks.onCanonicalMessage({
+        output.onCanonicalMessage({
             type: 'user',
             uuid: displayId,
             parentUuid,
@@ -719,13 +825,13 @@ export class OmpRpcEventAdapter {
                 content: [{
                     type: 'tool_result',
                     tool_use_id: toolResult.toolCallId,
-                    content: output,
+                    content: toolOutput,
                     is_error: toolResult.isError
                 }]
             },
-            toolUseResult: output
+            toolUseResult: toolOutput
         });
-        this.lastDisplayId = displayId;
+        if (output.enabled) this.lastDisplayId = displayId;
         this.tools.delete(toolResult.toolCallId);
         this.callbacks.onInkMessage(
             this.textFromContent(toolResult.content) || `Tool ${toolResult.toolName} finished`,
@@ -733,7 +839,7 @@ export class OmpRpcEventAdapter {
         );
     }
 
-    private handleToolStart(raw: JsonObject): void {
+    private handleToolStart(output: OmpEventProjection, raw: JsonObject): void {
         const parsed = ToolStartSchema.safeParse(raw);
         if (!parsed.success) {
             this.invalidEvent('tool_execution_start', parsed.error);
@@ -745,11 +851,11 @@ export class OmpRpcEventAdapter {
             args: parsed.data.args
         };
         this.tools.set(tool.id, tool);
-        this.emitToolLifecycle(tool, 'in_progress');
+        this.emitToolLifecycle(output, tool, 'in_progress');
         this.callbacks.onInkMessage(`Tool call: ${tool.name}`, 'tool');
     }
 
-    private handleToolUpdate(raw: JsonObject): void {
+    private handleToolUpdate(output: OmpEventProjection, raw: JsonObject): void {
         const parsed = ToolUpdateSchema.safeParse(raw);
         if (!parsed.success) {
             this.invalidEvent('tool_execution_update', parsed.error);
@@ -765,10 +871,10 @@ export class OmpRpcEventAdapter {
             executionFailed: existing?.executionFailed
         };
         this.tools.set(tool.id, tool);
-        this.emitToolLifecycle(tool, 'in_progress');
+        this.emitToolLifecycle(output, tool, 'in_progress');
     }
 
-    private handleToolEnd(raw: JsonObject): void {
+    private handleToolEnd(output: OmpEventProjection, raw: JsonObject): void {
         const parsed = ToolEndSchema.safeParse(raw);
         if (!parsed.success) {
             this.invalidEvent('tool_execution_end', parsed.error);
@@ -784,11 +890,11 @@ export class OmpRpcEventAdapter {
             executionFailed: parsed.data.isError === true
         };
         this.tools.set(tool.id, tool);
-        this.emitToolLifecycle(tool, tool.executionFailed ? 'failed' : 'completed');
+        this.emitToolLifecycle(output, tool, tool.executionFailed ? 'failed' : 'completed');
     }
 
-    private emitToolLifecycle(tool: ToolLifecycle, status: Extract<AgentMessage, { type: 'tool_call' }>['status']): void {
-        this.callbacks.onAgentMessage({
+    private emitToolLifecycle(output: OmpEventProjection, tool: ToolLifecycle, status: Extract<AgentMessage, { type: 'tool_call' }>['status']): void {
+        output.onAgentMessage({
             type: 'tool_call',
             id: tool.id,
             name: tool.name,
@@ -797,18 +903,18 @@ export class OmpRpcEventAdapter {
         });
     }
 
-    private handleRetryEvent(raw: JsonObject, phase: string): void {
-        this.callbacks.onStructuredEvent({ type: 'omp-retry', phase, frame: raw });
+    private handleRetryEvent(output: OmpEventProjection, raw: JsonObject, phase: string): void {
+        output.onStructuredEvent({ type: 'omp-retry', phase, frame: raw });
         this.callbacks.onInkMessage(`OMP retry ${phase}`, 'status');
     }
 
-    private handleCompactionStart(raw: JsonObject): void {
+    private handleCompactionStart(output: OmpEventProjection, raw: JsonObject): void {
         const parsed = CompactionStartEventSchema.safeParse(raw);
         if (!parsed.success) {
             this.invalidEvent('auto_compaction_start', parsed.error);
             return;
         }
-        this.callbacks.onStructuredEvent({
+        output.onStructuredEvent({
             type: 'omp-compaction',
             phase: 'started',
             action: parsed.data.action,
@@ -817,7 +923,7 @@ export class OmpRpcEventAdapter {
         this.callbacks.onInkMessage('OMP compaction started', 'status');
     }
 
-    private handleCompactionEnd(raw: JsonObject): void {
+    private handleCompactionEnd(output: OmpEventProjection, raw: JsonObject): void {
         const parsed = CompactionEndEventSchema.safeParse(raw);
         if (!parsed.success) {
             this.invalidEvent('auto_compaction_end', parsed.error);
@@ -833,18 +939,18 @@ export class OmpRpcEventAdapter {
         };
 
         if (aborted) {
-            this.callbacks.onStructuredEvent({ ...base, outcome: 'aborted' });
+            output.onStructuredEvent({ ...base, outcome: 'aborted' });
         } else if (skipped) {
-            this.callbacks.onStructuredEvent({
+            output.onStructuredEvent({
                 ...base,
                 outcome: 'skipped',
                 ...(errorMessage ? { message: errorMessage } : {})
             });
         } else if (errorMessage) {
-            this.callbacks.onStructuredEvent({ ...base, outcome: 'failed', errorMessage });
+            output.onStructuredEvent({ ...base, outcome: 'failed', errorMessage });
         } else {
             const result = summarizeCompactionResult(parsed.data.result);
-            this.callbacks.onStructuredEvent({
+            output.onStructuredEvent({
                 ...base,
                 outcome: 'completed',
                 ...(result ? { result } : {})
@@ -853,7 +959,7 @@ export class OmpRpcEventAdapter {
         this.callbacks.onInkMessage('OMP compaction finished', 'status');
     }
 
-    private handleNotice(raw: JsonObject): void {
+    private handleNotice(output: OmpEventProjection, raw: JsonObject): void {
         const parsed = z.object({
             level: z.string(),
             message: z.string(),
@@ -863,7 +969,7 @@ export class OmpRpcEventAdapter {
             this.invalidEvent('notice', parsed.error);
             return;
         }
-        this.callbacks.onStructuredEvent({
+        output.onStructuredEvent({
             type: 'omp-notice',
             level: parsed.data.level,
             message: parsed.data.message,
@@ -873,26 +979,26 @@ export class OmpRpcEventAdapter {
         this.callbacks.onInkMessage(`[${parsed.data.level}] ${parsed.data.message}`, 'status');
     }
 
-    private handleCommandOutput(raw: JsonObject): void {
+    private handleCommandOutput(output: OmpEventProjection, raw: JsonObject): void {
         const parsed = z.object({ text: z.string() }).safeParse(raw);
         if (!parsed.success) {
             this.invalidEvent('command_output', parsed.error);
             return;
         }
-        this.callbacks.onStructuredEvent({ type: 'omp-command-output', text: parsed.data.text, frame: raw });
+        output.onStructuredEvent({ type: 'omp-command-output', text: parsed.data.text, frame: raw });
         this.callbacks.onInkMessage(parsed.data.text, 'status');
     }
 
-    private handleExtensionError(raw: JsonObject): void {
+    private handleExtensionError(output: OmpEventProjection, raw: JsonObject): void {
         const error = typeof raw.error === 'string' ? raw.error : JSON.stringify(raw.error ?? raw);
-        this.callbacks.onStructuredEvent({ type: 'omp-extension-error', message: error, frame: raw });
+        output.onStructuredEvent({ type: 'omp-extension-error', message: error, frame: raw });
         this.callbacks.onDiagnostic(`OMP extension error: ${error}`);
     }
 
-    private handleRpcFrameError(raw: JsonObject): void {
+    private handleRpcFrameError(output: OmpEventProjection, raw: JsonObject): void {
         const error = typeof raw.error === 'string' ? raw.error : 'RPC frame exceeded the transport limit';
         const originalType = typeof raw.originalType === 'string' ? raw.originalType : undefined;
-        this.callbacks.onStructuredEvent({
+        output.onStructuredEvent({
             type: 'omp-rpc-warning',
             eventType: originalType ?? 'rpc_frame_error',
             warning: originalType ? `OMP frame too large: ${originalType.replaceAll('_', ' ')}` : error,
@@ -935,7 +1041,7 @@ export class OmpRpcEventAdapter {
         this.callbacks.onThinkingStateChanged(parsed.data);
     }
 
-    private handleSubagentLifecycle(raw: JsonObject): void {
+    private handleSubagentLifecycle(output: OmpEventProjection, raw: JsonObject): void {
         const parsed = SubagentLifecycleSchema.safeParse(raw);
         if (!parsed.success) {
             this.invalidEvent('subagent_lifecycle', parsed.error);
@@ -947,14 +1053,14 @@ export class OmpRpcEventAdapter {
             startedAt: Date.now()
         });
         if (payload.status === 'started') {
-            this.emitSubagentStart(state);
+            this.emitSubagentStart(output, state);
             return;
         }
         state.terminalStatus = payload.status;
-        this.emitSubagentTerminal(state, payload.status);
+        this.emitSubagentTerminal(output, state, payload.status);
     }
 
-    private handleSubagentProgress(raw: JsonObject): void {
+    private handleSubagentProgress(output: OmpEventProjection, raw: JsonObject): void {
         const parsed = SubagentProgressSchema.safeParse(raw);
         if (!parsed.success) {
             this.invalidEvent('subagent_progress', parsed.error);
@@ -977,12 +1083,12 @@ export class OmpRpcEventAdapter {
             parentToolCallId: payload.parentToolCallId,
             startedAt: Date.now()
         });
-        this.emitSubagentStart(state);
+        this.emitSubagentStart(output, state);
         const status = typeof payload.progress.status === 'string' ? payload.progress.status : 'running';
-        this.emitSubagentProgress(state, payload.progress, status);
+        this.emitSubagentProgress(output, state, payload.progress, status);
     }
 
-    private handleSubagentEvent(raw: JsonObject): void {
+    private handleSubagentEvent(output: OmpEventProjection, raw: JsonObject): void {
         const parsed = SubagentEventSchema.safeParse(raw);
         if (!parsed.success) {
             this.invalidEvent('subagent_event', parsed.error);
@@ -997,20 +1103,20 @@ export class OmpRpcEventAdapter {
         if (childEvent.type === 'message_end') {
             const message = JsonObjectSchema.safeParse(childEvent.message);
             if (message.success) {
-                this.emitSubagentMessage(state, message.data);
+                this.emitSubagentMessage(output, state, message.data);
                 return;
             }
         }
         if (childEvent.type === 'tool_execution_start') {
-            this.emitSubagentToolLifecycle(state, childEvent, 'in_progress');
+            this.emitSubagentToolLifecycle(output, state, childEvent, 'in_progress');
             return;
         }
         if (childEvent.type === 'tool_execution_update') {
-            this.emitSubagentToolLifecycle(state, childEvent, 'in_progress');
+            this.emitSubagentToolLifecycle(output, state, childEvent, 'in_progress');
             return;
         }
         if (childEvent.type === 'tool_execution_end') {
-            this.emitSubagentToolLifecycle(
+            this.emitSubagentToolLifecycle(output, 
                 state,
                 childEvent,
                 childEvent.isError === true ? 'failed' : 'completed'
@@ -1018,7 +1124,7 @@ export class OmpRpcEventAdapter {
             return;
         }
         if (childEvent.type === 'notice' && typeof childEvent.message === 'string') {
-            this.emitSubagentTrace(state, { type: 'error', message: childEvent.message });
+            this.emitSubagentTrace(output, state, { type: 'error', message: childEvent.message });
             return;
         }
         if (
@@ -1027,14 +1133,15 @@ export class OmpRpcEventAdapter {
             || childEvent.type === 'retry_fallback_applied'
             || childEvent.type === 'retry_fallback_succeeded'
         ) {
-            this.emitSubagentTrace(state, {
+            this.emitSubagentTrace(output, state, {
                 type: 'error',
                 message: `OMP ${String(childEvent.type)}: ${JSON.stringify(childEvent)}`
             });
+            return;
         }
     }
 
-    private emitSubagentMessage(state: SubagentState, message: JsonObject): void {
+    private emitSubagentMessage(output: OmpEventProjection, state: SubagentState, message: JsonObject): void {
         const signature = this.subagentMessageSignature(message);
         if (state.seenMessages.has(signature)) return;
         state.seenMessages.add(signature);
@@ -1049,15 +1156,15 @@ export class OmpRpcEventAdapter {
             }
             for (const block of assistant.data.content) {
                 if (block.type === 'text' && typeof block.text === 'string' && block.text.length > 0) {
-                    this.emitSubagentTrace(state, { type: 'text', text: block.text, model, usage });
+                    this.emitSubagentTrace(output, state, { type: 'text', text: block.text, model, usage });
                 } else if (block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking.length > 0) {
-                    this.emitSubagentTrace(state, { type: 'reasoning', text: block.thinking, model, usage });
+                    this.emitSubagentTrace(output, state, { type: 'reasoning', text: block.thinking, model, usage });
                 } else if (
                     block.type === 'toolCall'
                     && typeof block.id === 'string'
                     && typeof block.name === 'string'
                 ) {
-                    this.emitSubagentTrace(state, {
+                    this.emitSubagentTrace(output, state, {
                         type: 'tool_call',
                         id: block.id,
                         name: block.name,
@@ -1069,17 +1176,17 @@ export class OmpRpcEventAdapter {
                 }
             }
             if (assistant.data.errorMessage) {
-                this.emitSubagentTrace(state, { type: 'error', message: assistant.data.errorMessage });
+                this.emitSubagentTrace(output, state, { type: 'error', message: assistant.data.errorMessage });
             }
             if (state.terminalStatus) {
-                this.emitSubagentTerminal(state, state.terminalStatus);
+                this.emitSubagentTerminal(output, state, state.terminalStatus);
             }
             return;
         }
 
         const toolResult = ToolResultMessageSchema.safeParse(message);
         if (toolResult.success) {
-            this.emitSubagentTrace(state, {
+            this.emitSubagentTrace(output, state, {
                 type: 'tool_result',
                 id: toolResult.data.toolCallId,
                 output: {
@@ -1092,7 +1199,7 @@ export class OmpRpcEventAdapter {
         }
     }
 
-    private emitSubagentToolLifecycle(
+    private emitSubagentToolLifecycle(output: OmpEventProjection, 
         state: SubagentState,
         event: JsonObject,
         status: Extract<AgentMessage, { type: 'tool_call' }>['status']
@@ -1114,7 +1221,7 @@ export class OmpRpcEventAdapter {
             executionFailed: event.isError === true || existing?.executionFailed
         };
         state.tools.set(tool.id, tool);
-        this.emitSubagentTrace(state, {
+        this.emitSubagentTrace(output, state, {
             type: 'tool_call',
             id: tool.id,
             name: tool.name,
@@ -1155,11 +1262,11 @@ export class OmpRpcEventAdapter {
         return state;
     }
 
-    private emitSubagentStart(state: SubagentState): void {
-        if (state.startEmitted) return;
+    private emitSubagentStart(output: OmpEventProjection, state: SubagentState): void {
+        if (!output.enabled || state.startEmitted) return;
         state.startEmitted = true;
         const summary = state.description ?? state.assignment ?? state.task ?? state.agent;
-        this.callbacks.onAgentRunEvent({
+        output.onAgentRunEvent({
             type: 'agent-run-start',
             agentId: state.id,
             cardId: state.cardId,
@@ -1183,7 +1290,7 @@ export class OmpRpcEventAdapter {
         });
     }
 
-    private emitSubagentProgress(state: SubagentState, progress: JsonObject, status: string): void {
+    private emitSubagentProgress(output: OmpEventProjection, state: SubagentState, progress: JsonObject, status: string): void {
         const retryState = RetryStateSchema.safeParse(progress.retryState);
         const retryFailure = RetryFailureSchema.safeParse(progress.retryFailure);
         const yieldedResult = this.subagentYieldResult(progress);
@@ -1196,7 +1303,7 @@ export class OmpRpcEventAdapter {
             : currentTool
                 ? `Using ${currentTool}`
                 : status === 'running' ? 'Running' : status;
-        this.callbacks.onAgentRunEvent({
+        output.onAgentRunEvent({
             type: 'agent-run-update',
             agentId: state.id,
             cardId: state.cardId,
@@ -1214,12 +1321,12 @@ export class OmpRpcEventAdapter {
         });
     }
 
-    private emitSubagentTerminal(state: SubagentState, status: string): void {
+    private emitSubagentTerminal(output: OmpEventProjection, state: SubagentState, status: string): void {
         const normalizedStatus = status === 'aborted' ? 'canceled' : status;
         const activity = normalizedStatus === 'completed'
             ? 'Completed'
             : normalizedStatus === 'canceled' ? 'Canceled' : 'Failed';
-        this.callbacks.onAgentRunEvent({
+        output.onAgentRunEvent({
             type: 'agent-run-update',
             agentId: state.id,
             cardId: state.cardId,
@@ -1253,8 +1360,9 @@ export class OmpRpcEventAdapter {
         return undefined;
     }
 
-    private emitSubagentTrace(state: SubagentState, message: AgentMessage): void {
-        this.callbacks.onAgentRunTrace({
+    private emitSubagentTrace(output: OmpEventProjection, state: SubagentState, message: AgentMessage): void {
+        this.emitSubagentStart(output, state);
+        output.onAgentRunTrace({
             agentId: state.id,
             cardId: state.cardId,
             parentToolCallId: state.parentToolCallId,
