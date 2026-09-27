@@ -64,7 +64,7 @@ hapi agent wait <full-session-id> --until idle --timeout 180000
 
 ## 范围与安全
 
-- Hub 对每个动词强制同机，并要求目录相同、互为祖先/后代，或属于同一 worktree 家族。
+- 对既有目标 session 的操作（list/get/read/prompt/wait/stop）要求同机，并允许目录相同、互为祖先/后代，或共享同一 worktree base。`start` 单独检查目标目录：必须与当前 session 目录相同、互为祖先/后代，或恰好是当前 worktree 的 base path；同一 worktree 家族的兄弟 worktree 目录不能直接作为 spawn 目录。
 - 关系双向：子目录 session 可以向祖先目录 session 投递。
 - 不要停止不是自己启动的 session。
 - 用 `hapi agent stop <full-session-id>` 停止自己创建的子 session。
