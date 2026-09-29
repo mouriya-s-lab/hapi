@@ -8,13 +8,14 @@
 # via the hapi Stack's registry account instead of the former "curl release
 # tarball at container start" shape (homelab-tf#332 / homelab-tf#405).
 #
-# Runner: vctcn GARM `docker` pool for `mouriya-s-lab/hapi` (pool id
-# f4aa4caa-46c9-41b8-98a6-565ac61ee478 on VM 181). Tags
-# `[self-hosted, linux, x64, vctcn, netbird]` per pve-vctcn/apps/runner
-# convention; the pool's `registry-mesh-hosts.sh` pre-install script pins
-# `registry.237575.xyz → 100.85.231.90` in the LXD instance's /etc/hosts
-# so the docker push takes the netbird mesh path (pve-vctcn#76) instead
-# of hairpinning through OVH NAT.
+# Runner: GARM self-hosted (resident LXD on VM 181 or edge Incus
+# overflow on the operator's laptop), with labels
+# `[self-hosted, linux, x64, vctcn, netbird]`. Mesh reachability comes
+# from the runner host's NetBird peer. The `registry-mesh-hosts.sh`
+# pre-install script pins `registry.237575.xyz → 100.85.231.90` in the
+# runner instance's /etc/hosts so docker push uses the mesh path
+# instead of hairpinning through OVH NAT (pve-vctcn#76).
+# Runner topology: https://github.com/mouriya-s-lab/pve-vctcn/blob/main/apps/runner/README.md
 #
 # Secret: KEYCLOAK_REGISTRY_CLIENT_SECRET is synced from
 # `pve-vctcn/apps/registry` (pve-vctcn#208).
@@ -39,6 +40,10 @@ jobs:
     publish:
         if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
         runs-on: [self-hosted, linux, x64, vctcn, netbird]
+        concurrency:
+            group: hapi-delivery
+            cancel-in-progress: false
+            queue: max
         env:
             REGISTRY: registry.237575.xyz
             IMAGE: registry.237575.xyz/hapi/hub
@@ -50,8 +55,8 @@ jobs:
             # Buildx driver=docker-container is required for `docker
             # buildx imagetools inspect` (Layer 4 evidence step) and gives
             # us predictable multi-tag manifest handling. `network=host`
-            # inherits the LXD instance's /etc/hosts override so buildkit
-            # push resolves `registry.237575.xyz → mesh IP` — same trick
+            # inherits the runner instance's /etc/hosts override so
+            # buildkit push resolves `registry.237575.xyz → mesh IP` — same trick
             # moat-browser's deploy.yml uses (pve-vctcn#76).
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v3
@@ -115,9 +120,9 @@ jobs:
                   # while the daemon push path is the established registry
                   # transport used by the other local-CI workloads.
                   load: true
-                  # amd64 only — GARM LXD pool is x86-64, homelab-tf
-                  # moat-app1 (VM 110) is also x86-64. arm64 support is a
-                  # future concern that will need a second builder host.
+                  # amd64 only — the x64 runner label targets this platform,
+                  # and homelab-tf moat-app1 (VM 110) is x86-64. An arm64
+                  # image would require another platform build.
                   platforms: linux/amd64
                   labels: |
                       org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
