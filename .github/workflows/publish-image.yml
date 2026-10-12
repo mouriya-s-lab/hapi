@@ -1,12 +1,10 @@
 # Build + push the hapi hub container image on every release tag.
 #
-# Fork-only workflow (introduced by mouriya-s-lab/hapi#72). Runs in parallel
-# with `release.yml` — release.yml still publishes per-platform binary
-# tarballs to GitHub Release; this workflow additionally publishes an
-# amd64 container image to the self-hosted registry, keyed by the same
-# tag, so homelab-tf hapi stack (homelab-tf#405) can consume image digests
-# via the hapi Stack's registry account instead of the former "curl release
-# tarball at container start" shape (homelab-tf#332 / homelab-tf#405).
+# Fork-only workflow (introduced by mouriya-s-lab/hapi#72). After
+# `release.yml` publishes per-platform binary tarballs, package its
+# amd64 artifact into an image with immutable and stable tags.
+# The deployment-only webhook notifies the workload owner in
+# homelab-apps; no Komodo API credentials are needed here (hapi#340).
 #
 # Runner: GARM self-hosted (resident LXD on VM 181 or edge Incus
 # overflow on the operator's laptop), with labels
@@ -35,6 +33,7 @@ on:
 
 permissions:
     contents: read
+    deployments: write
 
 jobs:
     publish:
@@ -103,12 +102,9 @@ jobs:
                   tar -xzf .image/hapi-linux-x64-baseline.tar.gz -C .image
                   test -x .image/hapi
 
-            # Single build, two tags, one push — build-push-action pushes a
-            # single manifest addressable under both tags so the immutable
-            # `${VERSION}` tag and the channel `stable` tag share a digest
-            # by construction (verified in the next step). This is what
-            # homelab-tf#405's Komodo `auto_update = true` will poll:
-            # channel-tag digest change → redeploy.
+            # One build keeps the immutable and channel tags on the same
+            # image. Push the immutable tag before moving stable, then
+            # verify their digests before notifying the deployment owner.
             - name: Build (${{ steps.version.outputs.value }}, stable)
               uses: docker/build-push-action@v5
               with:
@@ -170,54 +166,16 @@ jobs:
                   docker image inspect "$IMAGE:$VERSION" >/dev/null
                   docker image inspect "$IMAGE:stable" >/dev/null
 
-            # Komodo v2.2.0's CheckStackForUpdate path does not pass the
-            # Stack registry account into its digest query. A private image
-            # therefore becomes `image_digest = None` and is silently
-            # reported as `update_available = false` (hapi#77). DeployStack
-            # is the declared fallback from homelab-tf#405: it uses the
-            # Stack's `registry_provider` / `registry_account`, pulls
-            # `stable`, and recreates the project from the existing
-            # ResourceSync declaration. Wait for the Komodo update's real
-            # terminal state so a queued request cannot masquerade as a
-            # completed release deployment.
-            - name: Deploy hapi Stack and wait for completion
+            # The workload owner handles deployment asynchronously via the
+            # repository's deployment-only webhook (hapi#340).
+            - name: Create hapi Deployment
               env:
-                  KM_URL: ${{ secrets.KOMODO_HOMELAB_API_URL }}
-                  KM_KEY: ${{ secrets.KOMODO_HOMELAB_API_KEY }}
-                  KM_SECRET: ${{ secrets.KOMODO_HOMELAB_API_SECRET }}
+                  GH_TOKEN: ${{ github.token }}
               run: |
                   set -euo pipefail
-                  response=$(curl -fsSL -X POST "${KM_URL}/execute" \
-                      -H "x-api-key: ${KM_KEY}" \
-                      -H "x-api-secret: ${KM_SECRET}" \
-                      -H "Content-Type: application/json" \
-                      -d '{"type":"DeployStack","params":{"stack":"hapi"}}')
-                  update_id=$(jq -er '._id."$oid"' <<<"$response")
-                  echo "DeployStack update id: $update_id"
-
-                  while true; do
-                      update=$(curl -fsSL -X POST "${KM_URL}/read" \
-                          -H "x-api-key: ${KM_KEY}" \
-                          -H "x-api-secret: ${KM_SECRET}" \
-                          -H "Content-Type: application/json" \
-                          -d "{\"type\":\"GetUpdate\",\"params\":{\"id\":\"${update_id}\"}}")
-                      status=$(jq -er '.status' <<<"$update")
-                      success=$(jq -er '.success' <<<"$update")
-                      echo "DeployStack status=$status success=$success"
-
-                      case "$status" in
-                          Complete)
-                              jq . <<<"$update"
-                              test "$success" = true
-                              break
-                              ;;
-                          InProgress|Queued)
-                              sleep 2
-                              ;;
-                          *)
-                              jq . <<<"$update" >&2
-                              echo "::error::DeployStack reached unexpected terminal state: $status" >&2
-                              exit 1
-                              ;;
-                      esac
-                  done
+                  # workflow_run's github.sha is not necessarily the release
+                  # commit; use the checkout that produced this image.
+                  ref=$(git rev-parse HEAD)
+                  jq -n --arg ref "$ref" \
+                      '{ref: $ref, environment: "hapi", auto_merge: false, required_contexts: []}' \
+                      | gh api --method POST "repos/${{ github.repository }}/deployments" --input -
