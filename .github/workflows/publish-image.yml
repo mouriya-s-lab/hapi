@@ -78,7 +78,7 @@ jobs:
             # composite action. Same shape runner-canary / moat-browser use.
             - name: Fetch registry access token
               id: kc
-              uses: Mouriya-Emma/keycloak-token-action@v1
+              uses: mouriya-devops/keycloak-token-action@v1
               with:
                   keycloak-url: https://keycloak.237575.xyz
                   realm: registry
